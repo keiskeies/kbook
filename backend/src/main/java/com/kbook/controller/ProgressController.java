@@ -1,0 +1,117 @@
+package com.kbook.controller;
+
+import com.kbook.common.api.Result;
+import com.kbook.entity.ReadingProgress;
+import com.kbook.service.ReadingProgressService;
+import com.kbook.service.RecommendService;
+import lombok.Data;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 阅读进度控制器
+ */
+@RestController
+@RequestMapping("/api/progress")
+@RequiredArgsConstructor
+public class ProgressController {
+
+    private final ReadingProgressService progressService;
+    private final RecommendService recommendService;
+
+    /**
+     * 上报阅读进度
+     */
+    @PostMapping
+    public Result<ReadingProgress> reportProgress(Authentication authentication,
+                                                   @RequestBody ReportRequest req) {
+        Long userId = (Long) authentication.getPrincipal();
+        ReadingProgress progress = progressService.reportProgress(userId, req.getBookId(), req.getProgress(), req.getCurrentPosition());
+
+        // 记录阅读行为
+        recommendService.recordReadAction(userId, req.getBookId(), "READ", 1,
+                String.valueOf(req.getProgress()));
+
+        // 如果读完（progress >= 1.0），记录完成行为（权重最高）
+        if (req.getProgress() != null && req.getProgress() >= 1.0) {
+            recommendService.recordReadAction(userId, req.getBookId(), "COMPLETE", 5, null);
+        }
+
+        return Result.ok(progress);
+    }
+
+    /**
+     * 批量上报进度（断网恢复后）
+     */
+    @PostMapping("/batch")
+    public Result<Void> batchReportProgress(Authentication authentication,
+                                             @RequestBody List<ReadingProgressService.ProgressBatchItem> items) {
+        Long userId = (Long) authentication.getPrincipal();
+        progressService.batchReportProgress(userId, items);
+        return Result.ok(null);
+    }
+
+    /**
+     * 获取某本书的阅读进度
+     */
+    @GetMapping("/{bookId}")
+    public Result<ReadingProgress> getProgress(Authentication authentication,
+                                                @PathVariable Long bookId) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(progressService.getProgress(userId, bookId));
+    }
+
+    /**
+     * 批量获取进度
+     */
+    @PostMapping("/batch-get")
+    public Result<Map<Long, ReadingProgress>> getProgressBatch(Authentication authentication,
+                                                                 @RequestBody BatchGetRequest req) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(progressService.getProgressBatch(userId, req.getBookIds()));
+    }
+
+    /**
+     * 获取用户所有阅读进度
+     */
+    @GetMapping("/list")
+    public Result<List<ReadingProgress>> getUserProgresses(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(progressService.getUserProgresses(userId));
+    }
+
+    /**
+     * 获取最近阅读
+     */
+    @GetMapping("/recent")
+    public Result<List<ReadingProgress>> getRecentReading(Authentication authentication,
+                                                           @RequestParam(defaultValue = "10") int limit) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(progressService.getRecentReading(userId, limit));
+    }
+
+    /**
+     * 获取阅读统计
+     */
+    @GetMapping("/stats")
+    public Result<ReadingProgressService.ReadingStats> getReadingStats(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(progressService.getReadingStats(userId));
+    }
+
+    @Data
+    public static class ReportRequest {
+        private Long bookId;
+        private Double progress;
+        private String currentPosition;
+    }
+
+    @Data
+    public static class BatchGetRequest {
+        private List<Long> bookIds;
+    }
+}

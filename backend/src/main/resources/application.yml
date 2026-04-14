@@ -1,0 +1,187 @@
+# ========================
+# 服务配置
+# ========================
+server:
+  port: 8181
+  servlet:
+    context-path: /
+  tomcat:
+    max-threads: 200
+    accept-count: 100
+    connection-timeout: 120000  # 连接超时 120 秒，支持 AI 接口长耗时操作
+  compression:
+    enabled: true
+    mime-types: application/json,text/html,text/xml,text/plain
+
+# ========================
+# 数据源 - MySQL + HikariCP
+# ========================
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:kbook-dev}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      pool-name: KBookHikariCP
+
+  # ========================
+  # JPA
+  # ========================
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: false
+
+  # ========================
+  # Redis
+  # ========================
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:123456}
+      database: ${REDIS_DB:4}
+      timeout: 10000ms
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+          max-wait: 3000ms
+
+  # ========================
+  # 邮件
+  # ========================
+  mail:
+    host: smtp.qq.com
+    protocol: smtp
+    port: 465
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    send-enabled: true  # dev 环境关闭真实发送，只打印验证码
+    properties:
+      mail:
+        smtp:
+          auth: true
+          socketFactory:
+            class: javax.net.ssl.SSLSocketFactory
+          starttls:
+            enable: true
+
+  # ========================
+  # Elasticsearch
+  # ========================
+  elasticsearch:
+    uris: ${ES_URIS:http://localhost:9201}
+    username: ${ES_USERNAME:}
+    password: ${ES_PASSWORD:}
+    connection-timeout: 5s
+    socket-timeout: 30s
+
+
+
+# ========================
+# JWT 配置
+# ========================
+jwt:
+  secret: ${JWT_SECRET:test}
+  access-token-expiration: ${JWT_ACCESS_EXPIRATION:7200000}     # 2小时
+  refresh-token-expiration: ${JWT_REFRESH_EXPIRATION:604800000} # 7天
+
+# ========================
+# 验证码配置
+# ========================
+verification:
+  code-length: 6
+  expire-minutes: 5
+  rate-limit-seconds: 60
+  daily-limit: 10
+
+# ========================
+# 邮件通知配置
+# ========================
+notification:
+  # 网站域名，用于生成邀请链接等
+  base-url: ${NOTIFICATION_BASE_URL:http://localhost:5173}
+  # 邀请配置
+  invitation:
+    expire-hours: 72  # 邀请链接有效期（小时）
+  # 书评回复通知阈值（阶梯）
+  comment-reply-thresholds: 10, 50, 100
+  # 书评点赞通知阈值（阶梯）
+  comment-like-thresholds: 10, 50, 100, 500
+
+# ========================
+# 日志
+# ========================
+# ========================
+# 初始管理员配置
+# ========================
+kbook:
+  admin:
+    email: ${KBOOK_ADMIN_EMAIL:admin@kbook.com}
+    password: ${KBOOK_ADMIN_PASSWORD:admin123456}
+  # 图书文件存储路径
+  book-paths:
+    epub: ${BOOK_PATH_EPUB:G:/图书/epub}
+    pdf: ${BOOK_PATH_PDF:G:/图书/pdf}
+    txt: ${BOOK_PATH_TXT:G:/图书/txt}
+  # 封面图片存储路径
+  cover-path: ${BOOK_COVER_PATH:G:/图书/covers}
+  # 上传文件配置
+  upload:
+    avatar-dir: ${AVATAR_DIR:G:/uploads/avatars}
+    avatar-url-prefix: /api/uploads/avatars
+  # 扫描配置
+  scan:
+    force-update: ${SCAN_FORCE_UPDATE:true}  # 设为 true 时，扫描已存在书籍也会强制更新评分/简介/作者/8维度相关度得分
+  # ========================
+  # Qdrant 向量数据库
+  # ========================
+  qdrant:
+    host: ${QDRANT_HOST:localhost}
+    port: ${QDRANT_PORT:6334}
+    api-key: ${QDRANT_API_KEY:}
+    # 书籍元数据向量集合（标题+作者+标签+简介 → embedding）
+    book-collection: kbook_books
+    # RAG 内容向量集合（书籍内容分块 → embedding）
+    content-collection: kbook_content
+# ========================
+# AI 助理兜底配置 (LangChain4j Ollama)
+# 仅在管理员未配置任何 AI 模型时作为兜底使用
+# 请在管理后台 → AI 模型配置 页面配置实际的 LLM 接口
+# ========================
+langchain4j:
+  ollama:
+    chat-model:
+      base-url: ${AI_BASE_URL:http://localhost:11434}
+      model-name: ${AI_MODEL:gemma4:e4b}
+      temperature: 0.7
+      timeout: 120s
+    embedding-model:
+      base-url: ${AI_BASE_URL:http://localhost:11434}
+      model-name: ${AI_EMBEDDING_MODEL:qwen3-embedding:0.6b}
+      timeout: 120s
+
+# ========================
+# 日志
+# ========================
+logging:
+  level:
+    root: INFO
+    com.kbook: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

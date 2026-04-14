@@ -1,0 +1,23 @@
+# Maven
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 环境变量（生产）
+.env
+.env.production
+
+# 日志
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+.codebuddy/
+.workbuddy/
+
+

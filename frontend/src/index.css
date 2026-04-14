@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* 品牌靛蓝色调 — 温暖、文艺、阅读感 */
+    --background: 220 20% 98%;
+    --foreground: 224 25% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 25% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 25% 12%;
+    --primary: 230 65% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 230 20% 94%;
+    --secondary-foreground: 230 40% 30%;
+    --muted: 230 15% 94%;
+    --muted-foreground: 225 10% 46%;
+    --accent: 230 55% 92%;
+    --accent-foreground: 230 65% 35%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 230 15% 88%;
+    --input: 230 15% 88%;
+    --ring: 230 65% 50%;
+    --radius: 0.75rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 224 25% 12%;
+    --sidebar-primary: 230 65% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 230 20% 94%;
+    --sidebar-accent-foreground: 230 40% 30%;
+    --sidebar-border: 230 15% 88%;
+    --sidebar-ring: 230 65% 50%;
+  }
+
+  .dark {
+    --background: 224 25% 6%;
+    --foreground: 220 15% 92%;
+    --card: 224 20% 10%;
+    --card-foreground: 220 15% 92%;
+    --popover: 224 20% 10%;
+    --popover-foreground: 220 15% 92%;
+    --primary: 230 65% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 224 15% 16%;
+    --secondary-foreground: 220 15% 92%;
+    --muted: 224 15% 16%;
+    --muted-foreground: 220 10% 55%;
+    --accent: 224 20% 16%;
+    --accent-foreground: 230 50% 75%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 224 15% 18%;
+    --input: 224 15% 18%;
+    --ring: 230 65% 58%;
+    --sidebar-background: 224 20% 8%;
+    --sidebar-foreground: 220 15% 92%;
+    --sidebar-primary: 230 65% 58%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 224 15% 16%;
+    --sidebar-accent-foreground: 220 15% 92%;
+    --sidebar-border: 224 15% 18%;
+    --sidebar-ring: 230 65% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* 隐藏横向滚动条 */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* 页面切换过渡 */
+.page-enter {
+  animation: pageFadeIn 0.25s ease-out;
+}
+@keyframes pageFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
