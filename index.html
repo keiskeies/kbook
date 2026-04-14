@@ -3,77 +3,231 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KBook</title>
+  <title>KBook - 智能移动阅读平台</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; }
-    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
-    h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
-    h2 { font-size: 20px; font-weight: 600; margin: 32px 0 16px; color: #4f46e5; }
+
+    .hero { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%); color: white; padding: 80px 20px; text-align: center; }
+    .hero h1 { font-size: 48px; font-weight: 800; margin-bottom: 12px; letter-spacing: -1px; }
+    .hero p { font-size: 20px; opacity: 0.9; max-width: 600px; margin: 0 auto; line-height: 1.6; }
+    .hero .tagline { margin-top: 24px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .hero .tag { background: rgba(255,255,255,0.2); backdrop-filter: blur(4px); padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 500; }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 40px 20px; }
+    h2 { font-size: 24px; font-weight: 700; margin: 48px 0 20px; color: #1e293b; display: flex; align-items: center; gap: 10px; }
+    h2 .icon { font-size: 28px; }
     p { line-height: 1.7; color: #64748b; margin-bottom: 12px; }
     code { background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
-    pre { background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 12px; overflow-x: auto; margin: 16px 0; }
+    pre { background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 12px; overflow-x: auto; margin: 16px 0; font-size: 14px; line-height: 1.6; }
     pre code { background: none; padding: 0; color: inherit; }
-    .card { background: white; border-radius: 12px; padding: 24px; margin: 16px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-    .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 500; }
-    .badge-done { background: #dcfce7; color: #166534; }
-    .badge-pending { background: #fef3c7; color: #92400e; }
+
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
-    .tech-tag { display: inline-block; padding: 4px 10px; margin: 4px; border-radius: 6px; font-size: 12px; background: #ede9fe; color: #5b21b6; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    @media (max-width: 768px) { .grid, .grid-3 { grid-template-columns: 1fr; } .hero h1 { font-size: 32px; } }
+
+    .card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); border: 1px solid #f1f5f9; transition: box-shadow 0.2s; }
+    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #1e293b; }
+    .card p { font-size: 14px; margin-bottom: 0; }
+
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .badge-done { background: #dcfce7; color: #166534; }
+    .badge-wip { background: #dbeafe; color: #1e40af; }
+
+    .tech-tag { display: inline-block; padding: 4px 10px; margin: 3px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+    .tag-frontend { background: #ede9fe; color: #5b21b6; }
+    .tag-backend { background: #dcfce7; color: #166534; }
+    .tag-infra { background: #fef3c7; color: #92400e; }
+    .tag-ai { background: #fce7f3; color: #9d174d; }
+
+    .feature-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 12px; }
+    .fi-read { background: #ede9fe; }
+    .fi-ai { background: #fce7f3; }
+    .fi-social { background: #dbeafe; }
+    .fi-admin { background: #dcfce7; }
+
+    .status-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+    .status-row:last-child { border-bottom: none; }
+    .status-row .name { flex: 1; font-size: 14px; font-weight: 500; }
+
+    .footer { text-align: center; padding: 40px 20px; color: #94a3b8; font-size: 14px; border-top: 1px solid #e2e8f0; margin-top: 60px; }
   </style>
 </head>
 <body>
-<div class="container">
+
+<div class="hero">
   <h1>📖 KBook</h1>
-  <p>智能移动阅读平台 — 前后端分离架构</p>
-
-  <h2>项目状态</h2>
-  <div class="grid">
-    <div class="card">
-      <strong>前端</strong> <span class="badge badge-done">已就绪</span>
-      <p style="margin-top:8px">React 19 + TypeScript + Vite + Tailwind + shadcn/ui</p>
-      <div>
-        <span class="tech-tag">React Router 7</span>
-        <span class="tech-tag">Zustand</span>
-        <span class="tech-tag">Axios</span>
-        <span class="tech-tag">PWA</span>
-      </div>
-    </div>
-    <div class="card">
-      <strong>后端</strong> <span class="badge badge-done">已就绪</span>
-      <p style="margin-top:8px">Spring Boot 3 + MySQL + Redis + JWT</p>
-      <div>
-        <span class="tech-tag">JPA</span>
-        <span class="tech-tag">Security</span>
-        <span class="tech-tag">Lettuce</span>
-        <span class="tech-tag">HikariCP</span>
-      </div>
-    </div>
-  </div>
-
-  <h2>启动方式</h2>
-  <div class="card">
-    <pre><code># 前端
-cd frontend
-npm install
-npm run dev     # http://localhost:5173
-
-# 后端
-cd backend
-mvn spring-boot:run  # http://localhost:8080</code></pre>
-  </div>
-
-  <h2>阶段规划</h2>
-  <div class="card">
-    <p><span class="badge badge-done">✓ 阶段一</span> 项目骨架与基础路由</p>
-    <p><span class="badge badge-pending">○ 阶段二</span> 用户认证与审核状态机</p>
-    <p><span class="badge badge-pending">○ 阶段三</span> 管理员体系与审核面板</p>
-    <p><span class="badge badge-pending">○ 阶段四</span> 书架、图书元数据与进度同步</p>
-    <p><span class="badge badge-pending">○ 阶段五</span> 阅读器引擎与参数配置</p>
-    <p><span class="badge badge-pending">○ 阶段六</span> AI 助理与 LangChain4j 集成</p>
-    <p><span class="badge badge-pending">○ 阶段七</span> ES 检索、榜单聚合与生产加固</p>
+  <p>智能移动阅读平台 — 融合 AI 对话、向量检索与社交推荐的新一代阅读体验</p>
+  <div class="tagline">
+    <span class="tag">EPUB / PDF 阅读</span>
+    <span class="tag">AI 智能对话</span>
+    <span class="tag">RAG 知识检索</span>
+    <span class="tag">社交推荐</span>
+    <span class="tag">PWA 离线</span>
   </div>
 </div>
+
+<div class="container">
+
+  <!-- 核心功能 -->
+  <h2><span class="icon">✨</span> 核心功能</h2>
+  <div class="grid-3">
+    <div class="card">
+      <div class="feature-icon fi-read">📚</div>
+      <h3>沉浸式阅读</h3>
+      <p>EPUB/PDF 双格式支持，字体/字号/间距/主题自由调节，阅读进度云端同步</p>
+    </div>
+    <div class="card">
+      <div class="feature-icon fi-ai">🤖</div>
+      <h3>AI 智能对话</h3>
+      <p>基于 LangChain4j + RAG，针对当前图书内容智能问答，支持 DeepSeek / OpenAI 多模型切换</p>
+    </div>
+    <div class="card">
+      <div class="feature-icon fi-social">👥</div>
+      <h3>社交互动</h3>
+      <p>用户关注、动态广场、书评互动、榜单推荐，打造阅读社区</p>
+    </div>
+    <div class="card">
+      <div class="feature-icon fi-admin">🛡️</div>
+      <h3>安全管理</h3>
+      <p>点击验证码、JWT 认证、API Key 脱敏、Token 黑名单、管理员审核体系</p>
+    </div>
+    <div class="card">
+      <div class="feature-icon fi-read">🔍</div>
+      <h3>向量检索</h3>
+      <p>Qdrant 向量数据库存储图书嵌入，支持语义级图书搜索与智能推荐</p>
+    </div>
+    <div class="card">
+      <div class="feature-icon fi-social">📊</div>
+      <h3>数据洞察</h3>
+      <p>阅读统计、时长分析、个性化榜单，可视化呈现阅读习惯</p>
+    </div>
+  </div>
+
+  <!-- 技术栈 -->
+  <h2><span class="icon">🔧</span> 技术栈</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>前端</h3>
+      <div>
+        <span class="tech-tag tag-frontend">React 19</span>
+        <span class="tech-tag tag-frontend">TypeScript</span>
+        <span class="tech-tag tag-frontend">Vite</span>
+        <span class="tech-tag tag-frontend">Tailwind CSS</span>
+        <span class="tech-tag tag-frontend">shadcn/ui</span>
+        <span class="tech-tag tag-frontend">React Router 7</span>
+        <span class="tech-tag tag-frontend">Zustand</span>
+        <span class="tech-tag tag-frontend">epubjs</span>
+        <span class="tech-tag tag-frontend">pdfjs-dist</span>
+        <span class="tech-tag tag-frontend">Recharts</span>
+        <span class="tech-tag tag-frontend">Lucide Icons</span>
+        <span class="tech-tag tag-frontend">PWA</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>后端</h3>
+      <div>
+        <span class="tech-tag tag-backend">Spring Boot 3</span>
+        <span class="tech-tag tag-backend">Spring Security</span>
+        <span class="tech-tag tag-backend">Spring Data JPA</span>
+        <span class="tech-tag tag-backend">LangChain4j</span>
+        <span class="tech-tag tag-backend">MySQL</span>
+        <span class="tech-tag tag-backend">Redis / Lettuce</span>
+        <span class="tech-tag tag-backend">Qdrant</span>
+        <span class="tech-tag tag-backend">epublib</span>
+        <span class="tech-tag tag-backend">PDFBox</span>
+        <span class="tech-tag tag-backend">HikariCP</span>
+        <span class="tech-tag tag-backend">JWT</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>基础设施</h3>
+      <div>
+        <span class="tech-tag tag-infra">Docker Compose</span>
+        <span class="tech-tag tag-infra">Nginx</span>
+        <span class="tech-tag tag-infra">Qdrant</span>
+        <span class="tech-tag tag-infra">Redis</span>
+        <span class="tech-tag tag-infra">MySQL 8</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>AI 能力</h3>
+      <div>
+        <span class="tech-tag tag-ai">DeepSeek</span>
+        <span class="tech-tag tag-ai">OpenAI</span>
+        <span class="tech-tag tag-ai">LangChain4j</span>
+        <span class="tech-tag tag-ai">RAG</span>
+        <span class="tech-tag tag-ai">Embedding</span>
+        <span class="tech-tag tag-ai">向量检索</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 项目结构 -->
+  <h2><span class="icon">📁</span> 项目结构</h2>
+  <div class="card">
+    <pre><code>kbook/
+├── frontend/          # React 前端应用
+│   ├── src/
+│   │   ├── pages/     # 页面组件（首页/阅读/书架/搜索/AI/社交/管理）
+│   │   ├── components/# 通用组件（Reader/Navbar/BookCard...）
+│   │   ├── stores/    # Zustand 状态管理
+│   │   └── lib/       # 工具函数与 API 封装
+│   └── public/        # PWA manifest 与静态资源
+├── backend/           # Spring Boot 后端服务
+│   └── src/main/java/com/kbook/
+│       ├── controller/# REST API 控制器
+│       ├── service/   # 业务逻辑（13 个 Service）
+│       ├── entity/    # JPA 实体
+│       ├── repository/# 数据访问层
+│       ├── config/    # 配置类（安全/CORS/Redis/Qdrant/WebSocket）
+│       └── dto/       # 数据传输对象
+├── deploy/            # Docker Compose + Nginx 部署配置
+├── config/            # 项目配置文件
+└── index.html         # 项目介绍页（本页面）</code></pre>
+  </div>
+
+  <!-- 快速开始 -->
+  <h2><span class="icon">🚀</span> 快速开始</h2>
+  <div class="card">
+    <pre><code># 1️⃣ 前端
+cd frontend
+npm install
+npm run dev          # → http://localhost:5173
+
+# 2️⃣ 后端（需先启动 MySQL + Redis + Qdrant）
+cd backend
+mvn spring-boot:run # → http://localhost:8080
+
+# 3️⃣ 全栈一键部署（Docker Compose）
+cd deploy
+docker compose up -d # → http://localhost</code></pre>
+  </div>
+
+  <!-- 功能模块状态 -->
+  <h2><span class="icon">📋</span> 功能模块</h2>
+  <div class="card">
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">用户注册/登录 + 点击验证码</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">图书上传 + EPUB/PDF 元数据解析（含多级目录）</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">EPUB/PDF 在线阅读器 + 参数配置</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">书架管理 + 阅读进度同步</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">AI 智能对话 + RAG 图书知识检索</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">向量检索 + 语义推荐</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">用户关注 + 动态广场 + 互动通知</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">书评系统 + 评分 + 点赞</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">管理员审核面板 + 图书管理</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">榜单聚合 + 阅读统计</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">JWT 安全认证 + Token 黑名单</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">PWA 离线支持</span></div>
+    <div class="status-row"><span class="badge badge-done">已完成</span><span class="name">Docker Compose 全栈部署</span></div>
+  </div>
+
+</div>
+
+<div class="footer">
+  KBook &copy; 2025 — 智能移动阅读平台
+</div>
+
 </body>
 </html>
