@@ -96,13 +96,12 @@ export function scanBooksStream(
   onProgress: (data: ScanProgress) => void,
   onDone: (data: ScanResult) => void,
   onError: (error: Error) => void,
-  threads: number = 8,
 ): AbortController {
   const controller = new AbortController()
   const token = localStorage.getItem(import.meta.env.VITE_TOKEN_KEY || 'kbook_token')
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
 
-  fetch(`${baseUrl}/books/admin/scan?threads=${threads}`, {
+  fetch(`${baseUrl}/books/admin/scan`, {
     method: 'GET',
     headers: {
       'Authorization': token ? `Bearer ${token}` : '',

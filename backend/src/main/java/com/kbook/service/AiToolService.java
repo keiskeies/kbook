@@ -1,34 +1,46 @@
 package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
+import com.kbook.common.util.CommonUtils;
 import com.kbook.entity.Book;
-import com.kbook.entity.User;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * AI 工具服务 — LangChain4j @Tool 注解方法，供大模型自主调用
  * <p>
  * 工具能力：图书搜索、图书详情、排行榜、格式筛选
+ * <p>
+ * 注意：此类不能使用 @RequiredArgsConstructor，必须手动注入 @Lazy 依赖，
+ * 否则 Spring 会创建 CGLIB 代理，导致 @Tool 注解对 LangChain4j 不可见。
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiToolService {
 
     private final BookService bookService;
     private final BookshelfService bookshelfService;
-    private final UserService userService;
-    private final RecommendService recommendService;
     private final EmbeddingService embeddingService;
+
+    public AiToolService(
+            BookService bookService,
+            BookshelfService bookshelfService,
+            @Lazy EmbeddingService embeddingService
+    ) {
+        this.bookService = bookService;
+        this.bookshelfService = bookshelfService;
+        this.embeddingService = embeddingService;
+    }
 
     @Tool("搜索图书，支持按关键词和格式筛选。返回图书列表，包含书名、作者、格式、评分、简介等。")
     public String searchBooks(
@@ -187,11 +199,6 @@ public class AiToolService {
     }
 
     private String truncate(String text, int maxLen) {
-        if (text == null) return "";
-        return text.length() <= maxLen ? text : text.substring(0, maxLen) + "...";
+        return CommonUtils.truncateText(text, maxLen);
     }
-
-    /**
-     * 个性化推荐图书 — 委托给 RecommendService 进行多路召回+评分融合
-     */
 }

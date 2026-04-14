@@ -57,4 +57,13 @@ public class RecommendController {
         int count = embeddingService.rebuildAllBookEmbeddings();
         return Result.ok(Map.of("processed", count, "message", "重建完成"));
     }
+
+    /**
+     * 诊断 Qdrant 和 Embedding 模型状态（管理员）
+     * 用于排查向量数据未写入的问题
+     */
+    @GetMapping("/admin/diagnose-embedding")
+    public Result<Map<String, Object>> diagnoseEmbedding() {
+        return Result.ok(embeddingService.diagnose());
+    }
 }

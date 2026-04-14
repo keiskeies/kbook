@@ -6,7 +6,6 @@ import com.kbook.entity.Book;
 import com.kbook.service.BookParserService;
 import com.kbook.service.BookScanService;
 import com.kbook.service.BookService;
-import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,11 +49,10 @@ public class BookAdminController {
 
     /**
      * 刷新图书 — SSE 流式扫描，实时推送进度
-     * @param threads 并发线程数，默认8，范围1~32
      */
     @GetMapping(value = "/scan", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter scanBooks(@RequestParam(value = "threads", defaultValue = "8") int threads) {
-        return bookScanService.scanAllWithProgress(threads);
+    public SseEmitter scanBooks() {
+        return bookScanService.scanAllWithProgress();
     }
 
     /**
@@ -139,9 +137,9 @@ public class BookAdminController {
                 }
             }
 
-            // 异步生成 AI 数据（标签 + 评分 + 相关度，合并一次调用）
-            bookParserService.generateAllAiDataAsync(saved.getId());
-            bookParserService.generateContentEmbeddingAsync(saved.getId());
+            // 生成 AI 数据（标签 + 评分 + 相关度，合并一次调用）
+            bookParserService.generateAllAiData(saved.getId(), true);
+            bookParserService.generateContentEmbedding(saved.getId());
 
             log.info("上传图书成功: {} [{}]", title, extension);
             return Result.ok(saved);
@@ -161,7 +159,7 @@ public class BookAdminController {
         // 在 BookController 中添加了转发
         Path coverDir = Paths.get(coverPath);
         Path imagePath = CommonUtils.safeResolvePath(coverDir, filename);
-        
+
         if (imagePath == null || !Files.exists(imagePath)) {
             return ResponseEntity.notFound().build();
         }
@@ -193,9 +191,9 @@ public class BookAdminController {
         bookParserService.finalizeCover(book);
 
         Book saved = bookService.updateBook(id, book);
-        // 异步重新生成 AI 数据（标签 + 评分 + 相关度，合并一次调用）
-        bookParserService.generateAllAiDataAsync(saved.getId(), true);
-        bookParserService.generateContentEmbeddingAsync(saved.getId());
+        // 重新生成 AI 数据（标签 + 评分 + 相关度，合并一次调用）
+        bookParserService.generateAllAiData(saved.getId(), true);
+        bookParserService.generateContentEmbedding(saved.getId());
         return Result.ok(saved);
     }
 }

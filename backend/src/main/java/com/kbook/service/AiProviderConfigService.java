@@ -1,23 +1,17 @@
 package com.kbook.service;
 
+import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.ollama.OllamaChatModel;
-import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -26,30 +20,35 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * 管理员可配置多个 LLM 提供商，只有 enabled=true 的配置会被使用。
  * 支持连接测试功能，验证 API 连通性。
+ * <p>
+ * ChatModel 的构建委托给 ChatModelFactory，本类不直接依赖 Ollama/OpenAI 实现类。
+ * <p>
+ * 注意：AiToolService 使用 ObjectProvider 延迟获取，
+ * 因为 LangChain4j 的 .tools() 需要扫描真实类上的 @Tool 注解。
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiProviderConfigService {
 
     private final AiProviderConfigRepository configRepository;
     private final AiChatMemory chatMemoryStore;
-    private final AiToolService toolService;
+    private final ObjectProvider<AiToolService> toolServiceProvider;
+    private final ChatModelFactory chatModelFactory;
+
+    public AiProviderConfigService(
+            AiProviderConfigRepository configRepository,
+            AiChatMemory chatMemoryStore,
+            ObjectProvider<AiToolService> toolServiceProvider,
+            ChatModelFactory chatModelFactory
+    ) {
+        this.configRepository = configRepository;
+        this.chatMemoryStore = chatMemoryStore;
+        this.toolServiceProvider = toolServiceProvider;
+        this.chatModelFactory = chatModelFactory;
+    }
 
     /** AiAssistant 缓存（key: "global"，全局共用一个活跃实例） */
     private final ConcurrentHashMap<String, AiAssistant> assistantCache = new ConcurrentHashMap<>();
-
-    @Value("${langchain4j.ollama.chat-model.base-url:http://localhost:11434}")
-    private String defaultBaseUrl;
-
-    @Value("${langchain4j.ollama.chat-model.model-name:gemma4:e4b}")
-    private String defaultModelName;
-
-    @Value("${langchain4j.ollama.chat-model.temperature:0.7}")
-    private Double defaultTemperature;
-
-    @Value("${langchain4j.ollama.chat-model.timeout:120s}")
-    private Duration defaultTimeout;
 
     // ==================== 配置 CRUD ====================
 
@@ -71,7 +70,6 @@ public class AiProviderConfigService {
     /** 保存配置 */
     @Transactional
     public AiProviderConfig saveConfig(AiProviderConfig config) {
-        // 如果设置为启用，先禁用其他所有配置（全局只能有一个启用的）
         if (Boolean.TRUE.equals(config.getEnabled())) {
             disableAllConfigs();
         }
@@ -161,8 +159,7 @@ public class AiProviderConfigService {
             log.info("基础 URL: {}", config.getBaseUrl());
             log.info("测试问题: 你好");
             
-            ChatModel chatModel = buildChatModel(config);
-            // 根据 thinkingLevel 追加 prompt 后缀（NONE 时追加 /no_think 加速响应）
+            ChatModel chatModel = chatModelFactory.buildChatModel(config);
             String thinkingSuffix = (config.getThinkingLevel() == null || "NONE".equalsIgnoreCase(config.getThinkingLevel()))
                     ? " /no_think" : "";
             ChatResponse response = chatModel.chat(List.of(
@@ -171,7 +168,6 @@ public class AiProviderConfigService {
             String reply = response.aiMessage().text();
             long elapsed = System.currentTimeMillis() - startTime;
             
-            // 计算 token 速度（估算）
             int inputTokens = estimateTokens("你好");
             int outputTokens = estimateTokens(reply);
             double totalTokens = inputTokens + outputTokens;
@@ -210,7 +206,6 @@ public class AiProviderConfigService {
      * @return AiAssistant，如果没有可用的 AI 配置则返回 null
      */
     public AiAssistant getAssistant(Long userId) {
-        AiProviderConfig activeConfig = getActiveConfig();
         return assistantCache.computeIfAbsent("global", k -> buildAssistant());
     }
 
@@ -222,14 +217,25 @@ public class AiProviderConfigService {
 
     /**
      * 构建用于标签生成的 ChatModel（不需要 tools 和 memory）
-     * @return ChatModel，如果没有可用的 AI 配置则返回 null
+     * @return ChatModel，如果没有可用的 AI 配置则使用默认
      */
     public ChatModel buildTagChatModel() {
         AiProviderConfig activeConfig = getActiveConfig();
-        if (activeConfig != null) {
-            return buildChatModel(activeConfig);
-        }
-        return buildDefaultChatModel();
+        return chatModelFactory.buildChatModelOrDefault(activeConfig);
+    }
+
+    /**
+     * 构建用于 PDF OCR 的视觉 ChatModel
+     * <p>
+     * 优先使用管理员配置的活跃模型（需支持视觉/多模态能力），
+     * 如果管理员配置的模型不支持视觉，仍会尝试调用（调用失败时会回退到 PDFTextStripper）。
+     * OCR 需要更长的超时时间（图片编码消耗更多 token），默认 10 分钟。
+     *
+     * @return ChatModel，如果没有可用的 AI 配置则使用默认
+     */
+    public ChatModel buildVisionChatModel() {
+        AiProviderConfig activeConfig = getActiveConfig();
+        return chatModelFactory.buildVisionChatModel(activeConfig);
     }
 
     /**
@@ -237,14 +243,12 @@ public class AiProviderConfigService {
      */
     private AiAssistant buildAssistant() {
         AiProviderConfig activeConfig = getActiveConfig();
-        ChatModel chatModel;
+        ChatModel chatModel = chatModelFactory.buildChatModelOrDefault(activeConfig);
 
         if (activeConfig != null) {
-            chatModel = buildChatModel(activeConfig);
             log.info("构建自定义 AI Assistant: provider={}, model={}",
                     activeConfig.getProvider(), activeConfig.getModelName());
         } else {
-            chatModel = buildDefaultChatModel();
             log.debug("使用默认 AI Assistant（无自定义配置）");
         }
 
@@ -255,68 +259,7 @@ public class AiProviderConfigService {
                         .maxMessages(20)
                         .chatMemoryStore(chatMemoryStore)
                         .build())
-                .tools(toolService)
-                .build();
-    }
-
-    /**
-     * 根据 Thinking 等级计算超时时间
-     * NONE = 基础超时, LOW = 2x, MEDIUM = 4x, HIGH = 8x
-     */
-    private Duration getTimeoutWithDuration(String thinkingLevel, Duration baseTimeout) {
-        if (thinkingLevel == null || "NONE".equalsIgnoreCase(thinkingLevel)) {
-            return baseTimeout;
-        }
-        int multiplier = switch (thinkingLevel.toUpperCase()) {
-            case "LOW" -> 2;
-            case "MEDIUM" -> 4;
-            case "HIGH" -> 8;
-            default -> 1;
-        };
-        return baseTimeout.multipliedBy(multiplier);
-    }
-
-    /**
-     * 根据配置构建 ChatModel
-     */
-    private ChatModel buildChatModel(AiProviderConfig config) {
-        double temperature = config.getTemperature() != null ? config.getTemperature() : defaultTemperature;
-        int maxTokens = config.getMaxTokens() != null ? config.getMaxTokens() : 2048;
-        String thinkingLevel = config.getThinkingLevel() != null ? config.getThinkingLevel() : "NONE";
-
-        if ("OLLAMA".equalsIgnoreCase(config.getProvider())) {
-            Duration baseTimeout = Duration.ofSeconds(120);
-            Duration timeout = getTimeoutWithDuration(thinkingLevel, baseTimeout);
-            return OllamaChatModel.builder()
-                    .baseUrl(config.getBaseUrl())
-                    .modelName(config.getModelName())
-                    .temperature(temperature)
-                    .timeout(timeout)
-                    .build();
-        } else {
-            // OPENAI 兼容（含 DeepSeek、通义千问、智谱等）
-            Duration baseTimeout = Duration.ofSeconds(60);
-            Duration timeout = getTimeoutWithDuration(thinkingLevel, baseTimeout);
-            return OpenAiChatModel.builder()
-                    .apiKey(config.getApiKey() != null ? config.getApiKey() : "sk-placeholder")
-                    .baseUrl(config.getBaseUrl())
-                    .modelName(config.getModelName())
-                    .temperature(temperature)
-                    .maxTokens(maxTokens)
-                    .timeout(timeout)
-                    .build();
-        }
-    }
-
-    /**
-     * 构建默认 ChatModel（使用 application.yml 中的 Ollama 配置）
-     */
-    private ChatModel buildDefaultChatModel() {
-        return OllamaChatModel.builder()
-                .baseUrl(defaultBaseUrl)
-                .modelName(defaultModelName)
-                .temperature(defaultTemperature)
-                .timeout(defaultTimeout != null ? defaultTimeout : Duration.ofSeconds(120))
+                .tools(toolServiceProvider.getObject())
                 .build();
     }
 
@@ -330,13 +273,12 @@ public class AiProviderConfigService {
         int chineseChars = 0;
         int otherChars = 0;
         for (char c : text.toCharArray()) {
-            if (c >= '\u4e00' && c <= '\u9fff') {
+            if (c >= '一' && c <= '鿿') {
                 chineseChars++;
             } else {
                 otherChars++;
             }
         }
-        // 中文字符按1:1估算，其他字符按4:1估算
         return chineseChars + (otherChars / 4);
     }
 

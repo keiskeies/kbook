@@ -1,29 +1,29 @@
 package com.kbook.service;
 
+import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
+import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.ollama.OllamaEmbeddingModel;
-import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.qdrant.QdrantEmbeddingStore;
 import io.qdrant.client.QdrantClient;
-import io.qdrant.client.grpc.Collections;
-import io.qdrant.client.grpc.JsonWithInt;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
-import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
+
+import static io.qdrant.client.ConditionFactory.matchKeyword;
 
 /**
  * 向量嵌入服务 — 负责书籍向量生成、Qdrant 存储、RAG 内容检索
@@ -41,25 +41,21 @@ public class EmbeddingService {
     private final QdrantClient qdrantClient;
     private final BookRepository bookRepository;
 
-    /** 使用 @Lazy 打破循环依赖：AiToolService → RecommendService → EmbeddingService → AiProviderConfigService → AiToolService */
+    /**
+     * 使用 @Lazy 打破循环依赖：AiToolService → RecommendService → EmbeddingService → AiProviderConfigService → AiToolService
+     */
     private final AiProviderConfigService aiProviderConfigService;
+    private final ChatModelFactory chatModelFactory;
 
     public EmbeddingService(QdrantClient qdrantClient,
                             BookRepository bookRepository,
-                            @Lazy AiProviderConfigService aiProviderConfigService) {
+                            @Lazy AiProviderConfigService aiProviderConfigService,
+                            ChatModelFactory chatModelFactory) {
         this.qdrantClient = qdrantClient;
         this.bookRepository = bookRepository;
         this.aiProviderConfigService = aiProviderConfigService;
+        this.chatModelFactory = chatModelFactory;
     }
-
-    @Value("${kbook.qdrant.host:localhost}")
-    private String qdrantHost;
-
-    @Value("${kbook.qdrant.port:6334}")
-    private int qdrantPort;
-
-    @Value("${kbook.qdrant.api-key:}")
-    private String qdrantApiKey;
 
     @Value("${kbook.qdrant.book-collection:kbook_books}")
     private String bookCollectionName;
@@ -67,19 +63,19 @@ public class EmbeddingService {
     @Value("${kbook.qdrant.content-collection:kbook_content}")
     private String contentCollectionName;
 
-    @Value("${langchain4j.ollama.chat-model.base-url:http://localhost:11434}")
-    private String defaultBaseUrl;
-
-    @Value("${langchain4j.ollama.embedding-model.model-name:qwen3-embedding:4b}")
-    private String embeddingModelName;
-
-    /** 向量维度（qwen3-embedding:4b = 1024） */
+    /**
+     * 向量维度（qwen3-embedding:4b = 1024）
+     */
     private static final int VECTOR_DIMENSION = 1024;
 
-    /** RAG 内容分块大小（字符数） */
+    /**
+     * RAG 内容分块大小（字符数）
+     */
     private static final int CHUNK_SIZE = 800;
 
-    /** RAG 内容分块重叠大小 */
+    /**
+     * RAG 内容分块重叠大小
+     */
     private static final int CHUNK_OVERLAP = 200;
 
     private EmbeddingModel embeddingModel;
@@ -91,21 +87,38 @@ public class EmbeddingService {
      */
     @PostConstruct
     public void init() {
+        // 1. 创建 Qdrant Collection（即使模型未就绪也应创建，这样后续扫描时可直接写入）
         try {
-            // 初始化 Embedding 模型
-            initEmbeddingModel();
-
-            // 创建 Qdrant Collection（如果不存在）
             createCollectionIfNotExists(bookCollectionName);
             createCollectionIfNotExists(contentCollectionName);
-
-            // 构建 EmbeddingStore
-            buildEmbeddingStores();
-
-            log.info("EmbeddingService 初始化完成: bookCollection={}, contentCollection={}, model={}",
-                    bookCollectionName, contentCollectionName, embeddingModelName);
         } catch (Exception e) {
-            log.error("EmbeddingService 初始化失败，将在首次使用时重试: {}", e.getMessage());
+            log.error("Qdrant Collection 创建失败: {}", e.getMessage(), e);
+        }
+
+        // 2. 构建 EmbeddingStore（依赖 Collection 已存在）
+        try {
+            buildEmbeddingStores();
+        } catch (Exception e) {
+            log.error("EmbeddingStore 构建失败: {}", e.getMessage(), e);
+        }
+
+        // 3. Embedding 模型延迟初始化，避免循环依赖
+        // 将在首次使用时通过 ensureEmbeddingModelInitialized() 初始化
+        log.info("EmbeddingService 初始化完成 (model 延迟加载): bookCollection={}, contentCollection={}",
+                bookCollectionName, contentCollectionName);
+    }
+
+    /**
+     * 确保 Embedding 模型已初始化（延迟加载，避免循环依赖）
+     */
+    private synchronized void ensureEmbeddingModelInitialized() {
+        if (embeddingModel == null) {
+            try {
+                initEmbeddingModel();
+                log.info("Embedding 模型延迟初始化成功");
+            } catch (Exception e) {
+                log.error("Embedding 模型初始化失败: {}", e.getMessage(), e);
+            }
         }
     }
 
@@ -113,20 +126,33 @@ public class EmbeddingService {
      * 初始化 Embedding 模型
      */
     private void initEmbeddingModel() {
-        // 尝试使用管理员配置的 Base URL，否则使用默认 Ollama 地址
         var activeConfig = aiProviderConfigService.getActiveConfig();
-        String baseUrl = defaultBaseUrl;
+        log.info("开始初始化 Embedding 模型: activeConfig={}, baseUrl={}, embeddingModel={}",
+                activeConfig != null ? activeConfig.getConfigName() : "null",
+                activeConfig != null ? activeConfig.getBaseUrl() : "default",
+                chatModelFactory != null ? chatModelFactory.getClass().getSimpleName() : "null");
 
-        if (activeConfig != null && activeConfig.getBaseUrl() != null && !activeConfig.getBaseUrl().isBlank()) {
-            baseUrl = activeConfig.getBaseUrl();
-            log.info("使用管理员配置的 AI 模型生成 Embedding: baseUrl={}, model={}", baseUrl, embeddingModelName);
+        if (chatModelFactory != null) {
+            embeddingModel = chatModelFactory.buildEmbeddingModel(activeConfig);
         }
 
-        embeddingModel = OllamaEmbeddingModel.builder()
-                .baseUrl(baseUrl)
-                .modelName(embeddingModelName)
-                .timeout(Duration.ofSeconds(120))
-                .build();
+        // 验证模型可用性：试 embed 一段文本
+        if (embeddingModel != null) {
+            try {
+                var testResult = embeddingModel.embed("测试");
+                if (testResult != null) {
+                    log.info("Embedding 模型初始化验证成功: vectorDim={}", testResult.content().vector().length);
+                } else {
+                    log.error("Embedding 模型初始化验证失败: embed 返回空结果");
+                    embeddingModel = null;
+                }
+            } catch (Exception e) {
+                log.error("Embedding 模型初始化验证失败（调用 Ollama 失败）: {}", e.getMessage(), e);
+                embeddingModel = null;
+            }
+        } else {
+            log.error("Embedding 模型构建返回 null: activeConfig={}", activeConfig);
+        }
     }
 
     /**
@@ -134,6 +160,10 @@ public class EmbeddingService {
      */
     private void createCollectionIfNotExists(String collectionName) {
         try {
+            if (qdrantClient == null) {
+                log.warn("QdrantClient 未初始化，无法创建 Collection: {}", collectionName);
+                return;
+            }
             List<String> collectionNames = qdrantClient.listCollectionsAsync().get();
             boolean exists = collectionNames.contains(collectionName);
 
@@ -153,9 +183,11 @@ public class EmbeddingService {
             } else {
                 log.debug("Qdrant Collection 已存在: {}", collectionName);
             }
-        } catch (InterruptedException | ExecutionException e) {
-            log.error("创建 Qdrant Collection 失败: {} - {}", collectionName, e.getMessage());
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.error("创建 Qdrant Collection 被中断: {} - {}", collectionName, e.getMessage());
+        } catch (ExecutionException e) {
+            log.error("创建 Qdrant Collection 失败: {} - {}", collectionName, e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
         }
     }
 
@@ -177,14 +209,14 @@ public class EmbeddingService {
     // ==================== 书籍元数据向量（用于推荐召回） ====================
 
     /**
-     * 异步为书籍生成元数据向量并存储到 Qdrant
+     * 为书籍生成元数据向量并存储到 Qdrant
      * 元数据 = 标题 + 作者 + 标签 + 简介 → 1个 embedding
      */
-    @Async
-    public void generateBookEmbeddingAsync(Long bookId) {
+    public void generateBookEmbedding(Long bookId) {
         try {
+            ensureEmbeddingModelInitialized();
             if (embeddingModel == null || bookEmbeddingStore == null) {
-                log.debug("Embedding 模型或 Store 未初始化，跳过书籍向量生成: bookId={}", bookId);
+                log.warn("Embedding 模型或 Store 未初始化，跳过书籍向量生成: bookId={}", bookId);
                 return;
             }
 
@@ -211,9 +243,12 @@ public class EmbeddingService {
 
             // 存入 Qdrant（先删除该书已有的旧向量，确保幂等）
             removeBookEmbedding(bookId);
-            bookEmbeddingStore.add(embedding, segment);
+            String id = bookEmbeddingStore.add(embedding, segment);
 
-            log.info("书籍元数据向量生成完成: bookId={}, textLen={}", bookId, metadataText.length());
+            // 验证写入结果
+            boolean exists = hasBookEmbedding(bookId);
+            log.info("书籍元数据向量生成完成: bookId={}, textLen={}, storeId={}, qdrantVerified={}",
+                    bookId, metadataText.length(), id, exists);
         } catch (Exception e) {
             log.error("书籍元数据向量生成失败: bookId={} - {}", bookId, e.getMessage());
         }
@@ -222,14 +257,15 @@ public class EmbeddingService {
     /**
      * 通过元数据向量搜索相似书籍（用于推荐召回）
      *
-     * @param queryText  查询文本（如用户画像描述或用户兴趣关键词）
-     * @param maxResults 最大返回数量
-     * @param minScore   最低相似度阈值
+     * @param queryText      查询文本（如用户画像描述或用户兴趣关键词）
+     * @param maxResults     最大返回数量
+     * @param minScore       最低相似度阈值
      * @param excludeBookIds 需要排除的图书ID
      * @return 匹配结果列表
      */
     public List<EmbeddingMatch<TextSegment>> searchSimilarBooks(String queryText, int maxResults,
-                                                                  double minScore, List<Long> excludeBookIds) {
+                                                                double minScore, List<Long> excludeBookIds) {
+        ensureEmbeddingModelInitialized();
         if (embeddingModel == null || bookEmbeddingStore == null) {
             log.warn("Embedding 模型或 Store 未初始化，无法执行向量搜索");
             return List.of();
@@ -261,7 +297,8 @@ public class EmbeddingService {
             }
 
             log.debug("向量搜索完成: query='{}', hits={}, afterFilter={}",
-                    queryText.substring(0, Math.min(30, queryText.length())), maxResults, matches.size());
+                    queryText.length() > 30 ? queryText.substring(0, 30) : queryText,
+                    maxResults, matches.size());
 
             return matches;
         } catch (Exception e) {
@@ -273,14 +310,14 @@ public class EmbeddingService {
     // ==================== RAG 内容向量（用于语义检索） ====================
 
     /**
-     * 异步为书籍生成 RAG 内容向量并存储到 Qdrant
+     * 为书籍生成 RAG 内容向量并存储到 Qdrant
      * 将书籍内容按 CHUNK_SIZE 分块，每块生成一个 embedding
      */
-    @Async
-    public void generateContentEmbeddingAsync(Long bookId, String content) {
+    public void generateContentEmbedding(Long bookId, String content) {
         try {
+            ensureEmbeddingModelInitialized();
             if (embeddingModel == null || contentEmbeddingStore == null) {
-                log.debug("Embedding 模型或 Store 未初始化，跳过内容向量生成: bookId={}", bookId);
+                log.warn("Embedding 模型或 Store 未初始化，跳过内容向量生成: bookId={}", bookId);
                 return;
             }
 
@@ -296,7 +333,7 @@ public class EmbeddingService {
             // 先删除该书已有的旧内容向量，确保幂等
             removeContentEmbedding(bookId);
 
-            // 批量生成 embedding 并存储
+            // 生成 embedding 并存储（逐个处理）
             for (int i = 0; i < chunks.size(); i++) {
                 String chunk = chunks.get(i);
                 Embedding embedding = embeddingModel.embed(chunk).content();
@@ -310,6 +347,10 @@ public class EmbeddingService {
             }
 
             log.info("书籍内容向量生成完成: bookId={}, chunks={}", bookId, chunks.size());
+
+            // 验证写入结果
+            boolean exists = hasContentEmbedding(bookId);
+            log.info("书籍内容向量写入验证: bookId={}, qdrantVerified={}", bookId, exists);
         } catch (Exception e) {
             log.error("书籍内容向量生成失败: bookId={} - {}", bookId, e.getMessage());
         }
@@ -324,6 +365,7 @@ public class EmbeddingService {
      * @return 匹配的内容片段
      */
     public List<EmbeddingMatch<TextSegment>> searchContent(String query, int maxResults, Long bookId) {
+        ensureEmbeddingModelInitialized();
         if (embeddingModel == null || contentEmbeddingStore == null) {
             return List.of();
         }
@@ -367,6 +409,7 @@ public class EmbeddingService {
      * 重建所有书籍的元数据向量（管理员操作）
      */
     public int rebuildAllBookEmbeddings() {
+        ensureEmbeddingModelInitialized();
         if (embeddingModel == null || bookEmbeddingStore == null) {
             log.warn("Embedding 模型或 Store 未初始化，无法重建向量");
             return 0;
@@ -423,21 +466,11 @@ public class EmbeddingService {
     public boolean hasBookEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return false;
-            var result = qdrantClient.countAsync(io.qdrant.client.grpc.Points.CountPoints.newBuilder()
-                    .setCollectionName(bookCollectionName)
-                    .setFilter(io.qdrant.client.grpc.Points.Filter.newBuilder()
-                            .addMust(io.qdrant.client.grpc.Points.FieldCondition.newBuilder()
-                                    .setKey("bookId")
-                                    .setMatch(io.qdrant.client.grpc.Points.Match.newBuilder()
-                                            .setValue(JsonWithInt.Value.newBuilder()
-                                                    .setStringValue(String.valueOf(bookId))
-                                                    .build())
-                                            .build())
-                                    .build())
-                            .build())
-                    .setExact(true)
-                    .build()).get();
-            return result.getCount() > 0;
+            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
+                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .build();
+            Long count = qdrantClient.countAsync(bookCollectionName, filter, true).get();
+            return count != null && count > 0;
         } catch (Exception e) {
             log.debug("检查书籍向量存在性失败: bookId={} - {}", bookId, e.getMessage());
             return false;
@@ -450,21 +483,11 @@ public class EmbeddingService {
     public boolean hasContentEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return false;
-            var result = qdrantClient.countAsync(io.qdrant.client.grpc.Points.CountPoints.newBuilder()
-                    .setCollectionName(contentCollectionName)
-                    .setFilter(io.qdrant.client.grpc.Points.Filter.newBuilder()
-                            .addMust(io.qdrant.client.grpc.Points.FieldCondition.newBuilder()
-                                    .setKey("bookId")
-                                    .setMatch(io.qdrant.client.grpc.Points.Match.newBuilder()
-                                            .setValue(JsonWithInt.Value.newBuilder()
-                                                    .setStringValue(String.valueOf(bookId))
-                                                    .build())
-                                            .build())
-                                    .build())
-                            .build())
-                    .setExact(true)
-                    .build()).get();
-            return result.getCount() > 0;
+            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
+                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .build();
+            Long count = qdrantClient.countAsync(contentCollectionName, filter, true).get();
+            return count != null && count > 0;
         } catch (Exception e) {
             log.debug("检查内容向量存在性失败: bookId={} - {}", bookId, e.getMessage());
             return false;
@@ -477,19 +500,10 @@ public class EmbeddingService {
     private void removeBookEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return;
-            qdrantClient.deleteAsync(io.qdrant.client.grpc.Points.DeletePoints.newBuilder()
-                    .setCollectionName(bookCollectionName)
-                    .setFilter(io.qdrant.client.grpc.Points.Filter.newBuilder()
-                            .addMust(io.qdrant.client.grpc.Points.FieldCondition.newBuilder()
-                                    .setKey("bookId")
-                                    .setMatch(io.qdrant.client.grpc.Points.Match.newBuilder()
-                                            .setValue(JsonWithInt.Value.newBuilder()
-                                                    .setStringValue(String.valueOf(bookId))
-                                                    .build())
-                                            .build())
-                                    .build())
-                            .build())
-                    .build()).get();
+            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
+                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .build();
+            qdrantClient.deleteAsync(bookCollectionName, filter).get();
             log.debug("已删除旧书籍元数据向量: bookId={}", bookId);
         } catch (Exception e) {
             log.debug("删除旧书籍元数据向量失败（可能不存在）: bookId={} - {}", bookId, e.getMessage());
@@ -502,19 +516,10 @@ public class EmbeddingService {
     private void removeContentEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return;
-            qdrantClient.deleteAsync(io.qdrant.client.grpc.Points.DeletePoints.newBuilder()
-                    .setCollectionName(contentCollectionName)
-                    .setFilter(io.qdrant.client.grpc.Points.Filter.newBuilder()
-                            .addMust(io.qdrant.client.grpc.Points.FieldCondition.newBuilder()
-                                    .setKey("bookId")
-                                    .setMatch(io.qdrant.client.grpc.Points.Match.newBuilder()
-                                            .setValue(JsonWithInt.Value.newBuilder()
-                                                    .setStringValue(String.valueOf(bookId))
-                                                    .build())
-                                            .build())
-                                    .build())
-                            .build())
-                    .build()).get();
+            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
+                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .build();
+            qdrantClient.deleteAsync(contentCollectionName, filter).get();
             log.debug("已删除旧内容向量: bookId={}", bookId);
         } catch (Exception e) {
             log.debug("删除旧内容向量失败（可能不存在）: bookId={} - {}", bookId, e.getMessage());
@@ -524,38 +529,48 @@ public class EmbeddingService {
     // ==================== 辅助方法 ====================
 
     /**
+     * 预编译正则，用于标签清理
+     */
+    private static final java.util.regex.Pattern TAGS_CLEAN_PATTERN = java.util.regex.Pattern.compile("[\\[\\]\"]");
+    
+    /**
      * 构建书籍元数据文本（用于生成 embedding）
      * 增强策略：标题 + 作者 + 标签 + 简介(1500字) + 目录 + 核心章节摘要
+     * 优化版本：使用预编译正则 + StringBuilder 预分配
      */
     private String buildBookMetadataText(Book book) {
-        StringBuilder sb = new StringBuilder();
+        // 预估容量：标题(50) + 作者(30) + 标签(100) + 简介(1500) + 目录(500) + 摘要(2000) ≈ 4180
+        StringBuilder sb = new StringBuilder(4200);
 
         if (book.getTitle() != null && !book.getTitle().isBlank()) {
-            sb.append("书名：").append(book.getTitle()).append("\n");
+            sb.append("书名：").append(book.getTitle()).append('\n');
         }
         if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
-            sb.append("作者：").append(book.getAuthor()).append("\n");
+            sb.append("作者：").append(book.getAuthor()).append('\n');
         }
         if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
-            String tags = book.getFormatTags()
-                    .replaceAll("[\\[\\]\"]", "")
-                    .replace(",", "、");
-            sb.append("标签：").append(tags).append("\n");
+            // 使用预编译正则，避免每次重新编译
+            String tags = TAGS_CLEAN_PATTERN.matcher(book.getFormatTags())
+                    .replaceAll("")
+                    .replace(',', '、');
+            sb.append("标签：").append(tags).append('\n');
         }
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
             // 简介取前1500字（增强语义信号）
-            String desc = book.getDescription().length() > 1500
-                    ? book.getDescription().substring(0, 1500)
-                    : book.getDescription();
-            sb.append("简介：").append(desc).append("\n");
+            String desc = book.getDescription();
+            if (desc.length() > 1500) {
+                sb.append("简介：").append(desc, 0, 1500).append('\n');
+            } else {
+                sb.append("简介：").append(desc).append('\n');
+            }
         }
         if (book.getToc() != null && !book.getToc().isBlank()) {
             // 目录结构蕴含主题和组织方式
-            sb.append("目录：\n").append(book.getToc()).append("\n");
+            sb.append("目录：\n").append(book.getToc()).append('\n');
         }
         if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
             // 核心章节摘要提供深层语义
-            sb.append("核心内容：\n").append(book.getChapterSummary()).append("\n");
+            sb.append("核心内容：\n").append(book.getChapterSummary()).append('\n');
         }
 
         return sb.toString().trim();
@@ -563,34 +578,136 @@ public class EmbeddingService {
 
     /**
      * 将书籍内容按固定大小分块（带重叠）
+     * 高性能版本：预转换 char[] + 简化重叠逻辑
      */
     private List<String> splitContent(String content) {
-        java.util.List<String> chunks = new java.util.ArrayList<>();
-        int start = 0;
-        while (start < content.length()) {
-            int end = Math.min(start + CHUNK_SIZE, content.length());
+        ArrayList<String> chunks = new ArrayList<>();
+        int contentLen = content.length();
+        if (contentLen == 0) return chunks;
 
-            // 尝试在句子结尾处断开
-            if (end < content.length()) {
-                int lastPeriod = content.lastIndexOf('。', end);
-                int lastExcl = content.lastIndexOf('！', end);
-                int lastQues = content.lastIndexOf('？', end);
-                int lastNewline = content.lastIndexOf('\n', end);
-                int bestBreak = Math.max(Math.max(lastPeriod, lastExcl), Math.max(lastQues, lastNewline));
+        // 预分配容量
+        int estimatedChunks = contentLen / (CHUNK_SIZE - CHUNK_OVERLAP) + 1;
+        chunks.ensureCapacity(estimatedChunks);
 
-                if (bestBreak > start + CHUNK_SIZE / 2) {
-                    end = bestBreak + 1;
+        // 一次性转换为 char[]，避免重复 charAt 调用
+        char[] chars = content.toCharArray();
+
+        int pos = 0;
+        while (pos < contentLen) {
+            // 计算当前块的结束位置
+            int chunkEnd = Math.min(pos + CHUNK_SIZE, contentLen);
+
+            // 如果不是最后一块，尝试在句子边界断开
+            if (chunkEnd < contentLen) {
+                // 从后往前搜索句子结束符（最多回溯 CHUNK_OVERLAP 个字符）
+                int searchStart = Math.max(pos, chunkEnd - CHUNK_OVERLAP);
+                for (int i = chunkEnd - 1; i >= searchStart; i--) {
+                    char c = chars[i];
+                    if (c == '\n' || c == '。' || c == '！' || c == '？') {
+                        chunkEnd = i + 1;
+                        break;
+                    }
                 }
             }
 
-            String chunk = content.substring(start, end).trim();
-            if (!chunk.isBlank()) {
+            // 提取并添加分块
+            String chunk = new String(chars, pos, chunkEnd - pos).trim();
+            if (!chunk.isEmpty()) {
                 chunks.add(chunk);
             }
 
-            start = end - CHUNK_OVERLAP;
-            if (start <= 0) start = end; // 防止无限循环
+            // 移动到下一块的起始位置
+            // 关键修复：确保每次都向前推进，避免死循环
+            int nextPos = chunkEnd - CHUNK_OVERLAP;
+            if (nextPos <= pos) {
+                // 如果没有推进，直接跳到 chunkEnd
+                pos = chunkEnd;
+            } else {
+                pos = nextPos;
+            }
         }
+
+        log.debug("分块完成: totalChars={}, chunks={}", contentLen, chunks.size());
         return chunks;
+    }
+
+    // ==================== 诊断方法 ====================
+
+    /**
+     * 诊断 Qdrant 和 Embedding 模型状态
+     * 返回连接状态、集合信息、模型状态等，帮助排查向量数据未写入的问题
+     * 优化版本：并行执行多个异步调用，减少总等待时间
+     */
+    public Map<String, Object> diagnose() {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+
+        // 1. Qdrant 连接测试
+        try {
+            List<String> collections = qdrantClient.listCollectionsAsync().get();
+            result.put("qdrant.connected", true);
+            result.put("qdrant.collections", collections);
+        } catch (Exception e) {
+            result.put("qdrant.connected", false);
+            result.put("qdrant.error", e.getMessage());
+            return result;
+        }
+
+        // 2. 并行获取两个集合的详情（减少等待时间）
+        try {
+            var bookInfoFuture = qdrantClient.getCollectionInfoAsync(bookCollectionName);
+            var contentInfoFuture = qdrantClient.getCollectionInfoAsync(contentCollectionName);
+
+            // 同时等待两个异步操作完成
+            var bookInfo = bookInfoFuture.get();
+            var contentInfo = contentInfoFuture.get();
+
+            result.put("qdrant.bookCollection", Map.of(
+                    "name", bookCollectionName,
+                    "vectorCount", bookInfo.getPointsCount(),
+                    "vectorSize", bookInfo.getConfig().getParams().getVectorsConfig().getParams().getSize(),
+                    "status", bookInfo.getStatus().name()
+            ));
+
+            result.put("qdrant.contentCollection", Map.of(
+                    "name", contentCollectionName,
+                    "vectorCount", contentInfo.getPointsCount(),
+                    "vectorSize", contentInfo.getConfig().getParams().getVectorsConfig().getParams().getSize(),
+                    "status", contentInfo.getStatus().name()
+            ));
+        } catch (Exception e) {
+            result.put("qdrant.collectionInfo.error", e.getMessage());
+        }
+
+        // 3. Embedding 模型状态
+        result.put("embedding.modelInitialized", embeddingModel != null);
+        result.put("embedding.bookStoreInitialized", bookEmbeddingStore != null);
+        result.put("embedding.contentStoreInitialized", contentEmbeddingStore != null);
+
+        // 4. 尝试初始化模型（如果还没初始化）
+        if (embeddingModel == null) {
+            try {
+                ensureEmbeddingModelInitialized();
+                result.put("embedding.modelInitAttempt", embeddingModel != null ? "SUCCESS" : "FAILED");
+            } catch (Exception e) {
+                result.put("embedding.modelInitAttempt", "FAILED: " + e.getMessage());
+            }
+        }
+
+        // 5. 测试 embed 调用
+        if (embeddingModel != null) {
+            try {
+                var testEmbed = embeddingModel.embed("测试Embedding调用");
+                if (testEmbed != null) {
+                    result.put("embedding.testCall", "SUCCESS");
+                    result.put("embedding.vectorDim", testEmbed.content().vector().length);
+                } else {
+                    result.put("embedding.testCall", "FAILED: empty result");
+                }
+            } catch (Exception e) {
+                result.put("embedding.testCall", "FAILED: " + e.getMessage());
+            }
+        }
+
+        return result;
     }
 }

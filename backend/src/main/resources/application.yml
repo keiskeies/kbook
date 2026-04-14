@@ -6,7 +6,6 @@ server:
   servlet:
     context-path: /
   tomcat:
-    max-threads: 200
     accept-count: 100
     connection-timeout: 120000  # 连接超时 120 秒，支持 AI 接口长耗时操作
   compression:
@@ -113,7 +112,7 @@ verification:
 # ========================
 notification:
   # 网站域名，用于生成邀请链接等
-  base-url: ${NOTIFICATION_BASE_URL:http://localhost:5173}
+  base-url: ${NOTIFICATION_BASE_URL:https://book.keiskei.top}
   # 邀请配置
   invitation:
     expire-hours: 72  # 邀请链接有效期（小时）
@@ -157,6 +156,14 @@ kbook:
     book-collection: kbook_books
     # RAG 内容向量集合（书籍内容分块 → embedding）
     content-collection: kbook_content
+  # ========================
+  # AI 视觉模型配置（PDF OCR 用）
+  # 需支持图片输入的模型，如 Ollama 的 llava、gemma4:e4b、minicpm-v 等
+  # 如果留空，则使用管理员配置的活跃模型（需确保该模型支持视觉能力）
+  # ========================
+  ai:
+    vision-model-name: ${AI_VISION_MODEL:}
+    vision-timeout: ${AI_VISION_TIMEOUT:600s}
 # ========================
 # AI 助理兜底配置 (LangChain4j Ollama)
 # 仅在管理员未配置任何 AI 模型时作为兜底使用
@@ -166,13 +173,13 @@ langchain4j:
   ollama:
     chat-model:
       base-url: ${AI_BASE_URL:http://localhost:11434}
-      model-name: ${AI_MODEL:gemma4:e4b}
+      model-name: ${AI_MODEL:gemma4:e2b}
       temperature: 0.7
       timeout: 120s
     embedding-model:
       base-url: ${AI_BASE_URL:http://localhost:11434}
       model-name: ${AI_EMBEDDING_MODEL:qwen3-embedding:0.6b}
-      timeout: 120s
+      timeout: 300s
 
 # ========================
 # 日志

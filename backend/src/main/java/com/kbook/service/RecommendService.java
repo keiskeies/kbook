@@ -8,13 +8,12 @@ import com.kbook.entity.UserReadHistory;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.ReadingProgressRepository;
 import com.kbook.repository.UserReadHistoryRepository;
-import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.Builder;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -34,10 +33,11 @@ import java.util.stream.Collectors;
  * 4. 融合排序：加权融合三路得分 + 评分权重 + MMR 去重
  * 5. 过滤：排除已读完 + 同作者最多2本
  * 6. 缓存：Redis 30分钟 TTL
+ * <p>
+ * 注意：不使用 @RequiredArgsConstructor，需手动注入 @Lazy EmbeddingService 以打破循环依赖。
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class RecommendService {
 
     private final BookRepository bookRepository;
@@ -48,24 +48,54 @@ public class RecommendService {
     private final ObjectMapper objectMapper;
     private final RedisTemplate<String, Object> redisTemplate;
 
-    /** Redis 缓存 key 前缀 */
+    public RecommendService(
+            BookRepository bookRepository,
+            ReadingProgressRepository progressRepository,
+            UserReadHistoryRepository readHistoryRepository,
+            UserService userService,
+            @Lazy EmbeddingService embeddingService,
+            ObjectMapper objectMapper,
+            RedisTemplate<String, Object> redisTemplate
+    ) {
+        this.bookRepository = bookRepository;
+        this.progressRepository = progressRepository;
+        this.readHistoryRepository = readHistoryRepository;
+        this.userService = userService;
+        this.embeddingService = embeddingService;
+        this.objectMapper = objectMapper;
+        this.redisTemplate = redisTemplate;
+    }
+
+    /**
+     * Redis 缓存 key 前缀
+     */
     private static final String CACHE_PREFIX = "kbook:recommend:";
 
-    /** 缓存 TTL（分钟） */
+    /**
+     * 缓存 TTL（分钟）
+     */
     private static final int CACHE_TTL_MINUTES = 30;
 
-    /** 三路召回权重 */
+    /**
+     * 三路召回权重
+     */
     private static final double WEIGHT_RULE = 0.35;
     private static final double WEIGHT_VECTOR = 0.40;
     private static final double WEIGHT_COLLAB = 0.25;
 
-    /** 评分权重系数 */
+    /**
+     * 评分权重系数
+     */
     private static final double RATING_WEIGHT = 0.2;
 
-    /** 同作者最大推荐数 */
+    /**
+     * 同作者最大推荐数
+     */
     private static final int MAX_SAME_AUTHOR = 2;
 
-    /** MMR lambda 参数（0=最大多样性，1=最大相关性） */
+    /**
+     * MMR lambda 参数（0=最大多样性，1=最大相关性）
+     */
     private static final double MMR_LAMBDA = 0.7;
 
     // ==================== 公开接口 ====================
@@ -164,7 +194,7 @@ public class RecommendService {
     public void clearUserCache(Long userId) {
         try {
             Set<String> keys = redisTemplate.keys(CACHE_PREFIX + userId + ":*");
-            if (keys != null && !keys.isEmpty()) {
+            if (!keys.isEmpty()) {
                 redisTemplate.delete(keys);
                 log.debug("清除推荐缓存: userId={}, keys={}", userId, keys.size());
             }
@@ -269,7 +299,7 @@ public class RecommendService {
         try {
             JsonNode scores = objectMapper.readTree(book.getRelevanceScores());
             double totalScore = 0;
-            int dimensionCount = 0;
+            double dimensionCount = 0;
 
             // 年龄段匹配（权重最高）
             if (user.getBirthday() != null) {
@@ -313,7 +343,7 @@ public class RecommendService {
                 String mbtiKey = user.getMbti().toUpperCase();
                 if (scores.has(mbtiKey)) {
                     totalScore += scores.get(mbtiKey).asDouble() * 1.3; // MBTI权重1.3x
-                    dimensionCount += 1.3;
+                    dimensionCount += (int) 1.3;
                 }
             }
 
@@ -478,14 +508,23 @@ public class RecommendService {
             double totalWeight = 0;
             double totalScore = 0;
 
-            if (r > 0) { totalScore += r * WEIGHT_RULE; totalWeight += WEIGHT_RULE; }
-            if (v > 0) { totalScore += v * WEIGHT_VECTOR; totalWeight += WEIGHT_VECTOR; }
-            if (c > 0) { totalScore += c * WEIGHT_COLLAB; totalWeight += WEIGHT_COLLAB; }
+            if (r > 0) {
+                totalScore += r * WEIGHT_RULE;
+                totalWeight += WEIGHT_RULE;
+            }
+            if (v > 0) {
+                totalScore += v * WEIGHT_VECTOR;
+                totalWeight += WEIGHT_VECTOR;
+            }
+            if (c > 0) {
+                totalScore += c * WEIGHT_COLLAB;
+                totalWeight += WEIGHT_COLLAB;
+            }
 
             // 多路径命中加成
             double pathBonus = activePaths >= 3 ? 0.15 : (activePaths >= 2 ? 0.08 : 0.0);
 
-            fused.put(bookId, totalWeight > 0 ? (totalScore / totalWeight) + pathBonus : 0);
+            fused.put(bookId, totalScore / totalWeight + pathBonus);
         }
 
         return fused;
@@ -502,11 +541,9 @@ public class RecommendService {
         Set<String> selectedTags = new HashSet<>();
 
         // 第一本直接选最高分
-        if (!candidates.isEmpty()) {
-            ScoredBook first = candidates.get(0);
-            selected.add(first);
-            addTags(selectedTags, first.book);
-        }
+        ScoredBook first = candidates.get(0);
+        selected.add(first);
+        addTags(selectedTags, first.book);
 
         // 后续使用 MMR 选择
         while (selected.size() < count && selected.size() < candidates.size()) {
@@ -647,11 +684,17 @@ public class RecommendService {
         private Double rating;
         private String description;
         private Double matchScore;
-        /** 规则得分 */
+        /**
+         * 规则得分
+         */
         private Double ruleScore;
-        /** 向量得分 */
+        /**
+         * 向量得分
+         */
         private Double vectorScore;
-        /** 协同得分 */
+        /**
+         * 协同得分
+         */
         private Double collabScore;
         private LocalDateTime recommendedAt;
     }

@@ -14,9 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 /**
@@ -46,35 +43,38 @@ public class BookScanService {
     private boolean forceUpdate;
 
     /** 扫描进行中标记，防止重复扫描 */
-    private final AtomicBoolean scanningInProgress = new AtomicBoolean(false);
+    private boolean scanningInProgress = false;
 
     /** SSE emitter 是否已完成 */
-    private volatile boolean emitterCompleted = false;
+    private boolean emitterCompleted = false;
 
-    /** 发送 SSE 事件的锁，保证线程安全 */
-    private final Object emitterLock = new Object();
-
-    /** 当前扫描进度（线程安全） */
-    private final AtomicInteger scanTotal = new AtomicInteger(0);
-    private final AtomicInteger scanAdded = new AtomicInteger(0);
-    private final AtomicInteger scanUpdated = new AtomicInteger(0);
-    private final AtomicInteger scanSkipped = new AtomicInteger(0);
-    private final AtomicInteger scanFailed = new AtomicInteger(0);
-    private final AtomicInteger scanCompleted = new AtomicInteger(0);
-    private volatile String scanCurrentFile = "";
-    private final List<Map<String, String>> scanErrors = Collections.synchronizedList(new ArrayList<>());
+    /** 当前扫描进度 */
+    private int scanTotal = 0;
+    private int scanAdded = 0;
+    private int scanUpdated = 0;
+    private int scanSkipped = 0;
+    private int scanFailed = 0;
+    private int scanCompleted = 0;
+    private String scanCurrentFile = "";
+    private final List<Map<String, String>> scanErrors = new ArrayList<>();
 
     /** 单文件处理结果 */
     enum ScanResultType { ADDED, UPDATED, SKIPPED }
 
     /**
-     * SSE 流式扫描 — 并发处理，定期推送进度
-     * @param threads 并发线程数
+     * 预编译文件扩展名，避免重复 toLowerCase
+     */
+    private static final String EXT_EPUB = ".epub";
+    private static final String EXT_PDF = ".pdf";
+    private static final String EXT_TXT = ".txt";
+    
+    /**
+     * SSE 流式扫描 — 同步顺序处理，定期推送进度
      * @return SseEmitter
      */
-    public SseEmitter scanAllWithProgress(int threads) {
+    public SseEmitter scanAllWithProgress() {
         // 防止重复扫描
-        if (!scanningInProgress.compareAndSet(false, true)) {
+        if (scanningInProgress) {
             SseEmitter emitter = new SseEmitter(0L);
             try {
                 emitter.send(SseEmitter.event().name("error").data("扫描正在进行中，请勿重复操作"));
@@ -85,66 +85,40 @@ public class BookScanService {
 
         // 重置进度状态
         resetScanProgress();
+        scanningInProgress = true;
 
-        int poolSize = Math.max(1, Math.min(threads, 32)); // 限制1~32线程
         SseEmitter emitter = new SseEmitter(600_000L); // 10分钟超时
         emitterCompleted = false;
-        emitter.onCompletion(() -> { emitterCompleted = true; });
-        emitter.onTimeout(() -> { emitterCompleted = true; });
-        emitter.onError(e -> { emitterCompleted = true; });
+        emitter.onCompletion(() -> emitterCompleted = true);
+        emitter.onTimeout(() -> emitterCompleted = true);
+        emitter.onError(e -> emitterCompleted = true);
 
-        // 启动定时推送进度的线程（每500ms推送一次）
-        ScheduledExecutorService progressScheduler = Executors.newSingleThreadScheduledExecutor();
-        progressScheduler.scheduleAtFixedRate(() -> {
-            if (emitterCompleted) return;
-            try {
-                int current = scanCompleted.get();
-                int total = scanTotal.get();
-                String status = (current >= total && total > 0) ? "completed" : "scanning";
-                sendSse(emitter, SseEmitter.event().name("progress").data(toJson(
-                        Map.of("current", current, "total", total,
-                               "added", scanAdded.get(), "updated", scanUpdated.get(),
-                               "skipped", scanSkipped.get(), "failed", scanFailed.get(),
-                               "errors", new ArrayList<>(scanErrors),
-                               "currentFile", scanCurrentFile,
-                               "status", status))));
-            } catch (Exception ignored) {}
-        }, 0, 500, TimeUnit.MILLISECONDS);
-
-        Thread scanThread = new Thread(() -> {
-            try {
-                doScanWithProgress(emitter, poolSize);
-            } catch (Exception e) {
-                log.error("扫描异常", e);
-                sendSse(emitter, SseEmitter.event().name("error").data(e.getMessage() != null ? e.getMessage() : "扫描异常"));
-                emitterCompleted = true;
-                scanningInProgress.set(false);
-                try { emitter.completeWithError(e); } catch (Exception ignored) {}
-            } finally {
-                // 停止进度推送定时器
-                progressScheduler.shutdown();
-                try { progressScheduler.awaitTermination(2, TimeUnit.SECONDS); } catch (Exception ignored) {}
-            }
-        }, "book-scan");
-        scanThread.setDaemon(true);
-        scanThread.start();
+        try {
+            doScanWithProgress(emitter);
+        } catch (Exception e) {
+            log.error("扫描异常", e);
+            sendSse(emitter, SseEmitter.event().name("error").data(e.getMessage() != null ? e.getMessage() : "扫描异常"));
+            emitterCompleted = true;
+            scanningInProgress = false;
+            try { emitter.completeWithError(e); } catch (Exception ignored) {}
+        }
 
         return emitter;
     }
 
     private void resetScanProgress() {
-        scanTotal.set(0);
-        scanAdded.set(0);
-        scanUpdated.set(0);
-        scanSkipped.set(0);
-        scanFailed.set(0);
-        scanCompleted.set(0);
+        scanTotal = 0;
+        scanAdded = 0;
+        scanUpdated = 0;
+        scanSkipped = 0;
+        scanFailed = 0;
+        scanCompleted = 0;
         scanCurrentFile = "";
         scanErrors.clear();
     }
 
-    private void doScanWithProgress(SseEmitter emitter, int poolSize) throws IOException {
-        log.info("开始扫描图书目录... (并发线程: {})", poolSize);
+    private void doScanWithProgress(SseEmitter emitter) throws IOException {
+        log.info("开始扫描图书目录... (同步顺序处理)");
         long startTime = System.currentTimeMillis();
 
         // 先收集所有待处理文件
@@ -162,65 +136,75 @@ public class BookScanService {
                 log.warn("图书目录不存在: {}", dir);
                 continue;
             }
-            String extension = format.toLowerCase();
+            // 使用预编译的扩展名，避免重复 toLowerCase
+            String extension = switch (format) {
+                case "EPUB" -> EXT_EPUB;
+                case "PDF" -> EXT_PDF;
+                case "TXT" -> EXT_TXT;
+                default -> "." + format.toLowerCase();
+            };
             try (Stream<Path> paths = Files.walk(dirPath, 1)) {
                 paths.filter(p -> !Files.isDirectory(p))
-                     .filter(p -> p.toString().toLowerCase().endsWith("." + extension))
+                     .filter(p -> p.toString().toLowerCase().endsWith(extension))
                      .forEach(p -> allFiles.add(new ScanItem(p, format)));
             } catch (IOException e) {
                 log.error("扫描目录失败: {} - {}", dir, e.getMessage(), e);
             }
         }
 
-        scanTotal.set(allFiles.size());
+        scanTotal = allFiles.size();
         scanCurrentFile = "准备扫描...";
 
-        // 创建线程池
-        ExecutorService executor = Executors.newFixedThreadPool(poolSize);
-        List<Future<?>> futures = new ArrayList<>();
-
+        // 同步顺序处理每个文件
         for (ScanItem item : allFiles) {
-            futures.add(executor.submit(() -> {
-                String fileName = item.path.getFileName().toString();
-                String title = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
-                scanCurrentFile = title + "." + item.format.toLowerCase();
+            if (emitterCompleted) break;
 
-                try {
-                    ScanResultType result = processSingleFile(item);
-                    switch (result) {
-                        case ADDED -> scanAdded.incrementAndGet();
-                        case UPDATED -> scanUpdated.incrementAndGet();
-                        case SKIPPED -> scanSkipped.incrementAndGet();
-                    }
-                } catch (Exception e) {
-                    log.error("处理文件失败: {} - {}", fileName, e.getMessage(), e);
-                    scanFailed.incrementAndGet();
-                    String reason = e.getMessage() != null ? e.getMessage() : "未知错误";
-                    if (reason.length() > 200) reason = reason.substring(0, 200) + "...";
-                    scanErrors.add(Map.of("file", fileName, "reason", reason));
+            String fileName = item.path.getFileName().toString();
+            // 优化：使用 lastIndexOf 避免创建中间字符串
+            int dotIndex = fileName.lastIndexOf('.');
+            String title = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+            scanCurrentFile = title + "." + item.format.toLowerCase();
+
+            try {
+                ScanResultType result = processSingleFile(item);
+                switch (result) {
+                    case ADDED -> scanAdded++;
+                    case UPDATED -> scanUpdated++;
+                    case SKIPPED -> scanSkipped++;
                 }
+            } catch (Exception e) {
+                log.error("处理文件失败: {} - {}", fileName, e.getMessage(), e);
+                scanFailed++;
+                String reason = e.getMessage() != null ? e.getMessage() : "未知错误";
+                if (reason.length() > 200) reason = reason.substring(0, 200) + "...";
+                scanErrors.add(Map.of("file", fileName, "reason", reason));
+            }
 
-                scanCompleted.incrementAndGet();
-            }));
-        }
+            scanCompleted++;
 
-        // 等待所有任务完成
-        for (Future<?> f : futures) {
-            try { f.get(); } catch (Exception e) { log.error("等待扫描任务异常", e); }
+            // 每处理完10个文件或最后一个才推送进度，减少 SSE 开销
+            if (scanCompleted % 10 == 0 || scanCompleted == scanTotal) {
+                sendSse(emitter, SseEmitter.event().name("progress").data(toJson(
+                        Map.of("current", scanCompleted, "total", scanTotal,
+                               "added", scanAdded, "updated", scanUpdated,
+                               "skipped", scanSkipped, "failed", scanFailed,
+                               "errors", new ArrayList<>(scanErrors),
+                               "currentFile", scanCurrentFile,
+                               "status", "scanning"))));
+            }
         }
-        executor.shutdown();
 
         long elapsed = System.currentTimeMillis() - startTime;
-        log.info("扫描完成: 新增={}, 更新={}, 跳过={}, 失败={}, 耗时={}ms", scanAdded.get(), scanUpdated.get(), scanSkipped.get(), scanFailed.get(), elapsed);
+        log.info("扫描完成: 新增={}, 更新={}, 跳过={}, 失败={}, 耗时={}ms", scanAdded, scanUpdated, scanSkipped, scanFailed, elapsed);
 
         // 发送最终完成事件
         sendSse(emitter, SseEmitter.event().name("done").data(toJson(
-                Map.of("added", scanAdded.get(), "updated", scanUpdated.get(), "skipped", scanSkipped.get(),
-                       "failed", scanFailed.get(), "errors", new ArrayList<>(scanErrors), "elapsed", elapsed))));
+                Map.of("added", scanAdded, "updated", scanUpdated, "skipped", scanSkipped,
+                       "failed", scanFailed, "errors", new ArrayList<>(scanErrors), "elapsed", elapsed))));
         completeSse(emitter);
 
         // 扫描真正完成后才重置进行中标记
-        scanningInProgress.set(false);
+        scanningInProgress = false;
     }
 
     /**
@@ -254,19 +238,21 @@ public class BookScanService {
             bookParserService.parseAndFill(book, filePath);
             bookParserService.finalizeCover(book);
             bookService.updateBook(book.getId(), book);
-            bookParserService.generateAllAiDataAsync(book.getId(), true);
-            bookParserService.generateContentEmbeddingAsync(book.getId());
+            bookParserService.generateAllAiData(book.getId(), true);
+            bookParserService.generateContentEmbedding(book.getId());
             return ScanResultType.UPDATED;
         } else {
             // 补生成缺失的 AI 数据（标签/评分/相关度）
             boolean needsAiData = needsAiDataGeneration(book);
             if (needsAiData) {
-                bookParserService.generateAllAiDataAsync(book.getId());
+                bookParserService.generateAllAiData(book.getId());
             }
 
-            // 补提取缺失的目录/章节摘要（旧数据可能从未提取过）
+            // 补提取缺失的目录/章节摘要/作者/简介（旧数据可能从未提取过）
             boolean needsMetadata = (book.getToc() == null || book.getToc().isBlank())
-                    || (book.getChapterSummary() == null || book.getChapterSummary().isBlank());
+                    || (book.getChapterSummary() == null || book.getChapterSummary().isBlank())
+                    || (book.getAuthor() == null || book.getAuthor().isBlank())
+                    || (book.getDescription() == null || book.getDescription().isBlank());
             if (needsMetadata) {
                 log.debug("补提取旧书元数据: bookId={}, title={}", book.getId(), title);
                 bookParserService.parseAndFill(book, filePath);
@@ -277,12 +263,12 @@ public class BookScanService {
             boolean needsBookEmbedding = !embeddingService.hasBookEmbedding(book.getId());
             if (needsBookEmbedding) {
                 log.debug("补生成旧书元数据向量: bookId={}, title={}", book.getId(), title);
-                bookParserService.generateBookEmbeddingAsync(book.getId());
+                bookParserService.generateBookEmbedding(book.getId());
             }
             boolean needsContentEmbedding = !embeddingService.hasContentEmbedding(book.getId());
             if (needsContentEmbedding) {
                 log.debug("补生成旧书内容向量: bookId={}, title={}", book.getId(), title);
-                bookParserService.generateContentEmbeddingAsync(book.getId());
+                bookParserService.generateContentEmbedding(book.getId());
             }
             return ScanResultType.SKIPPED;
         }
@@ -310,8 +296,8 @@ public class BookScanService {
             }
         }
 
-        bookParserService.generateAllAiDataAsync(saved.getId(), true);
-        bookParserService.generateContentEmbeddingAsync(saved.getId());
+        bookParserService.generateAllAiData(saved.getId(), true);
+        bookParserService.generateContentEmbedding(saved.getId());
         log.info("新增图书: {} [{}]", title, format);
         return ScanResultType.ADDED;
     }
@@ -328,9 +314,11 @@ public class BookScanService {
 
     /**
      * 从文件名中提取标题
+     * 优化：直接使用 lastIndexOf，避免 contains 调用
      */
     private String extractTitleFromFilename(String fileName) {
-        return fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+        int dotIndex = fileName.lastIndexOf('.');
+        return dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
     }
 
     /**
@@ -356,11 +344,17 @@ public class BookScanService {
                 continue;
             }
 
-            String extension = format.toLowerCase();
+            // 使用预编译的扩展名
+            String extension = switch (format) {
+                case "EPUB" -> EXT_EPUB;
+                case "PDF" -> EXT_PDF;
+                case "TXT" -> EXT_TXT;
+                default -> "." + format.toLowerCase();
+            };
             try (Stream<Path> paths = Files.walk(dirPath, 1)) {
                 List<Path> files = paths
                         .filter(p -> !Files.isDirectory(p))
-                        .filter(p -> p.toString().toLowerCase().endsWith("." + extension))
+                        .filter(p -> p.toString().toLowerCase().endsWith(extension))
                         .toList();
 
                 for (Path filePath : files) {
@@ -380,27 +374,29 @@ public class BookScanService {
                                 bookParserService.parseAndFill(book, filePath);
                                 bookParserService.finalizeCover(book);
                                 bookService.updateBook(book.getId(), book);
-                                bookParserService.generateAllAiDataAsync(book.getId(), true);
-                                bookParserService.generateContentEmbeddingAsync(book.getId());
+                                bookParserService.generateAllAiData(book.getId(), true);
+                                bookParserService.generateContentEmbedding(book.getId());
                                 updated++;
                             } else {
                                 // 补生成缺失的 AI 数据（标签/评分/相关度）
                                 if (needsAiDataGeneration(book)) {
-                                    bookParserService.generateAllAiDataAsync(book.getId());
+                                    bookParserService.generateAllAiData(book.getId());
                                 }
-                                // 补提取缺失的目录/章节摘要（旧数据可能从未提取过）
+                                // 补提取缺失的目录/章节摘要/作者/简介
                                 boolean needsMetadata = (book.getToc() == null || book.getToc().isBlank())
-                                        || (book.getChapterSummary() == null || book.getChapterSummary().isBlank());
+                                        || (book.getChapterSummary() == null || book.getChapterSummary().isBlank())
+                                        || (book.getAuthor() == null || book.getAuthor().isBlank())
+                                        || (book.getDescription() == null || book.getDescription().isBlank());
                                 if (needsMetadata) {
                                     bookParserService.parseAndFill(book, filePath);
                                     bookService.updateBook(book.getId(), book);
                                 }
-                                // 补生成缺失的向量数据（旧数据可能从未进过向量库）
+                                // 补生成缺失的向量数据
                                 if (!embeddingService.hasBookEmbedding(book.getId())) {
-                                    bookParserService.generateBookEmbeddingAsync(book.getId());
+                                    bookParserService.generateBookEmbedding(book.getId());
                                 }
                                 if (!embeddingService.hasContentEmbedding(book.getId())) {
-                                    bookParserService.generateContentEmbeddingAsync(book.getId());
+                                    bookParserService.generateContentEmbedding(book.getId());
                                 }
                                 skipped++;
                             }
@@ -426,8 +422,8 @@ public class BookScanService {
                             }
                         }
 
-                        bookParserService.generateAllAiDataAsync(saved.getId(), true);
-                        bookParserService.generateContentEmbeddingAsync(saved.getId());
+                        bookParserService.generateAllAiData(saved.getId(), true);
+                        bookParserService.generateContentEmbedding(saved.getId());
                         added++;
 
                     } catch (Exception e) {
@@ -447,21 +443,19 @@ public class BookScanService {
 
     /** 扫描是否进行中 */
     public boolean isScanning() {
-        return scanningInProgress.get();
+        return scanningInProgress;
     }
 
     /** 获取当前扫描进度快照 */
     public Map<String, Object> getScanProgress() {
-        int current = scanCompleted.get();
-        int total = scanTotal.get();
         return Map.of(
-            "scanning", scanningInProgress.get(),
-            "current", current,
-            "total", total,
-            "added", scanAdded.get(),
-            "updated", scanUpdated.get(),
-            "skipped", scanSkipped.get(),
-            "failed", scanFailed.get(),
+            "scanning", scanningInProgress,
+            "current", scanCompleted,
+            "total", scanTotal,
+            "added", scanAdded,
+            "updated", scanUpdated,
+            "skipped", scanSkipped,
+            "failed", scanFailed,
             "errors", new ArrayList<>(scanErrors),
             "currentFile", scanCurrentFile
         );
@@ -469,7 +463,7 @@ public class BookScanService {
 
     /** 重置扫描状态（异常恢复用） */
     public void resetScanState() {
-        scanningInProgress.set(false);
+        scanningInProgress = false;
         emitterCompleted = true;
     }
 
@@ -481,28 +475,23 @@ public class BookScanService {
         }
     }
 
-    /** 线程安全地发送 SSE 事件，emitter 关闭后自动跳过 */
+    /** 发送 SSE 事件，emitter 关闭后自动跳过 */
     private void sendSse(SseEmitter emitter, Object data) {
         if (emitterCompleted) return;
-        synchronized (emitterLock) {
-            if (emitterCompleted) return;
-            try {
-                emitter.send(data);
-            } catch (Exception e) {
-                log.warn("SSE 发送失败（emitter 可能已关闭）: {}", e.getMessage());
-                emitterCompleted = true;
-            }
+        try {
+            emitter.send(data);
+        } catch (Exception e) {
+            log.warn("SSE 发送失败（emitter 可能已关闭）: {}", e.getMessage());
+            emitterCompleted = true;
         }
     }
 
-    /** 线程安全地完成 emitter */
+    /** 完成 emitter */
     private void completeSse(SseEmitter emitter) {
-        synchronized (emitterLock) {
-            emitterCompleted = true;
-            try {
-                emitter.complete();
-            } catch (Exception ignored) {}
-        }
+        emitterCompleted = true;
+        try {
+            emitter.complete();
+        } catch (Exception ignored) {}
     }
 
     private record ScanItem(Path path, String format) {}

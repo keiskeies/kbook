@@ -15,7 +15,6 @@ export default function AdminBooksPage() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadTitle, setUploadTitle] = useState('')
-  const [threads, setThreads] = useState(8)
   const [showErrors, setShowErrors] = useState(false)
 
   // 停止轮询
@@ -112,7 +111,6 @@ export default function AdminBooksPage() {
         console.warn('SSE 连接断开，切换到轮询模式:', err.message)
         startPolling()
       },
-      threads,
     )
     // 同时启动轮询作为后备，确保 SSE 断开时仍能看到进度
     startPolling()
@@ -209,26 +207,7 @@ export default function AdminBooksPage() {
             <span className="rounded bg-green-50 px-2 py-1 text-green-600">TXT</span>
           </div>
 
-          {/* 线程数选择 */}
-          <div className="flex items-center gap-3 mb-3">
-            <label className="text-xs text-muted-foreground whitespace-nowrap">并发线程数</label>
-            <div className="flex items-center gap-1">
-              {[1, 2, 4, 8, 16].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setThreads(n)}
-                  disabled={scanning}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                    threads === n
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  } disabled:opacity-50`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
+
 
           {/* 进度条 */}
           {scanning && progress && (

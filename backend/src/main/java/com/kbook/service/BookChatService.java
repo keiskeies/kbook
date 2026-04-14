@@ -4,18 +4,20 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.Book;
 import com.kbook.repository.AiConversationRepository;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.data.embedding.Embedding;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -91,6 +93,11 @@ public class BookChatService {
         log.info("========== 图书问答请求 ==========");
         log.info("userId={}, bookId={}, question={}", userId, bookId, question);
 
+        // 预先确定 sessionId，确保是 effectively final
+        final String finalSessionId = (sessionId == null || sessionId.isBlank())
+                ? "book-" + bookId + "-" + UUID.randomUUID().toString().substring(0, 8)
+                : sessionId;
+
         SseEmitter emitter = new SseEmitter(180_000L); // 3分钟超时（大书可能较慢）
 
         sseExecutor.execute(() -> {
@@ -137,11 +144,8 @@ public class BookChatService {
                 emitter.complete();
 
                 // 6. 保存对话记录
-                if (sessionId == null || sessionId.isBlank()) {
-                    sessionId = "book-" + bookId + "-" + UUID.randomUUID().toString().substring(0, 8);
-                }
-                saveMessage(userId, sessionId, "user", question, bookId);
-                saveMessage(userId, sessionId, "assistant", answer, bookId);
+                saveMessage(userId, finalSessionId, "user", question, bookId);
+                saveMessage(userId, finalSessionId, "assistant", answer, bookId);
 
                 // 7. 记录日志
                 int inputTokens = CommonUtils.estimateTokens(fullPrompt);
@@ -306,10 +310,8 @@ public class BookChatService {
         // 标题含常见小说关键词
         if (book.getTitle() != null) {
             String title = book.getTitle();
-            if (title.contains("传") || title.contains("记") || title.contains("录") ||
-                    title.contains("奇谭") || title.contains("物语") || title.contains("演义")) {
-                return true;
-            }
+            return title.contains("传") || title.contains("记") || title.contains("录") ||
+                    title.contains("奇谭") || title.contains("物语") || title.contains("演义");
         }
         return false;
     }

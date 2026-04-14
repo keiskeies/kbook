@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bookmark, BookmarkCheck, BookOpen, Star, Eye, MessageSquare } from 'lucide-react'
+import { ArrowLeft, Bookmark, BookmarkCheck, BookOpen, Star, Eye, MessageSquare, Sparkles } from 'lucide-react'
 import { getBook, rateBook } from '@/api/book'
 import { checkInBookshelf, addToBookshelf, removeFromBookshelf } from '@/api/bookshelf'
 import { getProgress } from '@/api/progress'
@@ -9,6 +9,7 @@ import type { Book } from '@/types/book'
 import type { CommentVO } from '@/api/comment'
 import { formatProgress, formatFileSize, parseFormatTags } from '@/types/book'
 import CommentList from '@/components/comment/CommentList'
+import BookChatSheet from '@/components/book/BookChatSheet'
 import { toast } from 'sonner'
 
 export default function BookDetailPage() {
@@ -25,6 +26,7 @@ export default function BookDetailPage() {
   const [commentCount, setCommentCount] = useState(0)
   const [commentPage, setCommentPage] = useState(1)
   const [hasMoreComments, setHasMoreComments] = useState(true)
+  const [showBookChat, setShowBookChat] = useState(false)
 
   const id = Number(bookId)
 
@@ -232,12 +234,25 @@ export default function BookDetailPage() {
             {inShelf ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
             {inShelf ? '已在书架' : '加入书架'}
           </button>
+          <button onClick={() => setShowBookChat(true)} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-accent text-sm font-semibold text-accent-foreground transition-all active:scale-[0.97]">
+            <Sparkles className="h-4 w-4" />
+            AI 问答
+          </button>
           <button onClick={() => navigate(`/reader/${book.id}`)} className="flex h-11 flex-[2] items-center justify-center gap-2 rounded-2xl bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 active:scale-[0.97] transition-transform">
             <BookOpen className="h-4 w-4" />
             {progress > 0 ? '继续阅读' : '开始阅读'}
           </button>
         </div>
       </div>
+
+      {/* AI 书籍问答 Sheet */}
+      {book && (
+        <BookChatSheet
+          book={book}
+          open={showBookChat}
+          onOpenChange={setShowBookChat}
+        />
+      )}
     </div>
   )
 }
