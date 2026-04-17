@@ -62,29 +62,52 @@ public class SecurityConfig {
                         .requestMatchers("/api/health").permitAll()
                         // 上传文件访问（头像等）
                         .requestMatchers("/api/uploads/**").permitAll()
-                        // 管理员接口（必须在 books permitAll 之前）
+                        // 管理员接口
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/books/admin/**").hasRole("ADMIN")
-                        // 图书管理接口需管理员（必须在 GET permitAll 之前）
+                        // 图书管理接口需管理员（具体操作优先于通用规则）
                         .requestMatchers(HttpMethod.POST, "/api/books/reindex").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/books/*/tags").hasRole("ADMIN")
-                        // 图书浏览公开（搜索/排行/详情/封面）
-                        .requestMatchers(HttpMethod.GET, "/api/books/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/book-files/**").permitAll()
-                        // 图书文件读取需认证（版权保护）
-                        .requestMatchers(HttpMethod.GET, "/api/books/*/file").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/books/*/text-info").authenticated()
-                        // 图书入库需认证
+                        // 图书入库和修改需认证
                         .requestMatchers(HttpMethod.POST, "/api/books").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/books/**").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/books/**").authenticated()
-                        // 评论浏览公开（GET）
+                        // 图书文件读取需认证（版权保护）
+                        .requestMatchers(HttpMethod.GET, "/api/books/*/file").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/books/*/text-info").authenticated()
+                        // 图书浏览公开（搜索/排行/详情/封面）- 放在后面避免前面的规则先匹配
+                        .requestMatchers(HttpMethod.GET, "/api/books/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/book-files/**").permitAll()
+                        // 评论浏览公开（GET），其他操作需认证
                         .requestMatchers(HttpMethod.GET, "/api/comments/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/comments").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/comments/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/comments/*/like").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/comments/*/like").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/comments/*/favorite").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/comments/*/favorite").authenticated()
                         // 用户主页公开浏览
                         .requestMatchers(HttpMethod.GET, "/api/user-profile/**").permitAll()
-                        // 关注列表公开浏览
+                        // 关注列表公开浏览，但关注/取消关注需认证
                         .requestMatchers(HttpMethod.GET, "/api/follow/*/followings").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/follow/*/followers").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/follow/is-following/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/follow/**").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/follow/**").authenticated()
+                        // 书架相关全部需认证
+                        .requestMatchers("/api/bookshelf/**").authenticated()
+                        // 阅读进度需认证
+                        .requestMatchers("/api/progress/**").authenticated()
+                        // AI 相关需认证
+                        .requestMatchers("/api/ai/**").authenticated()
+                        // 推荐需认证
+                        .requestMatchers("/api/recommend/**").authenticated()
+                        // 通知需认证
+                        .requestMatchers("/api/notifications/**").authenticated()
+                        // 用户信息（除公开profile外）需认证
+                        .requestMatchers("/api/user/**").authenticated()
+                        // 首页数据需认证（包含个性化推荐）
+                        .requestMatchers("/api/home/**").authenticated()
                         // 其他接口需认证
                         .anyRequest().authenticated()
                 )

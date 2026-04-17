@@ -1,21 +1,59 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ArrowLeft, RefreshCw, Upload, Scan, BookOpen, FileText, File, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Upload, Scan, BookOpen, FileText, File, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle, Bot, User, Send, Loader2, Sparkles, X, MessageCircle } from 'lucide-react'
+import DraggableFab from '@/components/DraggableFab'
 import { useNavigate } from 'react-router-dom'
 import { scanBooksStream, getScanStatus, resetScanStatus, uploadBook } from '@/api/book'
 import type { ScanProgress, ScanResult, ScanError } from '@/api/book'
+import { createAdminSession, streamAdminChat, getAdminHistory, getAdminSessions, deleteAdminSession } from '@/api/adminAi'
+import type { AiMessage } from '@/types/ai'
 import { toast } from 'sonner'
+
+/** 管理员快捷指令 */
+const ADMIN_QUICK_PROMPTS = [
+  '帮我查看阅读排行榜',
+  '搜索《三体》',
+  '最近有什么热门书？',
+  '帮我找找有没有重复的书',
+]
+
+/** 简易 Markdown 渲染 — 支持 [BOOK:id=X]《书名》 图书链接 */
+function renderMarkdown(text: string) {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\[BOOK:id=(\d+)\]《(.+?)》/g, (_match, bookId, title) => {
+      return `<span class="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 align-middle">` +
+        `<a href="/book/${bookId}" class="text-primary font-medium hover:underline">《${title}》</a>` +
+        `</span>`
+    })
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code class="rounded bg-muted px-1 py-0.5 text-xs">$1</code>')
+    .replace(/《(.+?)》/g, '<span class="text-primary font-medium">《$1》</span>')
+    .replace(/\n/g, '<br/>')
+}
 
 export default function AdminBooksPage() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const chatAbortRef = useRef<AbortController | null>(null)
+
+  // 扫描状态
   const [scanning, setScanning] = useState(false)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadTitle, setUploadTitle] = useState('')
   const [showErrors, setShowErrors] = useState(false)
+
+  // AI 管理员对话状态
+  const [showChat, setShowChat] = useState(false)
+  const [chatMessages, setChatMessages] = useState<AiMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatSessionId, setChatSessionId] = useState('')
 
   // 停止轮询
   const stopPolling = useCallback(() => {
@@ -25,7 +63,7 @@ export default function AdminBooksPage() {
     }
   }, [])
 
-  // 开始轮询扫描进度（SSE 断开后的后备）
+  // 开始轮询扫描进度
   const startPolling = useCallback(() => {
     stopPolling()
     pollRef.current = setInterval(async () => {
@@ -44,7 +82,6 @@ export default function AdminBooksPage() {
             status: res.current >= res.total && res.total > 0 ? 'completed' : 'scanning',
           }))
         } else {
-          // 扫描已结束
           stopPolling()
           setScanning(false)
           if (res.total > 0) {
@@ -58,13 +95,11 @@ export default function AdminBooksPage() {
             })
           }
         }
-      } catch {
-        // 轮询失败不处理
-      }
+      } catch { /* ignore */ }
     }, 1000)
   }, [stopPolling])
 
-  // 页面加载时检查是否有正在进行的扫描
+  // 页面加载检查
   useEffect(() => {
     getScanStatus().then(res => {
       if (res.scanning) {
@@ -80,19 +115,23 @@ export default function AdminBooksPage() {
           currentFile: res.currentFile || '恢复扫描连接中...',
           status: 'scanning',
         })
-        // 尝试重新连接 SSE
         startScanStream()
-        // 同时启动轮询作为后备
         startPolling()
       }
     }).catch(() => {})
-    return () => { stopPolling() }
+    return () => { stopPolling(); chatAbortRef.current?.abort() }
   }, [])
+
+  // 滚动到底部
+  useEffect(() => {
+    if (showChat) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [chatMessages, showChat])
 
   const startScanStream = () => {
     abortRef.current = scanBooksStream(
       (data) => {
-        // SSE 收到进度，直接更新（轮询同时运行作为后备）
         setProgress(data)
         if (data.status === 'completed') {
           stopPolling()
@@ -107,12 +146,10 @@ export default function AdminBooksPage() {
         toast.success(`扫描完成：新增 ${data.added} 本，更新 ${data.updated} 本，跳过 ${data.skipped} 本${failMsg}`)
       },
       (err) => {
-        // SSE 断开，确保轮询正在运行
-        console.warn('SSE 连接断开，切换到轮询模式:', err.message)
+        console.warn('SSE 断开，切换轮询:', err.message)
         startPolling()
       },
     )
-    // 同时启动轮询作为后备，确保 SSE 断开时仍能看到进度
     startPolling()
   }
 
@@ -131,9 +168,7 @@ export default function AdminBooksPage() {
       abortRef.current.abort()
       abortRef.current = null
     }
-    try {
-      await resetScanStatus()
-    } catch {}
+    try { await resetScanStatus() } catch {}
     setScanning(false)
     setProgress(null)
     toast.info('已重置扫描状态')
@@ -142,13 +177,11 @@ export default function AdminBooksPage() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
     const ext = file.name.split('.').pop()?.toUpperCase()
     if (!['EPUB', 'PDF', 'TXT'].includes(ext || '')) {
       toast.error('仅支持 EPUB/PDF/TXT 格式')
       return
     }
-
     setUploading(true)
     try {
       const result = await uploadBook(file, uploadTitle || undefined)
@@ -161,6 +194,88 @@ export default function AdminBooksPage() {
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
+
+  // ==================== AI 管理员对话 ====================
+
+  const handleChatSend = useCallback(async (text?: string) => {
+    const message = (text || chatInput).trim()
+    if (!message || chatLoading) return
+
+    // 确保有会话
+    let sessionId = chatSessionId
+    if (!sessionId) {
+      try {
+        const data = await createAdminSession()
+        sessionId = data.sessionId
+        setChatSessionId(sessionId)
+      } catch {
+        toast.error('创建对话会话失败')
+        return
+      }
+    }
+
+    const userMsg: AiMessage = {
+      id: `u-${Date.now()}`,
+      role: 'user',
+      content: message,
+      timestamp: Date.now(),
+    }
+    setChatMessages(prev => [...prev, userMsg])
+    setChatInput('')
+    setChatLoading(true)
+
+    const assistantMsg: AiMessage = {
+      id: `a-${Date.now()}`,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      streaming: true,
+    }
+    setChatMessages(prev => [...prev, assistantMsg])
+
+    const controller = streamAdminChat(
+      { sessionId, message },
+      (chunk) => {
+        setChatMessages(prev =>
+          prev.map(m => m.id === assistantMsg.id ? { ...m, content: m.content + chunk } : m)
+        )
+      },
+      () => {
+        setChatMessages(prev =>
+          prev.map(m => m.id === assistantMsg.id ? { ...m, streaming: false } : m)
+        )
+        setChatLoading(false)
+      },
+      (error) => {
+        setChatMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsg.id
+              ? { ...m, content: `抱歉，AI 助理暂时无法回复：${error.message}`, streaming: false }
+              : m
+          )
+        )
+        setChatLoading(false)
+      },
+    )
+    chatAbortRef.current = controller
+  }, [chatInput, chatLoading, chatSessionId])
+
+  const handleChatKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleChatSend()
+    }
+  }
+
+  const handleNewAdminChat = async () => {
+    try {
+      const data = await createAdminSession()
+      setChatSessionId(data.sessionId)
+      setChatMessages([])
+    } catch { /* ignore */ }
+  }
+
+  // ==================== 渲染辅助 ====================
 
   const formatIcon = (fmt: string) => {
     switch (fmt) {
@@ -180,9 +295,9 @@ export default function AdminBooksPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* 顶部 */}
-      <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur-sm">
+      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
-          <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+          <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="text-lg font-semibold">图书管理</h1>
@@ -207,8 +322,6 @@ export default function AdminBooksPage() {
             <span className="rounded bg-green-50 px-2 py-1 text-green-600">TXT</span>
           </div>
 
-
-
           {/* 进度条 */}
           {scanning && progress && (
             <div className="mb-3 space-y-2">
@@ -228,7 +341,6 @@ export default function AdminBooksPage() {
                 <span>○{progress.skipped} 跳过</span>
                 {progress.failed > 0 && <span className="text-red-600">✕{progress.failed} 失败</span>}
               </div>
-              {/* 扫描中错误列表 */}
               {progress.failed > 0 && progress.errors && progress.errors.length > 0 && (
                 <button
                   onClick={() => setShowErrors(!showErrors)}
@@ -242,7 +354,7 @@ export default function AdminBooksPage() {
             </div>
           )}
 
-          {/* 错误详情展开 */}
+          {/* 错误详情 */}
           {showErrors && currentErrors.length > 0 && (
             <div className="mb-3 max-h-48 overflow-y-auto rounded-lg bg-red-50 p-3 text-xs space-y-2 dark:bg-red-950/20">
               {currentErrors.map((err, i) => (
@@ -275,7 +387,6 @@ export default function AdminBooksPage() {
                   <span className="text-muted-foreground">耗时 {(scanResult.elapsed / 1000).toFixed(1)}s</span>
                 )}
               </div>
-              {/* 完成后错误列表 */}
               {scanResult.failed > 0 && scanResult.errors && scanResult.errors.length > 0 && (
                 <div>
                   <button
@@ -380,12 +491,160 @@ export default function AdminBooksPage() {
             </li>
             <li>书名默认使用文件名（不含扩展名）</li>
             <li>扫描已入库的文件会自动跳过</li>
-            <li>AI 标签会在入库后自动异步生成</li>
-            <li>并发线程数越大扫描越快，但占用资源越多</li>
-            <li>单个文件出错不影响整体扫描，错误详情可展开查看</li>
+            <li>AI 标签会在入库后自动生成</li>
+            <li className="flex items-center gap-1">
+              <Sparkles className="h-3 w-3 text-purple-500" />
+              <span>点击右下角紫色圆圈唤醒 AI 管理员，用自然语言管理图书</span>
+            </li>
           </ul>
         </section>
       </div>
+
+      {/* ===== 可拖动浮动 AI 圆圈 ===== */}
+      <DraggableFab
+        onClick={() => setShowChat(true)}
+        size={56}
+        edgePadding={16}
+        className="bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40"
+        title="AI 智能图书管理员"
+      >
+        <MessageCircle className="h-6 w-6" />
+      </DraggableFab>
+
+      {/* ===== AI 对话弹窗 ===== */}
+      {showChat && (
+        <div className="fixed inset-0 z-50 flex items-end justify-end p-5 sm:items-center sm:justify-center">
+          {/* 遮罩（仅移动端） */}
+          <div
+            className="absolute inset-0 bg-black/40 sm:hidden"
+            onClick={() => setShowChat(false)}
+          />
+
+          {/* 对话窗口 */}
+          <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl sm:max-h-[600px] max-h-[85vh]">
+            {/* 标题栏 */}
+            <div className="flex items-center gap-3 border-b px-4 py-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+                <Bot className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold">AI 图书管理员</h3>
+                <p className="text-xs text-muted-foreground">小管随时为你服务</p>
+              </div>
+              {chatSessionId && (
+                <button
+                  onClick={handleNewAdminChat}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                  title="新对话"
+                >
+                  <Sparkles className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                onClick={() => setShowChat(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-muted hover:bg-muted/80 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* 消息区域 */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {chatMessages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 dark:bg-purple-900/20">
+                    <Bot className="h-7 w-7 text-purple-500" />
+                  </div>
+                  <h4 className="mb-1 text-sm font-semibold">你好，我是小管</h4>
+                  <p className="mb-5 text-xs text-muted-foreground">AI 图书管理员，帮你高效管理图书库</p>
+                  <div className="flex flex-col gap-2 w-full">
+                    {ADMIN_QUICK_PROMPTS.map((hint) => (
+                      <button
+                        key={hint}
+                        className="w-full rounded-xl border border-purple-200 px-4 py-2.5 text-sm text-purple-600 transition-colors hover:border-purple-400 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-400 dark:hover:bg-purple-950/30 text-left"
+                        onClick={() => handleChatSend(hint)}
+                        disabled={chatLoading}
+                      >
+                        {hint}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {chatMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+                    >
+                      <div
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs ${
+                          msg.role === 'user'
+                            ? 'bg-purple-500 text-white'
+                            : 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
+                        }`}
+                      >
+                        {msg.role === 'user' ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+                      </div>
+                      <div
+                        className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                          msg.role === 'user'
+                            ? 'bg-purple-500 text-white'
+                            : 'bg-muted'
+                        }`}
+                      >
+                        {msg.role === 'user' ? (
+                          <p className="whitespace-pre-wrap">{msg.content}</p>
+                        ) : (
+                          <div
+                            className="prose-sm text-justify"
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                          />
+                        )}
+                        {msg.streaming && (
+                          <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-foreground/50" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+            </div>
+
+            {/* 输入区域 */}
+            <div className="border-t px-4 py-3">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={handleChatKeyDown}
+                  placeholder="告诉小管你要做什么..."
+                  disabled={chatLoading}
+                  className="flex-1 rounded-full bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
+                />
+                <button
+                  onClick={() => handleChatSend()}
+                  disabled={chatLoading || !chatInput.trim()}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-500 text-white disabled:opacity-50 transition-transform active:scale-95"
+                >
+                  {chatLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+                <span className="rounded bg-muted px-1.5 py-0.5">"帮我删除张三的所有书"</span>
+                <span className="rounded bg-muted px-1.5 py-0.5">"《三体》有重复吗？"</span>
+                <span className="rounded bg-muted px-1.5 py-0.5">"搜索评分最高的书"</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

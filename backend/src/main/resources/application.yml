@@ -144,7 +144,7 @@ kbook:
     avatar-url-prefix: /api/uploads/avatars
   # 扫描配置
   scan:
-    force-update: ${SCAN_FORCE_UPDATE:true}  # 设为 true 时，扫描已存在书籍也会强制更新评分/简介/作者/8维度相关度得分
+    force-update: ${SCAN_FORCE_UPDATE:false}  # 设为 true 时，扫描已存在书籍也会强制更新评分/简介/作者/8维度相关度得分
   # ========================
   # Qdrant 向量数据库
   # ========================
@@ -156,6 +156,11 @@ kbook:
     book-collection: kbook_books
     # RAG 内容向量集合（书籍内容分块 → embedding）
     content-collection: kbook_content
+    # 标量量化配置：float32 → int8，内存占用降约 75%，精度损失 <1%
+    quantization:
+      enabled: ${QDRANT_QUANTIZATION_ENABLED:true}
+      quantile: ${QDRANT_QUANTIZATION_QUANTILE:0.99}    # 分位数，裁剪异常值
+      always-ram: ${QDRANT_QUANTIZATION_ALWAYS_RAM:true} # 量化向量常驻 RAM 加速搜索
   # ========================
   # AI 视觉模型配置（PDF OCR 用）
   # 需支持图片输入的模型，如 Ollama 的 llava、gemma4:e4b、minicpm-v 等

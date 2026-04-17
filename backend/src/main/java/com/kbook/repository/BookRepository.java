@@ -67,4 +67,20 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      * 根据封面URL查找（用于封面回退查找）
      */
     Optional<Book> findByCoverUrl(String coverUrl);
+
+    /**
+     * 根据作者名查找所有书籍
+     */
+    List<Book> findByAuthor(String author);
+
+    /**
+     * 根据书名查找所有书籍（用于合并同名不同格式的书籍）
+     */
+    List<Book> findByTitle(String title);
+
+    /**
+     * 根据标签查找书籍（用于查找同类书籍）
+     */
+    @Query("SELECT b FROM Book b WHERE b.formatTags LIKE CONCAT('%', :tag, '%')")
+    List<Book> findByTag(@Param("tag") String tag);
 }

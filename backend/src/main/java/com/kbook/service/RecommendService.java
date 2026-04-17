@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
+import com.kbook.entity.UserBookPreference;
 import com.kbook.entity.UserReadHistory;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.ReadingProgressRepository;
+import com.kbook.repository.UserBookPreferenceRepository;
 import com.kbook.repository.UserReadHistoryRepository;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
@@ -45,6 +47,7 @@ public class RecommendService {
     private final UserReadHistoryRepository readHistoryRepository;
     private final UserService userService;
     private final EmbeddingService embeddingService;
+    private final UserBookPreferenceRepository preferenceRepository;
     private final ObjectMapper objectMapper;
     private final RedisTemplate<String, Object> redisTemplate;
 
@@ -54,6 +57,7 @@ public class RecommendService {
             UserReadHistoryRepository readHistoryRepository,
             UserService userService,
             @Lazy EmbeddingService embeddingService,
+            UserBookPreferenceRepository preferenceRepository,
             ObjectMapper objectMapper,
             RedisTemplate<String, Object> redisTemplate
     ) {
@@ -62,6 +66,7 @@ public class RecommendService {
         this.readHistoryRepository = readHistoryRepository;
         this.userService = userService;
         this.embeddingService = embeddingService;
+        this.preferenceRepository = preferenceRepository;
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
     }
@@ -157,16 +162,35 @@ public class RecommendService {
         // ======= 融合排序 =======
         Map<Long, Double> fusedScores = fuseScores(ruleScores, vectorScores, collabScores);
 
-        // ======= 加载图书信息 + 加上评分权重 =======
+        // ======= 加载图书信息 + 加上评分权重 + 用户偏好过滤/加权 =======
+        // 获取用户排除偏好
+        List<String> excludedTags = getExcludedTags(userId);
+        List<String> excludedAuthors = getExcludedAuthors(userId);
+        List<String> excludedFormats = getExcludedFormats(userId);
+        // 获取用户喜欢偏好
+        List<String> includedTags = getIncludedTags(userId);
+        List<String> includedAuthors = getIncludedAuthors(userId);
+        List<String> includedFormats = getIncludedFormats(userId);
+
         List<ScoredBook> scoredBooks = new ArrayList<>();
         for (Map.Entry<Long, Double> entry : fusedScores.entrySet()) {
             Book book = bookRepository.findById(entry.getKey()).orElse(null);
             if (book == null) continue;
 
+            // 用户偏好过滤：排除用户不想看的书籍
+            if (isExcludedByPreference(book, excludedTags, excludedAuthors, excludedFormats)) {
+                log.debug("推荐过滤(用户偏好): bookId={}, title={}", book.getId(), book.getTitle());
+                continue;
+            }
+
             double fusedScore = entry.getValue();
             double ratingBonus = (book.getRating() != null && book.getRating() > 0)
                     ? (book.getRating() / 5.0) * RATING_WEIGHT : 0;
-            double finalScore = fusedScore + ratingBonus;
+
+            // 用户喜欢偏好加权：匹配用户喜欢的标签/作者/格式则加分
+            double includeBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
+
+            double finalScore = fusedScore + ratingBonus + includeBonus;
 
             scoredBooks.add(new ScoredBook(book, finalScore, ruleScores.getOrDefault(book.getId(), 0.0),
                     vectorScores.getOrDefault(book.getId(), 0.0),
@@ -650,6 +674,106 @@ public class RecommendService {
                 .map(String::trim)
                 .filter(t -> !t.isBlank())
                 .collect(Collectors.toSet());
+    }
+
+    // ==================== 用户偏好过滤 ====================
+
+    private List<String> getExcludedTags(Long userId) {
+        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "EXCLUDE")
+                .stream().map(UserBookPreference::getValue).toList();
+    }
+
+    private List<String> getExcludedAuthors(Long userId) {
+        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "EXCLUDE")
+                .stream().map(UserBookPreference::getValue).toList();
+    }
+
+    private List<String> getExcludedFormats(Long userId) {
+        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "EXCLUDE")
+                .stream().map(UserBookPreference::getValue).toList();
+    }
+
+    private List<String> getIncludedTags(Long userId) {
+        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "INCLUDE")
+                .stream().map(UserBookPreference::getValue).toList();
+    }
+
+    private List<String> getIncludedAuthors(Long userId) {
+        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "INCLUDE")
+                .stream().map(UserBookPreference::getValue).toList();
+    }
+
+    private List<String> getIncludedFormats(Long userId) {
+        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "INCLUDE")
+                .stream().map(UserBookPreference::getValue).toList();
+    }
+
+    /** 喜好偏好加权系数 */
+    private static final double INCLUDE_TAG_BONUS = 0.12;
+    private static final double INCLUDE_AUTHOR_BONUS = 0.15;
+    private static final double INCLUDE_FORMAT_BONUS = 0.05;
+
+    /**
+     * 计算用户喜欢偏好对推荐分数的加成
+     */
+    private double calculateIncludeBonus(Book book, List<String> includedTags,
+                                          List<String> includedAuthors, List<String> includedFormats) {
+        double bonus = 0.0;
+        // 标签匹配加分
+        if (!includedTags.isEmpty() && book.getFormatTags() != null) {
+            Set<String> bookTags = parseTags(book.getFormatTags());
+            for (String tag : includedTags) {
+                if (bookTags.stream().anyMatch(t -> t.equalsIgnoreCase(tag))) {
+                    bonus += INCLUDE_TAG_BONUS;
+                }
+            }
+        }
+        // 作者匹配加分
+        if (!includedAuthors.isEmpty() && book.getAuthor() != null) {
+            for (String author : includedAuthors) {
+                if (author.equalsIgnoreCase(book.getAuthor())) {
+                    bonus += INCLUDE_AUTHOR_BONUS;
+                    break;
+                }
+            }
+        }
+        // 格式匹配加分
+        if (!includedFormats.isEmpty() && book.getFormat() != null) {
+            for (String format : includedFormats) {
+                if (format.equalsIgnoreCase(book.getFormat())) {
+                    bonus += INCLUDE_FORMAT_BONUS;
+                    break;
+                }
+            }
+        }
+        return bonus;
+    }
+
+    /**
+     * 判断书籍是否被用户偏好排除
+     */
+    private boolean isExcludedByPreference(Book book, List<String> excludedTags,
+                                            List<String> excludedAuthors, List<String> excludedFormats) {
+        // 格式排除
+        if (!excludedFormats.isEmpty() && book.getFormat() != null
+                && excludedFormats.contains(book.getFormat().toUpperCase())) {
+            return true;
+        }
+        // 作者排除
+        if (!excludedAuthors.isEmpty() && book.getAuthor() != null
+                && excludedAuthors.stream().anyMatch(a -> a.equalsIgnoreCase(book.getAuthor()))) {
+            return true;
+        }
+        // 标签排除
+        if (!excludedTags.isEmpty() && book.getFormatTags() != null) {
+            Set<String> bookTags = parseTags(book.getFormatTags());
+            for (String excludedTag : excludedTags) {
+                if (bookTags.stream().anyMatch(t -> t.equalsIgnoreCase(excludedTag))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     // ==================== 内部类 ====================

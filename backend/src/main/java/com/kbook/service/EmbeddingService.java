@@ -24,6 +24,10 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
 import static io.qdrant.client.ConditionFactory.matchKeyword;
+import io.qdrant.client.grpc.Collections.QuantizationConfig;
+import io.qdrant.client.grpc.Collections.QuantizationConfigDiff;
+import io.qdrant.client.grpc.Collections.ScalarQuantization;
+import io.qdrant.client.grpc.Collections.QuantizationType;
 
 /**
  * 向量嵌入服务 — 负责书籍向量生成、Qdrant 存储、RAG 内容检索
@@ -62,6 +66,18 @@ public class EmbeddingService {
 
     @Value("${kbook.qdrant.content-collection:kbook_content}")
     private String contentCollectionName;
+
+    /** 是否启用量化（默认 true） */
+    @Value("${kbook.qdrant.quantization.enabled:true}")
+    private boolean quantizationEnabled;
+
+    /** 量化分位数（默认 0.99，裁剪 1% 异常值） */
+    @Value("${kbook.qdrant.quantization.quantile:0.99}")
+    private float quantizationQuantile;
+
+    /** 量化向量是否常驻 RAM（默认 true，加速搜索） */
+    @Value("${kbook.qdrant.quantization.always-ram:true}")
+    private boolean quantizationAlwaysRam;
 
     /**
      * 向量维度（qwen3-embedding:4b = 1024）
@@ -156,7 +172,7 @@ public class EmbeddingService {
     }
 
     /**
-     * 在 Qdrant 中创建 Collection（如果不存在）
+     * 在 Qdrant 中创建 Collection（如果不存在），并配置标量量化
      */
     private void createCollectionIfNotExists(String collectionName) {
         try {
@@ -168,26 +184,81 @@ public class EmbeddingService {
             boolean exists = collectionNames.contains(collectionName);
 
             if (!exists) {
-                qdrantClient.createCollectionAsync(
-                        io.qdrant.client.grpc.Collections.CreateCollection.newBuilder()
-                                .setCollectionName(collectionName)
-                                .setVectorsConfig(io.qdrant.client.grpc.Collections.VectorsConfig.newBuilder()
-                                        .setParams(io.qdrant.client.grpc.Collections.VectorParams.newBuilder()
-                                                .setSize(VECTOR_DIMENSION)
-                                                .setDistance(io.qdrant.client.grpc.Collections.Distance.Cosine)
-                                                .build())
+                var collectionBuilder = io.qdrant.client.grpc.Collections.CreateCollection.newBuilder()
+                        .setCollectionName(collectionName)
+                        .setVectorsConfig(io.qdrant.client.grpc.Collections.VectorsConfig.newBuilder()
+                                .setParams(io.qdrant.client.grpc.Collections.VectorParams.newBuilder()
+                                        .setSize(VECTOR_DIMENSION)
+                                        .setDistance(io.qdrant.client.grpc.Collections.Distance.Cosine)
                                         .build())
-                                .build()
-                ).get();
-                log.info("Qdrant Collection 创建成功: {}", collectionName);
+                                .build());
+
+                // 标量量化配置：float32 → int8，内存占用降约 75%
+                if (quantizationEnabled) {
+                    ScalarQuantization scalarQuant = ScalarQuantization.newBuilder()
+                            .setType(QuantizationType.Int8)
+                            .setQuantile(quantizationQuantile)
+                            .setAlwaysRam(quantizationAlwaysRam)
+                            .build();
+                    QuantizationConfig quantConfig = QuantizationConfig.newBuilder()
+                            .setScalar(scalarQuant)
+                            .build();
+                    collectionBuilder.setQuantizationConfig(quantConfig);
+                    log.info("Collection [{}] 创建时启用标量量化: type=int8, quantile={}, alwaysRam={}",
+                            collectionName, quantizationQuantile, quantizationAlwaysRam);
+                }
+
+                qdrantClient.createCollectionAsync(collectionBuilder.build()).get();
+                log.info("Qdrant Collection 创建成功: {} (量化={})", collectionName, quantizationEnabled);
             } else {
                 log.debug("Qdrant Collection 已存在: {}", collectionName);
+                // 已存在的 Collection：更新量化配置
+                updateQuantizationConfig(collectionName);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("创建 Qdrant Collection 被中断: {} - {}", collectionName, e.getMessage());
         } catch (ExecutionException e) {
             log.error("创建 Qdrant Collection 失败: {} - {}", collectionName, e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 更新已有 Collection 的量化配置（如果启用了量化但 Collection 未配置）
+     */
+    private void updateQuantizationConfig(String collectionName) {
+        if (!quantizationEnabled) return;
+        try {
+            // 检查当前量化配置
+            var collectionInfo = qdrantClient.getCollectionInfoAsync(collectionName).get();
+            var currentQuantConfig = collectionInfo.getConfig().getQuantizationConfig();
+
+            if (currentQuantConfig.hasScalar()
+                    && currentQuantConfig.getScalar().getType() == QuantizationType.Int8) {
+                log.debug("Collection [{}] 已启用标量量化，跳过更新", collectionName);
+                return;
+            }
+
+            // 更新增量配置：UpdateCollection 需要 QuantizationConfigDiff
+            // QuantizationConfigDiff.scalar 字段类型就是 ScalarQuantization（无 Diff 版本）
+            ScalarQuantization scalarQuant = ScalarQuantization.newBuilder()
+                    .setType(QuantizationType.Int8)
+                    .setQuantile(quantizationQuantile)
+                    .setAlwaysRam(quantizationAlwaysRam)
+                    .build();
+            QuantizationConfigDiff quantConfigDiff = QuantizationConfigDiff.newBuilder()
+                    .setScalar(scalarQuant)
+                    .build();
+
+            var updateBuilder = io.qdrant.client.grpc.Collections.UpdateCollection.newBuilder()
+                    .setCollectionName(collectionName)
+                    .setQuantizationConfig(quantConfigDiff);
+
+            qdrantClient.updateCollectionAsync(updateBuilder.build()).get();
+            log.info("Collection [{}] 已更新标量量化配置: type=int8, quantile={}, alwaysRam={}",
+                    collectionName, quantizationQuantile, quantizationAlwaysRam);
+        } catch (Exception e) {
+            log.warn("更新 Collection [{}] 量化配置失败: {}", collectionName, e.getMessage());
         }
     }
 
@@ -497,7 +568,7 @@ public class EmbeddingService {
     /**
      * 删除指定书籍的元数据向量（通过 bookId 精确匹配 payload）
      */
-    private void removeBookEmbedding(Long bookId) {
+    public void removeBookEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return;
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
@@ -513,7 +584,7 @@ public class EmbeddingService {
     /**
      * 删除指定书籍的内容向量（通过 bookId 精确匹配 payload）
      */
-    private void removeContentEmbedding(Long bookId) {
+    public void removeContentEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return;
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()

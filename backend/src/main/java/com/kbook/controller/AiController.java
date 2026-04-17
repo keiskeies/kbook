@@ -2,6 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.entity.AiConversation;
+import com.kbook.repository.AiConversationRepository;
 import com.kbook.service.AiChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -29,6 +31,15 @@ import java.util.Map;
 public class AiController {
 
     private final AiChatService chatService;
+    private final AiConversationRepository conversationRepository;
+
+    /** 默认快捷提问（数据库中无记录时的兜底） */
+    private static final List<String> DEFAULT_PROMPTS = List.of(
+            "推荐一本科幻小说",
+            "最近有什么热门书？",
+            "阅读排行榜 TOP3",
+            "评分最高的书有哪些？"
+    );
 
     /**
      * 创建新会话
@@ -127,6 +138,26 @@ public class AiController {
         Long userId = extractUserId(userDetails);
         chatService.deleteSession(userId, sessionId);
         return Result.ok();
+    }
+
+    /**
+     * 获取热门提问 — 基于全站用户提问统计
+     * GET /api/ai/hot-prompts?count=4
+     */
+    @GetMapping("/hot-prompts")
+    public Result<List<String>> getHotPrompts(
+            @RequestParam(defaultValue = "4") int count) {
+        try {
+            List<String> hotPrompts = conversationRepository.findHotPrompts(count);
+            if (hotPrompts.isEmpty()) {
+                // 数据库中暂无记录，返回默认提示
+                return Result.ok(new ArrayList<>(DEFAULT_PROMPTS.subList(0, Math.min(count, DEFAULT_PROMPTS.size()))));
+            }
+            return Result.ok(hotPrompts);
+        } catch (Exception e) {
+            log.warn("获取热门提问失败: {}", e.getMessage());
+            return Result.ok(new ArrayList<>(DEFAULT_PROMPTS.subList(0, Math.min(count, DEFAULT_PROMPTS.size()))));
+        }
     }
 
     /** 从认证信息中提取用户 ID */

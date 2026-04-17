@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Settings, List, ChevronLeft, ChevronRight,
-  BookOpen, Loader2, AlertCircle, Volume2, VolumeX,
+  ArrowLeft, Settings, List,
+  Loader2, AlertCircle, Volume2, VolumeX,
 } from 'lucide-react'
 import { useReaderStore } from '@/store/reader'
 import { useProgressStore } from '@/store/progress'
@@ -250,10 +250,11 @@ export default function ReaderPage() {
     <div className="relative h-screen select-none" style={{ backgroundColor: theme.bg }}>
       {/* 顶部工具栏 */}
       <div
-        className="fixed inset-x-0 top-0 z-40 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur"
+        className="fixed inset-x-0 top-0 z-40 flex items-center gap-3 border-b px-4 py-3 backdrop-blur-xl"
+        style={{ backgroundColor: theme.bg + 'e6', color: theme.fg, borderColor: theme.fg + '15' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button onClick={() => navigate(-1)} className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted">
+        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="min-w-0 flex-1">
@@ -294,14 +295,14 @@ export default function ReaderPage() {
             <List className="h-5 w-5" />
           </button>
         )}
-        <button onClick={toggleSettings} className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted">
+        <button onClick={toggleSettings} className="flex h-8 w-8 items-center justify-center rounded-xl hover:bg-muted">
           <Settings className="h-5 w-5" />
         </button>
       </div>
 
       {/* 内容区域 */}
       <div
-        className="h-full pt-[56px] pb-[75px]"
+        className="h-full pt-[52px] pb-8"
         onContextMenu={(e) => e.preventDefault()}
         style={{ position: 'relative', touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' as any }}
       >
@@ -343,51 +344,18 @@ export default function ReaderPage() {
         )}
       </div>
 
-      {/* 底部工具栏 */}
+      {/* 底部进度 — 左下角小百分比 */}
       <div
-        className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur"
+        className="fixed bottom-0 left-0 z-30 pl-3 pb-2 backdrop-blur-xl"
+        style={{ backgroundColor: theme.bg + '80' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-4 pt-2">
-          <div className="flex items-center gap-2">
-            <span className="w-8 text-right text-[10px] text-muted-foreground">
-              {Math.round(progress * 100)}%
-            </span>
-            <div className="h-1 flex-1 rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-all"
-                style={{ width: `${Math.round(progress * 100)}%` }}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center justify-between px-4 py-2 pb-safe-bottom">
-          <button
-            onClick={() => readerState.goPage('prev')}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-muted"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-          <div className="text-center">
-            {format === 'PDF' ? (
-              <span className="text-xs text-muted-foreground">
-                {pdfReader.currentPage} / {pdfReader.totalPages}
-              </span>
-            ) : chapters.length > 0 ? (
-              <span className="text-xs text-muted-foreground">
-                {chapters[currentChapterIndex]?.title || ''}
-              </span>
-            ) : (
-              <BookOpen className="mx-auto h-4 w-4 text-muted-foreground" />
-            )}
-          </div>
-          <button
-            onClick={() => readerState.goPage('next')}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-muted"
-          >
-            <ChevronRight className="h-5 w-5" />
-          </button>
-        </div>
+        <span
+          className="text-[10px] font-medium opacity-40"
+          style={{ color: theme.fg }}
+        >
+          {Math.round(progress * 100)}%
+        </span>
       </div>
 
       {showToc && isTocAvailable && (

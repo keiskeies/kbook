@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Bot, User, Sparkles, X } from 'lucide-react'
+import { Send, Loader2, Bot, User, Sparkles } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { streamBookChat, getBookSuggestedQuestions } from '@/api/bookChat'
 import type { AiMessage } from '@/types/ai'
@@ -137,7 +137,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
   const hasMessages = messages.length > 0
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={(v) => { if (!v) handleClose(); else onOpenChange(true) }}>
       <SheetContent side="bottom" className="h-[85vh] rounded-t-2xl border-t p-0 flex flex-col">
         {/* Header */}
         <SheetHeader className="shrink-0 border-b px-4 py-3">
@@ -151,12 +151,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
                 基于原著内容回答关于《{book.title}》的问题
               </SheetDescription>
             </div>
-            <button
-              onClick={handleClose}
-              className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
+
           </div>
         </SheetHeader>
 
@@ -221,7 +216,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     ) : (
                       <div
-                        className="prose-sm"
+                        className="prose-sm text-justify"
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
                       />
                     )}

@@ -56,18 +56,14 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
     // 使用用户选择的字体（已在 FONT_OPTIONS 中配置好移动端兼容的字体栈）
     const fontFamily = s.fontFamily
     
-    console.log('Applying font:', fontFamily)
-    
     // 方式1：使用 epubjs themes.override 方法（最可靠）
     try {
       if (rendition?.themes) {
-        // 覆盖所有元素的字体
         rendition.themes.override('font-family', fontFamily, true)
         rendition.themes.override('font-size', `${s.fontSize}px`, true)
         rendition.themes.override('line-height', String(s.lineHeight), true)
         rendition.themes.override('color', themeColors.fg, true)
         rendition.themes.override('background', themeColors.bg, true)
-        console.log('Themes override applied successfully')
       }
     } catch (e) {
       console.warn('Failed to use themes.override:', e)
@@ -75,11 +71,9 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
     
     // 方式2：直接向所有 iframe 注入 style 标签
     try {
-      // epubjs 可能有多个 iframe（每个章节一个）
       const iframes = rendition?.manager?.views?.all() || []
       
       if (iframes.length === 0) {
-        // 如果没有 views，尝试从 container 中查找
         const container = rendition?.manager?.container
         if (container) {
           const foundIframes = container.querySelectorAll('iframe')
@@ -90,7 +84,6 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
           }
         }
       } else {
-        // 遍历所有 view 的 iframe
         iframes.forEach((view: any) => {
           const iframe = view?.iframe || view
           if (iframe) {
@@ -100,21 +93,6 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
       }
     } catch (e) {
       console.warn('Failed to inject styles to iframes:', e)
-    }
-    
-    // 方式3：使用 register + select 作为备用
-    try {
-      rendition?.themes?.register('custom-theme', {
-        '*': {
-          'font-family': `${fontFamily} !important`,
-          'font-size': `${s.fontSize}px !important`,
-          'line-height': `${s.lineHeight} !important`,
-        },
-      })
-      rendition?.themes?.select('custom-theme')
-      console.log('Custom theme registered and selected')
-    } catch (e) {
-      console.warn('Failed to register custom theme:', e)
     }
   }, [isSystemDark])
   
@@ -135,15 +113,27 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
       
       // 构建 CSS
       const cssRules = `
-        * {
-          font-family: ${fontFamily} !important;
+        *, *::before, *::after {
+          box-sizing: border-box !important;
         }
-        html, body {
+        html {
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        body {
           font-family: ${fontFamily} !important;
           font-size: ${s.fontSize}px !important;
           line-height: ${s.lineHeight} !important;
           color: ${themeColors.fg} !important;
           background: ${themeColors.bg} !important;
+          padding: 0 ${s.pageMargin}px !important;
+          margin: 0 !important;
+          width: 100% !important;
+          box-sizing: border-box !important;
+        }
+        p, div, li, h1, h2, h3, h4, h5, h6 {
+          font-family: ${fontFamily} !important;
+          text-align: justify !important;
         }
       `
       
@@ -312,12 +302,15 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
         })
         renditionRef.current = rendition
 
-        // 设置基础样式 - 添加左右内边距
+        // 设置基础样式 - 边距 + 两端对齐
         rendition.themes.default({
           'body': {
-            'padding-left': '16px !important',
-            'padding-right': '16px !important',
-            'margin': '0 !important',
+            'padding': `0 ${settings.pageMargin}px`,
+            'width': '100%',
+            'box-sizing': 'border-box',
+          },
+          'p, div, li, h1, h2, h3, h4, h5, h6': {
+            'text-align': 'justify',
           },
         })
 
@@ -342,20 +335,27 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
           const styleEl = doc.createElement('style')
           styleEl.id = 'custom-reader-styles'
           styleEl.textContent = `
-            * {
-              font-family: ${fontFamily} !important;
+            *, *::before, *::after {
+              box-sizing: border-box !important;
             }
-            html, body {
+            html {
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            body {
               font-family: ${fontFamily} !important;
               font-size: ${settings.fontSize}px !important;
               line-height: ${settings.lineHeight} !important;
               color: ${themeColors.fg} !important;
               background: ${themeColors.bg} !important;
-            }
-            body {
-              padding-left: 16px !important;
-              padding-right: 16px !important;
+              padding: 0 ${settings.pageMargin}px !important;
               margin: 0 !important;
+              width: 100% !important;
+              box-sizing: border-box !important;
+            }
+            p, div, li, h1, h2, h3, h4, h5, h6 {
+              font-family: ${fontFamily} !important;
+              text-align: justify !important;
             }
           `
           
@@ -537,9 +537,9 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
 
   // 主题/设置变更时仅更新样式，不重建 rendition
   useEffect(() => {
-    if (renditionRef.current) {
-      applyTheme(renditionRef.current, settings)
-    }
+    const rendition = renditionRef.current
+    if (!rendition) return
+    applyTheme(rendition, settings)
   }, [settings, applyTheme])
 
   // 翻页

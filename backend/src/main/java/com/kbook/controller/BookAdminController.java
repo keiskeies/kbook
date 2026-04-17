@@ -3,6 +3,7 @@ package com.kbook.controller;
 import com.kbook.common.api.Result;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.entity.Book;
+import com.kbook.repository.BookRepository;
 import com.kbook.service.BookParserService;
 import com.kbook.service.BookScanService;
 import com.kbook.service.BookService;
@@ -16,11 +17,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 管理员图书管理控制器 — 扫描、上传、封面
@@ -34,6 +35,7 @@ public class BookAdminController {
     private final BookScanService bookScanService;
     private final BookService bookService;
     private final BookParserService bookParserService;
+    private final BookRepository bookRepository;
 
     @Value("${kbook.book-paths.epub}")
     private String epubPath;
@@ -74,6 +76,7 @@ public class BookAdminController {
 
     /**
      * 上传图书文件 — 管理员手动上传
+     * 完整流程与扫描一致：解析 → 入库/更新 → 封面 → AI标签/评分/相关度 → ES索引 → 向量库
      */
     @PostMapping("/upload")
     public Result<Book> uploadBook(
@@ -114,18 +117,36 @@ public class BookAdminController {
                     ? customTitle
                     : originalFilename.substring(0, originalFilename.lastIndexOf('.'));
 
-            // 构建图书对象
+            String fileUrl = targetPath.toAbsolutePath().toString();
+            Optional<Book> existing = bookRepository.findByFileUrl(fileUrl);
+
+            if (existing.isPresent()) {
+                // 文件已存在 → 按更新流程处理（与扫描的 handleExistingBook 一致）
+                Book book = existing.get();
+                long fileSize = Files.size(targetPath);
+                book.setFileSize(fileSize);
+
+                log.info("上传文件已存在，按更新处理: bookId={}, title={}", book.getId(), title);
+                bookParserService.parseAndFill(book, targetPath);
+                bookParserService.finalizeCover(book);
+                bookService.updateBook(book.getId(), book);
+                bookParserService.generateAllAiData(book.getId(), true);
+                bookParserService.generateContentEmbedding(book.getId());
+                return Result.ok(book);
+            }
+
+            // 新文件 → 按新增流程处理（与扫描的 handleNewBook 一致）
             Book newBook = Book.builder()
                     .title(title)
                     .format(extension)
-                    .fileUrl(targetPath.toAbsolutePath().toString())
-                    .fileSize(file.getSize())
+                    .fileUrl(fileUrl)
+                    .fileSize(Files.size(targetPath))
                     .build();
 
             // 解析元数据
             bookParserService.parseAndFill(newBook, targetPath);
 
-            // 入库
+            // 入库（JPA + ES 双写）
             Book saved = bookService.createBook(newBook);
 
             // 修复封面URL
@@ -137,14 +158,15 @@ public class BookAdminController {
                 }
             }
 
-            // 生成 AI 数据（标签 + 评分 + 相关度，合并一次调用）
+            // 生成 AI 数据（标签 + 评分 + 相关度 + 元数据向量，合并一次调用）
             bookParserService.generateAllAiData(saved.getId(), true);
+            // 生成 RAG 内容向量
             bookParserService.generateContentEmbedding(saved.getId());
 
             log.info("上传图书成功: {} [{}]", title, extension);
             return Result.ok(saved);
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.error("上传图书失败", e);
             return Result.fail("上传失败: " + e.getMessage());
         }
@@ -165,6 +187,24 @@ public class BookAdminController {
         }
 
         return CommonUtils.buildImageResponse(imagePath, filename);
+    }
+
+    /**
+     * 删除指定作者的所有书籍（全链路：JPA + ES + Qdrant + Redis + 封面）
+     */
+    @DeleteMapping("/delete-by-author")
+    public Result<Map<String, Object>> deleteBooksByAuthor(@RequestParam String author) {
+        int count = bookService.deleteBooksByAuthor(author);
+        return Result.ok(Map.of("deletedCount", count, "author", author));
+    }
+
+    /**
+     * 合并同名书籍（以 EPUB 为主，其他格式的关联数据迁移后删除）
+     */
+    @PostMapping("/merge-by-title")
+    public Result<Map<String, Object>> mergeBooksByTitle(@RequestParam String title) {
+        String result = bookService.mergeBooksByTitle(title);
+        return Result.ok(Map.of("message", result, "title", title));
     }
 
     /**

@@ -231,3 +231,15 @@ export function getRecommendations(count = 10) {
 export function clearRecommendCache() {
   return request.delete('/recommend/cache')
 }
+
+// ==================== 管理员AI图书操作 ====================
+
+/** 按作者删除所有书籍（全链路：DB+缓存+RAG+ES+封面） */
+export function deleteBooksByAuthor(author: string) {
+  return request.delete<{ deletedCount: number; author: string }>('/books/admin/delete-by-author', { params: { author } })
+}
+
+/** 合并同名书籍（以EPUB为主，其他格式数据迁移后删除） */
+export function mergeBooksByTitle(title: string) {
+  return request.post<{ message: string; title: string }>('/books/admin/merge-by-title', null, { params: { title } })
+}

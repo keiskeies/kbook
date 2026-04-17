@@ -27,6 +27,7 @@ export default function BookDetailPage() {
   const [commentPage, setCommentPage] = useState(1)
   const [hasMoreComments, setHasMoreComments] = useState(true)
   const [showBookChat, setShowBookChat] = useState(false)
+  const [descExpanded, setDescExpanded] = useState(false)
 
   const id = Number(bookId)
 
@@ -208,7 +209,19 @@ export default function BookDetailPage() {
       {book.description && (
         <div className="px-4 pb-4">
           <h3 className="mb-2 text-sm font-bold">简介</h3>
-          <p className="text-sm leading-relaxed text-muted-foreground">{book.description}</p>
+          <p
+            className={`text-sm leading-relaxed text-muted-foreground text-justify ${!descExpanded ? 'line-clamp-3' : ''}`}
+          >
+            {book.description}
+          </p>
+          {book.description.length > 80 && (
+            <button
+              onClick={() => setDescExpanded(!descExpanded)}
+              className="mt-1 text-xs font-medium text-primary"
+            >
+              {descExpanded ? '收起' : '展开'}
+            </button>
+          )}
         </div>
       )}
 

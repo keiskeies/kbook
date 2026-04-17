@@ -91,8 +91,8 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-screen bg-background page-enter">
-      <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background px-4 py-3">
-        <button onClick={() => navigate(-1)} className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted">
+      <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
+        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="relative flex flex-1 items-center gap-2 rounded-xl bg-muted px-3 py-2">

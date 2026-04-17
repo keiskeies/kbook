@@ -97,7 +97,7 @@ export default function UserProfilePage() {
           </div>
           <div className="flex-1">
             <h2 className="text-lg font-bold">{profile.nickname}</h2>
-            {profile.bio && <p className="mt-0.5 text-sm text-muted-foreground line-clamp-2">{profile.bio}</p>}
+            {profile.bio && <p className="mt-0.5 text-sm text-muted-foreground line-clamp-2 text-justify">{profile.bio}</p>}
             <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
               {profile.age && <span>{profile.age}岁</span>}
               {profile.gender === 'MALE' && <span>男</span>}

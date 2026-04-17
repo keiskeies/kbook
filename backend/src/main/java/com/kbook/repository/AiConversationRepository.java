@@ -28,4 +28,17 @@ public interface AiConversationRepository extends JpaRepository<AiConversation, 
     /** 统计某个用户的会话数量 */
     @Query("SELECT COUNT(DISTINCT c.sessionId) FROM AiConversation c WHERE c.userId = :userId")
     long countDistinctSessionIdByUserId(@Param("userId") Long userId);
+
+    /**
+     * 统计所有用户的热门提问（role=user），按内容分组计数，取前 N 条
+     * 排除过短的问题（<2字）和系统工具消息
+     */
+    @Query(value = "SELECT c.content FROM ai_conversations c " +
+            "WHERE c.role = 'user' AND LENGTH(TRIM(c.content)) >= 2 " +
+            "GROUP BY TRIM(c.content) " +
+            "HAVING COUNT(*) >= 1 " +
+            "ORDER BY COUNT(*) DESC " +
+            "LIMIT :limit",
+            nativeQuery = true)
+    List<String> findHotPrompts(@Param("limit") int limit);
 }

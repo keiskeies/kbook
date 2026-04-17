@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, Bot, UserCircle, Camera, Bell, Users, Palette } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, Bot, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, Eye, PenLine, BookHeart } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useNavigate } from 'react-router-dom'
 import { ROUTES } from '@/constants'
@@ -8,8 +8,9 @@ import { getReadingStats } from '@/api/progress'
 import { getBookshelfCount } from '@/api/bookshelf'
 import { updateTraits } from '@/api/auth'
 import { updateProfile, uploadAvatar } from '@/api/user'
+import { getExcludePreferences, addExcludePreference, removeExcludePreference, getIncludePreferences, addIncludePreference, removeIncludePreference } from '@/api/preference'
+import type { UserBookPreferenceItem } from '@/api/preference'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import type { ReadingStats } from '@/types/book'
 
 const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
@@ -50,6 +51,16 @@ export default function ProfilePage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // 阅读偏好弹窗
+  const [showPreferenceModal, setShowPreferenceModal] = useState(false)
+  const [excludePrefs, setExcludePrefs] = useState<UserBookPreferenceItem[]>([])
+  const [includePrefs, setIncludePrefs] = useState<UserBookPreferenceItem[]>([])
+  const [prefTab, setPrefTab] = useState<'exclude' | 'include'>('include')
+  const [prefCategory, setPrefCategory] = useState<'TAG' | 'AUTHOR' | 'FORMAT'>('TAG')
+  const [prefValue, setPrefValue] = useState('')
+  const [prefLoading, setPrefLoading] = useState(false)
+  const [prefSaving, setPrefSaving] = useState(false)
+
   const isAdmin = userInfo?.role === 'ADMIN'
   const needBindEmail = isAdmin && !userInfo?.emailBound
 
@@ -89,14 +100,39 @@ export default function ProfilePage() {
     }
   }, [showTraitsModal, userInfo])
 
-  const menuItems = [
-    { label: '我的书架', icon: Library, path: ROUTES.BOOKSHELF, extra: `${shelfCount} 本` },
-    { label: '阅读历史', icon: BookOpen, path: '/profile/history', extra: stats ? `${stats.completedBooks} 本已读完` : '' },
-    { label: '我的画像', icon: UserCircle, path: '', extra: getTraitsSummary(), action: () => setShowTraitsModal(true) },
-    { label: '通知', icon: Bell, path: '/notifications', extra: '' },
-    { label: '我的关注', icon: Users, path: '', extra: `${userInfo?.followingCount || 0} 关注`, action: () => navigate(`/user/${userInfo?.id}/follow/followings`) },
-    { label: '主题模式', icon: Palette, path: '', extra: '', custom: true },
-    { label: '修改密码', icon: Lock, path: ROUTES.CHANGE_PASSWORD },
+  const menuGroups = [
+    {
+      title: '阅读',
+      titleIcon: BookOpen,
+      items: [
+        { label: '我的书架', icon: Library, path: ROUTES.BOOKSHELF, extra: `${shelfCount} 本` },
+        { label: '阅读历史', icon: Clock, path: '/profile/history', extra: stats ? `${stats.completedBooks} 本已读完` : '' },
+      ],
+    },
+    {
+      title: '推荐',
+      titleIcon: BookHeart,
+      items: [
+        { label: '我的画像', icon: UserCircle, path: '', extra: getTraitsSummary(), action: () => setShowTraitsModal(true) },
+        { label: '阅读偏好', icon: SlidersHorizontal, path: '', extra: '', action: () => setShowPreferenceModal(true) },
+      ],
+    },
+    {
+      title: '互动',
+      titleIcon: Users,
+      items: [
+        { label: '我的关注', icon: Users, path: '', extra: `${userInfo?.followingCount || 0} 关注`, action: () => navigate(`/user/${userInfo?.id}/follow/followings`) },
+        { label: '通知', icon: Bell, path: '/notifications', extra: '' },
+      ],
+    },
+    {
+      title: '设置',
+      titleIcon: Settings,
+      items: [
+        { label: '主题模式', icon: Palette, path: '', extra: '', custom: true },
+        { label: '修改密码', icon: Lock, path: ROUTES.CHANGE_PASSWORD, extra: '' },
+      ],
+    },
   ]
 
   const adminMenuItems = [
@@ -194,6 +230,75 @@ export default function ProfilePage() {
       toast.error(err.message || '更新失败')
     } finally {
       setSavingTraits(false)
+    }
+  }
+
+  // ==================== 阅读偏好 ====================
+
+  const catLabel = (c: string) => c === 'TAG' ? '标签' : c === 'AUTHOR' ? '作者' : '格式'
+
+  const loadPreferences = async () => {
+    setPrefLoading(true)
+    try {
+      const [excludeData, includeData] = await Promise.all([getExcludePreferences(), getIncludePreferences()])
+      setExcludePrefs((excludeData as any) || [])
+      setIncludePrefs((includeData as any) || [])
+    } catch { setExcludePrefs([]); setIncludePrefs([]) }
+    finally { setPrefLoading(false) }
+  }
+
+  useEffect(() => { if (showPreferenceModal) loadPreferences() }, [showPreferenceModal])
+
+  const handleAddPreference = async () => {
+    if (!prefValue.trim()) { toast.error('请输入内容'); return }
+    setPrefSaving(true)
+    try {
+      if (prefTab === 'exclude') {
+        await addExcludePreference(prefCategory, prefValue.trim())
+        toast.success(`已添加：不想看${catLabel(prefCategory)}为"${prefValue.trim()}"的书籍`)
+      } else {
+        await addIncludePreference(prefCategory, prefValue.trim())
+        toast.success(`已添加：想看${catLabel(prefCategory)}为"${prefValue.trim()}"的书籍`)
+      }
+      setPrefValue('')
+      loadPreferences()
+    } catch (err: any) {
+      toast.error(err.message || '添加失败')
+    } finally {
+      setPrefSaving(false)
+    }
+  }
+
+  const handleRemovePreference = async (category: string, value: string, type: 'exclude' | 'include') => {
+    try {
+      if (type === 'exclude') {
+        await removeExcludePreference(category, value)
+        toast.success('已恢复推荐')
+      } else {
+        await removeIncludePreference(category, value)
+        toast.success('已取消偏好')
+      }
+      loadPreferences()
+    } catch (err: any) {
+      toast.error(err.message || '操作失败')
+    }
+  }
+
+  const getCategoryLabel = (cat: string) => {
+    switch (cat) {
+      case 'TAG': return '标签'
+      case 'AUTHOR': return '作者'
+      case 'FORMAT': return '格式'
+      default: return cat
+    }
+  }
+
+  const getCategoryColor = (cat: string) => {
+    switch (cat) {
+      case 'TAG': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+      case 'AUTHOR': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+      case 'FORMAT': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+      default: return 'bg-muted text-muted-foreground'
     }
   }
 
@@ -309,39 +414,52 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* 通用功能 */}
-      <div className="rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
-        {menuItems.map((item, i) => {
-          const Icon = item.icon
+      {/* 功能分组 */}
+      <div className="space-y-4">
+        {menuGroups.map((group) => {
+          const GroupIcon = group.titleIcon
           return (
-            <button
-              key={item.label}
-              onClick={() => {
-                if ((item as any).custom) return
-                if ((item as any).action) (item as any).action()
-                else if (item.path) navigate(item.path)
-              }}
-              className={`flex w-full items-center justify-between px-4 py-3.5 active:bg-muted/50 transition-colors ${
-                i < menuItems.length - 1 ? 'border-b border-border/50' : ''
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted">
-                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-                <span className="text-sm font-medium">{item.label}</span>
+            <div key={group.title} className="rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
+              {/* 分组标题 */}
+              <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
+                <GroupIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                <h3 className="text-xs font-bold text-muted-foreground tracking-wider">{group.title}</h3>
               </div>
-              {(item as any).custom ? (
-                <ThemeToggle />
-              ) : (
-                <div className="flex items-center gap-2">
-                  {item.extra && (
-                    <span className="text-xs text-muted-foreground">{item.extra}</span>
-                  )}
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-              )}
-            </button>
+              {/* 分组菜单项 */}
+              {group.items.map((item, i) => {
+                const Icon = item.icon
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => {
+                      if ((item as any).custom) return
+                      if ((item as any).action) (item as any).action()
+                      else if (item.path) navigate(item.path)
+                    }}
+                    className={`flex w-full items-center justify-between px-4 py-3 active:bg-muted/50 transition-colors ${
+                      i < group.items.length - 1 ? 'border-b border-border/50' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted">
+                        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                      <span className="text-sm font-medium">{item.label}</span>
+                    </div>
+                    {(item as any).custom ? (
+                      <ThemeToggle />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        {item.extra && (
+                          <span className="text-xs text-muted-foreground">{item.extra}</span>
+                        )}
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
           )
         })}
       </div>
@@ -517,6 +635,138 @@ export default function ProfilePage() {
             >
               {savingTraits ? '保存中...' : '保存'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 阅读偏好弹窗 */}
+      {showPreferenceModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowPreferenceModal(false)}>
+          <div className="w-full max-w-lg rounded-t-3xl bg-card p-5 space-y-4 shadow-2xl" style={{ paddingBottom: 'calc(1.25rem + 5rem)' }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold">阅读偏好</h2>
+              <button onClick={() => setShowPreferenceModal(false)} className="text-muted-foreground hover:text-foreground">
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              设置你的阅读偏好，让推荐更懂你。喜欢的类型会优先推荐，不想看的会自动排除。
+            </p>
+
+            {/* Tab 切换 */}
+            <div className="flex rounded-lg bg-muted p-1">
+              <button
+                onClick={() => { setPrefTab('include'); setPrefValue('') }}
+                className={`flex-1 rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'include' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+              >
+                ❤️ 想看
+              </button>
+              <button
+                onClick={() => { setPrefTab('exclude'); setPrefValue('') }}
+                className={`flex-1 rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'exclude' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+              >
+                🚫 不想看
+              </button>
+            </div>
+
+            {/* 添加偏好 */}
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <select
+                  value={prefCategory}
+                  onChange={(e) => setPrefCategory(e.target.value as 'TAG' | 'AUTHOR' | 'FORMAT')}
+                  className="rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="TAG">标签</option>
+                  <option value="AUTHOR">作者</option>
+                  <option value="FORMAT">格式</option>
+                </select>
+                <input
+                  type="text"
+                  value={prefValue}
+                  onChange={(e) => setPrefValue(e.target.value)}
+                  placeholder={prefTab === 'exclude'
+                    ? `输入不想看的${catLabel(prefCategory)}${prefCategory === 'FORMAT' ? '(如PDF)' : ''}`
+                    : `输入想看的${catLabel(prefCategory)}${prefCategory === 'FORMAT' ? '(如EPUB)' : ''}`
+                  }
+                  className="flex-1 rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddPreference()}
+                />
+                <button
+                  onClick={handleAddPreference}
+                  disabled={prefSaving || !prefValue.trim()}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${prefTab === 'include' ? 'bg-rose-500 hover:bg-rose-600' : 'bg-primary hover:bg-primary/90'}`}
+                >
+                  {prefSaving ? '...' : '添加'}
+                </button>
+              </div>
+            </div>
+
+            {/* 偏好列表 */}
+            {prefTab === 'include' ? (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+                  想看的内容（{includePrefs.length}）
+                </h4>
+                {prefLoading ? (
+                  <div className="py-4 text-center text-xs text-muted-foreground">加载中...</div>
+                ) : includePrefs.length === 0 ? (
+                  <div className="py-4 text-center text-xs text-muted-foreground">暂无偏好，添加喜欢的类型获取更精准推荐</div>
+                ) : (
+                  <div className="max-h-60 overflow-y-auto space-y-1.5">
+                    {includePrefs.map((pref) => (
+                      <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-rose-50 dark:bg-rose-900/10 px-3 py-2">
+                        <span className="text-rose-500 text-xs">❤️</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getCategoryColor(pref.category)}`}>
+                          {getCategoryLabel(pref.category)}
+                        </span>
+                        <span className="flex-1 text-sm truncate">{pref.value}</span>
+                        <button
+                          onClick={() => handleRemovePreference(pref.category, pref.value, 'include')}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-red-100 text-red-500 hover:text-red-600 transition-colors"
+                          title="取消偏好"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+                  已排除的内容（{excludePrefs.length}）
+                </h4>
+                {prefLoading ? (
+                  <div className="py-4 text-center text-xs text-muted-foreground">加载中...</div>
+                ) : excludePrefs.length === 0 ? (
+                  <div className="py-4 text-center text-xs text-muted-foreground">暂无排除偏好</div>
+                ) : (
+                  <div className="max-h-60 overflow-y-auto space-y-1.5">
+                    {excludePrefs.map((pref) => (
+                      <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getCategoryColor(pref.category)}`}>
+                          {getCategoryLabel(pref.category)}
+                        </span>
+                        <span className="flex-1 text-sm truncate">{pref.value}</span>
+                        <button
+                          onClick={() => handleRemovePreference(pref.category, pref.value, 'exclude')}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-red-100 text-red-500 hover:text-red-600 transition-colors"
+                          title="恢复推荐"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground text-center">
+              {prefTab === 'include' ? '取消后，该类书籍不再获得优先推荐' : '恢复后，该类书籍将重新出现在推荐中'}
+            </p>
           </div>
         </div>
       )}

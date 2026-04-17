@@ -11,6 +11,8 @@ export interface ReaderSettings {
   lineHeight: number
   /** 段落间距（px） */
   paragraphSpacing: number
+  /** 页面两边边距（px） */
+  pageMargin: number
   /** 背景主题 key */
   themeKey: keyof typeof READER_THEMES
   /** 翻页动画: none / slide / fade */
@@ -28,6 +30,7 @@ const DEFAULT_SETTINGS: ReaderSettings = {
   fontSize: 18,
   lineHeight: 1.8,
   paragraphSpacing: 16,
+  pageMargin: 16,
   themeKey: 'LIGHT',
   pageAnimation: 'slide',
   brightness: 1,

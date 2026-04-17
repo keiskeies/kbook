@@ -186,9 +186,9 @@ export default function AdminAiConfigPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* 顶部 */}
-      <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur-sm">
+      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
-          <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+          <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="text-lg font-semibold">AI 模型配置</h1>

@@ -102,7 +102,7 @@ export default function ReviewsPage() {
                     <span className="text-xs font-medium text-primary truncate">{comment.bookTitle || '查看书籍'}</span>
                   </button>
 
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{comment.content}</p>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-justify">{comment.content}</p>
 
                   {/* 互动数据 */}
                   <div className="mt-3 flex items-center gap-5 text-xs text-muted-foreground">

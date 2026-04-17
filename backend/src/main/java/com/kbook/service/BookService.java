@@ -7,13 +7,19 @@ import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -23,11 +29,25 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class BookService {
 
     private final BookRepository bookRepository;
     private final BookSearchService bookSearchService;
+    private final EmbeddingService embeddingService;
+    private final StringRedisTemplate redisTemplate;
+
+    public BookService(BookRepository bookRepository,
+                       BookSearchService bookSearchService,
+                       @Lazy EmbeddingService embeddingService,
+                       StringRedisTemplate redisTemplate) {
+        this.bookRepository = bookRepository;
+        this.bookSearchService = bookSearchService;
+        this.embeddingService = embeddingService;
+        this.redisTemplate = redisTemplate;
+    }
+
+    @Value("${kbook.cover-path:./covers}")
+    private String coverPath;
 
     /**
      * 图书入库（JPA + ES 双写）
@@ -59,6 +79,11 @@ public class BookService {
         if (updates.getDescription() != null) book.setDescription(updates.getDescription());
         if (updates.getFormatTags() != null) book.setFormatTags(updates.getFormatTags());
         if (updates.getTotalUnits() != null) book.setTotalUnits(updates.getTotalUnits());
+        if (updates.getRelevanceScores() != null) book.setRelevanceScores(updates.getRelevanceScores());
+        if (updates.getRating() != null) book.setRating(updates.getRating());
+        if (updates.getReadCount() != null) book.setReadCount(updates.getReadCount());
+        if (updates.getToc() != null) book.setToc(updates.getToc());
+        if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         Book saved = bookRepository.save(book);
         bookSearchService.indexBook(saved);
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
@@ -186,15 +211,189 @@ public class BookService {
     }
 
     /**
-     * 删除图书（JPA + ES 双删）
+     * 删除图书（全链路：JPA + ES + Qdrant向量 + Redis缓存 + 封面图片）
      */
     @Transactional
     public void deleteBook(Long id) {
-        if (!bookRepository.existsById(id)) {
-            throw new BusinessException("图书不存在");
-        }
+        Book book = bookRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("图书不存在"));
+
+        // 1. 删除封面图片文件
+        deleteCoverFile(book.getCoverUrl());
+
+        // 2. 删除 Qdrant 向量数据（元数据向量 + 内容向量）
+        embeddingService.removeBookEmbedding(id);
+        embeddingService.removeContentEmbedding(id);
+
+        // 3. 删除 JPA 数据库记录
         bookRepository.deleteById(id);
+
+        // 4. 删除 ES 索引
         bookSearchService.deleteIndex(id);
-        log.info("图书删除成功: id={}", id);
+
+        // 5. 清除相关 Redis 缓存（推荐缓存 + 榜单缓存）
+        clearBookRelatedCache();
+
+        log.info("图书删除成功(全链路): id={}, title={}", id, book.getTitle());
+    }
+
+    /**
+     * 按作者删除所有书籍（全链路：JPA + ES + Qdrant + Redis + 封面）
+     *
+     * @param author 作者名
+     * @return 删除的书籍数量
+     */
+    @Transactional
+    public int deleteBooksByAuthor(String author) {
+        List<Book> books = bookRepository.findByAuthor(author);
+        if (books.isEmpty()) {
+            return 0;
+        }
+
+        int count = 0;
+        for (Book book : books) {
+            try {
+                // 删除封面
+                deleteCoverFile(book.getCoverUrl());
+                // 删除向量
+                embeddingService.removeBookEmbedding(book.getId());
+                embeddingService.removeContentEmbedding(book.getId());
+                // 删除 JPA + ES
+                bookRepository.deleteById(book.getId());
+                bookSearchService.deleteIndex(book.getId());
+                count++;
+            } catch (Exception e) {
+                log.error("删除书籍失败: id={}, title={} - {}", book.getId(), book.getTitle(), e.getMessage());
+            }
+        }
+
+        // 清除缓存
+        clearBookRelatedCache();
+        log.info("按作者删除书籍完成: author={}, deleted={}", author, count);
+        return count;
+    }
+
+    /**
+     * 合并同名书籍：以 EPUB 为主，其他格式的关联数据迁移到 EPUB 书籍ID上，其他格式书籍删除
+     *
+     * @param title 书名
+     * @return 合并结果描述
+     */
+    @Transactional
+    public String mergeBooksByTitle(String title) {
+        List<Book> books = bookRepository.findByTitle(title);
+        if (books.size() <= 1) {
+            return "未找到同名书籍或只有一本，无需合并";
+        }
+
+        // 找到 EPUB 格式作为主书籍
+        Book mainBook = books.stream()
+                .filter(b -> "EPUB".equalsIgnoreCase(b.getFormat()))
+                .findFirst()
+                .orElse(books.get(0)); // 没有 EPUB 则取第一本
+
+        List<Book> toMerge = books.stream()
+                .filter(b -> !b.getId().equals(mainBook.getId()))
+                .toList();
+
+        // 合并数据：将其他格式的数据补到主书籍上（主书籍缺失的字段从其他格式中取）
+        for (Book other : toMerge) {
+            if (mainBook.getAuthor() == null && other.getAuthor() != null) {
+                mainBook.setAuthor(other.getAuthor());
+            }
+            if (mainBook.getDescription() == null && other.getDescription() != null) {
+                mainBook.setDescription(other.getDescription());
+            }
+            if (mainBook.getCoverUrl() == null && other.getCoverUrl() != null) {
+                mainBook.setCoverUrl(other.getCoverUrl());
+            }
+            if (mainBook.getFormatTags() == null && other.getFormatTags() != null) {
+                mainBook.setFormatTags(other.getFormatTags());
+            }
+            if (mainBook.getRelevanceScores() == null && other.getRelevanceScores() != null) {
+                mainBook.setRelevanceScores(other.getRelevanceScores());
+            }
+            if (mainBook.getRating() == null || mainBook.getRating() <= 0) {
+                if (other.getRating() != null && other.getRating() > 0) {
+                    mainBook.setRating(other.getRating());
+                }
+            }
+            if (mainBook.getToc() == null && other.getToc() != null) {
+                mainBook.setToc(other.getToc());
+            }
+            if (mainBook.getChapterSummary() == null && other.getChapterSummary() != null) {
+                mainBook.setChapterSummary(other.getChapterSummary());
+            }
+            // 合并阅读次数（取总和）
+            if (other.getReadCount() != null && other.getReadCount() > 0) {
+                mainBook.setReadCount(mainBook.getReadCount() + other.getReadCount());
+            }
+        }
+
+        // 更新主书籍（JPA + ES）
+        Book savedMain = bookRepository.save(mainBook);
+        bookSearchService.indexBook(savedMain);
+
+        // 删除被合并的其他格式书籍（全链路）
+        StringBuilder mergedInfo = new StringBuilder();
+        for (Book other : toMerge) {
+            // 不删除封面（因为主书籍可能已引用）
+            embeddingService.removeBookEmbedding(other.getId());
+            embeddingService.removeContentEmbedding(other.getId());
+            bookRepository.deleteById(other.getId());
+            bookSearchService.deleteIndex(other.getId());
+            mergedInfo.append(String.format("  合并: [id=%d] %s (%s) → [id=%d] %s (%s)\n",
+                    other.getId(), other.getTitle(), other.getFormat(),
+                    savedMain.getId(), savedMain.getTitle(), savedMain.getFormat()));
+        }
+
+        // 重新生成主书籍的向量（合并后数据已变）
+        embeddingService.removeBookEmbedding(savedMain.getId());
+        embeddingService.generateBookEmbedding(savedMain.getId());
+
+        // 清除缓存
+        clearBookRelatedCache();
+
+        String result = String.format("合并完成：主书籍 [id=%d]《%s》(%s)，合并了 %d 本其他格式书籍\n%s",
+                savedMain.getId(), savedMain.getTitle(), savedMain.getFormat(), toMerge.size(), mergedInfo);
+        log.info("合并同名书籍: title={}, mainId={}, merged={}", title, savedMain.getId(), toMerge.size());
+        return result;
+    }
+
+    /**
+     * 删除封面图片文件
+     */
+    private void deleteCoverFile(String coverUrl) {
+        if (coverUrl == null || coverUrl.isBlank()) return;
+        try {
+            // 封面URL格式：/api/books/admin/cover/filename.jpg 或 /api/books/cover/filename.jpg
+            String filename = coverUrl.substring(coverUrl.lastIndexOf('/') + 1);
+            Path imagePath = Paths.get(coverPath).resolve(filename);
+            if (Files.exists(imagePath)) {
+                Files.delete(imagePath);
+                log.debug("删除封面图片: {}", imagePath);
+            }
+        } catch (Exception e) {
+            log.warn("删除封面图片失败: coverUrl={} - {}", coverUrl, e.getMessage());
+        }
+    }
+
+    /**
+     * 清除与书籍相关的 Redis 缓存（推荐缓存 + 榜单缓存）
+     */
+    private void clearBookRelatedCache() {
+        try {
+            // 清除所有推荐缓存
+            var recommendKeys = redisTemplate.keys("kbook:recommend:*");
+            if (recommendKeys != null && !recommendKeys.isEmpty()) {
+                redisTemplate.delete(recommendKeys);
+            }
+            // 清除榜单缓存
+            redisTemplate.delete("kbook:rank:read");
+            redisTemplate.delete("kbook:rank:rating");
+            redisTemplate.delete("kbook:rank:new");
+        } catch (Exception e) {
+            log.debug("清除缓存失败: {}", e.getMessage());
+        }
     }
 }

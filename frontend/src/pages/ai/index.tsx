@@ -1,16 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Send, Plus, Trash2, MessageSquare, Loader2, Bot, User } from 'lucide-react'
-import { streamChat, createSession, getHistory, getSessions, deleteSession } from '@/api/ai'
+import { streamChat, createSession, getHistory, getSessions, deleteSession, getHotPrompts } from '@/api/ai'
 import type { AiMessage } from '@/types/ai'
-
-/** 快捷提问 */
-const QUICK_PROMPTS = [
-  '推荐一本科幻小说',
-  '最近有什么热门书？',
-  '阅读排行榜 TOP3',
-  '评分最高的书有哪些？',
-]
 
 /** 简易 Markdown 渲染 — 支持 [BOOK:id=X]《书名》 图书链接 */
 function renderMarkdown(text: string) {
@@ -39,12 +31,14 @@ export default function AIPage() {
   const [loading, setLoading] = useState(false)
   const [showSidebar, setShowSidebar] = useState(false)
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({})
+  const [hotPrompts, setHotPrompts] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  // 加载会话列表 & 事件委托处理图书链接点击
+  // 加载会话列表 & 热门问题 & 事件委托处理图书链接点击
   useEffect(() => {
     loadSessions()
+    loadHotPrompts()
     const handleClick = (e: MouseEvent) => {
       const target = (e.target as HTMLElement).closest('a[data-kbook-nav]')
       if (target) {
@@ -66,6 +60,16 @@ export default function AIPage() {
     try {
       const data = await getSessions()
       setSessions(data as unknown as string[])
+    } catch { /* ignore */ }
+  }
+
+  const loadHotPrompts = async () => {
+    try {
+      const res = await getHotPrompts(4)
+      const data = (res as any)?.data || (res as any)
+      if (Array.isArray(data) && data.length > 0) {
+        setHotPrompts(data)
+      }
     } catch { /* ignore */ }
   }
 
@@ -220,7 +224,7 @@ export default function AIPage() {
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-background">
       {/* 标题栏 - 固定在顶部 */}
-      <header className="flex shrink-0 items-center border-b bg-background px-4 py-3">
+      <header className="flex shrink-0 items-center border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
         <button
           onClick={() => setShowSidebar(!showSidebar)}
           className="mr-3 flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
@@ -233,7 +237,7 @@ export default function AIPage() {
         </div>
         <button
           onClick={handleNewChat}
-          className="ml-2 flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
+          className="ml-2 flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted"
         >
           <Plus className="h-4 w-4" />
         </button>
@@ -304,7 +308,7 @@ export default function AIPage() {
                 推荐好书，解答疑惑，陪你阅读
               </p>
               <div className="flex flex-wrap justify-center gap-2">
-                {QUICK_PROMPTS.map((hint) => (
+                {hotPrompts.map((hint) => (
                   <button
                     key={hint}
                     className="rounded-full border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
@@ -348,7 +352,7 @@ export default function AIPage() {
                       <p>{msg.content}</p>
                     ) : (
                       <div
-                        className="prose-sm"
+                        className="prose-sm text-justify"
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
                       />
                     )}

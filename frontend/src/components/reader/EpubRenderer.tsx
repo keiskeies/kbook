@@ -11,7 +11,7 @@ interface EpubRendererProps {
 /**
  * EPUB 渲染器
  * 使用 epubjs 在 iframe 中渲染 EPUB 内容
- * 触摸/点击事件由 useEpubReader 在 iframe 内部绑定
+ * 边距通过 iframe 内部 CSS 控制（epubjs continuous manager 不尊重外层 padding）
  */
 export default function EpubRenderer({
   currentChapterIndex, containerRef,
@@ -33,8 +33,8 @@ export default function EpubRenderer({
         style={{
           overflow: 'auto',
           position: 'relative',
-          touchAction: 'pan-y', // 允许垂直滚动，但保留点击事件
-          WebkitOverflowScrolling: 'touch', // iOS 平滑滚动
+          touchAction: 'pan-y',
+          WebkitOverflowScrolling: 'touch',
         }}
       />
     </div>

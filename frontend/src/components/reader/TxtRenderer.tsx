@@ -45,11 +45,13 @@ export default function TxtRenderer({
       }}
     >
       <div
-        className="mx-auto max-w-2xl px-4 py-6"
+        className="mx-auto pt-2 pb-6"
         style={{
           fontFamily: settings.fontFamily,
           fontSize: `${settings.fontSize}px`,
           lineHeight: settings.lineHeight,
+          paddingLeft: `${settings.pageMargin}px`,
+          paddingRight: `${settings.pageMargin}px`,
           WebkitUserSelect: 'none',
           userSelect: 'none',
         }}

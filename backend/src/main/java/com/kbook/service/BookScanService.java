@@ -17,7 +17,7 @@ import java.util.*;
 import java.util.stream.Stream;
 
 /**
- * 图书扫描服务 — 扫描本地目录，自动解析入库（幂等）
+ * 图书扫描服务 — 扫描本地目录，自动解析入库（幂等），SSE 流式推送进度
  */
 @Slf4j
 @Service
@@ -43,10 +43,10 @@ public class BookScanService {
     private boolean forceUpdate;
 
     /** 扫描进行中标记，防止重复扫描 */
-    private boolean scanningInProgress = false;
+    private volatile boolean scanningInProgress = false;
 
     /** SSE emitter 是否已完成 */
-    private boolean emitterCompleted = false;
+    private volatile boolean emitterCompleted = false;
 
     /** 当前扫描进度 */
     private int scanTotal = 0;
@@ -55,21 +55,18 @@ public class BookScanService {
     private int scanSkipped = 0;
     private int scanFailed = 0;
     private int scanCompleted = 0;
-    private String scanCurrentFile = "";
+    private volatile String scanCurrentFile = "";
     private final List<Map<String, String>> scanErrors = new ArrayList<>();
 
     /** 单文件处理结果 */
     enum ScanResultType { ADDED, UPDATED, SKIPPED }
 
-    /**
-     * 预编译文件扩展名，避免重复 toLowerCase
-     */
     private static final String EXT_EPUB = ".epub";
     private static final String EXT_PDF = ".pdf";
     private static final String EXT_TXT = ".txt";
-    
+
     /**
-     * SSE 流式扫描 — 同步顺序处理，定期推送进度
+     * SSE 流式扫描 — 逐文件处理，实时推送进度
      * @return SseEmitter
      */
     public SseEmitter scanAllWithProgress() {
@@ -118,7 +115,7 @@ public class BookScanService {
     }
 
     private void doScanWithProgress(SseEmitter emitter) throws IOException {
-        log.info("开始扫描图书目录... (同步顺序处理)");
+        log.info("开始扫描图书目录...");
         long startTime = System.currentTimeMillis();
 
         // 先收集所有待处理文件
@@ -136,7 +133,6 @@ public class BookScanService {
                 log.warn("图书目录不存在: {}", dir);
                 continue;
             }
-            // 使用预编译的扩展名，避免重复 toLowerCase
             String extension = switch (format) {
                 case "EPUB" -> EXT_EPUB;
                 case "PDF" -> EXT_PDF;
@@ -155,12 +151,11 @@ public class BookScanService {
         scanTotal = allFiles.size();
         scanCurrentFile = "准备扫描...";
 
-        // 同步顺序处理每个文件
+        // 逐文件处理，每处理完一个推送一次进度
         for (ScanItem item : allFiles) {
             if (emitterCompleted) break;
 
             String fileName = item.path.getFileName().toString();
-            // 优化：使用 lastIndexOf 避免创建中间字符串
             int dotIndex = fileName.lastIndexOf('.');
             String title = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
             scanCurrentFile = title + "." + item.format.toLowerCase();
@@ -182,16 +177,14 @@ public class BookScanService {
 
             scanCompleted++;
 
-            // 每处理完10个文件或最后一个才推送进度，减少 SSE 开销
-            if (scanCompleted % 10 == 0 || scanCompleted == scanTotal) {
-                sendSse(emitter, SseEmitter.event().name("progress").data(toJson(
-                        Map.of("current", scanCompleted, "total", scanTotal,
-                               "added", scanAdded, "updated", scanUpdated,
-                               "skipped", scanSkipped, "failed", scanFailed,
-                               "errors", new ArrayList<>(scanErrors),
-                               "currentFile", scanCurrentFile,
-                               "status", "scanning"))));
-            }
+            // 推送进度
+            sendSse(emitter, SseEmitter.event().name("progress").data(toJson(
+                    Map.of("current", scanCompleted, "total", scanTotal,
+                           "added", scanAdded, "updated", scanUpdated,
+                           "skipped", scanSkipped, "failed", scanFailed,
+                           "errors", new ArrayList<>(scanErrors),
+                           "currentFile", scanCurrentFile,
+                           "status", "scanning"))));
         }
 
         long elapsed = System.currentTimeMillis() - startTime;
@@ -314,7 +307,6 @@ public class BookScanService {
 
     /**
      * 从文件名中提取标题
-     * 优化：直接使用 lastIndexOf，避免 contains 调用
      */
     private String extractTitleFromFilename(String fileName) {
         int dotIndex = fileName.lastIndexOf('.');
@@ -322,7 +314,7 @@ public class BookScanService {
     }
 
     /**
-     * 同步扫描（保留兼容）
+     * 同步扫描（保留兼容，单线程）
      */
     public Map<String, Integer> scanAll() {
         log.info("开始同步扫描图书目录...");
@@ -344,7 +336,6 @@ public class BookScanService {
                 continue;
             }
 
-            // 使用预编译的扩展名
             String extension = switch (format) {
                 case "EPUB" -> EXT_EPUB;
                 case "PDF" -> EXT_PDF;
@@ -378,11 +369,9 @@ public class BookScanService {
                                 bookParserService.generateContentEmbedding(book.getId());
                                 updated++;
                             } else {
-                                // 补生成缺失的 AI 数据（标签/评分/相关度）
                                 if (needsAiDataGeneration(book)) {
                                     bookParserService.generateAllAiData(book.getId());
                                 }
-                                // 补提取缺失的目录/章节摘要/作者/简介
                                 boolean needsMetadata = (book.getToc() == null || book.getToc().isBlank())
                                         || (book.getChapterSummary() == null || book.getChapterSummary().isBlank())
                                         || (book.getAuthor() == null || book.getAuthor().isBlank())
@@ -391,7 +380,6 @@ public class BookScanService {
                                     bookParserService.parseAndFill(book, filePath);
                                     bookService.updateBook(book.getId(), book);
                                 }
-                                // 补生成缺失的向量数据
                                 if (!embeddingService.hasBookEmbedding(book.getId())) {
                                     bookParserService.generateBookEmbedding(book.getId());
                                 }
@@ -403,7 +391,6 @@ public class BookScanService {
                             continue;
                         }
 
-                        // 处理新图书
                         Book newBook = Book.builder()
                                 .title(title)
                                 .format(format)

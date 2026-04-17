@@ -1,56 +1,81 @@
-import request from '@/utils/request'
 import { STORAGE_KEYS } from '@/constants'
-import type { AiCreateSessionResponse, AiChatResponse, AiChatRequest } from '@/types/ai'
-import type { AiConversation } from '@/types/ai'
+import type { AiChatRequest, AiChatResponse, AiCreateSessionResponse, AiConversation } from '@/types/ai'
 
-/** 创建新会话 */
-export function createSession() {
-  return request.post<AiCreateSessionResponse>('/ai/sessions')
+const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
+
+/** 创建管理员 AI 会话 */
+export async function createAdminSession(): Promise<AiCreateSessionResponse> {
+  const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
+  const res = await fetch(`${baseUrl}/admin/ai/sessions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+  })
+  const json = await res.json()
+  return json.data
 }
 
-/** 非流式对话 */
-export function chat(data: AiChatRequest) {
-  return request.post<AiChatResponse>('/ai/chat', data)
+/** 管理员非流式对话 */
+export async function adminChat(data: AiChatRequest): Promise<AiChatResponse> {
+  const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
+  const res = await fetch(`${baseUrl}/admin/ai/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token ? `Bearer ${token}` : '',
+    },
+    body: JSON.stringify(data),
+  })
+  const json = await res.json()
+  return json.data
 }
 
-/** 获取对话历史 */
-export function getHistory(sessionId: string) {
-  return request.get<AiConversation[]>('/ai/history', { params: { sessionId } })
+/** 获取管理员对话历史 */
+export async function getAdminHistory(sessionId: string): Promise<AiConversation[]> {
+  const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
+  const res = await fetch(`${baseUrl}/admin/ai/history?sessionId=${encodeURIComponent(sessionId)}`, {
+    headers: { 'Authorization': token ? `Bearer ${token}` : '' },
+  })
+  const json = await res.json()
+  return json.data || []
 }
 
-/** 获取会话列表 */
-export function getSessions() {
-  return request.get<string[]>('/ai/sessions')
+/** 获取管理员会话列表 */
+export async function getAdminSessions(): Promise<string[]> {
+  const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
+  const res = await fetch(`${baseUrl}/admin/ai/sessions`, {
+    headers: { 'Authorization': token ? `Bearer ${token}` : '' },
+  })
+  const json = await res.json()
+  return json.data || []
 }
 
-/** 删除会话 */
-export function deleteSession(sessionId: string) {
-  return request.delete(`/ai/sessions/${sessionId}`)
-}
-
-/** 获取热门提问（基于全站用户提问统计） */
-export function getHotPrompts(count = 4) {
-  return request.get<string[]>('/ai/hot-prompts', { params: { count } })
+/** 删除管理员会话 */
+export async function deleteAdminSession(sessionId: string): Promise<void> {
+  const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
+  await fetch(`${baseUrl}/admin/ai/sessions/${sessionId}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': token ? `Bearer ${token}` : '' },
+  })
 }
 
 /**
- * 流式对话 — SSE
- * 支持 401 自动刷新 Token 后重试
- * @returns 返回清理函数，用于中断连接
+ * 管理员流式对话 — SSE
+ * @returns AbortController 用于中断请求
  */
-export function streamChat(
+export function streamAdminChat(
   data: AiChatRequest,
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (error: Error) => void,
 ): AbortController {
   const controller = new AbortController()
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
-
   const getToken = () => localStorage.getItem(STORAGE_KEYS.TOKEN)
 
   const doFetch = (token: string, isRetry = false) => {
-    fetch(`${baseUrl}/ai/chat/stream`, {
+    fetch(`${baseUrl}/admin/ai/chat/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -60,14 +85,12 @@ export function streamChat(
       signal: controller.signal,
     })
       .then(async (response) => {
-        // 401 时尝试刷新 Token 后重试一次
         if (response.status === 401 && !isRetry) {
           const refreshed = await tryRefreshToken()
           if (refreshed) {
             doFetch(refreshed, true)
             return
           }
-          // 刷新失败，清理认证信息并跳转登录
           clearAuthAndRedirect()
           onError(new Error('登录已过期，请重新登录'))
           return
@@ -127,19 +150,17 @@ export function streamChat(
   return controller
 }
 
-/** 尝试刷新 Token，返回新 token 或 null */
+// ==================== 内部辅助 ====================
+
 async function tryRefreshToken(): Promise<string | null> {
   const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)
   if (!refreshToken) return null
-
   try {
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
     const { data: resp } = await (await import('axios')).default.post(`${baseUrl}/auth/refresh`, {
       refreshToken,
     })
     const newToken = resp.data.token
     const newRefreshToken = resp.data.refreshToken
-
     localStorage.setItem(STORAGE_KEYS.TOKEN, newToken)
     localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken)
     return newToken

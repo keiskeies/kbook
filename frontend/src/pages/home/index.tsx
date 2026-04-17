@@ -187,9 +187,9 @@ export default function HomePage() {
   const lastReadBook = d?.recentBooks?.[0]
 
   return (
-    <div className="page-enter pb-2 overflow-x-hidden">
-      {/* 顶部品牌栏 - sticky 粘性定位，滚动时固定在顶部 */}
-      <div className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm pt-safe-top pb-2">
+    <div className="page-enter pb-2">
+      {/* 顶部品牌栏 + 搜索框 - fixed 固定在顶部 */}
+      <div className="fixed inset-x-0 top-0 z-50 bg-background/95 backdrop-blur-xl pt-safe-top pb-2">
         <header className="flex items-center justify-between py-3 px-4">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
@@ -229,7 +229,8 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="px-4 space-y-6">
+      {/* 内容区域 - 留出顶部固定头部的高度 */}
+      <div className="pt-[140px] px-4 space-y-6">
         {/* 0. 继续上次阅读 */}
         {lastReadBook && (
           <section>

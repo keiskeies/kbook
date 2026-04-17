@@ -71,7 +71,7 @@ function CommentItem({
             </span>
             <span className="text-[10px] text-muted-foreground">{formatRelativeTime(comment.createdAt)}</span>
           </div>
-          <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap">{comment.content}</p>
+          <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap text-justify">{comment.content}</p>
 
           {/* 操作栏 */}
           <div className="mt-2 flex items-center gap-4">

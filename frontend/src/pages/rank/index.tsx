@@ -45,7 +45,7 @@ export default function RankPage() {
   return (
     <div className="page-enter">
       {/* 顶部头部 + Tab - 固定在顶部 */}
-      <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-primary/8 via-primary/3 to-transparent pt-safe-top backdrop-blur-sm border-b border-border/30">
+      <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-primary/8 via-primary/3 to-transparent pt-safe-top backdrop-blur-xl border-b border-border/30">
         <div className="px-4">
           <header className="py-4">
             <h1 className="text-xl font-bold">榜单</h1>
