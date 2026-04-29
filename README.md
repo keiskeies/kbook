@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="book-open.svg" alt="KBook" width="64" height="64" />
+  <img src="book-open.svg" alt="KBook" width="80" height="80" />
 </p>
 
 <h1 align="center">KBook</h1>
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  智能问答 · 向量检索 · 个性推荐
+  AI 原生阅读平台 · 让 AI 真正「读过」每一本书，再陪你聊透每一个细节
 </p>
 
 <p align="center">
@@ -18,11 +18,33 @@
   <img src="https://img.shields.io/badge/LangChain4j-AI-orange" alt="LangChain4j" />
   <img src="https://img.shields.io/badge/Qdrant-Vector-purple" alt="Qdrant" />
   <img src="https://img.shields.io/badge/PWA-Ready-blueviolet" alt="PWA" />
+  <a href="https://github.com/keiskeies/kbook/stargazers">
+    <img src="https://img.shields.io/github/stars/keiskeies/kbook?style=social" alt="Stars" />
+  </a>
 </p>
 
 <p align="center">
   <a href="./README.md">中文</a> · <a href="./README_EN.md">English</a>
 </p>
+
+<p align="center">
+  <a href="#-quick-start"><strong>快速开始</strong></a> · <a href="#-preview">预览</a> · <a href="#-features">功能</a> · <a href="#-how-ai-book-qa-works">AI 问答原理</a>
+</p>
+
+---
+
+## 为什么选择 KBook？
+
+> **传统阅读应用的尽头是「翻完最后一页」。**
+> **KBook 的起点，是你合上书后想说的第一句话。**
+
+你是否也经历过这些时刻——
+
+- 读完一本好书，满脑子想法却无处讨论？
+- 书中某个观点让你困惑，翻遍搜索引擎也找不到针对这本书的深度解读？
+- 被推荐了一本「人生必读」，却发现和你的生活阶段毫无共鸣？
+
+KBook 重新定义了人与书的关系：**不是读完即走，而是聊到通透。**
 
 ---
 
@@ -41,6 +63,18 @@ KBook 基于真实人生状态（年龄 / 婚姻 / 育儿 / MBTI）构建推荐�
 
 ---
 
+### 🆚 与传统阅读应用的区别
+
+| | 传统阅读 App | KBook |
+|---|---|---|
+| **阅读后** | 合上书，阅读结束 | 打开 AI 对话，阅读才刚开始 |
+| **搜索** | 只能搜书名、作者 | 全书内容向量检索，一句话定位段落 |
+| **推荐** | 热门榜单 + 标签筛选 | 基于人生状态（年龄/婚姻/MBTI）的精准推荐 |
+| **AI** | 摘要生成、语音朗读 | RAG 问答、苏格拉底式对谈、跨书知识关联 |
+| **理解深度** | 依赖读者自身 | AI 陪你追问，层层深入直到真正理解 |
+
+---
+
 ### AI 图书问答技术实现
 
 - 🔍 **RAG 精准检索** — 全书内容自动分块、向量化存入 Qdrant，提问时毫秒级召回最相关的原文片段
@@ -51,7 +85,7 @@ KBook 基于真实人生状态（年龄 / 婚姻 / 育儿 / MBTI）构建推荐�
 
 ---
 
-## 预览
+## 📸 预览
 
 <table>
   <tr>
@@ -62,13 +96,13 @@ KBook 基于真实人生状态（年龄 / 婚姻 / 育儿 / MBTI）构建推荐�
   <tr>
     <td><img src="./doc/detail.png" alt="图书详情 & AI 问答" width="240" /></td>
     <td><img src="./doc/recome.png" alt="个性推荐" width="240" /></td>
-    <td><img src="./doc/self.png" alt="个人中心" width="240" /></td>
+    <td><img src="./doc/self.png" alt="个人画像" width="240" /></td>
   </tr>
 </table>
 
 ---
 
-## Features
+## 🎯 Features
 
 ### 🤖 AI 智能引擎
 
@@ -107,7 +141,7 @@ KBook 基于真实人生状态（年龄 / 婚姻 / 育儿 / MBTI）构建推荐�
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 kbook/
@@ -158,7 +192,7 @@ kbook/
 
 ---
 
-## Tech Stack
+## 🛠️ Tech Stack
 
 ### Frontend
 
@@ -225,7 +259,7 @@ kbook/
 
 ---
 
-## Security
+## 🔒 Security
 
 - **JWT 无状态认证** — Access Token 2h + Refresh Token 7d，401 自动刷新
 - **验证码** — 点击式图片验证码 + 邮箱验证码双校验，60s 频率限制 + 10次/天上限 + 5min TTL
@@ -236,29 +270,7 @@ kbook/
 
 ---
 
-## Environment Variables
-
-所有敏感配置通过环境变量注入（`.env` 文件或 Docker Compose）：
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `MYSQL_HOST/PORT/DB/USER/PASSWORD` | localhost:3306/kbook-dev | MySQL |
-| `REDIS_HOST/PORT/PASSWORD/DB` | localhost:6379/123456/4 | Redis |
-| `ES_URIS/USERNAME/PASSWORD` | http://localhost:9201 | Elasticsearch |
-| `QDRANT_HOST/PORT/API_KEY` | localhost:6334 | Qdrant 向量数据库 |
-| `JWT_SECRET` | test | JWT 签名密钥（**生产环境务必更换**） |
-| `AI_BASE_URL/AI_MODEL` | http://localhost:11434 / gemma4:e2b | 默认 AI 模型 |
-| `AI_EMBEDDING_MODEL` | qwen3-embedding:0.6b | Embedding 模型 |
-| `AI_VISION_MODEL/AI_VISION_TIMEOUT` | — / 600s | PDF OCR 视觉模型 |
-| `MAIL_USERNAME/PASSWORD` | — | QQ 邮箱 SMTP |
-| `BOOK_PATH_EPUB/PDF/TXT` | G:/图书/epub\|pdf\|txt | 图书文件路径 |
-| `BOOK_COVER_PATH` | G:/图书/covers | 封面图片路径 |
-| `KBOOK_ADMIN_EMAIL/PASSWORD` | admin@kbook.com / admin123456 | 初始管理员 |
-| `NOTIFICATION_BASE_URL` | https://book.keiskei.top | 站点域名 |
-
----
-
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
@@ -289,7 +301,7 @@ Docker Compose 包含：MySQL, Redis, Elasticsearch, Qdrant, Spring Boot 后端,
 
 ---
 
-## API Overview
+## 📡 API Overview
 
 | 模块 | 前缀 | 认证 | 关键端点 |
 |------|------|------|----------|
@@ -311,6 +323,36 @@ Docker Compose 包含：MySQL, Redis, Elasticsearch, Qdrant, Spring Boot 后端,
 | AI 配置 | `/api/admin/ai-provider` | ADMIN | 多模型 CRUD、启用 / 禁用、连接测试 |
 | 验证码 | `/api/captcha` | Public | 点击式验证码生成 / 校验 |
 | 健康检查 | `/api/health` | Public | 服务状态 |
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] AI 书评生成 — 读完一本书，AI 基于你的阅读进度和标注自动起草书评
+- [ ] 跨书对话 — 同时打开书架上的多本书，让 AI 发现跨书的隐藏关联
+- [ ] 阅读数据可视化 — 阅读时长热力图、标签云、知识图谱
+- [ ] 多语言支持 — 界面与 AI 问答的多语言适配
+- [ ] 插件系统 — 自定义 AI 工具、阅读器主题、推荐策略
+
+---
+
+## 🤝 Contributing
+
+欢迎贡献！如果你有想法或发现问题：
+
+1. Fork 本仓库
+2. 创建 Feature 分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add some amazing feature'`)
+4. 推送分支 (`git push origin feature/amazing-feature`)
+5. 提交 Pull Request
+
+---
+
+## ⭐ Star History
+
+如果这个项目对你有帮助，欢迎点个 Star ⭐
+
+[![Star History Chart](https://api.star-history.com/svg?repos=keiskeies/kbook&type=Date)](https://star-history.com/#keiskeies/kbook&Date)
 
 ---
 

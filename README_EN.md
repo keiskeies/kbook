@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="book-open.svg" alt="KBook" width="64" height="64" />
+  <img src="book-open.svg" alt="KBook" width="80" height="80" />
 </p>
 
 <h1 align="center">KBook</h1>
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Intelligent Q&A · Vector Search · Personalized Recommendations
+  AI-Native Reading Platform · AI truly "reads" every book before discussing every detail with you
 </p>
 
 <p align="center">
@@ -18,11 +18,33 @@
   <img src="https://img.shields.io/badge/LangChain4j-AI-orange" alt="LangChain4j" />
   <img src="https://img.shields.io/badge/Qdrant-Vector-purple" alt="Qdrant" />
   <img src="https://img.shields.io/badge/PWA-Ready-blueviolet" alt="PWA" />
+  <a href="https://github.com/keiskeies/kbook/stargazers">
+    <img src="https://img.shields.io/github/stars/keiskeies/kbook?style=social" alt="Stars" />
+  </a>
 </p>
 
 <p align="center">
   <a href="./README.md">中文</a> · <a href="./README_EN.md">English</a>
 </p>
+
+<p align="center">
+  <a href="#-quick-start"><strong>Quick Start</strong></a> · <a href="#-preview">Preview</a> · <a href="#-features">Features</a> · <a href="#how-ai-book-qa-works">How AI Q&A Works</a>
+</p>
+
+---
+
+## Why KBook?
+
+> **Traditional reading apps end at "the last page."**
+> **KBook begins with the first thing you want to say after closing the book.**
+
+Have you ever experienced these moments —
+
+- Finished a great book, mind buzzing with thoughts, but nowhere to discuss them?
+- A passage confused you, but search engines can't find book-specific deep analysis?
+- Got recommended a "must-read" that completely misses your life stage?
+
+KBook redefines the relationship between reader and book: **not read-and-leave, but talk-it-through.**
 
 ---
 
@@ -41,6 +63,18 @@ KBook builds its recommendation engine on real life states — age, marital stat
 
 ---
 
+### 🆚 KBook vs Traditional Reading Apps
+
+| | Traditional Apps | KBook |
+|---|---|---|
+| **After reading** | Close the book, reading ends | Open AI dialogue, reading begins |
+| **Search** | Book title & author only | Full-content vector search, locate passages with one sentence |
+| **Recommendations** | Bestseller lists + tag filters | Life-stage-based precision (age / marriage / MBTI) |
+| **AI** | Summaries, text-to-speech | RAG Q&A, Socratic dialogue, cross-book knowledge linking |
+| **Depth** | Depends on reader alone | AI pushes you deeper until you truly understand |
+
+---
+
 ### AI Book Q&A — How It Works
 
 - 🔍 **RAG Precision Retrieval** — Full book content is automatically chunked, vectorized, and stored in Qdrant. Questions trigger millisecond-level recall of the most relevant original passages.
@@ -51,7 +85,7 @@ KBook builds its recommendation engine on real life states — age, marital stat
 
 ---
 
-## Preview
+## 📸 Preview
 
 <table>
   <tr>
@@ -62,13 +96,13 @@ KBook builds its recommendation engine on real life states — age, marital stat
   <tr>
     <td><img src="./doc/detail.png" alt="Book Detail & AI Q&A" width="240" /></td>
     <td><img src="./doc/recome.png" alt="Recommendations" width="240" /></td>
-    <td><img src="./doc/self.png" alt="Profile" width="240" /></td>
+    <td><img src="./doc/self.png" alt="User Portrait" width="240" /></td>
   </tr>
 </table>
 
 ---
 
-## Features
+## 🎯 Features
 
 ### 🤖 AI Intelligence
 
@@ -107,7 +141,7 @@ KBook builds its recommendation engine on real life states — age, marital stat
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 kbook/
@@ -158,7 +192,7 @@ kbook/
 
 ---
 
-## Tech Stack
+## 🛠️ Tech Stack
 
 ### Frontend
 
@@ -225,7 +259,7 @@ kbook/
 
 ---
 
-## Security
+## 🔒 Security
 
 - **JWT Stateless Auth** — Access Token 2h + Refresh Token 7d, 401 auto-refresh
 - **Captcha** — Click-to-verify image captcha + email code dual verification, 60s rate limit + 10/day cap + 5min TTL
@@ -236,29 +270,7 @@ kbook/
 
 ---
 
-## Environment Variables
-
-All sensitive configs are injected via environment variables (`.env` file or Docker Compose):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MYSQL_HOST/PORT/DB/USER/PASSWORD` | localhost:3306/kbook-dev | MySQL |
-| `REDIS_HOST/PORT/PASSWORD/DB` | localhost:6379/123456/4 | Redis |
-| `ES_URIS/USERNAME/PASSWORD` | http://localhost:9201 | Elasticsearch |
-| `QDRANT_HOST/PORT/API_KEY` | localhost:6334 | Qdrant Vector DB |
-| `JWT_SECRET` | test | JWT Signing Key (**change in production**) |
-| `AI_BASE_URL/AI_MODEL` | http://localhost:11434 / gemma4:e2b | Default AI Model |
-| `AI_EMBEDDING_MODEL` | qwen3-embedding:0.6b | Embedding Model |
-| `AI_VISION_MODEL/AI_VISION_TIMEOUT` | — / 600s | PDF OCR Vision Model |
-| `MAIL_USERNAME/PASSWORD` | — | QQ Mail SMTP |
-| `BOOK_PATH_EPUB/PDF/TXT` | G:/图书/epub\|pdf\|txt | Book File Paths |
-| `BOOK_COVER_PATH` | G:/图书/covers | Cover Image Path |
-| `KBOOK_ADMIN_EMAIL/PASSWORD` | admin@kbook.com / admin123456 | Initial Admin |
-| `NOTIFICATION_BASE_URL` | https://book.keiskei.top | Site Domain |
-
----
-
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
@@ -289,7 +301,7 @@ Docker Compose includes: MySQL, Redis, Elasticsearch, Qdrant, Spring Boot Backen
 
 ---
 
-## API Overview
+## 📡 API Overview
 
 | Module | Prefix | Auth | Key Endpoints |
 |--------|--------|------|---------------|
@@ -311,6 +323,36 @@ Docker Compose includes: MySQL, Redis, Elasticsearch, Qdrant, Spring Boot Backen
 | AI Config | `/api/admin/ai-provider` | ADMIN | Multi-Model CRUD, Enable / Disable, Connection Test |
 | Captcha | `/api/captcha` | Public | Click-to-Verify Generation / Validation |
 | Health | `/api/health` | Public | Service Status |
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] AI Book Review Generation — Auto-draft reviews based on reading progress and annotations
+- [ ] Cross-Book Dialogue — Open multiple books simultaneously, let AI discover hidden cross-book connections
+- [ ] Reading Data Visualization — Heatmaps, tag clouds, knowledge graphs
+- [ ] Multi-Language Support — Interface and AI Q&A multi-language adaptation
+- [ ] Plugin System — Custom AI tools, reader themes, recommendation strategies
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! If you have ideas or find issues:
+
+1. Fork this repository
+2. Create a Feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## ⭐ Star History
+
+If this project helps you, consider giving it a Star ⭐
+
+[![Star History Chart](https://api.star-history.com/svg?repos=keiskeies/kbook&type=Date)](https://star-history.com/#keiskeies/kbook&Date)
 
 ---
 
