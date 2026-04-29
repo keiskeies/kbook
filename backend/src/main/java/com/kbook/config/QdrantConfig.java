@@ -31,7 +31,7 @@ public class QdrantConfig {
         log.info("初始化 Qdrant 客户端: {}:{}", host, port);
 
         var builder = QdrantGrpcClient.newBuilder(host, port, false)
-                .withTimeout(Duration.ofSeconds(30));
+                .withTimeout(Duration.ofSeconds(60));
 
         if (apiKey != null && !apiKey.isBlank()) {
             builder.withApiKey(apiKey);

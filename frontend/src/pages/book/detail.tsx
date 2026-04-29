@@ -247,10 +247,12 @@ export default function BookDetailPage() {
             {inShelf ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
             {inShelf ? '已在书架' : '加入书架'}
           </button>
-          <button onClick={() => setShowBookChat(true)} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-accent text-sm font-semibold text-accent-foreground transition-all active:scale-[0.97]">
-            <Sparkles className="h-4 w-4" />
-            AI 问答
-          </button>
+          {book.contentEmbedded && (
+            <button onClick={() => setShowBookChat(true)} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-accent text-sm font-semibold text-accent-foreground transition-all active:scale-[0.97]">
+              <Sparkles className="h-4 w-4" />
+              AI 问答
+            </button>
+          )}
           <button onClick={() => navigate(`/reader/${book.id}`)} className="flex h-11 flex-[2] items-center justify-center gap-2 rounded-2xl bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 active:scale-[0.97] transition-transform">
             <BookOpen className="h-4 w-4" />
             {progress > 0 ? '继续阅读' : '开始阅读'}

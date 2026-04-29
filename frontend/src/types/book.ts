@@ -12,6 +12,7 @@ export interface Book {
   totalUnits: number | null
   readCount: number
   rating: number
+  contentEmbedded: boolean | null
   createdAt: string
 }
 

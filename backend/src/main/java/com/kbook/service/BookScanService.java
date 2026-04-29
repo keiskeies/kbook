@@ -1,6 +1,7 @@
 package com.kbook.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.common.util.ScanStepTimer;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +49,15 @@ public class BookScanService {
     /** SSE emitter 是否已完成 */
     private volatile boolean emitterCompleted = false;
 
+    /** 内容向量存储的最低评分阈值（低于此值的书籍不存储内容向量到 Qdrant） */
+    @Value("${kbook.scan.content-embed-min-rating:4.8}")
+    private double contentEmbedMinRating;
+
+    /** 步骤计时器 — 统计各步骤平均耗时 */
+    private final ScanStepTimer stepTimer = new ScanStepTimer(
+            "文件解析", "数据库保存", "封面处理", "AI数据生成", "内容向量生成"
+    );
+
     /** 当前扫描进度 */
     private int scanTotal = 0;
     private int scanAdded = 0;
@@ -67,9 +77,10 @@ public class BookScanService {
 
     /**
      * SSE 流式扫描 — 逐文件处理，实时推送进度
+     * @param skipBeforeId 跳过 ID 小于此值的已有图书（用于断点续扫）
      * @return SseEmitter
      */
-    public SseEmitter scanAllWithProgress() {
+    public SseEmitter scanAllWithProgress(Long skipBeforeId) {
         // 防止重复扫描
         if (scanningInProgress) {
             SseEmitter emitter = new SseEmitter(0L);
@@ -91,7 +102,7 @@ public class BookScanService {
         emitter.onError(e -> emitterCompleted = true);
 
         try {
-            doScanWithProgress(emitter);
+            doScanWithProgress(emitter, skipBeforeId);
         } catch (Exception e) {
             log.error("扫描异常", e);
             sendSse(emitter, SseEmitter.event().name("error").data(e.getMessage() != null ? e.getMessage() : "扫描异常"));
@@ -112,10 +123,11 @@ public class BookScanService {
         scanCompleted = 0;
         scanCurrentFile = "";
         scanErrors.clear();
+        stepTimer.reset();
     }
 
-    private void doScanWithProgress(SseEmitter emitter) throws IOException {
-        log.info("开始扫描图书目录...");
+    private void doScanWithProgress(SseEmitter emitter, Long skipBeforeId) throws IOException {
+        log.info("开始扫描图书目录... (skipBeforeId={})", skipBeforeId);
         long startTime = System.currentTimeMillis();
 
         // 先收集所有待处理文件
@@ -161,7 +173,7 @@ public class BookScanService {
             scanCurrentFile = title + "." + item.format.toLowerCase();
 
             try {
-                ScanResultType result = processSingleFile(item);
+                ScanResultType result = processSingleFile(item, skipBeforeId);
                 switch (result) {
                     case ADDED -> scanAdded++;
                     case UPDATED -> scanUpdated++;
@@ -176,6 +188,9 @@ public class BookScanService {
             }
 
             scanCompleted++;
+
+            // 打印各步骤平均耗时
+            stepTimer.logAverages();
 
             // 推送进度
             sendSse(emitter, SseEmitter.event().name("progress").data(toJson(
@@ -203,7 +218,7 @@ public class BookScanService {
     /**
      * 处理单个文件，返回结果类型
      */
-    private ScanResultType processSingleFile(ScanItem item) throws Exception {
+    private ScanResultType processSingleFile(ScanItem item, Long skipBeforeId) throws Exception {
         Path filePath = item.path;
         String format = item.format;
         String fileName = filePath.getFileName().toString();
@@ -213,7 +228,13 @@ public class BookScanService {
         Optional<Book> existing = bookRepository.findByFileUrl(fileUrl);
 
         if (existing.isPresent()) {
-            return handleExistingBook(existing.get(), filePath, title);
+            Book book = existing.get();
+            // 跳过 ID 小于指定值的已有图书（断点续扫）
+            if (skipBeforeId != null && book.getId() < skipBeforeId) {
+                log.debug("跳过已处理图书: bookId={}, title={}", book.getId(), title);
+                return ScanResultType.SKIPPED;
+            }
+            return handleExistingBook(book, filePath, title);
         } else {
             return handleNewBook(filePath, format, title);
         }
@@ -228,11 +249,44 @@ public class BookScanService {
         if (forceUpdate || !Objects.equals(book.getFileSize(), fileSize)) {
             log.debug("{}图书: {}", forceUpdate ? "强制更新" : "文件大小变化", title);
             book.setFileSize(fileSize);
+
+            stepTimer.start("文件解析");
             bookParserService.parseAndFill(book, filePath);
+            stepTimer.end("文件解析");
+
+            stepTimer.start("封面处理");
             bookParserService.finalizeCover(book);
+            stepTimer.end("封面处理");
+
+            stepTimer.start("数据库保存");
             bookService.updateBook(book.getId(), book);
+            stepTimer.end("数据库保存");
+
+            stepTimer.start("AI数据生成");
             bookParserService.generateAllAiData(book.getId(), true);
-            bookParserService.generateContentEmbedding(book.getId());
+            stepTimer.end("AI数据生成");
+
+            // 根据评分决定是否存储内容向量
+            if (shouldEmbedContent(book)) {
+                stepTimer.start("内容向量生成");
+                bookParserService.generateContentEmbedding(book.getId(), book.getRagContent());
+                stepTimer.end("内容向量生成");
+                book.setContentEmbedded(true);
+                stepTimer.start("数据库保存");
+                bookService.updateBook(book.getId(), book);
+                stepTimer.end("数据库保存");
+            } else {
+                // 评分不达标，删除已有内容向量（如有）
+                if (Boolean.TRUE.equals(book.getContentEmbedded())) {
+                    embeddingService.removeContentEmbedding(book.getId());
+                    book.setContentEmbedded(false);
+                    stepTimer.start("数据库保存");
+                    bookService.updateBook(book.getId(), book);
+                    stepTimer.end("数据库保存");
+                }
+                log.info("评分 {} < {}，跳过内容向量存储: bookId={}, title={}",
+                        String.format("%.1f", book.getRating()), String.format("%.1f", contentEmbedMinRating), book.getId(), title);
+            }
             return ScanResultType.UPDATED;
         } else {
             // 补生成缺失的 AI 数据（标签/评分/相关度）
@@ -258,10 +312,20 @@ public class BookScanService {
                 log.debug("补生成旧书元数据向量: bookId={}, title={}", book.getId(), title);
                 bookParserService.generateBookEmbedding(book.getId());
             }
+            // 内容向量：评分达标的才补生成，不达标的如有则删除
             boolean needsContentEmbedding = !embeddingService.hasContentEmbedding(book.getId());
-            if (needsContentEmbedding) {
+            if (needsContentEmbedding && shouldEmbedContent(book)) {
                 log.debug("补生成旧书内容向量: bookId={}, title={}", book.getId(), title);
                 bookParserService.generateContentEmbedding(book.getId());
+                book.setContentEmbedded(true);
+                bookService.updateBook(book.getId(), book);
+            } else if (!shouldEmbedContent(book) && Boolean.TRUE.equals(book.getContentEmbedded())) {
+                // 评分不达标但标记了已嵌入，删除内容向量
+                embeddingService.removeContentEmbedding(book.getId());
+                book.setContentEmbedded(false);
+                bookService.updateBook(book.getId(), book);
+                log.info("评分 {} < {}，删除内容向量: bookId={}, title={}",
+                        String.format("%.1f", book.getRating()), String.format("%.1f", contentEmbedMinRating), book.getId(), title);
             }
             return ScanResultType.SKIPPED;
         }
@@ -278,19 +342,49 @@ public class BookScanService {
                 .fileSize(Files.size(filePath))
                 .build();
 
+        stepTimer.start("文件解析");
         bookParserService.parseAndFill(newBook, filePath);
-        Book saved = bookService.createBook(newBook);
+        stepTimer.end("文件解析");
 
+        stepTimer.start("数据库保存");
+        Book saved = bookService.createBook(newBook);
+        stepTimer.end("数据库保存");
+
+        stepTimer.start("封面处理");
         if (saved.getCoverUrl() != null) {
             String oldCoverUrl = saved.getCoverUrl();
             bookParserService.finalizeCover(saved);
             if (!saved.getCoverUrl().equals(oldCoverUrl)) {
+                stepTimer.end("封面处理");
+                stepTimer.start("数据库保存");
                 bookService.updateBook(saved.getId(), saved);
+                stepTimer.end("数据库保存");
+            } else {
+                stepTimer.end("封面处理");
             }
+        } else {
+            stepTimer.end("封面处理");
         }
 
+        stepTimer.start("AI数据生成");
         bookParserService.generateAllAiData(saved.getId(), true);
-        bookParserService.generateContentEmbedding(saved.getId());
+        stepTimer.end("AI数据生成");
+
+        // 根据评分决定是否存储内容向量（需重新获取含评分的 book 对象）
+        Book bookWithRating = bookService.getBookById(saved.getId());
+        if (shouldEmbedContent(bookWithRating)) {
+            stepTimer.start("内容向量生成");
+            // 传入 newBook 缓存的 ragContent，避免二次文件读取
+            bookParserService.generateContentEmbedding(saved.getId(), newBook.getRagContent());
+            stepTimer.end("内容向量生成");
+            bookWithRating.setContentEmbedded(true);
+            stepTimer.start("数据库保存");
+            bookService.updateBook(bookWithRating.getId(), bookWithRating);
+            stepTimer.end("数据库保存");
+        } else {
+            log.info("评分 {} < {}，跳过内容向量存储: bookId={}, title={}",
+                    String.format("%.1f", bookWithRating.getRating()), String.format("%.1f", contentEmbedMinRating), saved.getId(), title);
+        }
         log.info("新增图书: {} [{}]", title, format);
         return ScanResultType.ADDED;
     }
@@ -303,6 +397,14 @@ public class BookScanService {
         boolean needsRelevance = book.getRelevanceScores() == null || book.getRelevanceScores().isBlank();
         boolean needsRating = book.getRating() == null || book.getRating() <= 0;
         return needsTags || needsRelevance || needsRating;
+    }
+
+    /**
+     * 判断书籍评分是否达到内容向量存储阈值
+     * 评分 >= contentEmbedMinRating 的书籍才值得存储全书内容向量到 Qdrant
+     */
+    private boolean shouldEmbedContent(Book book) {
+        return book.getRating() != null && book.getRating() >= contentEmbedMinRating;
     }
 
     /**
@@ -366,7 +468,12 @@ public class BookScanService {
                                 bookParserService.finalizeCover(book);
                                 bookService.updateBook(book.getId(), book);
                                 bookParserService.generateAllAiData(book.getId(), true);
-                                bookParserService.generateContentEmbedding(book.getId());
+                                // 根据评分决定是否存储内容向量
+                                if (shouldEmbedContent(book)) {
+                                    bookParserService.generateContentEmbedding(book.getId());
+                                    book.setContentEmbedded(true);
+                                    bookService.updateBook(book.getId(), book);
+                                }
                                 updated++;
                             } else {
                                 if (needsAiDataGeneration(book)) {
@@ -383,8 +490,10 @@ public class BookScanService {
                                 if (!embeddingService.hasBookEmbedding(book.getId())) {
                                     bookParserService.generateBookEmbedding(book.getId());
                                 }
-                                if (!embeddingService.hasContentEmbedding(book.getId())) {
+                                if (!embeddingService.hasContentEmbedding(book.getId()) && shouldEmbedContent(book)) {
                                     bookParserService.generateContentEmbedding(book.getId());
+                                    book.setContentEmbedded(true);
+                                    bookService.updateBook(book.getId(), book);
                                 }
                                 skipped++;
                             }
@@ -410,7 +519,13 @@ public class BookScanService {
                         }
 
                         bookParserService.generateAllAiData(saved.getId(), true);
-                        bookParserService.generateContentEmbedding(saved.getId());
+                        // 根据评分决定是否存储内容向量
+                        Book bookWithRating = bookService.getBookById(saved.getId());
+                        if (shouldEmbedContent(bookWithRating)) {
+                            bookParserService.generateContentEmbedding(saved.getId());
+                            bookWithRating.setContentEmbedded(true);
+                            bookService.updateBook(bookWithRating.getId(), bookWithRating);
+                        }
                         added++;
 
                     } catch (Exception e) {

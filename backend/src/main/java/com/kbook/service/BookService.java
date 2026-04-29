@@ -84,6 +84,7 @@ public class BookService {
         if (updates.getReadCount() != null) book.setReadCount(updates.getReadCount());
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
+        if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
         Book saved = bookRepository.save(book);
         bookSearchService.indexBook(saved);
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());

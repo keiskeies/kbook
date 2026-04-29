@@ -96,12 +96,14 @@ export function scanBooksStream(
   onProgress: (data: ScanProgress) => void,
   onDone: (data: ScanResult) => void,
   onError: (error: Error) => void,
+  skipBeforeId?: number,
 ): AbortController {
   const controller = new AbortController()
   const token = localStorage.getItem(import.meta.env.VITE_TOKEN_KEY || 'kbook_token')
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
 
-  fetch(`${baseUrl}/books/admin/scan`, {
+  const skipParam = skipBeforeId ? `?skipBeforeId=${skipBeforeId}` : ''
+  fetch(`${baseUrl}/books/admin/scan${skipParam}`, {
     method: 'GET',
     headers: {
       'Authorization': token ? `Bearer ${token}` : '',
@@ -242,4 +244,36 @@ export function deleteBooksByAuthor(author: string) {
 /** 合并同名书籍（以EPUB为主，其他格式数据迁移后删除） */
 export function mergeBooksByTitle(title: string) {
   return request.post<{ message: string; title: string }>('/books/admin/merge-by-title', null, { params: { title } })
+}
+
+// ==================== 内容向量管理 ====================
+
+/** 内容向量统计信息 */
+export interface EmbeddingStats {
+  totalBooks: number
+  embeddedBooks: number
+  notEmbeddedBooks: number
+  totalContentVectors: number
+  highRatedNotEmbedded: number
+  lowRatedEmbedded: number
+}
+
+/** 获取内容向量统计 */
+export function getEmbeddingStats() {
+  return request.get<EmbeddingStats>('/books/admin/embeddings/stats')
+}
+
+/** 清理低评分书籍的内容向量 */
+export function cleanupEmbeddings(maxRating = 3.5) {
+  return request.post<{ cleanedCount: number; maxRating: number }>('/books/admin/embeddings/cleanup', null, { params: { maxRating } })
+}
+
+/** 重建高评分书籍的内容向量 */
+export function rebuildEmbeddings(minRating = 3.5) {
+  return request.post<{ rebuiltCount: number; skippedCount: number; minRating: number }>('/books/admin/embeddings/rebuild', null, { params: { minRating }, timeout: 600000 })
+}
+
+/** 重新评分所有书籍 */
+export function rerateAllBooks(minRating = 3.5) {
+  return request.post<{ reratedCount: number; newlyEmbedded: number; removedEmbedding: number; minRating: number }>('/books/admin/rerate', null, { params: { minRating }, timeout: 600000 })
 }

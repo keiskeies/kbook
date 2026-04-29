@@ -94,6 +94,11 @@ public class EmbeddingService {
      */
     private static final int CHUNK_OVERLAP = 200;
 
+    /**
+     * 内容向量批量 embed 的批次大小（避免单次请求过大导致超时）
+     */
+    private static final int EMBED_BATCH_SIZE = 20;
+
     private EmbeddingModel embeddingModel;
     private EmbeddingStore<TextSegment> bookEmbeddingStore;
     private EmbeddingStore<TextSegment> contentEmbeddingStore;
@@ -383,6 +388,7 @@ public class EmbeddingService {
     /**
      * 为书籍生成 RAG 内容向量并存储到 Qdrant
      * 将书籍内容按 CHUNK_SIZE 分块，每块生成一个 embedding
+     * 优化：批量 embed + 批量写入，减少 API 调用和 Qdrant 写入次数
      */
     public void generateContentEmbedding(Long bookId, String content) {
         try {
@@ -397,6 +403,8 @@ public class EmbeddingService {
                 return;
             }
 
+            long startTime = System.currentTimeMillis();
+
             // 分块
             List<String> chunks = splitContent(content);
             log.info("书籍内容分块: bookId={}, totalChars={}, chunks={}", bookId, content.length(), chunks.size());
@@ -404,20 +412,60 @@ public class EmbeddingService {
             // 先删除该书已有的旧内容向量，确保幂等
             removeContentEmbedding(bookId);
 
-            // 生成 embedding 并存储（逐个处理）
-            for (int i = 0; i < chunks.size(); i++) {
-                String chunk = chunks.get(i);
-                Embedding embedding = embeddingModel.embed(chunk).content();
+            // 批量生成 embedding 并写入
+            int totalChunks = chunks.size();
+            int processed = 0;
 
-                TextSegment segment = TextSegment.from(chunk,
-                        new Metadata().put("bookId", bookId)
-                                .put("chunkIndex", i)
-                                .put("totalChunks", chunks.size()));
+            for (int batchStart = 0; batchStart < totalChunks; batchStart += EMBED_BATCH_SIZE) {
+                int batchEnd = Math.min(batchStart + EMBED_BATCH_SIZE, totalChunks);
+                List<String> batchChunks = chunks.subList(batchStart, batchEnd);
 
-                contentEmbeddingStore.add(embedding, segment);
+                try {
+                    // 先构建 TextSegment 列表（embedAll 需要 List<TextSegment>）
+                    List<TextSegment> segments = new ArrayList<>(batchChunks.size());
+                    for (int i = 0; i < batchChunks.size(); i++) {
+                        int globalIndex = batchStart + i;
+                        segments.add(TextSegment.from(batchChunks.get(i),
+                                new Metadata().put("bookId", bookId)
+                                        .put("chunkIndex", globalIndex)
+                                        .put("totalChunks", totalChunks)));
+                    }
+
+                    // 批量 embed
+                    List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
+
+                    // 批量写入 Qdrant
+                    contentEmbeddingStore.addAll(embeddings, segments);
+
+                    processed += batchChunks.size();
+                    if (processed % 100 == 0 || processed == totalChunks) {
+                        long elapsed = System.currentTimeMillis() - startTime;
+                        log.info("内容向量生成进度: bookId={}, {}/{}, elapsed={}ms", bookId, processed, totalChunks, elapsed);
+                    }
+                } catch (Exception e) {
+                    // 批量失败时回退到逐条处理该批次
+                    log.warn("批量embed失败，回退逐条处理: bookId={}, batch={}-{} - {}",
+                            bookId, batchStart, batchEnd, e.getMessage());
+                    for (int i = 0; i < batchChunks.size(); i++) {
+                        try {
+                            int globalIndex = batchStart + i;
+                            TextSegment segment = TextSegment.from(batchChunks.get(i),
+                                    new Metadata().put("bookId", bookId)
+                                            .put("chunkIndex", globalIndex)
+                                            .put("totalChunks", totalChunks));
+                            Embedding embedding = embeddingModel.embed(segment).content();
+                            contentEmbeddingStore.add(embedding, segment);
+                            processed++;
+                        } catch (Exception ex) {
+                            log.warn("单条embed也失败: bookId={}, chunkIndex={} - {}", bookId, batchStart + i, ex.getMessage());
+                        }
+                    }
+                }
             }
 
-            log.info("书籍内容向量生成完成: bookId={}, chunks={}", bookId, chunks.size());
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.info("书籍内容向量生成完成: bookId={}, chunks={}, elapsed={}ms, avg={}ms/chunk",
+                    bookId, processed, elapsed, processed > 0 ? elapsed / processed : 0);
 
             // 验证写入结果
             boolean exists = hasContentEmbedding(bookId);
@@ -540,8 +588,11 @@ public class EmbeddingService {
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
                     .addMust(matchKeyword("bookId", String.valueOf(bookId)))
                     .build();
-            Long count = qdrantClient.countAsync(bookCollectionName, filter, true).get();
+            Long count = qdrantClient.countAsync(bookCollectionName, filter, true).get(15, java.util.concurrent.TimeUnit.SECONDS);
             return count != null && count > 0;
+        } catch (java.util.concurrent.TimeoutException e) {
+            log.warn("检查书籍向量存在性超时: bookId={} - {}", bookId, e.getMessage());
+            return false;
         } catch (Exception e) {
             log.debug("检查书籍向量存在性失败: bookId={} - {}", bookId, e.getMessage());
             return false;
@@ -557,8 +608,11 @@ public class EmbeddingService {
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
                     .addMust(matchKeyword("bookId", String.valueOf(bookId)))
                     .build();
-            Long count = qdrantClient.countAsync(contentCollectionName, filter, true).get();
+            Long count = qdrantClient.countAsync(contentCollectionName, filter, true).get(15, java.util.concurrent.TimeUnit.SECONDS);
             return count != null && count > 0;
+        } catch (java.util.concurrent.TimeoutException e) {
+            log.warn("检查内容向量存在性超时: bookId={} - {}", bookId, e.getMessage());
+            return false;
         } catch (Exception e) {
             log.debug("检查内容向量存在性失败: bookId={} - {}", bookId, e.getMessage());
             return false;
@@ -574,8 +628,10 @@ public class EmbeddingService {
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
                     .addMust(matchKeyword("bookId", String.valueOf(bookId)))
                     .build();
-            qdrantClient.deleteAsync(bookCollectionName, filter).get();
+            qdrantClient.deleteAsync(bookCollectionName, filter).get(30, java.util.concurrent.TimeUnit.SECONDS);
             log.debug("已删除旧书籍元数据向量: bookId={}", bookId);
+        } catch (java.util.concurrent.TimeoutException e) {
+            log.warn("删除旧书籍元数据向量超时，跳过: bookId={} - {}", bookId, e.getMessage());
         } catch (Exception e) {
             log.debug("删除旧书籍元数据向量失败（可能不存在）: bookId={} - {}", bookId, e.getMessage());
         }
@@ -590,11 +646,102 @@ public class EmbeddingService {
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
                     .addMust(matchKeyword("bookId", String.valueOf(bookId)))
                     .build();
-            qdrantClient.deleteAsync(contentCollectionName, filter).get();
+            qdrantClient.deleteAsync(contentCollectionName, filter).get(30, java.util.concurrent.TimeUnit.SECONDS);
             log.debug("已删除旧内容向量: bookId={}", bookId);
+        } catch (java.util.concurrent.TimeoutException e) {
+            log.warn("删除旧内容向量超时，跳过: bookId={} - {}", bookId, e.getMessage());
         } catch (Exception e) {
             log.debug("删除旧内容向量失败（可能不存在）: bookId={} - {}", bookId, e.getMessage());
         }
+    }
+
+    /**
+     * 获取指定书籍的内容向量数量
+     */
+    public long getContentEmbeddingCount(Long bookId) {
+        try {
+            if (qdrantClient == null) return 0;
+            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
+                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .build();
+            Long count = qdrantClient.countAsync(contentCollectionName, filter, true).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            return count != null ? count : 0;
+        } catch (Exception e) {
+            log.debug("获取内容向量数量失败: bookId={} - {}", bookId, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * 获取内容向量的总条目数
+     */
+    public long getTotalContentEmbeddingCount() {
+        try {
+            if (qdrantClient == null) return 0;
+            var info = qdrantClient.getCollectionInfoAsync(contentCollectionName).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            return info.getPointsCount();
+        } catch (Exception e) {
+            log.warn("获取内容向量总数失败: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * 批量清理低评分书籍的内容向量
+     * @param maxRating 评分上限（低于此值的书籍内容向量将被删除）
+     * @return 清理的书籍数量
+     */
+    public int cleanupLowRatedContentEmbeddings(double maxRating) {
+        List<Book> allBooks = bookRepository.findAll();
+        int cleaned = 0;
+        for (Book book : allBooks) {
+            if (book.getRating() != null && book.getRating() < maxRating
+                    && Boolean.TRUE.equals(book.getContentEmbedded())) {
+                try {
+                    removeContentEmbedding(book.getId());
+                    book.setContentEmbedded(false);
+                    bookRepository.save(book);
+                    cleaned++;
+                    if (cleaned % 10 == 0) {
+                        log.info("批量清理进度: 已清理 {} 本低评分书籍的内容向量", cleaned);
+                    }
+                } catch (Exception e) {
+                    log.warn("清理内容向量失败: bookId={} - {}", book.getId(), e.getMessage());
+                }
+            }
+        }
+        log.info("批量清理完成: 共清理 {} 本低评分书籍的内容向量 (rating < {})", cleaned, maxRating);
+        return cleaned;
+    }
+
+    /**
+     * 批量重建高评分书籍的内容向量（评分达标但未存储内容向量的书籍）
+     * @param minRating 评分下限（高于此值且未存内容向量的书籍将被重建）
+     * @return 重建的书籍数量
+     */
+    public int rebuildHighRatedContentEmbeddings(double minRating) {
+        ensureEmbeddingModelInitialized();
+        if (embeddingModel == null || contentEmbeddingStore == null) {
+            log.warn("Embedding 模型或 Store 未初始化，无法重建内容向量");
+            return 0;
+        }
+
+        List<Book> allBooks = bookRepository.findAll();
+        int rebuilt = 0;
+        for (Book book : allBooks) {
+            if (book.getRating() != null && book.getRating() >= minRating
+                    && !Boolean.TRUE.equals(book.getContentEmbedded())) {
+                try {
+                    // 通过 BookParserService 提取内容并生成向量
+                    // 这里仅标记，实际生成由 BookParserService 处理
+                    log.info("需要重建内容向量: bookId={}, title={}, rating={}",
+                            book.getId(), book.getTitle(), book.getRating());
+                } catch (Exception e) {
+                    log.warn("重建内容向量失败: bookId={} - {}", book.getId(), e.getMessage());
+                }
+            }
+        }
+        return rebuilt;
     }
 
     // ==================== 辅助方法 ====================

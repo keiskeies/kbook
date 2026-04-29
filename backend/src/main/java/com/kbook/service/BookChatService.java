@@ -109,6 +109,12 @@ public class BookChatService {
                     return;
                 }
 
+                // 1.5 检查是否有内容向量数据，没有则无法进行基于原著的问答
+                if (!Boolean.TRUE.equals(book.getContentEmbedded())) {
+                    sendErrorAndComplete(emitter, "该书暂未生成内容向量数据，无法进行 AI 问答");
+                    return;
+                }
+
                 // 2. RAG 检索相关内容片段
                 String ragContext = retrieveRagContext(bookId, question);
                 log.debug("RAG 检索结果长度: {}", ragContext.length());

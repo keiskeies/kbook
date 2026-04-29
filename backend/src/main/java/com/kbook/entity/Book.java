@@ -76,6 +76,10 @@ public class Book {
     @Transient
     private String parsedContent;
 
+    /** 全书RAG内容（不持久化，仅用于内容向量生成时传递，避免二次文件读取） */
+    @Transient
+    private String ragContent;
+
     /** 总字符数（TXT/EPUB）或总页数（PDF） */
     @Column(name = "total_units")
     private Long totalUnits;
@@ -89,6 +93,11 @@ public class Book {
     @Column(columnDefinition = "DECIMAL(2,1) DEFAULT 0.0")
     @Builder.Default
     private Double rating = 0.0;
+
+    /** 全书内容是否已存储到 Qdrant（用于 RAG 语义检索） */
+    @Column(name = "content_embedded")
+    @Builder.Default
+    private Boolean contentEmbedded = false;
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

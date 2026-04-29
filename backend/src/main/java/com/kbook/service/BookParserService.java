@@ -37,6 +37,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -99,11 +100,20 @@ public class BookParserService {
             
             任务2：给出1-5之间的评分（一位小数）
             评分标准（5星制）：
-            - 1-2星：较差或平庸
-            - 2-3星：一般，有一定可读性
-            - 3-4星：良好，值得推荐
-            - 4-5星：优秀，强烈推荐
-            注意：未知信息较多的书给中等评分（3.0-3.5），经典名著一般4.0-5.0，普通书籍2.5-4.0
+            - 1-2星：较差或平庸，纯娱乐消遣
+            - 2-3星：一般，浅层阅读
+            - 3-4星：良好，有一定深度或价值
+            - 4-5星：优秀，思想深刻或极具价值
+            
+            评分权重规则（非常重要，请严格遵守）：
+            - 哲学、思想、政治、经济、历史、社会学、心理学、逻辑学、谋略、军事战略、法学、伦理学等深度思想类书籍：4.0-5.0
+            - 科学、技术、数学、医学等专业知识类书籍：3.5-4.5
+            - 经典文学名著（如四大名著、世界名著）：4.0-5.0
+            - 传记、纪实、散文等有思考价值的非虚构类：3.5-4.5
+            - 普通非虚构类（生活、健康、职场等）：2.5-3.5
+            - 网络小说、言情、都市、玄幻、仙侠、穿越、修仙、轻小说等纯娱乐消遣类：1.5-3.0
+            - 恐怖、悬疑推理、冒险等类型小说：2.0-3.5
+            - 信息不足时给中等评分（3.0），但可根据书名/作者判断类型后按上述规则评分
             
             任务3：为以下维度打分（0-1之间的小数），返回JSON格式
             年龄段："0-9","10-19","20-29","30-39","40-49","50-59","60+"
@@ -190,6 +200,9 @@ public class BookParserService {
             }
 
             book.setParsedContent(buildContentForTags(book, tocBuilder.toString()));
+
+            // 同时提取全文用于RAG（避免后续 generateContentEmbedding 二次读取文件）
+            book.setRagContent(extractEpubFullTextFromEpubBook(epubBook));
 
             // 提取封面图片
             var coverImage = epubBook.getCoverImage();
@@ -333,7 +346,17 @@ public class BookParserService {
             // 7. 构建 AI 标签生成的内容
             book.setParsedContent(buildContentForTags(book, firstPagesText));
 
-            // 8. 首页渲染为封面图片
+            // 8. 提取全文用于RAG（在PDDocument已打开时提取，避免后续二次加载文件）
+            try {
+                String fullText = extractPdfFullTextFromDocument(book, document, isScanned);
+                if (fullText != null && !fullText.isBlank()) {
+                    book.setRagContent(fullText);
+                }
+            } catch (Exception e) {
+                log.debug("PDF全文提取（RAG缓存）失败: {} - {}", book.getTitle(), e.getMessage());
+            }
+
+            // 9. 首页渲染为封面图片
             PDFRenderer renderer = new PDFRenderer(document);
             BufferedImage image = renderer.renderImageWithDPI(0, 150);
 
@@ -557,6 +580,9 @@ public class BookParserService {
         try {
             String content = Files.readString(filePath);
             book.setTotalUnits((long) content.length());
+
+            // 缓存全文用于RAG（避免后续 generateContentEmbedding 二次读取文件）
+            book.setRagContent(content);
 
             // 取前2000字符用于 AI 标签生成
             String preview = content.length() > 2000 ? content.substring(0, 2000) : content;
@@ -854,16 +880,23 @@ public class BookParserService {
             你是一个专业的图书评分助手。根据提供的图书信息（书名、作者、简介或目录），给出一个1.0-5.0之间的评分（5星制，一位小数）。
             
             评分标准（5星制）：
-            - 1-2星：较差或平庸
-            - 2-3星：一般，有一定可读性
-            - 3-4星：良好，值得推荐
-            - 4-5星：优秀，强烈推荐
+            - 1-2星：较差或平庸，纯娱乐消遣
+            - 2-3星：一般，浅层阅读
+            - 3-4星：良好，有一定深度或价值
+            - 4-5星：优秀，思想深刻或极具价值
+            
+            评分权重规则（非常重要，请严格遵守）：
+            - 哲学、思想、政治、经济、历史、社会学、心理学、逻辑学、谋略、军事战略、法学、伦理学等深度思想类书籍：4.0-5.0
+            - 科学、技术、数学、医学等专业知识类书籍：3.5-4.5
+            - 经典文学名著（如四大名著、世界名著）：4.0-5.0
+            - 传记、纪实、散文等有思考价值的非虚构类：3.5-4.5
+            - 普通非虚构类（生活、健康、职场等）：2.5-3.5
+            - 网络小说、言情、都市、玄幻、仙侠、穿越、修仙、轻小说等纯娱乐消遣类：1.5-3.0
+            - 恐怖、悬疑推理、冒险等类型小说：2.0-3.5
+            - 信息不足时给中等评分（3.0），但可根据书名/作者判断类型后按上述规则评分
             
             规则：
             - 只返回一个数字（1.0-5.0之间的一位小数），不要其他文字
-            - 未知信息较多的书给中等评分（3.0-3.5）
-            - 经典名著一般4.0-5.0
-            - 普通书籍2.5-4.0
             - 示例：3.8
             
             图书信息如下：
@@ -1105,8 +1138,15 @@ public class BookParserService {
                 }
             }
 
-            // 生成书籍元数据向量（用于推荐召回）
-            embeddingService.generateBookEmbedding(bookId);
+            // 生成书籍元数据向量（异步执行，不阻塞后续流程）
+            // 标签/评分/相关度已保存完毕，元数据向量不依赖这些写入的返回值
+            CompletableFuture.runAsync(() -> {
+                try {
+                    embeddingService.generateBookEmbedding(bookId);
+                } catch (Exception ex) {
+                    log.warn("异步生成元数据向量失败: bookId={} - {}", bookId, ex.getMessage());
+                }
+            });
 
         } catch (Exception e) {
             log.warn("合并AI数据生成失败: bookId={} - {}，回退到单独生成", bookId, e.getMessage());
@@ -1115,8 +1155,14 @@ public class BookParserService {
                 generateTags(bookId, force);
                 generateRating(bookId, force);
                 generateRelevanceScores(bookId, force);
-                // 回退分支也需要生成元数据向量
-                embeddingService.generateBookEmbedding(bookId);
+                // 回退分支也异步生成元数据向量
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        embeddingService.generateBookEmbedding(bookId);
+                    } catch (Exception ex) {
+                        log.warn("异步生成元数据向量失败: bookId={} - {}", bookId, ex.getMessage());
+                    }
+                });
             } catch (Exception ex) {
                 log.warn("回退单独生成也失败: bookId={} - {}", bookId, ex.getMessage());
             }
@@ -1140,6 +1186,31 @@ public class BookParserService {
         try {
             Book book = bookService.getBookById(bookId);
             String content = extractContentForRAG(book);
+            generateContentEmbedding(bookId, content);
+        } catch (Exception e) {
+            log.warn("触发RAG内容向量生成失败: bookId={} - {}", bookId, e.getMessage());
+        }
+    }
+
+    /**
+     * 为图书生成 RAG 内容向量（带预提取内容，避免重复解析文件）
+     * 扫描流程中可传入已提取的全书内容，省去二次文件读取和解析
+     *
+     * @param bookId  图书ID
+     * @param content 已提取的全文内容（可为null，将自动提取）
+     */
+    public void generateContentEmbedding(Long bookId, String content) {
+        try {
+            if (content == null || content.isBlank()) {
+                // 优先从缓存的 ragContent 获取（parseAndFill 时已提取）
+                Book book = bookService.getBookById(bookId);
+                if (book.getRagContent() != null && !book.getRagContent().isBlank()) {
+                    content = book.getRagContent();
+                    log.debug("使用缓存的RAG内容: bookId={}, contentLen={}", bookId, content.length());
+                } else {
+                    content = extractContentForRAG(book);
+                }
+            }
             if (content == null || content.isBlank()) {
                 log.debug("图书无内容可供生成RAG向量: bookId={}", bookId);
                 return;
@@ -1193,8 +1264,16 @@ public class BookParserService {
         try (InputStream is = Files.newInputStream(filePath)) {
             EpubReader epubReader = new EpubReader();
             nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
+            return extractEpubFullTextFromEpubBook(epubBook);
+        }
+    }
 
-            // 预估容量：假设平均每章2000字，最多100章
+    /**
+     * 从已解析的 EPUB 对象中提取全文（用于 RAG）
+     * 在 parseEpub 时调用，避免后续二次读取文件
+     */
+    private String extractEpubFullTextFromEpubBook(nl.siegmann.epublib.domain.Book epubBook) {
+        try {
             StringBuilder text = new StringBuilder(200000);
             for (var spineRef : epubBook.getSpine().getSpineReferences()) {
                 try {
@@ -1209,6 +1288,9 @@ public class BookParserService {
                 }
             }
             return text.toString();
+        } catch (Exception e) {
+            log.debug("从EPUB对象提取全文失败: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -1221,26 +1303,41 @@ public class BookParserService {
     private String extractPdfFullText(Book book, Path filePath) throws Exception {
         try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
             int totalPages = document.getNumberOfPages();
-
-            // 1. 先尝试 PDFTextStripper 提取
             PDFTextStripper stripper = new PDFTextStripper();
             stripper.setStartPage(1);
             stripper.setEndPage(totalPages);
             String textContent = stripper.getText(document);
-
-            // 判断文本是否足够：去掉空白后字符数与页数的比值，如果每页平均不到50字，视为扫描版
             String cleanedText = WHITESPACE_PATTERN.matcher(textContent).replaceAll("").trim();
             boolean isScanned = cleanedText.length() < (long) totalPages * 50;
-
-            if (!isScanned) {
-                log.info("PDF 文本提取成功（文字型）: bookId={}, pages={}, chars={}", book.getId(), totalPages, cleanedText.length());
-                return textContent;
-            }
-
-            // 2. 文本过少，使用大模型 OCR 逐页识别
-            log.info("PDF 文本过少，切换到大模型 OCR 解析: bookId={}, pages={}, textChars={}", book.getId(), totalPages, cleanedText.length());
-            return ocrPdfWithVisionModel(book, filePath, totalPages);
+            return extractPdfFullTextFromDocument(book, document, isScanned);
         }
+    }
+
+    /**
+     * 从已打开的 PDDocument 中提取全文（用于 RAG）
+     * 在 parsePdf 时调用，避免后续二次加载 PDF 文件
+     *
+     * @param book      图书对象
+     * @param document  已打开的 PDDocument
+     * @param isScanned 是否为扫描版（由 parsePdf 中判断）
+     */
+    private String extractPdfFullTextFromDocument(Book book, PDDocument document, boolean isScanned) throws Exception {
+        int totalPages = document.getNumberOfPages();
+
+        if (!isScanned) {
+            // 文字型 PDF：直接提取全部文本
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setStartPage(1);
+            stripper.setEndPage(totalPages);
+            String textContent = stripper.getText(document);
+            log.info("PDF 全文提取（文字型）: bookId={}, pages={}, chars={}",
+                    book.getId(), totalPages, WHITESPACE_PATTERN.matcher(textContent).replaceAll("").trim().length());
+            return textContent;
+        }
+
+        // 扫描版 PDF：使用大模型 OCR 逐页识别
+        log.info("PDF 全文提取（扫描版，使用OCR）: bookId={}, pages={}", book.getId(), totalPages);
+        return ocrPdfWithVisionModel(book, Paths.get(book.getFileUrl()), totalPages);
     }
 
     /**

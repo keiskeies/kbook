@@ -7,6 +7,7 @@ import com.kbook.repository.BookRepository;
 import com.kbook.service.BookParserService;
 import com.kbook.service.BookScanService;
 import com.kbook.service.BookService;
+import com.kbook.service.EmbeddingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +21,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -36,6 +38,7 @@ public class BookAdminController {
     private final BookService bookService;
     private final BookParserService bookParserService;
     private final BookRepository bookRepository;
+    private final EmbeddingService embeddingService;
 
     @Value("${kbook.book-paths.epub}")
     private String epubPath;
@@ -49,12 +52,16 @@ public class BookAdminController {
     @Value("${kbook.cover-path:./covers}")
     private String coverPath;
 
+    @Value("${kbook.scan.content-embed-min-rating:3.5}")
+    private double contentEmbedMinRating;
+
     /**
      * 刷新图书 — SSE 流式扫描，实时推送进度
+     * @param skipBeforeId 跳过 ID 小于此值的已有图书（断点续扫，默认不跳过）
      */
     @GetMapping(value = "/scan", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter scanBooks() {
-        return bookScanService.scanAllWithProgress();
+    public SseEmitter scanBooks(@RequestParam(value = "skipBeforeId", required = false) Long skipBeforeId) {
+        return bookScanService.scanAllWithProgress(skipBeforeId);
     }
 
     /**
@@ -131,8 +138,14 @@ public class BookAdminController {
                 bookParserService.finalizeCover(book);
                 bookService.updateBook(book.getId(), book);
                 bookParserService.generateAllAiData(book.getId(), true);
-                bookParserService.generateContentEmbedding(book.getId());
-                return Result.ok(book);
+                // 根据评分决定是否存储内容向量
+                Book updatedBook = bookService.getBookById(book.getId());
+                if (updatedBook.getRating() != null && updatedBook.getRating() >= contentEmbedMinRating) {
+                    bookParserService.generateContentEmbedding(book.getId());
+                    updatedBook.setContentEmbedded(true);
+                    bookService.updateBook(updatedBook.getId(), updatedBook);
+                }
+                return Result.ok(updatedBook);
             }
 
             // 新文件 → 按新增流程处理（与扫描的 handleNewBook 一致）
@@ -160,8 +173,13 @@ public class BookAdminController {
 
             // 生成 AI 数据（标签 + 评分 + 相关度 + 元数据向量，合并一次调用）
             bookParserService.generateAllAiData(saved.getId(), true);
-            // 生成 RAG 内容向量
-            bookParserService.generateContentEmbedding(saved.getId());
+            // 根据评分决定是否存储内容向量
+            Book bookWithRating = bookService.getBookById(saved.getId());
+            if (bookWithRating.getRating() != null && bookWithRating.getRating() >= contentEmbedMinRating) {
+                bookParserService.generateContentEmbedding(saved.getId());
+                bookWithRating.setContentEmbedded(true);
+                bookService.updateBook(bookWithRating.getId(), bookWithRating);
+            }
 
             log.info("上传图书成功: {} [{}]", title, extension);
             return Result.ok(saved);
@@ -233,7 +251,146 @@ public class BookAdminController {
         Book saved = bookService.updateBook(id, book);
         // 重新生成 AI 数据（标签 + 评分 + 相关度，合并一次调用）
         bookParserService.generateAllAiData(saved.getId(), true);
-        bookParserService.generateContentEmbedding(saved.getId());
+        // 根据评分决定是否存储内容向量
+        if (saved.getRating() != null && saved.getRating() >= contentEmbedMinRating) {
+            bookParserService.generateContentEmbedding(saved.getId());
+            saved.setContentEmbedded(true);
+            bookService.updateBook(saved.getId(), saved);
+        }
         return Result.ok(saved);
+    }
+
+    // ==================== 内容向量管理 ====================
+
+    /**
+     * 获取内容向量统计信息
+     */
+    @GetMapping("/embeddings/stats")
+    public Result<Map<String, Object>> embeddingStats() {
+        long totalBooks = bookRepository.count();
+        long embeddedBooks = bookRepository.findAll().stream()
+                .filter(b -> Boolean.TRUE.equals(b.getContentEmbedded()))
+                .count();
+        long notEmbeddedBooks = totalBooks - embeddedBooks;
+        long totalContentVectors = embeddingService.getTotalContentEmbeddingCount();
+
+        // 按评分区间统计
+        List<Book> allBooks = bookRepository.findAll();
+        long highRatedNotEmbedded = allBooks.stream()
+                        .filter(b -> b.getRating() != null && b.getRating() >= contentEmbedMinRating && !Boolean.TRUE.equals(b.getContentEmbedded()))
+                        .count();
+                long lowRatedEmbedded = allBooks.stream()
+                        .filter(b -> b.getRating() != null && b.getRating() < contentEmbedMinRating && Boolean.TRUE.equals(b.getContentEmbedded()))
+                .count();
+
+        return Result.ok(Map.of(
+                "totalBooks", totalBooks,
+                "embeddedBooks", embeddedBooks,
+                "notEmbeddedBooks", notEmbeddedBooks,
+                "totalContentVectors", totalContentVectors,
+                "highRatedNotEmbedded", highRatedNotEmbedded,
+                "lowRatedEmbedded", lowRatedEmbedded
+        ));
+    }
+
+    /**
+     * 清理低评分书籍的内容向量（释放 Qdrant 内存）
+     * @param maxRating 评分上限，低于此值的书籍内容向量将被删除（默认 3.5）
+     */
+    @PostMapping("/embeddings/cleanup")
+    public Result<Map<String, Object>> cleanupEmbeddings(
+            @RequestParam(value = "maxRating", defaultValue = "3.5") double maxRating) {
+        log.info("开始清理低评分书籍内容向量: maxRating={}", maxRating);
+        int cleaned = embeddingService.cleanupLowRatedContentEmbeddings(maxRating);
+        return Result.ok(Map.of("cleanedCount", cleaned, "maxRating", maxRating));
+    }
+
+    /**
+     * 重建高评分书籍的内容向量（评分达标但未存内容向量的书籍）
+     * @param minRating 评分下限（默认 3.5）
+     */
+    @PostMapping("/embeddings/rebuild")
+    public Result<Map<String, Object>> rebuildEmbeddings(
+            @RequestParam(value = "minRating", defaultValue = "3.5") double minRating) {
+        log.info("开始重建高评分书籍内容向量: minRating={}", minRating);
+        List<Book> allBooks = bookRepository.findAll();
+        int rebuilt = 0;
+        int skipped = 0;
+        for (Book book : allBooks) {
+            if (book.getRating() != null && book.getRating() >= minRating
+                    && !Boolean.TRUE.equals(book.getContentEmbedded())) {
+                try {
+                    bookParserService.generateContentEmbedding(book.getId());
+                    book.setContentEmbedded(true);
+                    bookRepository.save(book);
+                    rebuilt++;
+                    if (rebuilt % 10 == 0) {
+                        log.info("重建进度: 已重建 {} 本高评分书籍的内容向量", rebuilt);
+                    }
+                } catch (Exception e) {
+                    log.warn("重建内容向量失败: bookId={} - {}", book.getId(), e.getMessage());
+                }
+            } else {
+                skipped++;
+            }
+        }
+        log.info("重建完成: rebuilt={}, skipped={}", rebuilt, skipped);
+        return Result.ok(Map.of("rebuiltCount", rebuilt, "skippedCount", skipped, "minRating", minRating));
+    }
+
+    /**
+     * 重新评分所有书籍（使用新的评分策略重新生成评分，并自动调整内容向量）
+     * @param minRating 内容向量存储的最低评分阈值（默认 3.5）
+     */
+    @PostMapping("/rerate")
+    public Result<Map<String, Object>> rerateAllBooks(
+            @RequestParam(value = "minRating", defaultValue = "3.5") double minRating) {
+        log.info("开始重新评分所有书籍，内容向量阈值: {}", minRating);
+        List<Book> allBooks = bookRepository.findAll();
+        int rerated = 0;
+        int embeddedNow = 0;
+        int removedEmbedding = 0;
+
+        for (Book book : allBooks) {
+            try {
+                // 强制重新生成评分
+                bookParserService.generateRating(book.getId(), true);
+                // 重新获取更新后的评分
+                Book updated = bookService.getBookById(book.getId());
+
+                if (updated.getRating() != null && updated.getRating() >= minRating) {
+                    // 评分达标，存储内容向量
+                    if (!Boolean.TRUE.equals(updated.getContentEmbedded())) {
+                        bookParserService.generateContentEmbedding(updated.getId());
+                        updated.setContentEmbedded(true);
+                        bookRepository.save(updated);
+                        embeddedNow++;
+                    }
+                } else {
+                    // 评分不达标，删除内容向量
+                    if (Boolean.TRUE.equals(updated.getContentEmbedded())) {
+                        embeddingService.removeContentEmbedding(updated.getId());
+                        updated.setContentEmbedded(false);
+                        bookRepository.save(updated);
+                        removedEmbedding++;
+                    }
+                }
+                rerated++;
+                if (rerated % 10 == 0) {
+                    log.info("重新评分进度: {}/{}, 新增嵌入={}, 移除嵌入={}",
+                            rerated, allBooks.size(), embeddedNow, removedEmbedding);
+                }
+                // 避免 API 限流
+                Thread.sleep(200);
+            } catch (Exception e) {
+                log.warn("重新评分失败: bookId={} - {}", book.getId(), e.getMessage());
+            }
+        }
+        log.info("重新评分完成: rerated={}, embeddedNow={}, removedEmbedding={}", rerated, embeddedNow, removedEmbedding);
+        return Result.ok(Map.of(
+                "reratedCount", rerated,
+                "newlyEmbedded", embeddedNow,
+                "removedEmbedding", removedEmbedding,
+                "minRating", minRating));
     }
 }

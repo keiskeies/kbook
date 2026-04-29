@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ArrowLeft, RefreshCw, Upload, Scan, BookOpen, FileText, File, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle, Bot, User, Send, Loader2, Sparkles, X, MessageCircle } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Upload, Scan, BookOpen, FileText, File, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle, Bot, User, Send, Loader2, Sparkles, X, MessageCircle, Database, Trash2, HardDriveDownload, Star } from 'lucide-react'
 import DraggableFab from '@/components/DraggableFab'
 import { useNavigate } from 'react-router-dom'
-import { scanBooksStream, getScanStatus, resetScanStatus, uploadBook } from '@/api/book'
-import type { ScanProgress, ScanResult, ScanError } from '@/api/book'
+import { scanBooksStream, getScanStatus, resetScanStatus, uploadBook, getEmbeddingStats, cleanupEmbeddings, rebuildEmbeddings, rerateAllBooks } from '@/api/book'
+import type { ScanProgress, ScanResult, ScanError, EmbeddingStats } from '@/api/book'
 import { createAdminSession, streamAdminChat, getAdminHistory, getAdminSessions, deleteAdminSession } from '@/api/adminAi'
 import type { AiMessage } from '@/types/ai'
 import { toast } from 'sonner'
@@ -47,6 +47,13 @@ export default function AdminBooksPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadTitle, setUploadTitle] = useState('')
   const [showErrors, setShowErrors] = useState(false)
+  const [skipBeforeId, setSkipBeforeId] = useState('')
+
+  // 内容向量管理状态
+  const [embedStats, setEmbedStats] = useState<EmbeddingStats | null>(null)
+  const [embedMinRating, setEmbedMinRating] = useState('3.5')
+  const [embedLoading, setEmbedLoading] = useState(false)
+  const [statsLoading, setStatsLoading] = useState(false)
 
   // AI 管理员对话状态
   const [showChat, setShowChat] = useState(false)
@@ -119,6 +126,7 @@ export default function AdminBooksPage() {
         startPolling()
       }
     }).catch(() => {})
+    loadEmbedStats()
     return () => { stopPolling(); chatAbortRef.current?.abort() }
   }, [])
 
@@ -130,6 +138,7 @@ export default function AdminBooksPage() {
   }, [chatMessages, showChat])
 
   const startScanStream = () => {
+    const skipId = skipBeforeId ? parseInt(skipBeforeId, 10) : undefined
     abortRef.current = scanBooksStream(
       (data) => {
         setProgress(data)
@@ -149,6 +158,7 @@ export default function AdminBooksPage() {
         console.warn('SSE 断开，切换轮询:', err.message)
         startPolling()
       },
+      skipId,
     )
     startPolling()
   }
@@ -193,6 +203,53 @@ export default function AdminBooksPage() {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
+  }
+
+  // ==================== 内容向量管理 ====================
+
+  const loadEmbedStats = useCallback(async () => {
+    setStatsLoading(true)
+    try {
+      const stats = await getEmbeddingStats()
+      setEmbedStats(stats)
+    } catch { /* ignore */ }
+    finally { setStatsLoading(false) }
+  }, [])
+
+  const handleCleanupEmbeddings = async () => {
+    const rating = parseFloat(embedMinRating) || 3.5
+    setEmbedLoading(true)
+    try {
+      const result = await cleanupEmbeddings(rating)
+      toast.success(`已清理 ${result.cleanedCount} 本低评分书籍的内容向量`)
+      loadEmbedStats()
+    } catch (err: any) {
+      toast.error(err.message || '清理失败')
+    } finally { setEmbedLoading(false) }
+  }
+
+  const handleRebuildEmbeddings = async () => {
+    const rating = parseFloat(embedMinRating) || 3.5
+    setEmbedLoading(true)
+    try {
+      const result = await rebuildEmbeddings(rating)
+      toast.success(`已重建 ${result.rebuiltCount} 本高评分书籍的内容向量，跳过 ${result.skippedCount} 本`)
+      loadEmbedStats()
+    } catch (err: any) {
+      toast.error(err.message || '重建失败')
+    } finally { setEmbedLoading(false) }
+  }
+
+  const handleRerateAll = async () => {
+    const rating = parseFloat(embedMinRating) || 3.5
+    setEmbedLoading(true)
+    try {
+      const result = await rerateAllBooks(rating)
+      toast.success(`重新评分 ${result.reratedCount} 本，新增嵌入 ${result.newlyEmbedded}，移除嵌入 ${result.removedEmbedding}`)
+      loadEmbedStats()
+    } catch (err: any) {
+      toast.error(err.message || '重新评分失败')
+    } finally { setEmbedLoading(false) }
   }
 
   // ==================== AI 管理员对话 ====================
@@ -320,6 +377,21 @@ export default function AdminBooksPage() {
             <span className="rounded bg-red-50 px-2 py-1 text-red-600">EPUB</span>
             <span className="rounded bg-blue-50 px-2 py-1 text-blue-600">PDF</span>
             <span className="rounded bg-green-50 px-2 py-1 text-green-600">TXT</span>
+          </div>
+
+          {/* 断点续扫配置 */}
+          <div className="mb-3 flex items-center gap-2">
+            <label className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">跳过 ID &lt;</label>
+            <input
+              type="number"
+              min="1"
+              value={skipBeforeId}
+              onChange={(e) => setSkipBeforeId(e.target.value)}
+              placeholder="如 1800"
+              disabled={scanning}
+              className="h-8 w-28 rounded-lg border border-border bg-background px-2.5 text-xs outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+            />
+            <span className="text-[10px] text-muted-foreground">断点续扫：跳过 ID 小于此值的已有图书</span>
           </div>
 
           {/* 进度条 */}
@@ -473,6 +545,115 @@ export default function AdminBooksPage() {
           </button>
         </section>
 
+        {/* 内容向量管理 */}
+        <section className="rounded-xl bg-card p-4 shadow-xs">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
+              <Database className="h-5 w-5 text-emerald-500" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold">内容向量管理</h3>
+              <p className="text-xs text-muted-foreground">管理 Qdrant 内容向量存储，节省内存</p>
+            </div>
+          </div>
+
+          {/* 统计信息 */}
+          {embedStats && (
+            <div className="mb-3 grid grid-cols-3 gap-2 text-xs">
+              <div className="rounded-lg bg-muted/50 p-2.5 text-center">
+                <div className="text-lg font-bold text-foreground">{embedStats.totalBooks}</div>
+                <div className="text-muted-foreground">总书籍</div>
+              </div>
+              <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/20 p-2.5 text-center">
+                <div className="text-lg font-bold text-emerald-600">{embedStats.embeddedBooks}</div>
+                <div className="text-emerald-600/80">已嵌入</div>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-2.5 text-center">
+                <div className="text-lg font-bold text-foreground">{embedStats.totalContentVectors.toLocaleString()}</div>
+                <div className="text-muted-foreground">向量总数</div>
+              </div>
+            </div>
+          )}
+
+          {/* 状态提示 */}
+          {embedStats && (
+            <div className="mb-3 space-y-1.5">
+              {embedStats.lowRatedEmbedded > 0 && (
+                <div className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>{embedStats.lowRatedEmbedded} 本低评分书籍仍有内容向量，建议清理</span>
+                </div>
+              )}
+              {embedStats.highRatedNotEmbedded > 0 && (
+                <div className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/20 dark:text-blue-400">
+                  <HardDriveDownload className="h-3.5 w-3.5 shrink-0" />
+                  <span>{embedStats.highRatedNotEmbedded} 本高评分书籍未存内容向量，建议重建</span>
+                </div>
+              )}
+              {embedStats.lowRatedEmbedded === 0 && embedStats.highRatedNotEmbedded === 0 && (
+                <div className="flex items-center gap-1.5 rounded-lg bg-green-50 px-3 py-2 text-xs text-green-700 dark:bg-green-950/20 dark:text-green-400">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  <span>内容向量状态良好，无异常</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 评分阈值配置 */}
+          <div className="mb-3 flex items-center gap-2">
+            <label className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">评分阈值</label>
+            <input
+              type="number"
+              min="1"
+              max="5"
+              step="0.5"
+              value={embedMinRating}
+              onChange={(e) => setEmbedMinRating(e.target.value)}
+              disabled={embedLoading}
+              className="h-8 w-20 rounded-lg border border-border bg-background px-2.5 text-xs outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+            />
+            <span className="text-[10px] text-muted-foreground">评分 ≥ 此值才存储内容向量</span>
+          </div>
+
+          {/* 操作按钮 */}
+          <div className="space-y-2">
+            <button
+              onClick={loadEmbedStats}
+              disabled={statsLoading}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+            >
+              <Database className={`h-4 w-4 ${statsLoading ? 'animate-pulse' : ''}`} />
+              {statsLoading ? '加载中...' : '刷新统计'}
+            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCleanupEmbeddings}
+                disabled={embedLoading}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-400 dark:hover:bg-amber-950/30"
+              >
+                <Trash2 className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
+                清理低评分
+              </button>
+              <button
+                onClick={handleRebuildEmbeddings}
+                disabled={embedLoading}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-400 dark:hover:bg-blue-950/30"
+              >
+                <HardDriveDownload className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
+                重建高评分
+              </button>
+            </div>
+            <button
+              onClick={handleRerateAll}
+              disabled={embedLoading}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 py-2.5 text-sm font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50 dark:border-purple-800 dark:bg-purple-950/20 dark:text-purple-400 dark:hover:bg-purple-950/30"
+            >
+              <Star className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
+              重新评分全部（耗时较长）
+            </button>
+          </div>
+        </section>
+
         {/* 说明 */}
         <section className="rounded-xl bg-muted/50 p-4">
           <h3 className="mb-2 text-sm font-semibold">说明</h3>
@@ -492,6 +673,8 @@ export default function AdminBooksPage() {
             <li>书名默认使用文件名（不含扩展名）</li>
             <li>扫描已入库的文件会自动跳过</li>
             <li>AI 标签会在入库后自动生成</li>
+            <li>评分 ≥ 阈值的书籍才会存储全书内容向量到 Qdrant</li>
+            <li>哲学/思想/谋略类评分偏高，网络小说/言情类评分偏低</li>
             <li className="flex items-center gap-1">
               <Sparkles className="h-3 w-3 text-purple-500" />
               <span>点击右下角紫色圆圈唤醒 AI 管理员，用自然语言管理图书</span>
