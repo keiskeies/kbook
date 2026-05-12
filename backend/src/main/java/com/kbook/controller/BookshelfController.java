@@ -2,6 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.service.BookshelfService;
+import com.kbook.service.RecommendCoefficientService;
 import com.kbook.service.RecommendService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -19,6 +20,7 @@ public class BookshelfController {
 
     private final BookshelfService bookshelfService;
     private final RecommendService recommendService;
+    private final RecommendCoefficientService coefficientService;
 
     /**
      * 获取书架列表（含图书详情和阅读进度）
@@ -38,6 +40,9 @@ public class BookshelfController {
         bookshelfService.addToBookshelf(userId, bookId);
         // 记录收藏行为（用于协同过滤）
         recommendService.recordReadAction(userId, bookId, "FAVORITE", 3, null);
+        // 记录推荐反馈（用于自动调参）
+        coefficientService.recordFeedback(userId, bookId, "FAVORITE", 0.3,
+                null, null, null, null);
         return Result.ok(null);
     }
 

@@ -1,11 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Search, BookOpen, X } from 'lucide-react'
+import { ArrowLeft, Search, X, Star, Sparkles } from 'lucide-react'
 import { searchBooks } from '@/api/book'
 import type { Book } from '@/types/book'
 import { parseFormatTags, formatFileSize } from '@/types/book'
 import { BOOK_FORMAT } from '@/constants'
-import { formatTag } from '@/utils/time'
+import BookCover from '@/components/book/BookCover'
+import { useMatchScores } from '@/hooks/useMatchScores'
 
 export default function SearchPage() {
   const navigate = useNavigate()
@@ -82,6 +83,10 @@ export default function SearchPage() {
     { value: BOOK_FORMAT.EPUB, label: 'EPUB' },
     { value: BOOK_FORMAT.PDF, label: 'PDF' },
   ]
+
+  // 搜索结果的匹配分
+  const resultIds = results.map((b: any) => b.id as number)
+  const matchScores = useMatchScores(resultIds)
 
   const highlight = (text: string) => {
     if (!keyword.trim() || !text) return text
@@ -169,29 +174,29 @@ export default function SearchPage() {
             <p className="text-xs text-muted-foreground">共找到相关结果</p>
             {results.map((book: any) => {
               const tags = parseFormatTags(book.formatTags)
+              const ms = matchScores?.[String(book.id)]
               return (
                 <div key={book.id} className="flex items-center gap-3 rounded-2xl bg-card p-3 shadow-sm border border-border/50" onClick={() => navigate(`/book/${book.id}`)}>
-                  <div className="relative h-20 w-14 flex-shrink-0 overflow-hidden rounded bg-muted">
-                    {book.coverUrl ? (
-                      <img src={book.coverUrl} alt={book.title} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5">
-                        <BookOpen className="h-5 w-5 text-primary/40" />
-                      </div>
-                    )}
-                    {(book.format === 'PDF' || book.format === 'TXT') && (
-                      <span className="absolute right-0.5 top-0.5 rounded bg-black/60 px-1 py-0.5 text-[8px] font-medium text-white">
-                        {formatTag(book.format)}
-                      </span>
-                    )}
-                  </div>
+                  <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} format={book.format} size="md" className="flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-sm font-medium" dangerouslySetInnerHTML={{ __html: highlight(book.title) }} />
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {book.author ? <span dangerouslySetInnerHTML={{ __html: highlight(book.author) }} /> : '未知作者'}
                     </p>
                     <div className="mt-1 flex items-center gap-2">
-                      {tags.slice(0, 2).map((tag) => <span key={tag} className="text-[10px] text-muted-foreground">{tag}</span>)}
+                      {book.rating > 0 && (
+                        <div className="flex items-center gap-0.5">
+                          <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
+                          <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{book.rating.toFixed(1)}</span>
+                        </div>
+                      )}
+                      {ms != null && ms > 0 && (
+                        <div className="flex items-center gap-0.5">
+                          <Sparkles className="h-2.5 w-2.5 text-amber-500" />
+                          <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{Math.round(ms * 100)}%</span>
+                        </div>
+                      )}
+                      {tags.slice(0, 2).map((tag: string) => <span key={tag} className="text-[10px] text-muted-foreground">{tag}</span>)}
                       {book.fileSize && <span className="text-[10px] text-muted-foreground">{formatFileSize(book.fileSize)}</span>}
                     </div>
                   </div>

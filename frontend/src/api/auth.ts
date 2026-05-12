@@ -19,6 +19,11 @@ export interface UserInfo {
   married?: boolean | null
   hasChildren?: boolean | null
   mbti?: string | null
+  occupation?: string | null
+  education?: string | null
+  entrepreneurship?: string | null
+  annualIncome?: string | null
+  mood?: string | null
   bio?: string | null
   followerCount?: number
   followingCount?: number
@@ -49,6 +54,10 @@ export function register(data: {
   married?: boolean
   hasChildren?: boolean
   mbti?: string
+  occupation?: string
+  education?: string
+  entrepreneurship?: string
+  annualIncome?: string
 }) {
   return request.post('/auth/register', data)
 }
@@ -75,6 +84,15 @@ export function updateTraits(data: {
   married?: boolean
   hasChildren?: boolean
   mbti?: string
+  occupation?: string
+  education?: string
+  entrepreneurship?: string
+  annualIncome?: string
 }) {
   return request.put('/user/profile/traits', data)
+}
+
+/** 更新心情状态 */
+export function updateMood(mood: string) {
+  return request.put('/user/profile/mood', null, { params: { mood } })
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, UserPlus, UserMinus, BookOpen, CheckCircle2, MessageSquare, Heart } from 'lucide-react'
+import { ArrowLeft, UserPlus, UserMinus, CheckCircle2, MessageSquare, Heart } from 'lucide-react'
 import { getUserProfile, getUserBooks, getUserComments } from '@/api/userProfile'
 import { followUser, unfollowUser } from '@/api/follow'
 import type { UserProfileVO, UserBookItem } from '@/api/userProfile'
@@ -8,6 +8,7 @@ import type { CommentVO } from '@/api/comment'
 import { useAuthStore } from '@/store/auth'
 import { formatRelativeTime } from '@/utils/time'
 import { toast } from 'sonner'
+import BookCover from '@/components/book/BookCover'
 
 export default function UserProfilePage() {
   const { userId } = useParams<{ userId: string }>()
@@ -61,7 +62,7 @@ export default function UserProfilePage() {
         setProfile({ ...profile, isFollowing: true, followerCount: profile.followerCount + 1 })
       }
     } catch (err: any) {
-      toast.error(err.message || '操作失败')
+      toast.error(err.message || '操作未完成')
     }
   }
 
@@ -176,11 +177,7 @@ export default function UserProfilePage() {
                   onClick={() => navigate(`/book/${book.bookId}`)}
                   className="flex w-full items-center gap-3 rounded-2xl bg-card p-3.5 shadow-sm border border-border/50 active:scale-[0.98] transition-transform"
                 >
-                  <div className="h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-muted">
-                    {book.coverUrl ? <img src={book.coverUrl} alt="" className="h-full w-full object-cover" /> : (
-                      <div className="flex h-full w-full items-center justify-center"><BookOpen className="h-4 w-4 text-primary/30" /></div>
-                    )}
-                  </div>
+                  <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} size="sm" className="shrink-0" />
                   <div className="flex-1 min-w-0 text-left">
                     <p className="truncate text-sm font-semibold">{book.title}</p>
                     <p className="text-xs text-muted-foreground">{book.author || '未知作者'}</p>
@@ -206,11 +203,7 @@ export default function UserProfilePage() {
                   onClick={() => navigate(`/book/${book.bookId}`)}
                   className="flex flex-col items-center cursor-pointer active:scale-[0.96] transition-transform"
                 >
-                  <div className="aspect-[3/4] w-full overflow-hidden rounded-xl bg-muted shadow-sm">
-                    {book.coverUrl ? <img src={book.coverUrl} alt="" className="h-full w-full object-cover" /> : (
-                      <div className="flex h-full w-full items-center justify-center"><BookOpen className="h-6 w-6 text-primary/30" /></div>
-                    )}
-                  </div>
+                  <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} />
                   <p className="mt-1.5 w-full truncate text-xs font-semibold">{book.title}</p>
                 </button>
               ))}
@@ -229,13 +222,7 @@ export default function UserProfilePage() {
                     onClick={() => navigate(`/book/${c.bookId}`)}
                     className="mb-1.5 flex items-center gap-2.5 rounded-lg bg-primary/5 px-2.5 py-2 hover:bg-primary/10 transition-colors w-full text-left"
                   >
-                    <div className="h-9 w-7 shrink-0 overflow-hidden rounded bg-muted">
-                      {c.bookCoverUrl ? (
-                        <img src={c.bookCoverUrl} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <BookOpen className="h-3.5 w-3.5 text-primary/30 m-auto" />
-                      )}
-                    </div>
+                    <BookCover coverUrl={c.bookCoverUrl ?? null} title={c.bookTitle || '查看书籍'} size="xs" />
                     <span className="text-xs font-medium text-primary truncate">{c.bookTitle || '查看书籍'}</span>
                   </button>
                   <p className="text-sm leading-relaxed line-clamp-3">{c.content}</p>

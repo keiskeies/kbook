@@ -81,6 +81,8 @@ export function streamChat(
 
         const decoder = new TextDecoder()
         let buffer = ''
+        let currentEventName = ''
+        let dataLines: string[] = []
 
         while (true) {
           const { done, value } = await reader.read()
@@ -91,20 +93,30 @@ export function streamChat(
           buffer = lines.pop() || ''
 
           for (const line of lines) {
-            if (line.startsWith('event:message')) {
-              // 下一个 line 是 data
+            if (line.startsWith('event:')) {
+              currentEventName = line.slice(6).trim()
             } else if (line.startsWith('data:')) {
-              const text = line.slice(5)
-              if (text === '[DONE]') {
-                onDone()
-                return
+              dataLines.push(line.slice(5))
+            } else if (line === '') {
+              // 空行 = SSE 事件结束，合并 data 行
+              if (dataLines.length > 0) {
+                const data = dataLines.join('\n')
+                if (currentEventName === 'done') {
+                  onDone()
+                  return
+                } else if (currentEventName === 'error') {
+                  onError(new Error(data))
+                  return
+                } else {
+                  if (data === '[DONE]') {
+                    onDone()
+                    return
+                  }
+                  onChunk(data)
+                }
               }
-              onChunk(text)
-            } else if (line.startsWith('event:error')) {
-              // 错误事件
-            } else if (line.startsWith('event:done')) {
-              onDone()
-              return
+              currentEventName = ''
+              dataLines = []
             }
           }
         }
@@ -121,7 +133,7 @@ export function streamChat(
   if (currentToken) {
     doFetch(currentToken)
   } else {
-    onError(new Error('未登录，请先登录'))
+    onError(new Error('需要登录后才能继续'))
   }
 
   return controller

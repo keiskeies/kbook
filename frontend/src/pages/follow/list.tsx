@@ -65,7 +65,7 @@ export default function FollowListPage() {
         }
       }
     } catch (err: any) {
-      toast.error(err.message || '操作失败')
+      toast.error(err.message || '操作未完成')
     }
   }
 

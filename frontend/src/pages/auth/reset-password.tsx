@@ -20,7 +20,7 @@ export default function ResetPasswordPage() {
 
   const handleSendCodeClick = () => {
     if (!email.trim()) {
-      toast.error('请输入邮箱')
+      toast.error('输入邮箱')
       return
     }
     setShowCaptcha(true)
@@ -34,7 +34,7 @@ export default function ResetPasswordPage() {
       startCountdown()
       toast.success('验证码已发送')
     } catch (err: any) {
-      toast.error(err.message || '发送失败')
+      toast.error('验证码发送未完成')
     } finally {
       setSendingCode(false)
     }
@@ -42,11 +42,11 @@ export default function ResetPasswordPage() {
 
   const handleReset = async () => {
     if (!email.trim()) {
-      toast.error('请输入邮箱')
+      toast.error('输入邮箱')
       return
     }
     if (!code.trim()) {
-      toast.error('请输入验证码')
+      toast.error('输入验证码')
       return
     }
     if (newPassword.length < 6 || newPassword.length > 20) {
@@ -61,10 +61,10 @@ export default function ResetPasswordPage() {
     try {
       setLoading(true)
       await resetPassword(email, code, newPassword)
-      toast.success('密码重置成功，请重新登录')
+      toast.success('密码已重置，现在可以重新登录')
       navigate(ROUTES.LOGIN)
     } catch (err: any) {
-      toast.error(err.message || '重置失败')
+      toast.error(err.message || '重置未完成')
     } finally {
       setLoading(false)
     }
@@ -82,7 +82,7 @@ export default function ResetPasswordPage() {
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="请输入注册邮箱"
+          placeholder="注册时用的邮箱"
           autoComplete="email"
           className="w-full rounded-xl border bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary"
         />

@@ -4,6 +4,7 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.Book;
 import com.kbook.repository.AiConversationRepository;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatModel;
@@ -11,6 +12,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -43,6 +45,10 @@ public class BookChatService {
 
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
+    /** RAG 检索返回的最大片段数，受聊天模型上下文长度限制 */
+    @Value("${kbook.qdrant.rag-top-k:8}")
+    private int ragTopK;
+
     /** 图书问答系统提示词模板 */
     private static final String BOOK_CHAT_SYSTEM_PROMPT = """
             你是 KBook 智能阅读平台的「图书伴读」AI 助手。你正在与读者讨论一本具体的书。
@@ -57,6 +63,8 @@ public class BookChatService {
             7. 当用户问及"叙事手法、写作技巧"时，结合具体内容分析
             8. 当用户问及"时间线"时，按照时间顺序整理关键事件
             9. 当用户根据书中思想提出实际应用问题时，给出基于书中理念的可行建议
+            
+            /no_think
             """;
 
     /** 每本书的推荐问题 — 按类型分类 */
@@ -132,10 +140,32 @@ public class BookChatService {
                 String thinkingSuffix = aiProviderConfigService.getThinkingPromptSuffix();
                 long startTime = System.currentTimeMillis();
                 ChatResponse response = chatModel.chat(List.of(
-                        UserMessage.from(BOOK_CHAT_SYSTEM_PROMPT + "\n\n" + fullPrompt + thinkingSuffix)
+                        SystemMessage.from(BOOK_CHAT_SYSTEM_PROMPT),
+                        UserMessage.from(fullPrompt + thinkingSuffix)
                 ));
                 long elapsed = System.currentTimeMillis() - startTime;
                 String answer = response.aiMessage().text();
+
+                // 解析 thinking 和 token 用量
+                String thinkingContent = response.aiMessage().thinking();
+                int thinkingLength = thinkingContent != null ? thinkingContent.length() : 0;
+                int apiInputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
+                        ? response.tokenUsage().inputTokenCount() : 0;
+                int apiOutputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
+                        ? response.tokenUsage().outputTokenCount() : 0;
+
+                log.info("========== 图书问答 AI 完整响应 ==========");
+                log.info("耗时: {}ms", elapsed);
+                log.info("Thinking长度: {} 字符 | Thinking前200字: {}",
+                        thinkingLength,
+                        thinkingContent != null && thinkingContent.length() > 200
+                                ? thinkingContent.substring(0, 200) + "..."
+                                : thinkingContent);
+                log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
+                log.info("Answer: {}", answer.length() > 500 ? answer.substring(0, 500) + "..." : answer);
+                log.info("FinishReason: {}", response.finishReason());
+                log.info("Model: {}", response.modelName());
+                log.info("==========================================");
 
                 // 5. 分段发送 SSE
                 int chunkSize = 3;
@@ -153,10 +183,8 @@ public class BookChatService {
                 saveMessage(userId, finalSessionId, "user", question, bookId);
                 saveMessage(userId, finalSessionId, "assistant", answer, bookId);
 
-                // 7. 记录日志
-                int inputTokens = CommonUtils.estimateTokens(fullPrompt);
-                int outputTokens = CommonUtils.estimateTokens(answer);
-                CommonUtils.logAiCall("图书问答", elapsed, inputTokens, outputTokens,
+                // 7. 记录日志（使用 API 实际 token）
+                CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
                         String.format("bookId=%d, question=%s", bookId, question.substring(0, Math.min(30, question.length()))));
 
             } catch (Exception e) {
@@ -234,7 +262,7 @@ public class BookChatService {
 
         try {
             List<EmbeddingMatch<TextSegment>> matches =
-                    embeddingService.searchContent(question, 8, bookId);
+                    embeddingService.searchContent(question, ragTopK, bookId);
 
             if (matches.isEmpty()) {
                 log.debug("RAG 检索无结果: bookId={}, question={}", bookId, question.substring(0, Math.min(30, question.length())));

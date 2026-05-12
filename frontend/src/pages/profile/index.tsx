@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
-import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, Bot, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, Eye, PenLine, BookHeart } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, Bot, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useNavigate } from 'react-router-dom'
 import { ROUTES } from '@/constants'
 import { toast } from 'sonner'
 import { getReadingStats } from '@/api/progress'
 import { getBookshelfCount } from '@/api/bookshelf'
-import { updateTraits } from '@/api/auth'
+import { updateTraits, updateMood } from '@/api/auth'
 import { updateProfile, uploadAvatar } from '@/api/user'
 import { getExcludePreferences, addExcludePreference, removeExcludePreference, getIncludePreferences, addIncludePreference, removeIncludePreference } from '@/api/preference'
 import type { UserBookPreferenceItem } from '@/api/preference'
@@ -14,6 +14,54 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import type { ReadingStats } from '@/types/book'
 
 const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
+
+const OCCUPATION_OPTIONS = [
+  { value: 'STUDENT', label: '学生' },
+  { value: 'TECH', label: '技术/IT' },
+  { value: 'FINANCE', label: '金融/商业' },
+  { value: 'EDUCATION', label: '教育/科研' },
+  { value: 'MEDICAL', label: '医疗/健康' },
+  { value: 'ARTS', label: '文艺/传媒' },
+  { value: 'MANAGEMENT', label: '管理/行政' },
+  { value: 'FREELANCE', label: '自由职业' },
+  { value: 'RETIRED', label: '退休' },
+  { value: 'OTHER', label: '其他' },
+]
+
+const EDUCATION_OPTIONS = [
+  { value: 'HIGH_SCHOOL', label: '高中及以下' },
+  { value: 'COLLEGE', label: '大专' },
+  { value: 'BACHELOR', label: '本科' },
+  { value: 'MASTER', label: '硕士' },
+  { value: 'DOCTORATE', label: '博士' },
+  { value: 'OTHER', label: '其他' },
+]
+
+const ENTREPRENEURSHIP_OPTIONS = [
+  { value: 'ENTREPRENEUR', label: '正在创业' },
+  { value: 'WANT_ENTREPRENEUR', label: '想创业' },
+  { value: 'NOT_INTERESTED', label: '暂不考虑' },
+]
+
+const ANNUAL_INCOME_OPTIONS = [
+  { value: 'UNDER_50K', label: '5万以内' },
+  { value: '50K_150K', label: '5~15万' },
+  { value: '150K_300K', label: '15~30万' },
+  { value: '300K_500K', label: '30~50万' },
+  { value: '500K_1M', label: '50~100万' },
+  { value: 'OVER_1M', label: '100万+' },
+  { value: 'PREFER_NOT_TO_SAY', label: '不方便说' },
+]
+
+const MOOD_OPTIONS = [
+  { value: 'HAPPY', label: '开心', emoji: '😊' },
+  { value: 'CALM', label: '平静', emoji: '😌' },
+  { value: 'ANXIOUS', label: '焦虑', emoji: '😰' },
+  { value: 'SAD', label: '低落', emoji: '😢' },
+  { value: 'MOTIVATED', label: '充满动力', emoji: '🔥' },
+  { value: 'TIRED', label: '疲惫', emoji: '😴' },
+  { value: 'CURIOUS', label: '好奇', emoji: '🤔' },
+]
 
 /** 根据 birthday 计算年龄 */
 function calcAge(birthday: string | null | undefined): number | null {
@@ -41,12 +89,20 @@ export default function ProfilePage() {
   const [traitMarried, setTraitMarried] = useState(userInfo?.married === true ? 'yes' : userInfo?.married === false ? 'no' : '')
   const [traitHasChildren, setTraitHasChildren] = useState(userInfo?.hasChildren === true ? 'yes' : userInfo?.hasChildren === false ? 'no' : '')
   const [traitMbti, setTraitMbti] = useState(userInfo?.mbti ?? '')
+  const [traitOccupations, setTraitOccupations] = useState<string[]>(() => {
+    const occ = userInfo?.occupation
+    return occ ? occ.split(',').filter(Boolean) : []
+  })
+  const [traitEducation, setTraitEducation] = useState(userInfo?.education ?? '')
+  const [traitEntrepreneurship, setTraitEntrepreneurship] = useState(userInfo?.entrepreneurship ?? '')
+  const [traitAnnualIncome, setTraitAnnualIncome] = useState(userInfo?.annualIncome ?? '')
   const [savingTraits, setSavingTraits] = useState(false)
 
-  // 用户信息编辑弹窗（昵称+头像）
+  // 用户信息编辑弹窗（昵称+头像+心情）
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [editNickname, setEditNickname] = useState(userInfo?.nickname ?? '')
   const [editBio, setEditBio] = useState(userInfo?.bio ?? '')
+  const [editMood, setEditMood] = useState(userInfo?.mood ?? '')
   const [savingProfile, setSavingProfile] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -73,6 +129,25 @@ export default function ProfilePage() {
     if (userInfo?.married != null) parts.push(userInfo.married ? '已婚' : '未婚')
     if (userInfo?.hasChildren != null) parts.push(userInfo.hasChildren ? '有孩子' : '无孩子')
     if (userInfo?.mbti) parts.push(userInfo.mbti)
+    if (userInfo?.occupation) {
+      const occLabels = userInfo.occupation.split(',').filter(Boolean).map(v => {
+        const found = OCCUPATION_OPTIONS.find(o => o.value === v)
+        return found ? found.label : v
+      })
+      if (occLabels.length > 0) parts.push(occLabels.join('/'))
+    }
+    if (userInfo?.education) {
+      const edu = EDUCATION_OPTIONS.find(o => o.value === userInfo.education)
+      if (edu) parts.push(edu.label)
+    }
+    if (userInfo?.entrepreneurship) {
+      const ent = ENTREPRENEURSHIP_OPTIONS.find(o => o.value === userInfo.entrepreneurship)
+      if (ent) parts.push(ent.label)
+    }
+    if (userInfo?.annualIncome && userInfo.annualIncome !== 'PREFER_NOT_TO_SAY') {
+      const inc = ANNUAL_INCOME_OPTIONS.find(o => o.value === userInfo.annualIncome)
+      if (inc) parts.push(inc.label)
+    }
     return parts.length > 0 ? parts.join(' · ') : '未设置'
   }
 
@@ -86,8 +161,9 @@ export default function ProfilePage() {
     if (showProfileModal) {
       setEditNickname(userInfo?.nickname ?? '')
       setEditBio(userInfo?.bio ?? '')
+      setEditMood(userInfo?.mood ?? '')
     }
-  }, [showProfileModal, userInfo?.nickname, userInfo?.bio])
+  }, [showProfileModal, userInfo?.nickname, userInfo?.bio, userInfo?.mood])
 
   // 打开画像编辑弹窗时同步最新数据
   useEffect(() => {
@@ -97,6 +173,11 @@ export default function ProfilePage() {
       setTraitMarried(userInfo?.married === true ? 'yes' : userInfo?.married === false ? 'no' : '')
       setTraitHasChildren(userInfo?.hasChildren === true ? 'yes' : userInfo?.hasChildren === false ? 'no' : '')
       setTraitMbti(userInfo?.mbti ?? '')
+      const occ = userInfo?.occupation
+      setTraitOccupations(occ ? occ.split(',').filter(Boolean) : [])
+      setTraitEducation(userInfo?.education ?? '')
+      setTraitEntrepreneurship(userInfo?.entrepreneurship ?? '')
+      setTraitAnnualIncome(userInfo?.annualIncome ?? '')
     }
   }, [showTraitsModal, userInfo])
 
@@ -150,10 +231,10 @@ export default function ProfilePage() {
     navigate(ROUTES.LOGIN, { replace: true })
   }
 
-  // 保存用户信息（昵称）
+  // 保存用户信息（昵称+心情）
   const handleSaveProfile = async () => {
     if (!editNickname.trim()) {
-      toast.error('昵称不能为空')
+      toast.error('给自己取个昵称吧')
       return
     }
     setSavingProfile(true)
@@ -163,10 +244,15 @@ export default function ProfilePage() {
       // 同步 bio 到后端
       const { updateBio } = await import('@/api/userProfile')
       await updateBio(editBio.trim())
+      // 同步心情到后端
+      if (editMood !== (userInfo?.mood ?? '')) {
+        await updateMood(editMood)
+        updateUserInfo({ mood: editMood || null })
+      }
       setShowProfileModal(false)
       toast.success('个人信息已更新')
     } catch (err: any) {
-      toast.error(err.message || '更新失败')
+      toast.error(err.message || '更新未完成，稍后再试试')
     } finally {
       setSavingProfile(false)
     }
@@ -179,12 +265,12 @@ export default function ProfilePage() {
 
     // 校验文件类型
     if (!file.type.startsWith('image/')) {
-      toast.error('请选择图片文件')
+      toast.error('选择一张图片吧')
       return
     }
     // 校验大小（2MB）
     if (file.size > 2 * 1024 * 1024) {
-      toast.error('图片不能超过2MB')
+      toast.error('图片大小不要超过2MB哦')
       return
     }
 
@@ -197,7 +283,7 @@ export default function ProfilePage() {
         toast.success('头像已更新')
       }
     } catch (err: any) {
-      toast.error(err.message || '头像上传失败')
+      toast.error(err.message || '头像暂时无法上传')
     } finally {
       setUploadingAvatar(false)
       // 重置 file input
@@ -215,6 +301,10 @@ export default function ProfilePage() {
         married: traitMarried ? traitMarried === 'yes' : null,
         hasChildren: traitHasChildren ? traitHasChildren === 'yes' : null,
         mbti: traitMbti || null,
+        occupation: traitOccupations.length > 0 ? traitOccupations.join(',') : null,
+        education: traitEducation || null,
+        entrepreneurship: traitEntrepreneurship || null,
+        annualIncome: traitAnnualIncome || null,
       }
       await updateTraits(data)
       updateUserInfo({
@@ -223,15 +313,21 @@ export default function ProfilePage() {
         married: data.married,
         hasChildren: data.hasChildren,
         mbti: data.mbti,
+        occupation: data.occupation,
+        education: data.education,
+        entrepreneurship: data.entrepreneurship,
+        annualIncome: data.annualIncome,
       })
       setShowTraitsModal(false)
       toast.success('画像已更新')
     } catch (err: any) {
-      toast.error(err.message || '更新失败')
+      toast.error(err.message || '更新未完成，稍后再试试')
     } finally {
       setSavingTraits(false)
     }
   }
+
+
 
   // ==================== 阅读偏好 ====================
 
@@ -250,7 +346,7 @@ export default function ProfilePage() {
   useEffect(() => { if (showPreferenceModal) loadPreferences() }, [showPreferenceModal])
 
   const handleAddPreference = async () => {
-    if (!prefValue.trim()) { toast.error('请输入内容'); return }
+    if (!prefValue.trim()) { toast.error('先写点什么吧'); return }
     setPrefSaving(true)
     try {
       if (prefTab === 'exclude') {
@@ -280,7 +376,7 @@ export default function ProfilePage() {
       }
       loadPreferences()
     } catch (err: any) {
-      toast.error(err.message || '操作失败')
+      toast.error(err.message || '操作未完成')
     }
   }
 
@@ -347,7 +443,7 @@ export default function ProfilePage() {
             </p>
             {needBindEmail && (
               <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                请先绑定邮箱以启用密码重置
+                绑定邮箱后即可重置密码
               </p>
             )}
           </div>
@@ -440,20 +536,20 @@ export default function ProfilePage() {
                       i < group.items.length - 1 ? 'border-b border-border/50' : ''
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted">
+                    <div className="flex items-center gap-3 shrink-0 min-w-0">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted">
                         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                       </div>
-                      <span className="text-sm font-medium">{item.label}</span>
+                      <span className="text-sm font-medium shrink-0">{item.label}</span>
                     </div>
                     {(item as any).custom ? (
                       <ThemeToggle />
                     ) : (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0 ml-auto">
                         {item.extra && (
-                          <span className="text-xs text-muted-foreground">{item.extra}</span>
+                          <span className="text-xs text-muted-foreground truncate max-w-[160px]">{item.extra}</span>
                         )}
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                       </div>
                     )}
                   </button>
@@ -546,6 +642,31 @@ export default function ProfilePage() {
               <p className="mt-1 text-[10px] text-muted-foreground text-right">{editBio.length}/200</p>
             </div>
 
+            {/* 心情选择 */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">当前心情</label>
+              <div className="flex flex-wrap gap-2">
+                {MOOD_OPTIONS.map(m => {
+                  const isActive = editMood === m.value
+                  return (
+                    <button
+                      key={m.value}
+                      type="button"
+                      onClick={() => setEditMood(isActive ? '' : m.value)}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors border ${
+                        isActive
+                          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                          : 'bg-background text-muted-foreground border-border hover:border-primary/40'
+                      }`}
+                    >
+                      <span>{m.emoji}</span>
+                      <span>{m.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             <button
               onClick={handleSaveProfile}
               disabled={savingProfile || !editNickname.trim()}
@@ -560,15 +681,16 @@ export default function ProfilePage() {
       {/* 画像编辑弹窗 */}
       {showTraitsModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowTraitsModal(false)}>
-          <div className="w-full max-w-lg rounded-t-3xl bg-card p-5 space-y-4 shadow-2xl" style={{ paddingBottom: 'calc(1.25rem + 5rem)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex justify-center pb-1">
+          <div className="w-full max-w-lg max-h-[85vh] rounded-t-3xl bg-card shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-center pt-3 pb-1">
               <div className="h-1 w-10 rounded-full bg-muted-foreground/20" />
             </div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between px-5">
               <h3 className="text-base font-bold">编辑我的画像</h3>
               <button onClick={() => setShowTraitsModal(false)} className="text-muted-foreground text-sm font-medium">关闭</button>
             </div>
-            <p className="text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</p>
+            <p className="px-5 pt-1 text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</p>
+            <div className="overflow-y-auto px-5 py-4 space-y-4" style={{ paddingBottom: 'calc(1rem + 5rem)' }}>
 
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">出生日期</label>
@@ -628,6 +750,71 @@ export default function ProfilePage() {
               ))}
             </select>
 
+            {/* 职业 - 多选 */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">职业方向（可多选）</label>
+              <div className="flex flex-wrap gap-2">
+                {OCCUPATION_OPTIONS.map(o => {
+                  const selected = traitOccupations.includes(o.value)
+                  return (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => {
+                        setTraitOccupations(prev =>
+                          selected ? prev.filter(v => v !== o.value) : [...prev, o.value]
+                        )
+                      }}
+                      className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors border ${
+                        selected
+                          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                          : 'bg-background text-muted-foreground border-border hover:border-primary/40'
+                      }`}
+                    >
+                      {selected && <Check className="h-3 w-3" />}
+                      {o.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* 学历 */}
+            <select
+              value={traitEducation}
+              onChange={(e) => setTraitEducation(e.target.value)}
+              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="">最高学历</option>
+              {EDUCATION_OPTIONS.map(e => (
+                <option key={e.value} value={e.value}>{e.label}</option>
+              ))}
+            </select>
+
+            {/* 创业意向 */}
+            <select
+              value={traitEntrepreneurship}
+              onChange={(e) => setTraitEntrepreneurship(e.target.value)}
+              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="">创业意向</option>
+              {ENTREPRENEURSHIP_OPTIONS.map(e => (
+                <option key={e.value} value={e.value}>{e.label}</option>
+              ))}
+            </select>
+
+            {/* 年收入范围 */}
+            <select
+              value={traitAnnualIncome}
+              onChange={(e) => setTraitAnnualIncome(e.target.value)}
+              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="">年收入范围</option>
+              {ANNUAL_INCOME_OPTIONS.map(e => (
+                <option key={e.value} value={e.value}>{e.label}</option>
+              ))}
+            </select>
+
             <button
               onClick={handleSaveTraits}
               disabled={savingTraits}
@@ -635,6 +822,7 @@ export default function ProfilePage() {
             >
               {savingTraits ? '保存中...' : '保存'}
             </button>
+            </div>
           </div>
         </div>
       )}
@@ -770,6 +958,7 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
     </div>
   )
 }

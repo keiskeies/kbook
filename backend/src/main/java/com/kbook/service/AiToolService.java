@@ -11,6 +11,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +36,10 @@ public class AiToolService {
     private final UserBookPreferenceService preferenceService;
     private final RecommendService recommendService;
     private final ObjectMapper objectMapper;
+
+    /** RAG 内容检索返回的最大片段数 */
+    @Value("${kbook.qdrant.rag-top-k:5}")
+    private int ragTopK;
 
     public AiToolService(
             BookService bookService,
@@ -189,7 +194,7 @@ public class AiToolService {
                 return "向量检索功能暂不可用。";
             }
 
-            List<EmbeddingMatch<TextSegment>> matches = embeddingService.searchContent(query, 5, bookId);
+            List<EmbeddingMatch<TextSegment>> matches = embeddingService.searchContent(query, ragTopK, bookId);
             if (matches.isEmpty()) {
                 return "未在该书中找到相关内容。";
             }
@@ -460,6 +465,42 @@ public class AiToolService {
         } catch (Exception e) {
             log.error("[AI Tool] removeIncludePreference error", e);
             return "取消偏好时发生错误。";
+        }
+    }
+
+    // ==================== 个性化推荐工具 ====================
+
+    @Tool("根据用户画像（年龄、性别、MBTI、阅读偏好等）进行个性化推荐。当用户说\"推荐适合我的书\"、\"猜我喜欢\"、\"我适合看什么\"时使用。")
+    public String personalizeRecommend(
+            @P("用户ID") Long userId,
+            @P("推荐数量，默认5") Integer count
+    ) {
+        log.debug("[AI Tool] personalizeRecommend: userId={}, count={}", userId, count);
+        try {
+            int limit = (count != null && count > 0 && count <= 20) ? count : 5;
+            List<RecommendService.RecommendedItem> items = recommendService.getPersonalizedRecommendations(userId, limit);
+            if (items.isEmpty()) {
+                return "暂无个性化推荐数据，可以尝试搜索或查看排行榜。";
+            }
+            StringBuilder sb = new StringBuilder("为你个性化推荐：\n\n");
+            for (int i = 0; i < items.size(); i++) {
+                RecommendService.RecommendedItem item = items.get(i);
+                sb.append(String.format("%d. [BOOK:id=%d]《%s》 作者:%s 格式:%s 评分:%.1f 匹配度:%.0f%%\n",
+                        i + 1,
+                        item.getBookId(),
+                        item.getTitle(),
+                        item.getAuthor() != null ? item.getAuthor() : "未知",
+                        item.getFormat(),
+                        item.getRating() != null ? item.getRating() : 0,
+                        item.getMatchScore() * 100));
+                if (item.getDescription() != null) {
+                    sb.append("   简介：").append(truncate(item.getDescription(), 80)).append("\n");
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("[AI Tool] personalizeRecommend error", e);
+            return "获取个性化推荐时发生错误。";
         }
     }
 

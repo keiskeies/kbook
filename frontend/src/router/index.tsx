@@ -23,6 +23,7 @@ const SearchPage = lazy(() => import('@/pages/search'))
 const ReaderPage = lazy(() => import('@/pages/reader'))
 const ReadingHistoryPage = lazy(() => import('@/pages/profile/history'))
 const ReviewsPage = lazy(() => import('@/pages/reviews'))
+const RecommendPage = lazy(() => import('@/pages/home/recommend'))
 const NotificationsPage = lazy(() => import('@/pages/notifications'))
 const UserProfilePage = lazy(() => import('@/pages/user/profile'))
 const FollowListPage = lazy(() => import('@/pages/follow/list'))
@@ -98,6 +99,11 @@ export const router = createBrowserRouter([
       {
         path: ROUTES.REVIEWS,
         element: <AuthGuard><LazyLoad><ReviewsPage /></LazyLoad></AuthGuard>,
+      },
+      // 为你推荐
+      {
+        path: ROUTES.RECOMMEND,
+        element: <AuthGuard><LazyLoad><RecommendPage /></LazyLoad></AuthGuard>,
       },
       // 通知
       {

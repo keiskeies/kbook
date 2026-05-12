@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, BookOpen, ChevronRight, Clock, Star, Sparkles,
@@ -8,30 +8,9 @@ import {
 import { getHomeData } from '@/api/home'
 import { getUnreadCount } from '@/api/notification'
 import type { HomeData, RecentBookVO, RecommendedBook, SimpleBookVO, FormatCategory } from '@/api/home'
-import { formatTag, formatRelativeTime } from '@/utils/time'
-
-/** 书籍封面组件 */
-function BookCover({ coverUrl, title, format, size = 'normal' }: {
-  coverUrl: string | null; title: string; format?: string; size?: 'normal' | 'large'
-}) {
-  const h = size === 'large' ? 'h-44' : 'h-36'
-  return (
-    <div className={`relative aspect-[3/4] w-full ${h} overflow-hidden rounded-xl bg-muted shadow-md`}>
-      {coverUrl ? (
-        <img src={coverUrl} alt={title} className="h-full w-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy" />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-accent">
-          <BookOpen className="h-8 w-8 text-primary/30" />
-        </div>
-      )}
-      {format && (format === 'PDF' || format === 'TXT') && (
-        <span className="absolute right-1.5 top-1.5 rounded-md bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-          {formatTag(format)}
-        </span>
-      )}
-    </div>
-  )
-}
+import { formatRelativeTime } from '@/utils/time'
+import BookCover from '@/components/book/BookCover'
+import { useMatchScores } from '@/hooks/useMatchScores'
 
 /** 最近阅读卡片 */
 function RecentBookCard({ book, onClick }: { book: RecentBookVO; onClick: () => void }) {
@@ -40,15 +19,7 @@ function RecentBookCard({ book, onClick }: { book: RecentBookVO; onClick: () => 
       className="flex items-center gap-3.5 rounded-2xl bg-card p-3.5 shadow-sm border border-border/50 active:scale-[0.98] transition-all duration-150"
       onClick={onClick}
     >
-      <div className="h-16 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-muted shadow-sm">
-        {book.coverUrl ? (
-          <img src={book.coverUrl} alt={book.title} className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-accent">
-            <BookOpen className="h-4 w-4 text-primary/30" />
-          </div>
-        )}
-      </div>
+      <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} size="sm" className="flex-shrink-0 shadow-sm" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">{book.title}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">{book.author || '未知作者'}</p>
@@ -63,28 +34,54 @@ function RecentBookCard({ book, onClick }: { book: RecentBookVO; onClick: () => 
   )
 }
 
+/** 匹配度标签 */
+function MatchBadge({ score }: { score: number | undefined | null }) {
+  if (score == null || score <= 0) return null
+  const pct = Math.round(score * 100)
+  if (pct <= 0) return null
+  return (
+    <div className="flex items-center gap-0.5">
+      <Sparkles className="h-2.5 w-2.5 text-amber-500" />
+      <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{pct}%</span>
+    </div>
+  )
+}
+
 /** 横向书籍滚动列表 */
-function BookScrollList({ books, onBookClick, renderExtra }: {
+function BookScrollList({ books, onBookClick, matchScores, renderExtra }: {
   books: (SimpleBookVO | RecommendedBook)[]
   onBookClick: (id: number) => void
+  matchScores?: Record<string, number>
   renderExtra?: (book: SimpleBookVO | RecommendedBook) => React.ReactNode
 }) {
   return (
     <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4" style={{ scrollbarWidth: 'none' }}>
-      {books.map((book) => (
-        <div
-          key={book.id}
-          className="flex w-[100px] flex-shrink-0 flex-col cursor-pointer active:scale-[0.96] transition-transform duration-150"
-          onClick={() => onBookClick(book.id)}
-        >
-          <BookCover coverUrl={book.coverUrl} title={book.title} format={book.format} />
-          <p className="mt-1.5 w-full truncate text-xs font-semibold">{book.title}</p>
-          {book.author && (
-            <p className="w-full truncate text-[10px] text-muted-foreground">{book.author}</p>
-          )}
-          {renderExtra?.(book)}
-        </div>
-      ))}
+      {books.map((book) => {
+        const ms = matchScores?.[String(book.id)]
+        return (
+          <div
+            key={book.id}
+            className="flex w-[100px] flex-shrink-0 flex-col cursor-pointer active:scale-[0.96] transition-transform duration-150"
+            onClick={() => onBookClick(book.id)}
+          >
+            <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} format={book.format} />
+            <p className="mt-1.5 w-full truncate text-xs font-semibold">{book.title}</p>
+            <div className="flex items-center gap-1">
+              {/* 评分 */}
+              {book.rating > 0 && (
+                <div className="flex items-center gap-0.5">
+                  <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
+                  <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{book.rating.toFixed(1)}</span>
+                </div>
+              )}
+              {/* 匹配度 */}
+              <MatchBadge score={ms} />
+              {/* 额外信息 */}
+              {renderExtra?.(book)}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -129,6 +126,18 @@ export default function HomePage() {
       .finally(() => setLoading(false))
     getUnreadCount().then(res => setUnreadCount((res as any)?.data || (res as any) || 0)).catch(() => {})
   }, [])
+
+  // 收集所有非个性化书籍的ID，批量获取匹配分
+  const matchBookIds = useMemo(() => {
+    if (!homeData) return []
+    const ids: number[] = []
+    homeData.topRatedBooks.forEach(b => ids.push(b.id))
+    homeData.newBooks.forEach(b => ids.push(b.id))
+    homeData.popularBooks.forEach(b => ids.push(b.id))
+    return ids
+  }, [homeData])
+
+  const matchScores = useMatchScores(matchBookIds)
 
   const goToBook = (id: number) => navigate(`/book/${id}`)
   const goToReader = (id: number) => navigate(`/reader/${id}`)
@@ -325,6 +334,11 @@ export default function HomePage() {
             <SectionHeader
               icon={<Sparkles className="h-4 w-4 text-amber-500" />}
               title="猜你喜欢"
+              extra={
+                <button onClick={() => navigate('/recommend')} className="flex items-center text-xs text-primary font-medium">
+                  查看更多 <ChevronRight className="h-3 w-3" />
+                </button>
+              }
             />
             <BookScrollList
               books={d.personalizedBooks}
@@ -333,9 +347,9 @@ export default function HomePage() {
                 const rb = book as RecommendedBook
                 if (rb.matchScore > 0) {
                   return (
-                    <div className="flex items-center gap-1 mt-0.5">
+                    <div className="flex items-center gap-0.5">
                       <Sparkles className="h-2.5 w-2.5 text-amber-500" />
-                      <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">匹配 {Math.round(rb.matchScore * 100)}%</span>
+                      <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{Math.round(rb.matchScore * 100)}%</span>
                     </div>
                   )
                 }
@@ -360,18 +374,7 @@ export default function HomePage() {
             <BookScrollList
               books={d.topRatedBooks}
               onBookClick={goToBook}
-              renderExtra={(book) => {
-                const sb = book as SimpleBookVO
-                if (sb.rating > 0) {
-                  return (
-                    <div className="flex items-center gap-0.5 mt-0.5">
-                      <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
-                      <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{sb.rating.toFixed(1)}</span>
-                    </div>
-                  )
-                }
-                return null
-              }}
+              matchScores={matchScores}
             />
           </section>
         )}
@@ -388,7 +391,7 @@ export default function HomePage() {
                 </button>
               }
             />
-            <BookScrollList books={d.newBooks} onBookClick={goToBook} />
+            <BookScrollList books={d.newBooks} onBookClick={goToBook} matchScores={matchScores} />
           </section>
         )}
 
@@ -407,6 +410,7 @@ export default function HomePage() {
             <BookScrollList
               books={d.popularBooks}
               onBookClick={goToBook}
+              matchScores={matchScores}
               renderExtra={(book) => {
                 const sb = book as SimpleBookVO
                 return (

@@ -2,6 +2,7 @@ package com.kbook.config;
 
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
+import com.kbook.service.RecommendCoefficientService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +29,7 @@ public class DataInitializer implements CommandLineRunner {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final RecommendCoefficientService coefficientService;
 
     @Value("${kbook.admin.email:admin@kbook.com}")
     private String adminEmail;
@@ -41,6 +43,7 @@ public class DataInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) {
         initAdmin();
+        initRecommendCoefficients();
     }
 
     /**
@@ -78,6 +81,19 @@ public class DataInitializer implements CommandLineRunner {
             log.info("============================================");
         } else {
             log.info("管理员账号已存在，跳过初始化");
+        }
+    }
+
+    /**
+     * 初始化推荐算法系数
+     * 将代码中定义的默认系数写入数据库（已存在则跳过），
+     * 确保数据库中有完整的系数数据，防止数据丢失
+     */
+    private void initRecommendCoefficients() {
+        try {
+            coefficientService.initializeCoefficients();
+        } catch (Exception e) {
+            log.warn("推荐系数初始化失败，将在首次访问时重试: {}", e.getMessage());
         }
     }
 }

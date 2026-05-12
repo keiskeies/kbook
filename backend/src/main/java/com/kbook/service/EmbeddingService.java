@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
+import static io.qdrant.client.ConditionFactory.match;
 import static io.qdrant.client.ConditionFactory.matchKeyword;
 import io.qdrant.client.grpc.Collections.QuantizationConfig;
 import io.qdrant.client.grpc.Collections.QuantizationConfigDiff;
@@ -75,24 +76,38 @@ public class EmbeddingService {
     @Value("${kbook.qdrant.quantization.quantile:0.99}")
     private float quantizationQuantile;
 
-    /** 量化向量是否常驻 RAM（默认 true，加速搜索） */
-    @Value("${kbook.qdrant.quantization.always-ram:true}")
+    /** 量化向量是否常驻 RAM（默认 false，节省内存；开启可加速搜索但大幅增加内存占用） */
+    @Value("${kbook.qdrant.quantization.always-ram:false}")
     private boolean quantizationAlwaysRam;
 
+    /** 原始向量是否存磁盘（默认 true，大幅节省内存；关闭则常驻 RAM 加速搜索但内存占用极大） */
+    @Value("${kbook.qdrant.vectors-on-disk:true}")
+    private boolean vectorsOnDisk;
+
     /**
-     * 向量维度（qwen3-embedding:4b = 1024）
+     * 向量维度（qwen3-embedding 系列均为 1024，如使用其他模型需对应修改）
      */
-    private static final int VECTOR_DIMENSION = 1024;
+    @Value("${kbook.qdrant.vector-dimension:1024}")
+    private int vectorDimension;
+
+    /**
+     * LangChain4j QdrantEmbeddingStore 存储文本内容的 payload key（默认值）
+     */
+    private static final String PAYLOAD_TEXT_KEY = "text_segment";
 
     /**
      * RAG 内容分块大小（字符数）
+     * 建议值参考：qwen3-embedding:0.6b 上下文 32K tokens → 约 512-800 字符；
+     *             qwen3-embedding:4b/8b 上下文 32K tokens → 约 800-1200 字符
      */
-    private static final int CHUNK_SIZE = 800;
+    @Value("${kbook.qdrant.chunk-size:800}")
+    private int chunkSize;
 
     /**
-     * RAG 内容分块重叠大小
+     * RAG 内容分块重叠大小（字符数），建议为 chunk-size 的 15%~25%
      */
-    private static final int CHUNK_OVERLAP = 200;
+    @Value("${kbook.qdrant.chunk-overlap:200}")
+    private int chunkOverlap;
 
     /**
      * 内容向量批量 embed 的批次大小（避免单次请求过大导致超时）
@@ -116,14 +131,22 @@ public class EmbeddingService {
             log.error("Qdrant Collection 创建失败: {}", e.getMessage(), e);
         }
 
-        // 2. 构建 EmbeddingStore（依赖 Collection 已存在）
+        // 2. 创建 payload 索引（加速 bookId 过滤查询，170万+数据无索引会导致全量扫描）
+        try {
+            createPayloadIndexIfNeeded(bookCollectionName, "bookId");
+            createPayloadIndexIfNeeded(contentCollectionName, "bookId");
+        } catch (Exception e) {
+            log.error("Payload 索引创建失败: {}", e.getMessage(), e);
+        }
+
+        // 3. 构建 EmbeddingStore（依赖 Collection 已存在）
         try {
             buildEmbeddingStores();
         } catch (Exception e) {
             log.error("EmbeddingStore 构建失败: {}", e.getMessage(), e);
         }
 
-        // 3. Embedding 模型延迟初始化，避免循环依赖
+        // 4. Embedding 模型延迟初始化，避免循环依赖
         // 将在首次使用时通过 ensureEmbeddingModelInitialized() 初始化
         log.info("EmbeddingService 初始化完成 (model 延迟加载): bookCollection={}, contentCollection={}",
                 bookCollectionName, contentCollectionName);
@@ -193,8 +216,9 @@ public class EmbeddingService {
                         .setCollectionName(collectionName)
                         .setVectorsConfig(io.qdrant.client.grpc.Collections.VectorsConfig.newBuilder()
                                 .setParams(io.qdrant.client.grpc.Collections.VectorParams.newBuilder()
-                                        .setSize(VECTOR_DIMENSION)
+                                        .setSize(vectorDimension)
                                         .setDistance(io.qdrant.client.grpc.Collections.Distance.Cosine)
+                                        .setOnDisk(vectorsOnDisk)
                                         .build())
                                 .build());
 
@@ -214,7 +238,7 @@ public class EmbeddingService {
                 }
 
                 qdrantClient.createCollectionAsync(collectionBuilder.build()).get();
-                log.info("Qdrant Collection 创建成功: {} (量化={})", collectionName, quantizationEnabled);
+                log.info("Qdrant Collection 创建成功: {} (量化={}, onDisk={})", collectionName, quantizationEnabled, vectorsOnDisk);
             } else {
                 log.debug("Qdrant Collection 已存在: {}", collectionName);
                 // 已存在的 Collection：更新量化配置
@@ -229,41 +253,112 @@ public class EmbeddingService {
     }
 
     /**
-     * 更新已有 Collection 的量化配置（如果启用了量化但 Collection 未配置）
+     * 更新已有 Collection 的配置（量化参数 + 向量存储方式）
+     * 修复：即使已启用量化，alwaysRam/onDisk 变更时也需要更新
      */
     private void updateQuantizationConfig(String collectionName) {
         if (!quantizationEnabled) return;
         try {
-            // 检查当前量化配置
             var collectionInfo = qdrantClient.getCollectionInfoAsync(collectionName).get();
             var currentQuantConfig = collectionInfo.getConfig().getQuantizationConfig();
 
-            if (currentQuantConfig.hasScalar()
-                    && currentQuantConfig.getScalar().getType() == QuantizationType.Int8) {
-                log.debug("Collection [{}] 已启用标量量化，跳过更新", collectionName);
-                return;
+            boolean needUpdateQuant = false;
+            if (!currentQuantConfig.hasScalar()
+                    || currentQuantConfig.getScalar().getType() != QuantizationType.Int8) {
+                needUpdateQuant = true;
+            } else if (currentQuantConfig.getScalar().getAlwaysRam() != quantizationAlwaysRam) {
+                needUpdateQuant = true;
+                log.info("Collection [{}] alwaysRam 变更: {} → {}", collectionName,
+                        currentQuantConfig.getScalar().getAlwaysRam(), quantizationAlwaysRam);
             }
 
-            // 更新增量配置：UpdateCollection 需要 QuantizationConfigDiff
-            // QuantizationConfigDiff.scalar 字段类型就是 ScalarQuantization（无 Diff 版本）
-            ScalarQuantization scalarQuant = ScalarQuantization.newBuilder()
-                    .setType(QuantizationType.Int8)
-                    .setQuantile(quantizationQuantile)
-                    .setAlwaysRam(quantizationAlwaysRam)
-                    .build();
-            QuantizationConfigDiff quantConfigDiff = QuantizationConfigDiff.newBuilder()
-                    .setScalar(scalarQuant)
-                    .build();
+            if (needUpdateQuant) {
+                ScalarQuantization scalarQuant = ScalarQuantization.newBuilder()
+                        .setType(QuantizationType.Int8)
+                        .setQuantile(quantizationQuantile)
+                        .setAlwaysRam(quantizationAlwaysRam)
+                        .build();
+                QuantizationConfigDiff quantConfigDiff = QuantizationConfigDiff.newBuilder()
+                        .setScalar(scalarQuant)
+                        .build();
 
-            var updateBuilder = io.qdrant.client.grpc.Collections.UpdateCollection.newBuilder()
-                    .setCollectionName(collectionName)
-                    .setQuantizationConfig(quantConfigDiff);
+                var updateBuilder = io.qdrant.client.grpc.Collections.UpdateCollection.newBuilder()
+                        .setCollectionName(collectionName)
+                        .setQuantizationConfig(quantConfigDiff);
 
-            qdrantClient.updateCollectionAsync(updateBuilder.build()).get();
-            log.info("Collection [{}] 已更新标量量化配置: type=int8, quantile={}, alwaysRam={}",
-                    collectionName, quantizationQuantile, quantizationAlwaysRam);
+                qdrantClient.updateCollectionAsync(updateBuilder.build()).get();
+                log.info("Collection [{}] 已更新标量量化配置: type=int8, quantile={}, alwaysRam={}",
+                        collectionName, quantizationQuantile, quantizationAlwaysRam);
+            }
+
+            // 更新向量 on_disk 配置
+            var currentVectorParams = collectionInfo.getConfig().getParams().getVectorsConfig().getParams();
+            if (currentVectorParams.getOnDisk() != vectorsOnDisk) {
+                var vectorsConfigDiff = io.qdrant.client.grpc.Collections.VectorsConfigDiff.newBuilder()
+                        .setParams(io.qdrant.client.grpc.Collections.VectorParamsDiff.newBuilder()
+                                .setOnDisk(vectorsOnDisk)
+                                .build())
+                        .build();
+                var updateBuilder = io.qdrant.client.grpc.Collections.UpdateCollection.newBuilder()
+                        .setCollectionName(collectionName)
+                        .setVectorsConfig(vectorsConfigDiff);
+                qdrantClient.updateCollectionAsync(updateBuilder.build()).get();
+                log.info("Collection [{}] 已更新向量存储配置: onDisk={} (was {})",
+                        collectionName, vectorsOnDisk, currentVectorParams.getOnDisk());
+            }
+
+            if (!needUpdateQuant && currentVectorParams.getOnDisk() == vectorsOnDisk) {
+                log.debug("Collection [{}] 量化与存储配置均无变化，跳过更新", collectionName);
+            }
         } catch (Exception e) {
-            log.warn("更新 Collection [{}] 量化配置失败: {}", collectionName, e.getMessage());
+            log.warn("更新 Collection [{}] 配置失败: {}", collectionName, e.getMessage());
+        }
+    }
+
+    @Value("${kbook.qdrant.host:localhost}")
+    private String qdrantHost;
+
+    @Value("${kbook.qdrant.api-key:}")
+    private String qdrantApiKey;
+
+    /**
+     * 为 Collection 的指定字段创建 payload 索引
+     * 使用 Qdrant REST API（gRPC client 1.17.0 的 createFieldIndexAsync 签名不兼容）
+     * 无索引时带 payload filter 的查询会全量扫描，170万+数据极慢甚至超时
+     */
+    private void createPayloadIndexIfNeeded(String collectionName, String fieldName) {
+        try {
+            var httpClient = java.net.http.HttpClient.newBuilder()
+                    .connectTimeout(java.time.Duration.ofSeconds(5))
+                    .build();
+
+            var body = """
+                    {"field_name":"%s","field_schema":"integer"}""".formatted(fieldName);
+
+            var requestBuilder = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create("http://" + qdrantHost + ":6333/collections/" + collectionName + "/index"))
+                    .timeout(java.time.Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json")
+                    .PUT(java.net.http.HttpRequest.BodyPublishers.ofString(body));
+
+            if (qdrantApiKey != null && !qdrantApiKey.isBlank()) {
+                requestBuilder.header("api-key", qdrantApiKey);
+            }
+
+            var response = httpClient.send(requestBuilder.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                log.info("Payload 索引创建/已存在: collection={}, field={}", collectionName, fieldName);
+            } else {
+                String respBody = response.body();
+                if (respBody.contains("already")) {
+                    log.debug("Payload 索引已存在: collection={}, field={}", collectionName, fieldName);
+                } else {
+                    log.warn("Payload 索引创建失败: collection={}, field={}, status={}, body={}",
+                            collectionName, fieldName, response.statusCode(), respBody);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Payload 索引创建异常: collection={}, field={} - {}", collectionName, fieldName, e.getMessage());
         }
     }
 
@@ -387,7 +482,7 @@ public class EmbeddingService {
 
     /**
      * 为书籍生成 RAG 内容向量并存储到 Qdrant
-     * 将书籍内容按 CHUNK_SIZE 分块，每块生成一个 embedding
+     * 将书籍内容按 chunkSize 分块，每块生成一个 embedding
      * 优化：批量 embed + 批量写入，减少 API 调用和 Qdrant 写入次数
      */
     public void generateContentEmbedding(Long bookId, String content) {
@@ -485,34 +580,108 @@ public class EmbeddingService {
      */
     public List<EmbeddingMatch<TextSegment>> searchContent(String query, int maxResults, Long bookId) {
         ensureEmbeddingModelInitialized();
-        if (embeddingModel == null || contentEmbeddingStore == null) {
+        if (embeddingModel == null) {
             return List.of();
         }
 
         try {
             Embedding queryEmbedding = embeddingModel.embed(query).content();
 
+            // 当指定了 bookId 时，使用 Qdrant 原生 filter 在服务端过滤
+            // 避免先取 top-N 再在内存中过滤导致结果为空
+            if (bookId != null && qdrantClient != null) {
+                return searchContentWithFilter(queryEmbedding, maxResults, bookId);
+            }
+
+            // 无 bookId 时走 LangChain4j 的通用搜索
+            if (contentEmbeddingStore == null) {
+                return List.of();
+            }
             EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
                     .queryEmbedding(queryEmbedding)
                     .maxResults(maxResults)
-                    .minScore(0.5)
+                    .minScore(0.3)
                     .build();
 
-            List<EmbeddingMatch<TextSegment>> matches = contentEmbeddingStore.search(request).matches();
-
-            // 如果指定了 bookId，过滤结果
-            if (bookId != null) {
-                matches = matches.stream()
-                        .filter(m -> m.embedded() != null && m.embedded().metadata() != null
-                                && bookId.equals(m.embedded().metadata().getLong("bookId")))
-                        .toList();
-            }
-
-            return matches;
+            return contentEmbeddingStore.search(request).matches();
         } catch (Exception e) {
             log.error("RAG 内容检索失败: {}", e.getMessage());
             return List.of();
         }
+    }
+
+    /**
+     * 使用 Qdrant 原生 filter 搜索内容向量（按 bookId 精确过滤）
+     * 解决：LangChain4j EmbeddingSearchRequest 不支持 Qdrant payload filter，
+     * 导致先取 top-N 再内存过滤，当数据量大时目标书的结果被其他书挤掉
+     */
+    private List<EmbeddingMatch<TextSegment>> searchContentWithFilter(
+            Embedding queryEmbedding, int maxResults, Long bookId) {
+        try {
+            var filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
+                    .addMust(match("bookId", bookId))
+                    .build();
+
+            // 先用 0.3 阈值搜索
+            List<EmbeddingMatch<TextSegment>> matches = doFilterSearch(queryEmbedding, maxResults, bookId, filter, 0.3f);
+
+            // 如果无结果，降级到 0 阈值重试（可能向量模型更换导致 score 极低）
+            if (matches.isEmpty()) {
+                log.debug("scoreThreshold=0.3 无结果，降级到 0 阈值重试: bookId={}", bookId);
+                matches = doFilterSearch(queryEmbedding, maxResults, bookId, filter, 0.0f);
+                if (!matches.isEmpty()) {
+                    log.warn("RAG 检索 score 极低 (最高={}), bookId={} — 向量可能是旧模型生成，建议重新嵌入",
+                            matches.get(0).score(), bookId);
+                }
+            }
+
+            // 诊断：仍然无结果时检查原因
+            if (matches.isEmpty()) {
+                diagnoseContentSearch(bookId, queryEmbedding);
+            }
+
+            return matches;
+        } catch (Exception e) {
+            log.warn("Qdrant filter 搜索失败，回退 LangChain4j 搜索: bookId={} - {}", bookId, e.getMessage());
+            try {
+                EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
+                        .queryEmbedding(queryEmbedding)
+                        .maxResults(maxResults * 10)
+                        .minScore(0.3)
+                        .build();
+                return contentEmbeddingStore.search(request).matches().stream()
+                        .filter(m -> m.embedded() != null && m.embedded().metadata() != null
+                                && bookId.equals(m.embedded().metadata().getLong("bookId")))
+                        .limit(maxResults)
+                        .toList();
+            } catch (Exception ex) {
+                log.error("降级搜索也失败: {}", ex.getMessage());
+                return List.of();
+            }
+        }
+    }
+
+    /**
+     * 从 Qdrant payload Map 中提取字符串值
+     */
+    private String extractPayloadString(Map<String, io.qdrant.client.grpc.JsonWithInt.Value> payload, String key) {
+        io.qdrant.client.grpc.JsonWithInt.Value value = payload.get(key);
+        if (value == null) return null;
+        if (value.hasStringValue()) return value.getStringValue();
+        if (value.hasIntegerValue()) return String.valueOf(value.getIntegerValue());
+        if (value.hasDoubleValue()) return String.valueOf(value.getDoubleValue());
+        return null;
+    }
+
+    /**
+     * 从 Qdrant payload Map 中提取 Long 值
+     */
+    private Long extractPayloadLong(Map<String, io.qdrant.client.grpc.JsonWithInt.Value> payload, String key) {
+        io.qdrant.client.grpc.JsonWithInt.Value value = payload.get(key);
+        if (value == null) return null;
+        if (value.hasIntegerValue()) return value.getIntegerValue();
+        if (value.hasDoubleValue()) return (long) value.getDoubleValue();
+        return null;
     }
 
     /**
@@ -574,8 +743,10 @@ public class EmbeddingService {
 
     /**
      * 检查 Embedding 功能是否可用
+     * 注意：会先触发延迟初始化，确保模型已尝试加载
      */
     public boolean isAvailable() {
+        ensureEmbeddingModelInitialized();
         return embeddingModel != null && bookEmbeddingStore != null && contentEmbeddingStore != null;
     }
 
@@ -586,7 +757,7 @@ public class EmbeddingService {
         try {
             if (qdrantClient == null) return false;
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .addMust(match("bookId", bookId))
                     .build();
             Long count = qdrantClient.countAsync(bookCollectionName, filter, true).get(15, java.util.concurrent.TimeUnit.SECONDS);
             return count != null && count > 0;
@@ -606,7 +777,7 @@ public class EmbeddingService {
         try {
             if (qdrantClient == null) return false;
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .addMust(match("bookId", bookId))
                     .build();
             Long count = qdrantClient.countAsync(contentCollectionName, filter, true).get(15, java.util.concurrent.TimeUnit.SECONDS);
             return count != null && count > 0;
@@ -626,7 +797,7 @@ public class EmbeddingService {
         try {
             if (qdrantClient == null) return;
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .addMust(match("bookId", bookId))
                     .build();
             qdrantClient.deleteAsync(bookCollectionName, filter).get(30, java.util.concurrent.TimeUnit.SECONDS);
             log.debug("已删除旧书籍元数据向量: bookId={}", bookId);
@@ -644,7 +815,7 @@ public class EmbeddingService {
         try {
             if (qdrantClient == null) return;
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .addMust(match("bookId", bookId))
                     .build();
             qdrantClient.deleteAsync(contentCollectionName, filter).get(30, java.util.concurrent.TimeUnit.SECONDS);
             log.debug("已删除旧内容向量: bookId={}", bookId);
@@ -662,7 +833,7 @@ public class EmbeddingService {
         try {
             if (qdrantClient == null) return 0;
             io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(matchKeyword("bookId", String.valueOf(bookId)))
+                    .addMust(match("bookId", bookId))
                     .build();
             Long count = qdrantClient.countAsync(contentCollectionName, filter, true).get(15, java.util.concurrent.TimeUnit.SECONDS);
             return count != null ? count : 0;
@@ -744,6 +915,132 @@ public class EmbeddingService {
         return rebuilt;
     }
 
+    /**
+     * 执行带 filter 的 Qdrant 向量搜索
+     */
+    private List<EmbeddingMatch<TextSegment>> doFilterSearch(
+            Embedding queryEmbedding, int maxResults, Long bookId,
+            io.qdrant.client.grpc.Common.Filter filter, float scoreThreshold) {
+        try {
+            var searchPoints = io.qdrant.client.grpc.Points.SearchPoints.newBuilder()
+                    .setCollectionName(contentCollectionName)
+                    .setLimit(maxResults)
+                    .setScoreThreshold(scoreThreshold)
+                    .setFilter(filter)
+                    .addAllVector(queryEmbedding.vectorAsList().stream().map(d -> d.floatValue()).toList())
+                    .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder()
+                            .setEnable(true).build())
+                    .build();
+
+            var searchResults = qdrantClient.searchAsync(searchPoints).get();
+
+            List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>();
+            for (var scoredPoint : searchResults) {
+                double score = scoredPoint.getScore();
+                var payload = scoredPoint.getPayloadMap();
+                if (payload.isEmpty()) continue;
+
+                String text = extractPayloadString(payload, PAYLOAD_TEXT_KEY);
+                if (text == null || text.isBlank()) continue;
+
+                Metadata metadata = new Metadata();
+                Long bookIdLong = extractPayloadLong(payload, "bookId");
+                if (bookIdLong != null) {
+                    metadata.put("bookId", bookIdLong);
+                }
+                Long chunkIndex = extractPayloadLong(payload, "chunkIndex");
+                if (chunkIndex != null) {
+                    metadata.put("chunkIndex", chunkIndex);
+                }
+
+                TextSegment segment = TextSegment.from(text, metadata);
+                String embeddingId = String.valueOf(scoredPoint.getId().getNum());
+                matches.add(new EmbeddingMatch<>(score, embeddingId, null, segment));
+            }
+
+            log.debug("Qdrant filter 搜索完成: bookId={}, threshold={}, hits={}", bookId, scoreThreshold, matches.size());
+            return matches;
+        } catch (Exception e) {
+            log.warn("Qdrant filter 搜索失败: bookId={}, threshold={} - {}", bookId, scoreThreshold, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     */
+    private void diagnoseContentSearch(Long bookId, Embedding queryEmbedding) {
+        try {
+            // 1. 检查内容集合总点数
+            var collectionInfo = qdrantClient.getCollectionInfoAsync(contentCollectionName).get();
+            long totalPoints = collectionInfo.getPointsCount();
+            log.warn("[诊断] contentCollection 总点数: {}, 搜索 bookId={} 返回 0", totalPoints, bookId);
+
+            if (totalPoints == 0) {
+                log.warn("[诊断] 内容集合为空，数据可能未写入");
+                return;
+            }
+
+            // 2. 用 searchAsync + filter + 低阈值检查该 bookId 是否有数据
+            try {
+                var checkFilter = io.qdrant.client.grpc.Common.Filter.newBuilder()
+                        .addMust(match("bookId", bookId))
+                        .build();
+                var checkSearch = io.qdrant.client.grpc.Points.SearchPoints.newBuilder()
+                        .setCollectionName(contentCollectionName)
+                        .setLimit(3)
+                        .setScoreThreshold(0.0f)
+                        .setFilter(checkFilter)
+                        .addAllVector(queryEmbedding.vectorAsList().stream().map(d -> d.floatValue()).toList())
+                        .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(true).build())
+                        .build();
+                var checkResults = qdrantClient.searchAsync(checkSearch).get(30, java.util.concurrent.TimeUnit.SECONDS);
+                log.warn("[诊断] bookId={} 用 filter + scoreThreshold=0 搜索命中: {} 条", bookId, checkResults.size());
+                if (!checkResults.isEmpty()) {
+                    var first = checkResults.get(0);
+                    var p = first.getPayloadMap();
+                    log.warn("[诊断] 首条结果: score={}, bookId={}, textLen={}",
+                            first.getScore(),
+                            p.containsKey("bookId") ? p.get("bookId").getIntegerValue() : "null",
+                            extractPayloadString(p, PAYLOAD_TEXT_KEY) != null ? extractPayloadString(p, PAYLOAD_TEXT_KEY).length() : 0);
+                }
+            } catch (Exception e) {
+                log.warn("[诊断] filter 搜索检查失败: {}", e.getMessage());
+            }
+
+            // 3. 不带 filter 搜索，看能否命中任何内容（同时打印采样点的 bookId 类型）
+            try {
+                var noFilterSearch = io.qdrant.client.grpc.Points.SearchPoints.newBuilder()
+                        .setCollectionName(contentCollectionName)
+                        .setLimit(3)
+                        .setScoreThreshold(0.3f)
+                        .addAllVector(queryEmbedding.vectorAsList().stream().map(d -> d.floatValue()).toList())
+                        .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(true).build())
+                        .build();
+                var noFilterResults = qdrantClient.searchAsync(noFilterSearch).get();
+                log.warn("[诊断] 不带 filter 搜索命中: {} 条", noFilterResults.size());
+                for (var sp : noFilterResults) {
+                    var p = sp.getPayloadMap();
+                    var bv = p.get("bookId");
+                    String bvType = "null";
+                    String bvStr = "null";
+                    if (bv != null) {
+                        if (bv.hasIntegerValue()) { bvType = "integer"; bvStr = String.valueOf(bv.getIntegerValue()); }
+                        else if (bv.hasStringValue()) { bvType = "string"; bvStr = bv.getStringValue(); }
+                        else if (bv.hasDoubleValue()) { bvType = "double"; bvStr = String.valueOf(bv.getDoubleValue()); }
+                        else { bvType = "other"; }
+                    }
+                    log.warn("[诊断] 采样点: score={}, bookId={} (type={}), 所有key={}",
+                            sp.getScore(), bvStr, bvType, p.keySet());
+                }
+            } catch (Exception e) {
+                log.warn("[诊断] 无filter搜索失败: {}", e.getMessage());
+            }
+
+        } catch (Exception e) {
+            log.warn("[诊断] 诊断过程异常: {}", e.getMessage());
+        }
+    }
+
     // ==================== 辅助方法 ====================
 
     /**
@@ -804,7 +1101,7 @@ public class EmbeddingService {
         if (contentLen == 0) return chunks;
 
         // 预分配容量
-        int estimatedChunks = contentLen / (CHUNK_SIZE - CHUNK_OVERLAP) + 1;
+        int estimatedChunks = contentLen / (chunkSize - chunkOverlap) + 1;
         chunks.ensureCapacity(estimatedChunks);
 
         // 一次性转换为 char[]，避免重复 charAt 调用
@@ -813,12 +1110,12 @@ public class EmbeddingService {
         int pos = 0;
         while (pos < contentLen) {
             // 计算当前块的结束位置
-            int chunkEnd = Math.min(pos + CHUNK_SIZE, contentLen);
+            int chunkEnd = Math.min(pos + chunkSize, contentLen);
 
             // 如果不是最后一块，尝试在句子边界断开
             if (chunkEnd < contentLen) {
-                // 从后往前搜索句子结束符（最多回溯 CHUNK_OVERLAP 个字符）
-                int searchStart = Math.max(pos, chunkEnd - CHUNK_OVERLAP);
+                // 从后往前搜索句子结束符（最多回溯 chunkOverlap 个字符）
+                int searchStart = Math.max(pos, chunkEnd - chunkOverlap);
                 for (int i = chunkEnd - 1; i >= searchStart; i--) {
                     char c = chars[i];
                     if (c == '\n' || c == '。' || c == '！' || c == '？') {
@@ -836,7 +1133,7 @@ public class EmbeddingService {
 
             // 移动到下一块的起始位置
             // 关键修复：确保每次都向前推进，避免死循环
-            int nextPos = chunkEnd - CHUNK_OVERLAP;
+            int nextPos = chunkEnd - chunkOverlap;
             if (nextPos <= pos) {
                 // 如果没有推进，直接跳到 chunkEnd
                 pos = chunkEnd;

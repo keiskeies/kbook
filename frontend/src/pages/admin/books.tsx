@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 
 /** 管理员快捷指令 */
 const ADMIN_QUICK_PROMPTS = [
-  '帮我查看阅读排行榜',
+  '帮我看看有什么热门书',
   '搜索《三体》',
   '最近有什么热门书？',
   '帮我找找有没有重复的书',
@@ -151,7 +151,7 @@ export default function AdminBooksPage() {
         stopPolling()
         setScanResult(data)
         setScanning(false)
-        const failMsg = data.failed > 0 ? `，${data.failed} 本失败` : ''
+        const failMsg = data.failed > 0 ? `，${data.failed} 本未处理` : ''
         toast.success(`扫描完成：新增 ${data.added} 本，更新 ${data.updated} 本，跳过 ${data.skipped} 本${failMsg}`)
       },
       (err) => {
@@ -195,10 +195,10 @@ export default function AdminBooksPage() {
     setUploading(true)
     try {
       const result = await uploadBook(file, uploadTitle || undefined)
-      toast.success(`上传成功：《${result.title}》`)
+      toast.success(`已上传：《${result.title}》`)
       setUploadTitle('')
     } catch (err: any) {
-      toast.error(err.message || '上传失败')
+      toast.error(err.message || '上传未完成')
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -784,8 +784,18 @@ export default function AdminBooksPage() {
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
                           />
                         )}
-                        {msg.streaming && (
-                          <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-foreground/50" />
+                        {msg.streaming && !msg.content && (
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span className="text-xs">思考中...</span>
+                          </div>
+                        )}
+                        {msg.streaming && msg.content && (
+                          <span className="ml-0.5 inline-flex gap-0.5">
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:0ms]" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:150ms]" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:300ms]" />
+                          </span>
                         )}
                       </div>
                     </div>

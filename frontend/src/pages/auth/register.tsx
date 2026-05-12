@@ -29,7 +29,7 @@ export default function RegisterPage() {
 
   const handleSendCodeClick = () => {
     if (!email.trim()) {
-      toast.error('请输入邮箱')
+      toast.error('输入邮箱')
       return
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -47,7 +47,7 @@ export default function RegisterPage() {
       startCountdown()
       toast.success('验证码已发送')
     } catch (err: any) {
-      toast.error(err.message || '发送失败')
+      toast.error(err.message || '验证码发送未完成')
     } finally {
       setSendingCode(false)
     }
@@ -55,7 +55,7 @@ export default function RegisterPage() {
 
   const handleRegister = async () => {
     if (!email.trim()) {
-      toast.error('请输入邮箱')
+      toast.error('输入邮箱')
       return
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -63,7 +63,7 @@ export default function RegisterPage() {
       return
     }
     if (!code.trim()) {
-      toast.error('请输入验证码')
+      toast.error('输入验证码')
       return
     }
     if (password.length < 6 || password.length > 20) {
@@ -85,10 +85,10 @@ export default function RegisterPage() {
         hasChildren: hasChildren ? hasChildren === 'yes' : undefined,
         mbti: mbti || undefined,
       })
-      toast.success('注册成功，请等待管理员审核')
+      toast.success('注册完成，等待管理员审核中')
       navigate(ROUTES.LOGIN)
     } catch (err: any) {
-      toast.error(err.message || '注册失败')
+      toast.error(err.message || '注册未完成')
     } finally {
       setLoading(false)
     }
@@ -106,7 +106,7 @@ export default function RegisterPage() {
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="请输入邮箱"
+          placeholder="你的邮箱"
           autoComplete="email"
           className="w-full rounded-xl border bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary"
         />

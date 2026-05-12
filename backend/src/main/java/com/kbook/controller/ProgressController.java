@@ -3,6 +3,7 @@ package com.kbook.controller;
 import com.kbook.common.api.Result;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.service.ReadingProgressService;
+import com.kbook.service.RecommendCoefficientService;
 import com.kbook.service.RecommendService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class ProgressController {
 
     private final ReadingProgressService progressService;
     private final RecommendService recommendService;
+    private final RecommendCoefficientService coefficientService;
 
     /**
      * 上报阅读进度
@@ -36,9 +38,15 @@ public class ProgressController {
         recommendService.recordReadAction(userId, req.getBookId(), "READ", 1,
                 String.valueOf(req.getProgress()));
 
+        // 记录推荐反馈
+        coefficientService.recordFeedback(userId, req.getBookId(), "READ", 0.2,
+                null, null, null, String.valueOf(req.getProgress()));
+
         // 如果读完（progress >= 1.0），记录完成行为（权重最高）
         if (req.getProgress() != null && req.getProgress() >= 1.0) {
             recommendService.recordReadAction(userId, req.getBookId(), "COMPLETE", 5, null);
+            coefficientService.recordFeedback(userId, req.getBookId(), "COMPLETE", 0.5,
+                    null, null, null, null);
         }
 
         return Result.ok(progress);

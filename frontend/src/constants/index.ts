@@ -13,6 +13,7 @@ export const ROUTES = {
   BOOK_DETAIL: '/book/:bookId',
   SEARCH: '/search',
   HISTORY: '/profile/history',
+  RECOMMEND: '/recommend',
   REVIEWS: '/reviews',
   NOTIFICATIONS: '/notifications',
   USER_PROFILE: '/user/:userId',

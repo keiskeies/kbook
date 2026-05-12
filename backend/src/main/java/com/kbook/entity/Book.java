@@ -64,10 +64,15 @@ public class Book {
     private String chapterSummary;
 
     /**
-     * 8维度相关度得分（JSON对象）
+     * 14维度相关度得分（JSON对象）
      * 维度：ageGroup(年龄段), male(男性), female(女性), married(已婚),
-     *       unmarried(未婚), hasChildren(有孩子), noChildren(无孩子), mbti(MBTI匹配)
-     * 格式：{"0-9":0.5,"10-19":0.8,...,"male":0.7,"female":0.3,...,"INTJ":0.9,...}
+     *       unmarried(未婚), hasChildren(有孩子), noChildren(无孩子), mbti(MBTI匹配),
+     *       occupation(职业: student/tech/finance/education/medical/arts/management/freelance/retired/other),
+     *       education(学历: high_school/college/bachelor/master/doctorate/other_edu),
+     *       entrepreneurship(entrepreneur/wantEntrepreneur/notInterested),
+     *       income(under_50k/50k_150k/150k_300k/300k_500k/500k_1m/over_1m/prefer_not_to_say),
+     *       mood(happy/calm/anxious/sad/motivated/tired/curious)
+     * 格式：{"0-9":0.5,"10-19":0.8,...,"male":0.7,...,"entrepreneur":0.6,...,"under_50k":0.3,...,"happy":0.6,...}
      */
     @Column(name = "relevance_scores", columnDefinition = "TEXT")
     private String relevanceScores;

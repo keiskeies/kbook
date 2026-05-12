@@ -2,25 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Send, Plus, Trash2, MessageSquare, Loader2, Bot, User } from 'lucide-react'
 import { streamChat, createSession, getHistory, getSessions, deleteSession, getHotPrompts } from '@/api/ai'
+import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import type { AiMessage } from '@/types/ai'
-
-/** 简易 Markdown 渲染 — 支持 [BOOK:id=X]《书名》 图书链接 */
-function renderMarkdown(text: string) {
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    // 图书链接：[BOOK:id=123]《书名》 → 带封面和链接的卡片
-    .replace(/\[BOOK:id=(\d+)\]《(.+?)》/g, (_match, bookId, title) => {
-      return `<span class="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2 py-0.5 align-middle">` +
-        `<img src="/api/books/cover/book_${bookId}_cover.jpg" alt="" class="h-5 w-4 rounded-sm object-cover" onerror="this.style.display='none'"/>` +
-        `<a href="/reader/${bookId}" class="text-primary font-medium hover:underline" data-kbook-nav="/reader/${bookId}">《${title}》</a>` +
-        `</span>`
-    })
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code class="rounded bg-muted px-1 py-0.5 text-xs">$1</code>')
-    .replace(/《(.+?)》/g, '<span class="text-primary font-medium">《$1》</span>')
-    .replace(/\n/g, '<br/>')
-}
 
 export default function AIPage() {
   const navigate = useNavigate()
@@ -351,13 +334,20 @@ export default function AIPage() {
                     {msg.role === 'user' ? (
                       <p>{msg.content}</p>
                     ) : (
-                      <div
-                        className="prose-sm text-justify"
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
-                      />
+                      <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
                     )}
-                    {msg.streaming && (
-                      <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-foreground/50" />
+                    {msg.streaming && !msg.content && (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span className="text-xs">思考中...</span>
+                      </div>
+                    )}
+                    {msg.streaming && msg.content && (
+                      <span className="ml-0.5 inline-flex gap-0.5">
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:0ms]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:150ms]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:300ms]" />
+                      </span>
                     )}
                   </div>
                 </div>

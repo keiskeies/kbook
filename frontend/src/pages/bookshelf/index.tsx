@@ -1,12 +1,13 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BookOpen, Plus, MoreVertical, Trash2, ArrowUpDown, Filter } from 'lucide-react'
+import { Plus, MoreVertical, Trash2, ArrowUpDown, Filter, BookOpen } from 'lucide-react'
 import { getBookshelf, removeFromBookshelf } from '@/api/bookshelf'
 import type { BookshelfItem } from '@/types/book'
 import { parseFormatTags, formatProgress, formatFileSize } from '@/types/book'
 import { BOOK_FORMAT } from '@/constants'
 import { formatTag, formatRelativeTime } from '@/utils/time'
 import { toast } from 'sonner'
+import BookCover from '@/components/book/BookCover'
 
 type SortKey = 'recent' | 'progress' | 'title' | 'addTime'
 type FilterFormat = '' | 'TXT' | 'EPUB' | 'PDF'
@@ -43,7 +44,7 @@ export default function BookshelfPage() {
       toast.success('已从书架移除')
       setMenuOpen(null)
     } catch {
-      toast.error('移除失败')
+      toast.error('暂时无法移除')
     }
   }
 
@@ -192,27 +193,9 @@ export default function BookshelfPage() {
               className="group relative flex flex-col items-center active:scale-[0.97] transition-transform duration-150"
               onClick={() => navigate(`/reader/${item.bookId}`)}
             >
-              {/* 封面 */}
-              <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-muted shadow-md">
-                {item.coverUrl ? (
-                  <img
-                    src={item.coverUrl}
-                    alt={item.title}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-accent">
-                    <BookOpen className="h-8 w-8 text-primary/30" />
-                  </div>
-                )}
-
-                {/* PDF/TXT 右上角标注文件类型 */}
-                {(item.format === 'PDF' || item.format === 'TXT') && (
-                  <span className="absolute right-1.5 top-1.5 rounded-md bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-                    {formatTag(item.format)}
-                  </span>
-                )}
+              {/* 封面容器 */}
+              <div className="relative">
+                <BookCover coverUrl={item.coverUrl} title={item.title} author={item.author} format={item.format} />
 
                 {/* 更多按钮 */}
                 <button
@@ -226,7 +209,7 @@ export default function BookshelfPage() {
                 </button>
 
                 {/* 进度条 */}
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/20">
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/20 rounded-b-xl overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-primary to-primary/70 transition-all"
                     style={{ width: `${Math.round(item.progress * 100)}%` }}

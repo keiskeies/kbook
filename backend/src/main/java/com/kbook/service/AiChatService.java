@@ -3,6 +3,7 @@ package com.kbook.service;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.entity.AiConversation;
 import com.kbook.repository.AiConversationRepository;
+import dev.langchain4j.service.Result;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -56,15 +57,43 @@ public class AiChatService {
         try {
             long startTime = System.currentTimeMillis();
             String thinkingSuffix = providerConfigService.getThinkingPromptSuffix();
-            String response = assistant.chat(sessionId, userMessage + thinkingSuffix);
+            log.info("发送消息到 AI: sessionId={}, thinkingSuffix='{}', 消息长度={}",
+                    sessionId, thinkingSuffix, userMessage.length());
+            Result<String> result = assistant.chatWithResponse(sessionId, userMessage + thinkingSuffix);
             long elapsed = System.currentTimeMillis() - startTime;
-            saveMessage(userId, sessionId, "assistant", response);
+            String text = result.content();
             
-            // 记录 AI 调用日志
-            int inputTokens = CommonUtils.estimateTokens(userMessage);
-            int outputTokens = CommonUtils.estimateTokens(response);
-            CommonUtils.logAiCall("对话", elapsed, inputTokens, outputTokens, response);
-            return response;
+            // 解析实际 API token 用量
+            String thinkingContent = null;
+            int thinkingLength = 0;
+            int apiInputTokens = 0;
+            int apiOutputTokens = 0;
+            if (result.finalResponse() != null && result.finalResponse().aiMessage() != null) {
+                thinkingContent = result.finalResponse().aiMessage().thinking();
+                thinkingLength = thinkingContent != null ? thinkingContent.length() : 0;
+            }
+            if (result.tokenUsage() != null) {
+                apiInputTokens = result.tokenUsage().inputTokenCount() != null ? result.tokenUsage().inputTokenCount() : 0;
+                apiOutputTokens = result.tokenUsage().outputTokenCount() != null ? result.tokenUsage().outputTokenCount() : 0;
+            }
+            
+            log.info("========== AI 对话完整响应 ==========");
+            log.info("耗时: {}ms", elapsed);
+            log.info("Thinking长度: {} 字符 | Thinking前200字: {}",
+                    thinkingLength,
+                    thinkingContent != null && thinkingContent.length() > 200
+                            ? thinkingContent.substring(0, 200) + "..."
+                            : thinkingContent);
+            log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
+            log.info("Answer: {}", text != null && text.length() > 500 ? text.substring(0, 500) + "..." : text);
+            log.info("FinishReason: {}", result.finishReason());
+            log.info("======================================");
+            
+            saveMessage(userId, sessionId, "assistant", text);
+            
+            // 记录 AI 调用日志（使用 API 实际 token 用量）
+            CommonUtils.logAiCall("对话", elapsed, apiInputTokens, apiOutputTokens, text);
+            return text;
         } catch (Exception e) {
             // 模型调用失败，清除缓存以便下次重新构建
             log.error("AI 对话异常: userId={}, sessionId={}, error={}", userId, sessionId, e.getMessage());
@@ -111,20 +140,47 @@ public class AiChatService {
                     return;
                 }
                 String thinkingSuffix = providerConfigService.getThinkingPromptSuffix();
-                String response = assistant.chat(sessionId, userMessage + thinkingSuffix);
+                log.info("发送流式消息到 AI: sessionId={}, thinkingSuffix='{}', 消息长度={}",
+                        sessionId, thinkingSuffix, userMessage.length());
+                Result<String> result = assistant.chatWithResponse(sessionId, userMessage + thinkingSuffix);
                 long elapsed = System.currentTimeMillis() - startTime;
-                fullResponse.append(response);
+                String responseText = result.content();
+                fullResponse.append(responseText);
                 
-                // 记录 AI 调用日志
-                int inputTokens = CommonUtils.estimateTokens(userMessage);
-                int outputTokens = CommonUtils.estimateTokens(response);
-                CommonUtils.logAiCall("流式对话", elapsed, inputTokens, outputTokens, response);
+                // 解析实际 API token 用量
+                String thinkingContent = null;
+                int thinkingLength = 0;
+                int apiInputTokens = 0;
+                int apiOutputTokens = 0;
+                if (result.finalResponse() != null && result.finalResponse().aiMessage() != null) {
+                    thinkingContent = result.finalResponse().aiMessage().thinking();
+                    thinkingLength = thinkingContent != null ? thinkingContent.length() : 0;
+                }
+                if (result.tokenUsage() != null) {
+                    apiInputTokens = result.tokenUsage().inputTokenCount() != null ? result.tokenUsage().inputTokenCount() : 0;
+                    apiOutputTokens = result.tokenUsage().outputTokenCount() != null ? result.tokenUsage().outputTokenCount() : 0;
+                }
+                
+                log.info("========== AI 流式对话完整响应 ==========");
+                log.info("耗时: {}ms", elapsed);
+                log.info("Thinking长度: {} 字符 | Thinking前200字: {}",
+                        thinkingLength,
+                        thinkingContent != null && thinkingContent.length() > 200
+                                ? thinkingContent.substring(0, 200) + "..."
+                                : thinkingContent);
+                log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
+                log.info("Answer: {}", responseText != null && responseText.length() > 500 ? responseText.substring(0, 500) + "..." : responseText);
+                log.info("FinishReason: {}", result.finishReason());
+                log.info("==========================================");
+
+                // 记录 AI 调用日志（使用 API 实际 token 用量）
+                CommonUtils.logAiCall("流式对话", elapsed, apiInputTokens, apiOutputTokens, responseText);
 
                 // 分段发送，模拟打字效果
                 int chunkSize = 3;
-                for (int i = 0; i < response.length(); i += chunkSize) {
-                    int end = Math.min(i + chunkSize, response.length());
-                    String chunk = response.substring(i, end);
+                for (int i = 0; i < responseText.length(); i += chunkSize) {
+                    int end = Math.min(i + chunkSize, responseText.length());
+                    String chunk = responseText.substring(i, end);
                     SseEmitter.SseEventBuilder event = SseEmitter.event()
                             .name("message")
                             .data(chunk);

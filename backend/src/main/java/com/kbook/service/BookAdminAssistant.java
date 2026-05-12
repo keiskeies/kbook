@@ -1,6 +1,7 @@
 package com.kbook.service;
 
 import dev.langchain4j.service.MemoryId;
+import dev.langchain4j.service.Result;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 
@@ -55,9 +56,17 @@ import dev.langchain4j.service.UserMessage;
         
         图书链接规则：
         - 工具返回 [BOOK:id=数字] 标记时，使用 [BOOK:id=数字]《书名》 格式引用
+        
+        /no_think
         """)
 public interface BookAdminAssistant {
 
     /** 非流式对话 */
     String chat(@MemoryId String sessionId, @UserMessage String userMessage);
+
+    /** 非流式对话 — 返回完整响应（含 token 用量和 thinking） */
+    Result<String> chatWithResponse(
+            @MemoryId String sessionId,
+            @UserMessage String userMessage
+    );
 }

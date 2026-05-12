@@ -5,9 +5,16 @@ server:
   port: 8181
   servlet:
     context-path: /
+    # 异步请求超时（AI 流式输出必需）
+    async:
+      request-timeout: 3600000  # 3600 秒 = 1 小时
   tomcat:
     accept-count: 100
-    connection-timeout: 120000  # 连接超时 120 秒，支持 AI 接口长耗时操作
+    connection-timeout: 120000  # 连接超时 120 秒
+    # Tomcat 连接器超时配置
+    threads:
+      max: 200
+      min-spare: 10
   compression:
     enabled: true
     mime-types: application/json,text/html,text/xml,text/plain
@@ -134,8 +141,8 @@ kbook:
   # 图书文件存储路径
   book-paths:
     epub: ${BOOK_PATH_EPUB:G:/图书/epub}
-    pdf: ${BOOK_PATH_PDF:G:/图书/pdf}
-    txt: ${BOOK_PATH_TXT:G:/图书/txt}
+    pdf: ${BOOK_PATH_PDF:G:/图书/pdf1}
+    txt: ${BOOK_PATH_TXT:G:/图书/txt1}
   # 封面图片存储路径
   cover-path: ${BOOK_COVER_PATH:G:/图书/covers}
   # 上传文件配置
@@ -145,6 +152,10 @@ kbook:
   # 扫描配置
   scan:
     force-update: ${SCAN_FORCE_UPDATE:false}  # 设为 true 时，扫描已存在书籍也会强制更新评分/简介/作者/8维度相关度得分
+    # 合集类图书检测：书名包含以下关键词则不存入 RAG 向量库（逗号分隔）
+    compilation-keywords: ${SCAN_COMPILATION_KEYWORDS:合集,全集,作品集,选集,集锦,大全,丛书,套装,汇编}
+    # 合集类图书检测：文件超过此大小也视为合集（单位 MB，0 表示不按大小判断）
+    compilation-max-size-mb: ${SCAN_COMPILATION_MAX_SIZE_MB:30}
   # ========================
   # Qdrant 向量数据库
   # ========================
@@ -156,11 +167,27 @@ kbook:
     book-collection: kbook_books
     # RAG 内容向量集合（书籍内容分块 → embedding）
     content-collection: kbook_content
+    # 向量维度（需与 embedding 模型输出维度一致：qwen3-embedding 系列均为 1024）
+    vector-dimension: ${QDRANT_VECTOR_DIMENSION:1024}
+    # RAG 内容分块大小（字符数）
+    # 建议值：embedding 模型上下文越长 → 分块可越大；模型越小 → 分块应越小
+    # qwen3-embedding:0.6b (32K tokens) → 建议 512~800；qwen3-embedding:4b/8b → 建议 800~1200
+    chunk-size: ${QDRANT_CHUNK_SIZE:800}
+    # RAG 内容分块重叠大小（字符数），建议为 chunk-size 的 15%~25%
+    chunk-overlap: ${QDRANT_CHUNK_OVERLAP:200}
+    # RAG 检索返回的最大片段数（top-k）
+    # 聊天模型上下文越短 → 此值应越小，避免 prompt 超出上下文长度
+    # 估算：top-k × chunk-size × 1.5(中文token比) ≈ 注入 prompt 的 token 数
+    # 例：16K上下文 → 5×512×1.5≈3840 tokens，加上系统提示+书籍信息+输出，约 7~9K，安全
+    #     32K上下文 → 可用 8~10
+    rag-top-k: ${QDRANT_RAG_TOP_K:5}
+    # 原始向量是否存磁盘（默认 true，大幅节省内存；关闭则常驻 RAM 加速搜索但内存占用极大）
+    vectors-on-disk: ${QDRANT_VECTORS_ON_DISK:true}
     # 标量量化配置：float32 → int8，内存占用降约 75%，精度损失 <1%
     quantization:
       enabled: ${QDRANT_QUANTIZATION_ENABLED:true}
       quantile: ${QDRANT_QUANTIZATION_QUANTILE:0.99}    # 分位数，裁剪异常值
-      always-ram: ${QDRANT_QUANTIZATION_ALWAYS_RAM:true} # 量化向量常驻 RAM 加速搜索
+      always-ram: ${QDRANT_QUANTIZATION_ALWAYS_RAM:false} # 量化向量常驻 RAM（关闭可大幅节省内存，搜索稍慢）
   # ========================
   # AI 视觉模型配置（PDF OCR 用）
   # 需支持图片输入的模型，如 Ollama 的 llava、gemma4:e4b、minicpm-v 等
@@ -178,9 +205,9 @@ langchain4j:
   ollama:
     chat-model:
       base-url: ${AI_BASE_URL:http://localhost:11434}
-      model-name: ${AI_MODEL:gemma4:e2b}
+      model-name: ${AI_MODEL:gemma3n:e4b}
       temperature: 0.7
-      timeout: 120s
+      timeout: 600s
     embedding-model:
       base-url: ${AI_BASE_URL:http://localhost:11434}
       model-name: ${AI_EMBEDDING_MODEL:qwen3-embedding:0.6b}
@@ -195,5 +222,9 @@ logging:
     com.kbook: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    # LangChain4j 内部日志（调试 AI 请求/响应/耗时）
+    dev.langchain4j: DEBUG
+    # Ollama HTTP 客户端日志（查看实际请求和响应内容）
+    dev.langchain4j.model.ollama: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

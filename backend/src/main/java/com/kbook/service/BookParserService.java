@@ -75,60 +75,94 @@ public class BookParserService {
      * AI 标签生成的系统提示词（单独调用时使用）
      */
     private static final String TAG_SYSTEM_PROMPT = """
-            你是一个专业的图书标签生成助手。根据提供的图书信息（书名、作者、简介或目录），生成3-8个精准的标签。
-            
+            你是一个专业的图书标签生成助手。根据提供的图书信息（书名、作者、简介、正文片段），生成3-8个精准的标签。
+
             规则：
             - 标签应涵盖：类型/题材、风格、主题、读者群体等维度
             - 每个标签2-4个字，简洁准确
+            - 基于你读到的正文内容判断，不要仅凭书名推测
             - 只返回标签，用逗号分隔，不要编号和解释
             - 示例：科幻,太空歌剧,经典,冒险
-            
+
+            /no_think
+
             图书信息如下：
             """;
 
     /**
-     * 合并AI请求的系统提示词 — 一次调用同时生成标签、评分、8维度相关度得分
+     * 合并AI请求的系统提示词 — 一次调用同时生成标签、评分、12维度相关度得分、简介
      */
     private static final String COMBINED_PROMPT = """
-            你是一个专业的图书分析助手。根据提供的图书信息（书名、作者、简介或目录），同时完成以下三项任务：
-            
+            你是一位严格的图书评论家，擅长基于文本内容深度评估图书质量。根据提供的图书信息（书名、作者、简介、正文片段），同时完成以下四项任务：
+
             任务1：生成3-8个精准的标签
             - 标签应涵盖：类型/题材、风格、主题、读者群体等维度
             - 每个标签2-4个字，简洁准确
             - 用逗号分隔，不要编号和解释
             - 示例：科幻,太空歌剧,经典,冒险
-            
+
             任务2：给出1-5之间的评分（一位小数）
-            评分标准（5星制）：
-            - 1-2星：较差或平庸，纯娱乐消遣
-            - 2-3星：一般，浅层阅读
-            - 3-4星：良好，有一定深度或价值
-            - 4-5星：优秀，思想深刻或极具价值
-            
-            评分权重规则（非常重要，请严格遵守）：
-            - 哲学、思想、政治、经济、历史、社会学、心理学、逻辑学、谋略、军事战略、法学、伦理学等深度思想类书籍：4.0-5.0
-            - 科学、技术、数学、医学等专业知识类书籍：3.5-4.5
-            - 经典文学名著（如四大名著、世界名著）：4.0-5.0
-            - 传记、纪实、散文等有思考价值的非虚构类：3.5-4.5
-            - 普通非虚构类（生活、健康、职场等）：2.5-3.5
-            - 网络小说、言情、都市、玄幻、仙侠、穿越、修仙、轻小说等纯娱乐消遣类：1.5-3.0
-            - 恐怖、悬疑推理、冒险等类型小说：2.0-3.5
-            - 信息不足时给中等评分（3.0），但可根据书名/作者判断类型后按上述规则评分
-            
+
+            【评分原则】你必须像一个严苛的评论家，评分应当符合正态分布：
+            - 绝大多数书应在 2.5-3.5 之间（中等水平）
+            - 4.0 及以上是稀缺的，只给真正思想深刻、文笔精湛或具有里程碑意义的书
+            - 4.5 以上极其罕见，仅限传世经典或开创性著作
+            - 1.5-2.5 给内容浅薄、逻辑混乱或纯粹无营养的书
+
+            【评分尺度】（严格遵守，不要宽大处理）：
+            - 1.0-1.9：质量很差，逻辑混乱或毫无价值
+            - 2.0-2.5：平庸之作，浅尝辄止，缺乏深度
+            - 2.6-3.0：中等偏下，有一定可读性但缺乏亮点
+            - 3.1-3.5：中等水平，有合理内容但无突出价值
+            - 3.6-4.0：良好，在某个维度有明显价值（思想深度/文学性/专业性）
+            - 4.1-4.5：优秀，多维度出色，远超同类书籍
+            - 4.6-5.0：传世经典，人类文明级别的著作
+
+            【类型参考区间】（在该区间内根据实际质量区分高低）：
+            - 深度思想类（哲学/政治/经济/历史/社会学/心理学/逻辑学/军事战略）：3.0-4.5，极少数经典可到4.6+
+            - 专业学术类（科学/技术/数学/医学）：3.0-4.2
+            - 经典文学名著：3.5-4.8
+            - 当代文学/传记/纪实：2.8-4.0
+            - 生活/健康/职场/自助类：2.0-3.5
+            - 网络小说/言情/都市/玄幻/仙侠/穿越/修仙/轻小说：1.5-3.0
+            - 类型小说（悬疑/推理/冒险/恐怖）：2.0-3.5
+
+            【重要提醒】：
+            - 不要因为书名看起来严肃就给高分，要基于你读到的正文内容来判断
+            - 如果正文内容浅薄、空洞、套路化，即使题材严肃也必须低分
+            - 一本普通的通俗读物就该在2.5-3.0，不要因为"还行"就给3.5+
+            - 同一类型内也要拉开差距：写得好3.5，写得普通2.8，写得差2.0
+
             任务3：为以下维度打分（0-1之间的小数），返回JSON格式
             年龄段："0-9","10-19","20-29","30-39","40-49","50-59","60+"
             性别："male","female"
             婚姻："married","unmarried"
             子女："hasChildren","noChildren"
             MBTI："INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP","ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP"
-            
+            职业："student","tech","finance","education","medical","arts","management","freelance","retired","other"
+            学历："high_school","college","bachelor","master","doctorate","other_edu"
+            创业意向："entrepreneur","wantEntrepreneur","notInterested"
+            年收入："under_50k","50k_150k","150k_300k","300k_500k","500k_1m","over_1m","prefer_not_to_say"
+            心情："happy","calm","anxious","sad","motivated","tired","curious"
+
+            任务4：生成图书简介
+            - 基于你读到的正文内容，写一段100-300字的内容简介
+            - 如果图书信息中已有简介，在原有简介基础上补充完善（不重复、不遗漏关键信息）
+            - 简介应包含：书籍的核心主题、主要内容或故事梗概、适合的读者群体
+            - 语言简洁客观，不要使用夸张的宣传语
+            - 如果是小说，简述故事背景和主角，不要剧透结局
+            - 如果是非虚构类，概括核心观点和论述框架
+
             只返回以下JSON格式，不要其他文字：
             {
               "tags": "标签1,标签2,标签3",
-              "rating": 3.8,
-              "relevance": {"0-9":0.1,"10-19":0.3,"20-29":0.8,"30-39":0.7,"40-49":0.5,"50-59":0.3,"60+":0.2,"male":0.6,"female":0.7,"married":0.5,"unmarried":0.8,"hasChildren":0.4,"noChildren":0.8,"INTJ":0.7,"INTP":0.6,"ENTJ":0.5,"ENTP":0.6,"INFJ":0.8,"INFP":0.9,"ENFJ":0.7,"ENFP":0.7,"ISTJ":0.4,"ISFJ":0.5,"ESTJ":0.3,"ESFJ":0.4,"ISTP":0.4,"ISFP":0.5,"ESTP":0.3,"ESFP":0.4}
+              "rating": 3.0,
+              "relevance": {"0-9":0.1,"10-19":0.3,"20-29":0.8,"30-39":0.7,"40-49":0.5,"50-59":0.3,"60+":0.2,"male":0.6,"female":0.7,"married":0.5,"unmarried":0.8,"hasChildren":0.4,"noChildren":0.8,"INTJ":0.7,"INTP":0.6,"ENTJ":0.5,"ENTP":0.6,"INFJ":0.8,"INFP":0.9,"ENFJ":0.7,"ENFP":0.7,"ISTJ":0.4,"ISFJ":0.5,"ESTJ":0.3,"ESFJ":0.4,"ISTP":0.4,"ISFP":0.5,"ESTP":0.3,"ESFP":0.4,"student":0.3,"tech":0.5,"finance":0.4,"education":0.6,"medical":0.3,"arts":0.5,"management":0.4,"freelance":0.4,"retired":0.3,"other":0.4,"high_school":0.2,"college":0.4,"bachelor":0.6,"master":0.7,"doctorate":0.5,"other_edu":0.3,"entrepreneur":0.6,"wantEntrepreneur":0.5,"notInterested":0.4,"under_50k":0.3,"50k_150k":0.4,"150k_300k":0.6,"300k_500k":0.7,"500k_1m":0.6,"over_1m":0.5,"prefer_not_to_say":0.5,"happy":0.6,"calm":0.7,"anxious":0.3,"sad":0.4,"motivated":0.7,"tired":0.3,"curious":0.8},
+              "description": "基于正文内容生成的100-300字图书简介"
             }
-            
+
+            /no_think
+
             图书信息如下：
             """;
 
@@ -200,6 +234,24 @@ public class BookParserService {
             }
 
             book.setParsedContent(buildContentForTags(book, tocBuilder.toString()));
+
+            // 提取正文前15000字用于 AI 评分（深度理解内容需要正文，而非仅目录）
+            StringBuilder epubBodyForTags = new StringBuilder(20000);
+            for (var spineRef : epubBook.getSpine().getSpineReferences()) {
+                try {
+                    var resource = spineRef.getResource();
+                    String html = new String(resource.getData(), java.nio.charset.StandardCharsets.UTF_8);
+                    String text = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+                    if (!text.isBlank()) {
+                        epubBodyForTags.append(text).append("\n");
+                    }
+                } catch (Exception ignored) {}
+                if (epubBodyForTags.length() >= 15000) break;
+            }
+            // 合并目录+正文，让 AI 评分基于实际内容
+            String combinedForTags = (tocBuilder.length() > 0 ? "【目录】\n" + tocBuilder + "\n\n【正文】\n" : "")
+                    + epubBodyForTags.toString();
+            book.setParsedContent(buildContentForTags(book, combinedForTags));
 
             // 同时提取全文用于RAG（避免后续 generateContentEmbedding 二次读取文件）
             book.setRagContent(extractEpubFullTextFromEpubBook(epubBook));
@@ -308,12 +360,12 @@ public class BookParserService {
                 book.setToc(toc);
             }
 
-            // 3. 提取前5页文本（用于 AI 标签生成 + 核心章节摘要）
+            // 3. 提取前20页文本（用于 AI 评分 + 标签生成 + 核心章节摘要 + 简介生成）
             String firstPagesText = null;
             boolean isScanned = true;
             try {
                 PDFTextStripper stripper = new PDFTextStripper();
-                int pagesToRead = Math.min(5, document.getNumberOfPages());
+                int pagesToRead = Math.min(20, document.getNumberOfPages());
                 stripper.setStartPage(1);
                 stripper.setEndPage(pagesToRead);
                 firstPagesText = stripper.getText(document);
@@ -337,9 +389,9 @@ public class BookParserService {
                 extractPdfMetadataWithOcr(book, document);
             }
 
-            // 6. 文字型 PDF 缺失元数据时，用大模型从前几页推断
+            // 6. 文字型 PDF 缺失作者时，或始终用大模型生成更完整简介
             if (!isScanned && (book.getAuthor() == null || book.getAuthor().isBlank()
-                    || book.getDescription() == null || book.getDescription().isBlank())) {
+                    || true /* 始终用AI生成更完整的简介 */)) {
                 inferMetadataFromContent(book, firstPagesText);
             }
 
@@ -496,9 +548,8 @@ public class BookParserService {
                 }
             }
 
-            // 简介
-            if ((book.getDescription() == null || book.getDescription().isBlank())
-                    && node.has("description") && !node.get("description").isNull()) {
+            // 简介（始终覆盖，OCR提取的更准确）
+            if (node.has("description") && !node.get("description").isNull()) {
                 String desc = node.get("description").asText().trim();
                 if (!desc.isBlank()) {
                     book.setDescription(desc);
@@ -584,8 +635,8 @@ public class BookParserService {
             // 缓存全文用于RAG（避免后续 generateContentEmbedding 二次读取文件）
             book.setRagContent(content);
 
-            // 取前2000字符用于 AI 标签生成
-            String preview = content.length() > 2000 ? content.substring(0, 2000) : content;
+            // 取前15000字符用于 AI 评分和标签生成
+            String preview = content.length() > 15000 ? content.substring(0, 15000) : content;
             book.setParsedContent(buildContentForTags(book, preview));
 
             // 核心章节摘要：取开头3000字（去掉前200字可能的书名/版权信息）
@@ -604,9 +655,9 @@ public class BookParserService {
                 book.setToc(toc);
             }
 
-            // TXT 没有结构化元数据，尝试用大模型从前2000字推断作者和简介
-            if (book.getAuthor() == null || book.getAuthor().isBlank()
-                    || book.getDescription() == null || book.getDescription().isBlank()) {
+            // TXT 没有结构化元数据，用大模型从前2000字推断作者和简介
+            // 简介始终生成（AI基于正文生成更完整），作者仅在缺失时推断
+            if (book.getAuthor() == null || book.getAuthor().isBlank() || true) {
                 inferMetadataFromContent(book, preview);
             }
         } catch (Exception e) {
@@ -649,8 +700,8 @@ public class BookParserService {
                     }
                 }
 
-                if ((book.getDescription() == null || book.getDescription().isBlank())
-                        && node.has("description") && !node.get("description").isNull()) {
+                // 简介（始终覆盖，AI生成的更完整）
+                if (node.has("description") && !node.get("description").isNull()) {
                     String desc = node.get("description").asText().trim();
                     if (!desc.isBlank() && !"null".equalsIgnoreCase(desc)) {
                         book.setDescription(desc);
@@ -699,7 +750,9 @@ public class BookParserService {
     }
 
     /**
-     * 构建用于 AI 标签生成的内容摘要
+     * 构建用于 AI 标签/评分/简介生成的内容摘要
+     * 提供更多正文内容，帮助模型深度理解图书质量
+     * 32k 上下文约 8-10 万字符，充分利用空间
      */
     private String buildContentForTags(Book book, String extraContent) {
         StringBuilder sb = new StringBuilder();
@@ -708,10 +761,10 @@ public class BookParserService {
             sb.append("作者：").append(book.getAuthor()).append("\n");
         }
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            sb.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 500)).append("\n");
+            sb.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 1500)).append("\n");
         }
         if (extraContent != null && !extraContent.isBlank()) {
-            sb.append("内容/目录：\n").append(CommonUtils.truncateText(extraContent, 1500)).append("\n");
+            sb.append("内容/目录：\n").append(CommonUtils.truncateText(extraContent, 15000)).append("\n");
         }
         return sb.toString();
     }
@@ -794,28 +847,46 @@ public class BookParserService {
     }
 
     /**
-     * 提取 EPUB 内容
+     * 提取 EPUB 内容 — 正文前15000字 + 目录（用于评分和标签生成）
      */
     private String extractEpubContent(Book book, Path filePath) throws Exception {
         try (InputStream is = Files.newInputStream(filePath)) {
             EpubReader epubReader = new EpubReader();
             nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
 
+            // 提取正文内容（前15000字）
+            StringBuilder bodyBuilder = new StringBuilder(20000);
+            for (var spineRef : epubBook.getSpine().getSpineReferences()) {
+                try {
+                    var resource = spineRef.getResource();
+                    String html = new String(resource.getData(), java.nio.charset.StandardCharsets.UTF_8);
+                    String text = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+                    if (!text.isBlank()) {
+                        bodyBuilder.append(text).append("\n");
+                    }
+                } catch (Exception ignored) {}
+                if (bodyBuilder.length() >= 15000) break;
+            }
+
+            // 提取目录
             StringBuilder tocBuilder = new StringBuilder();
             if (epubBook.getTableOfContents() != null) {
                 extractEpubTocChildren(epubBook.getTableOfContents().getTocReferences(), tocBuilder, 0);
             }
-            return buildContentForTags(book, tocBuilder.toString());
+
+            String combined = (tocBuilder.length() > 0 ? "【目录】\n" + tocBuilder + "\n\n【正文】\n" : "")
+                    + bodyBuilder.toString();
+            return buildContentForTags(book, combined);
         }
     }
 
     /**
-     * 提取 PDF 内容（前5页）
+     * 提取 PDF 内容（前20页，用于评分和标签生成）
      */
     private String extractPdfContent(Book book, Path filePath) throws Exception {
         try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
             PDFTextStripper stripper = new PDFTextStripper();
-            int pagesToRead = Math.min(5, document.getNumberOfPages());
+            int pagesToRead = Math.min(20, document.getNumberOfPages());
             stripper.setStartPage(1);
             stripper.setEndPage(pagesToRead);
             String text = stripper.getText(document);
@@ -824,11 +895,11 @@ public class BookParserService {
     }
 
     /**
-     * 提取 TXT 内容（前2000字符）
+     * 提取 TXT 内容（前15000字符，用于评分和标签生成）
      */
     private String extractTxtContent(Book book, Path filePath) throws Exception {
         String content = Files.readString(filePath);
-        String preview = content.length() > 2000 ? content.substring(0, 2000) : content;
+        String preview = content.length() > 15000 ? content.substring(0, 15000) : content;
         return buildContentForTags(book, preview);
     }
 
@@ -849,7 +920,8 @@ public class BookParserService {
             long startTime = System.currentTimeMillis();
             String thinkingSuffix = aiProviderConfigService.getThinkingPromptSuffix();
             ChatResponse response = chatModel.chat(List.of(
-                    UserMessage.from(TAG_SYSTEM_PROMPT + content + thinkingSuffix)
+                    SystemMessage.from(TAG_SYSTEM_PROMPT),
+                    UserMessage.from(content + thinkingSuffix)
             ));
             long elapsed = System.currentTimeMillis() - startTime;
 
@@ -877,28 +949,34 @@ public class BookParserService {
      * AI 评分生成的系统提示词
      */
     private static final String RATING_PROMPT = """
-            你是一个专业的图书评分助手。根据提供的图书信息（书名、作者、简介或目录），给出一个1.0-5.0之间的评分（5星制，一位小数）。
-            
-            评分标准（5星制）：
-            - 1-2星：较差或平庸，纯娱乐消遣
-            - 2-3星：一般，浅层阅读
-            - 3-4星：良好，有一定深度或价值
-            - 4-5星：优秀，思想深刻或极具价值
-            
-            评分权重规则（非常重要，请严格遵守）：
-            - 哲学、思想、政治、经济、历史、社会学、心理学、逻辑学、谋略、军事战略、法学、伦理学等深度思想类书籍：4.0-5.0
-            - 科学、技术、数学、医学等专业知识类书籍：3.5-4.5
-            - 经典文学名著（如四大名著、世界名著）：4.0-5.0
-            - 传记、纪实、散文等有思考价值的非虚构类：3.5-4.5
-            - 普通非虚构类（生活、健康、职场等）：2.5-3.5
-            - 网络小说、言情、都市、玄幻、仙侠、穿越、修仙、轻小说等纯娱乐消遣类：1.5-3.0
-            - 恐怖、悬疑推理、冒险等类型小说：2.0-3.5
-            - 信息不足时给中等评分（3.0），但可根据书名/作者判断类型后按上述规则评分
-            
+            你是一位严格的图书评论家。根据提供的图书信息（书名、作者、简介、正文片段），给出一个1.0-5.0之间的评分（5星制，一位小数）。
+
+            【评分原则】评分必须符合正态分布，绝大多数书应在2.5-3.5之间：
+            - 1.0-1.9：质量很差，逻辑混乱或毫无价值
+            - 2.0-2.5：平庸之作，浅尝辄止，缺乏深度
+            - 2.6-3.0：中等偏下，有一定可读性但缺乏亮点
+            - 3.1-3.5：中等水平，有合理内容但无突出价值
+            - 3.6-4.0：良好，在某个维度有明显价值
+            - 4.1-4.5：优秀，多维度出色，远超同类
+            - 4.6-5.0：传世经典，极其罕见
+
+            【类型参考区间】（在区间内根据实际质量区分高低）：
+            - 深度思想类（哲学/政治/经济/历史/社会学/心理学/逻辑学/军事战略）：3.0-4.5
+            - 专业学术类（科学/技术/数学/医学）：3.0-4.2
+            - 经典文学名著：3.5-4.8
+            - 当代文学/传记/纪实：2.8-4.0
+            - 生活/健康/职场/自助类：2.0-3.5
+            - 网络小说/言情/都市/玄幻/仙侠/穿越/修仙/轻小说：1.5-3.0
+            - 类型小说（悬疑/推理/冒险/恐怖）：2.0-3.5
+
+            【重要提醒】不要因为书名看起来严肃就给高分，要基于正文内容判断。
+
             规则：
             - 只返回一个数字（1.0-5.0之间的一位小数），不要其他文字
-            - 示例：3.8
-            
+            - 示例：3.0
+
+            /no_think
+
             图书信息如下：
             """;
 
@@ -990,12 +1068,12 @@ public class BookParserService {
     }
 
     /**
-     * 8维度相关度得分 AI 提示词
+     * 12维度相关度得分 AI 提示词
      */
     private static final String RELEVANCE_PROMPT = """
             你是一个专业的图书读者匹配分析助手。根据提供的图书信息（书名、作者、简介或目录），分析这本书对不同读者群体的适合程度。
             
-            请为以下8个维度打分（0-1之间的小数，0表示完全不适合，1表示非常适合），并以JSON格式返回：
+            请为以下12个维度打分（0-1之间的小数，0表示完全不适合，1表示非常适合），并以JSON格式返回：
             
             年龄段维度（每10年一个区间）：
             - "0-9": 儿童适合度
@@ -1022,8 +1100,53 @@ public class BookParserService {
             - "INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP",
               "ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP"
             
+            职业维度（10种职业大类）：
+            - "student": 在校学生适合度
+            - "tech": 技术/IT从业者适合度
+            - "finance": 金融/商业从业者适合度
+            - "education": 教育/科研工作者适合度
+            - "medical": 医疗/健康从业者适合度
+            - "arts": 文艺/传媒工作者适合度
+            - "management": 管理/行政人员适合度
+            - "freelance": 自由职业者适合度
+            - "retired": 退休人员适合度
+            - "other": 其他职业适合度
+            
+            学历维度（6种学历类别）：
+            - "high_school": 高中及以下学历适合度
+            - "college": 大专学历适合度
+            - "bachelor": 本科学历适合度
+            - "master": 硕士学历适合度
+            - "doctorate": 博士学历适合度
+            - "other_edu": 其他学历适合度
+            
+            创业意向维度（3种意向）：
+            - "entrepreneur": 正在创业的人适合度
+            - "wantEntrepreneur": 想创业的人适合度
+            - "notInterested": 暂不考虑创业的人适合度
+            
+            年收入维度（7种收入区间）：
+            - "under_50k": 年收入5万以下适合度
+            - "50k_150k": 年收入5-15万适合度
+            - "150k_300k": 年收入15-30万适合度
+            - "300k_500k": 年收入30-50万适合度
+            - "500k_1m": 年收入50-100万适合度
+            - "over_1m": 年收入100万以上适合度
+            - "prefer_not_to_say": 不愿透露收入的人适合度
+            
+            心情维度（7种心情状态）：
+            - "happy": 开心状态适合度
+            - "calm": 平静状态适合度
+            - "anxious": 焦虑状态适合度
+            - "sad": 低落状态适合度
+            - "motivated": 充满动力状态适合度
+            - "tired": 疲惫状态适合度
+            - "curious": 好奇状态适合度
+            
             只返回JSON，不要其他文字。格式示例：
-            {"0-9":0.1,"10-19":0.3,"20-29":0.8,"30-39":0.7,"40-49":0.5,"50-59":0.3,"60+":0.2,"male":0.6,"female":0.7,"married":0.5,"unmarried":0.8,"hasChildren":0.4,"noChildren":0.8,"INTJ":0.7,"INTP":0.6,"ENTJ":0.5,"ENTP":0.6,"INFJ":0.8,"INFP":0.9,"ENFJ":0.7,"ENFP":0.7,"ISTJ":0.4,"ISFJ":0.5,"ESTJ":0.3,"ESFJ":0.4,"ISTP":0.4,"ISFP":0.5,"ESTP":0.3,"ESFP":0.4}
+            {"0-9":0.1,"10-19":0.3,"20-29":0.8,"30-39":0.7,"40-49":0.5,"50-59":0.3,"60+":0.2,"male":0.6,"female":0.7,"married":0.5,"unmarried":0.8,"hasChildren":0.4,"noChildren":0.8,"INTJ":0.7,"INTP":0.6,"ENTJ":0.5,"ENTP":0.6,"INFJ":0.8,"INFP":0.9,"ENFJ":0.7,"ENFP":0.7,"ISTJ":0.4,"ISFJ":0.5,"ESTJ":0.3,"ESFJ":0.4,"ISTP":0.4,"ISFP":0.5,"ESTP":0.3,"ESFP":0.4,"student":0.3,"tech":0.5,"finance":0.4,"education":0.6,"medical":0.3,"arts":0.5,"management":0.4,"freelance":0.4,"retired":0.3,"other":0.4,"high_school":0.2,"college":0.4,"bachelor":0.6,"master":0.7,"doctorate":0.5,"other_edu":0.3,"entrepreneur":0.6,"wantEntrepreneur":0.5,"notInterested":0.4,"under_50k":0.3,"50k_150k":0.4,"150k_300k":0.6,"300k_500k":0.7,"500k_1m":0.6,"over_1m":0.5,"prefer_not_to_say":0.5,"happy":0.6,"calm":0.7,"anxious":0.3,"sad":0.4,"motivated":0.7,"tired":0.3,"curious":0.8}
+            
+            /no_think
             
             图书信息如下：
             """;
@@ -1136,6 +1259,12 @@ public class BookParserService {
                     bookService.updateRelevanceScores(bookId, result.relevanceScoresJson);
                     log.info("合并AI - 相关度得分生成成功: bookId={}", bookId);
                 }
+            }
+
+            // 保存AI生成的简介（始终覆盖原简介，AI基于正文生成更完整）
+            if (result.description != null && !result.description.isBlank()) {
+                bookService.updateDescription(bookId, result.description);
+                log.info("合并AI - 简介生成成功: bookId={}, 字数={}", bookId, result.description.length());
             }
 
             // 生成书籍元数据向量（异步执行，不阻塞后续流程）
@@ -1485,7 +1614,7 @@ public class BookParserService {
     /**
      * 合并AI调用结果
      */
-    private record CombinedAiResult(List<String> tags, Double rating, String relevanceScoresJson) {
+    private record CombinedAiResult(List<String> tags, Double rating, String relevanceScoresJson, String description) {
     }
 
     /**
@@ -1563,19 +1692,29 @@ public class BookParserService {
                 }
             }
 
+            // 解析简介
+            String description = null;
+            if (root.has("description") && !root.get("description").isNull()) {
+                String desc = root.get("description").asText().trim();
+                if (!desc.isBlank() && !"null".equalsIgnoreCase(desc)) {
+                    description = desc;
+                }
+            }
+
             // 记录 AI 调用日志
             int inputTokens = CommonUtils.estimateTokens(content);
             int outputTokens = CommonUtils.estimateTokens(rawResult);
             CommonUtils.logAiCall(AI_OP_COMBINED, elapsed, inputTokens, outputTokens,
-                    String.format("标签: %s | 评分: %s | 相关度: %s",
-                            tags, rating, relevanceScoresJson != null ? "已生成" : "无"));
+                    String.format("标签: %s | 评分: %s | 相关度: %s | 简介: %s",
+                            tags, rating, relevanceScoresJson != null ? "已生成" : "无",
+                            description != null ? "已生成(" + description.length() + "字)" : "无"));
 
             // 至少有一项结果才算成功
-            if (tags == null && rating == null && relevanceScoresJson == null) {
+            if (tags == null && rating == null && relevanceScoresJson == null && description == null) {
                 return null;
             }
 
-            return new CombinedAiResult(tags, rating, relevanceScoresJson);
+            return new CombinedAiResult(tags, rating, relevanceScoresJson, description);
 
         } catch (Exception e) {
             log.warn("AI 合并调用失败: {}", e.getMessage());

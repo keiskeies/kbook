@@ -15,7 +15,7 @@ export default function ChangePasswordPage() {
 
   const handleChange = async () => {
     if (!oldPassword.trim()) {
-      toast.error('请输入原密码')
+      toast.error('输入当前密码')
       return
     }
     if (newPassword.length < 6 || newPassword.length > 20) {
@@ -34,11 +34,11 @@ export default function ChangePasswordPage() {
     try {
       setLoading(true)
       await changePassword(oldPassword, newPassword)
-      toast.success('密码修改成功，请重新登录')
+      toast.success('密码已修改，现在可以重新登录')
       useAuthStore.getState().logout()
       navigate('/login')
     } catch (err: any) {
-      toast.error(err.message || '修改失败')
+      toast.error(err.message || '修改未完成')
     } finally {
       setLoading(false)
     }

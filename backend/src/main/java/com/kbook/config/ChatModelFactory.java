@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * AI 模型工厂 — 统一封装 Ollama / OpenAI 兼容模型的构建逻辑
@@ -48,7 +49,7 @@ public class ChatModelFactory {
         String thinkingLevel = config.getThinkingLevel() != null ? config.getThinkingLevel() : "NONE";
 
         if ("OLLAMA".equalsIgnoreCase(config.getProvider())) {
-            Duration baseTimeout = Duration.ofSeconds(120);
+            Duration baseTimeout = Duration.ofSeconds(300);
             Duration timeout = getTimeoutWithDuration(thinkingLevel, baseTimeout);
             return OllamaChatModel.builder()
                     .baseUrl(config.getBaseUrl())
@@ -58,7 +59,7 @@ public class ChatModelFactory {
                     .build();
         } else {
             // OpenAI 兼容（含 DeepSeek、通义千问、智谱等）
-            Duration baseTimeout = Duration.ofSeconds(60);
+            Duration baseTimeout = Duration.ofSeconds(120);
             Duration timeout = getTimeoutWithDuration(thinkingLevel, baseTimeout);
             return OpenAiChatModel.builder()
                     .apiKey(config.getApiKey() != null ? config.getApiKey() : "sk-placeholder")
@@ -79,6 +80,7 @@ public class ChatModelFactory {
                 .baseUrl(defaultBaseUrl)
                 .modelName(defaultModelName)
                 .temperature(defaultTemperature)
+                .customHeaders(Map.of("X-Ollama-Thinking", "false"))
                 .timeout(defaultTimeout != null ? defaultTimeout : Duration.ofSeconds(120))
                 .build();
     }

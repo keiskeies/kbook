@@ -46,6 +46,19 @@ public class RecommendController {
         return Result.ok(null);
     }
 
+    /**
+     * 批量获取规则匹配分（轻量级，基于用户画像+书籍relevanceScores）
+     * 用于在图书列表中展示"与你的匹配度"
+     */
+    @GetMapping("/match-scores")
+    public Result<Map<Long, Double>> getMatchScores(
+            Authentication authentication,
+            @RequestParam List<Long> bookIds) {
+        Long userId = (Long) authentication.getPrincipal();
+        Map<Long, Double> scores = recommendService.batchCalculateMatchScores(userId, bookIds);
+        return Result.ok(scores);
+    }
+
     // ==================== 管理员操作 ====================
 
     /**

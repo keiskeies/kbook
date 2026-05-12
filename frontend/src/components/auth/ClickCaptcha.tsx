@@ -200,7 +200,7 @@ export default function ClickCaptcha({ open, onSuccess, onCancel }: ClickCaptcha
               disabled={selected.size === 0 || status === 'verifying' || status === 'success'}
               className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 hover:opacity-90 transition-opacity min-w-[90px]"
             >
-              {status === 'verifying' ? '验证中...' : status === 'success' ? '验证成功' : `确认 (${selected.size})`}
+              {status === 'verifying' ? '验证中...' : status === 'success' ? '验证通过' : `确认 (${selected.size})`}
             </button>
           </div>
         </div>

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, BookOpen, Clock, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Clock, CheckCircle2, BookOpen } from 'lucide-react'
 import { getUserProgresses } from '@/api/progress'
 import { getBook } from '@/api/book'
 import type { ReadingProgress } from '@/types/book'
 import type { Book } from '@/types/book'
 import { formatProgress } from '@/types/book'
-import { formatRelativeTime, formatTag } from '@/utils/time'
+import { formatRelativeTime } from '@/utils/time'
+import BookCover from '@/components/book/BookCover'
 
 interface HistoryItem {
   progress: ReadingProgress
@@ -90,15 +91,7 @@ export default function ReadingHistoryPage() {
                 onClick={() => book && navigate(completed ? `/book/${book.id}` : `/reader/${book.id}`)}
               >
                 {/* 封面 */}
-                <div className="h-16 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-muted shadow-sm">
-                  {book?.coverUrl ? (
-                    <img src={book.coverUrl} alt={book.title} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-accent">
-                      <BookOpen className="h-4 w-4 text-primary/30" />
-                    </div>
-                  )}
-                </div>
+                <BookCover coverUrl={book?.coverUrl ?? null} title={book?.title ?? '未知图书'} author={book?.author} size="sm" className="flex-shrink-0 shadow-sm" />
 
                 {/* 信息 */}
                 <div className="min-w-0 flex-1">

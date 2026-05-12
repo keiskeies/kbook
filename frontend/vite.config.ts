@@ -72,6 +72,9 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8181',
         changeOrigin: true,
+        // 开发环境超时配置（支持 AI 流式输出）
+        timeout: 3600000,  // 3600 秒
+        proxyTimeout: 3600000,
       },
     },
   },

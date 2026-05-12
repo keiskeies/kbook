@@ -48,7 +48,7 @@ export default function NotificationsPage() {
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })))
       toast.success('已全部标记为已读')
     } catch {
-      toast.error('操作失败')
+      toast.error('操作未完成')
     }
   }
 

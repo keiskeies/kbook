@@ -50,8 +50,20 @@ public class BookScanService {
     private volatile boolean emitterCompleted = false;
 
     /** 内容向量存储的最低评分阈值（低于此值的书籍不存储内容向量到 Qdrant） */
-    @Value("${kbook.scan.content-embed-min-rating:4.8}")
+    @Value("${kbook.scan.content-embed-min-rating:3.0}")
     private double contentEmbedMinRating;
+
+    /** 内容向量存储的最大文件大小（超过此大小的书籍不存储内容向量，单位 MB） */
+    @Value("${kbook.scan.content-embed-max-size-mb:20}")
+    private double contentEmbedMaxSizeMb;
+
+    /** 合集类图书检测关键词（书名中包含这些词则不存入RAG向量库，逗号分隔） */
+    @Value("${kbook.scan.compilation-keywords:合集,全集,作品集,选集,集锦,大全,丛书,套装,汇编}")
+    private String compilationKeywords;
+
+    /** 合集类图书检测：文件大小阈值（超过此大小则视为合集，单位 MB，0 表示不按大小判断） */
+    @Value("${kbook.scan.compilation-max-size-mb:30}")
+    private double compilationMaxSizeMb;
 
     /** 步骤计时器 — 统计各步骤平均耗时 */
     private final ScanStepTimer stepTimer = new ScanStepTimer(
@@ -284,8 +296,8 @@ public class BookScanService {
                     bookService.updateBook(book.getId(), book);
                     stepTimer.end("数据库保存");
                 }
-                log.info("评分 {} < {}，跳过内容向量存储: bookId={}, title={}",
-                        String.format("%.1f", book.getRating()), String.format("%.1f", contentEmbedMinRating), book.getId(), title);
+                log.info("{}，跳过内容向量存储: bookId={}, title={}",
+                        getSkipEmbedReason(book), book.getId(), title);
             }
             return ScanResultType.UPDATED;
         } else {
@@ -295,11 +307,11 @@ public class BookScanService {
                 bookParserService.generateAllAiData(book.getId());
             }
 
-            // 补提取缺失的目录/章节摘要/作者/简介（旧数据可能从未提取过）
+            // 补提取缺失的目录/章节摘要/作者，或始终重新生成简介（AI更完整）
             boolean needsMetadata = (book.getToc() == null || book.getToc().isBlank())
                     || (book.getChapterSummary() == null || book.getChapterSummary().isBlank())
                     || (book.getAuthor() == null || book.getAuthor().isBlank())
-                    || (book.getDescription() == null || book.getDescription().isBlank());
+                    || true /* 始终重新生成简介 */;
             if (needsMetadata) {
                 log.debug("补提取旧书元数据: bookId={}, title={}", book.getId(), title);
                 bookParserService.parseAndFill(book, filePath);
@@ -324,8 +336,8 @@ public class BookScanService {
                 embeddingService.removeContentEmbedding(book.getId());
                 book.setContentEmbedded(false);
                 bookService.updateBook(book.getId(), book);
-                log.info("评分 {} < {}，删除内容向量: bookId={}, title={}",
-                        String.format("%.1f", book.getRating()), String.format("%.1f", contentEmbedMinRating), book.getId(), title);
+                log.info("{}，删除内容向量: bookId={}, title={}",
+                        getSkipEmbedReason(book), book.getId(), title);
             }
             return ScanResultType.SKIPPED;
         }
@@ -382,8 +394,8 @@ public class BookScanService {
             bookService.updateBook(bookWithRating.getId(), bookWithRating);
             stepTimer.end("数据库保存");
         } else {
-            log.info("评分 {} < {}，跳过内容向量存储: bookId={}, title={}",
-                    String.format("%.1f", bookWithRating.getRating()), String.format("%.1f", contentEmbedMinRating), saved.getId(), title);
+            log.info("{}，跳过内容向量存储: bookId={}, title={}",
+                    getSkipEmbedReason(bookWithRating), saved.getId(), title);
         }
         log.info("新增图书: {} [{}]", title, format);
         return ScanResultType.ADDED;
@@ -400,11 +412,63 @@ public class BookScanService {
     }
 
     /**
-     * 判断书籍评分是否达到内容向量存储阈值
-     * 评分 >= contentEmbedMinRating 的书籍才值得存储全书内容向量到 Qdrant
+     * 判断书籍是否应该存储内容向量
+     * 需同时满足：评分 >= contentEmbedMinRating 且文件大小 <= contentEmbedMaxSizeMb 且非合集类图书
      */
     private boolean shouldEmbedContent(Book book) {
-        return book.getRating() != null && book.getRating() >= contentEmbedMinRating;
+        if (book.getRating() == null || book.getRating() < contentEmbedMinRating) {
+            return false;
+        }
+        if (book.getFileSize() != null && book.getFileSize() > contentEmbedMaxSizeMb * 1024 * 1024) {
+            return false;
+        }
+        if (isCompilationBook(book)) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 判断是否为合集类图书（书名包含合集关键词，或文件超大）
+     * 合集类图书通常包含多本独立作品，内容杂糅，不适合存入 RAG 向量库
+     */
+    private boolean isCompilationBook(Book book) {
+        String title = book.getTitle();
+        if (title != null && !title.isBlank()) {
+            String[] keywords = compilationKeywords.split(",");
+            for (String keyword : keywords) {
+                String kw = keyword.trim();
+                if (!kw.isEmpty() && title.contains(kw)) {
+                    return true;
+                }
+            }
+        }
+        // 文件超大且超过合集阈值时也视为合集（超大文件通常是多本合集）
+        if (compilationMaxSizeMb > 0 && book.getFileSize() != null
+                && book.getFileSize() > compilationMaxSizeMb * 1024 * 1024) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 获取跳过内容向量存储的原因（用于日志）
+     */
+    private String getSkipEmbedReason(Book book) {
+        if (book.getRating() == null || book.getRating() < contentEmbedMinRating) {
+            return String.format("评分 %.1f < %.1f", book.getRating() != null ? book.getRating() : 0, contentEmbedMinRating);
+        }
+        if (book.getFileSize() != null && book.getFileSize() > contentEmbedMaxSizeMb * 1024 * 1024) {
+            return String.format("文件 %.1fMB > %.0fMB", book.getFileSize() / 1024.0 / 1024.0, contentEmbedMaxSizeMb);
+        }
+        if (isCompilationBook(book)) {
+            if (book.getFileSize() != null && compilationMaxSizeMb > 0
+                    && book.getFileSize() > compilationMaxSizeMb * 1024 * 1024) {
+                return String.format("合集类图书(文件 %.1fMB > %.0fMB)", book.getFileSize() / 1024.0 / 1024.0, compilationMaxSizeMb);
+            }
+            return "合集类图书(书名匹配)";
+        }
+        return "";
     }
 
     /**
@@ -482,7 +546,7 @@ public class BookScanService {
                                 boolean needsMetadata = (book.getToc() == null || book.getToc().isBlank())
                                         || (book.getChapterSummary() == null || book.getChapterSummary().isBlank())
                                         || (book.getAuthor() == null || book.getAuthor().isBlank())
-                                        || (book.getDescription() == null || book.getDescription().isBlank());
+                                        || true /* 始终重新生成简介 */;
                                 if (needsMetadata) {
                                     bookParserService.parseAndFill(book, filePath);
                                     bookService.updateBook(book.getId(), book);

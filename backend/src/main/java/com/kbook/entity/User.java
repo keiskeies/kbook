@@ -78,6 +78,26 @@ public class User {
     @Column(length = 10)
     private String mbti;
 
+    /** 职业（多选，逗号分隔）：STUDENT / TECH / FINANCE / EDUCATION / MEDICAL / ARTS / MANAGEMENT / FREELANCE / RETIRED / OTHER */
+    @Column(length = 200)
+    private String occupation;
+
+    /** 学历：HIGH_SCHOOL / COLLEGE / BACHELOR / MASTER / DOCTORATE / OTHER */
+    @Column(length = 20)
+    private String education;
+
+    /** 创业意向：ENTREPRENEUR(正在创业) / WANT_ENTREPRENEUR(想创业) / NOT_INTERESTED(暂不考虑) */
+    @Column(name = "entrepreneurship", length = 30)
+    private String entrepreneurship;
+
+    /** 当前/期望年收入：UNDER_50K / 50K_150K / 150K_300K / 300K_500K / 500K_1M / OVER_1M / PREFER_NOT_TO_SAY */
+    @Column(name = "annual_income", length = 30)
+    private String annualIncome;
+
+    /** 当前心情状态：HAPPY / CALM / ANXIOUS / SAD / MOTIVATED / TIRED / CURIOUS */
+    @Column(length = 20)
+    private String mood;
+
     /** 个人简介 */
     @Column(length = 500)
     private String bio;

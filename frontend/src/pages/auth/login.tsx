@@ -32,7 +32,7 @@ export default function LoginPage() {
   // 验证码登录 - 点击"获取验证码" → 弹出点击验证
   const handleSendCodeClick = () => {
     if (!email.trim()) {
-      toast.error('请输入邮箱')
+      toast.error('输入邮箱')
       return
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -68,7 +68,7 @@ export default function LoginPage() {
         startCountdown()
         toast.success('验证码已发送')
       } catch (err: any) {
-        toast.error(err.message || '发送失败')
+        toast.error(err.message || '验证码发送未完成')
       } finally {
         setSendingCode(false)
       }
@@ -78,7 +78,7 @@ export default function LoginPage() {
         const result = await loginByPassword(email, password, captchaId)
         handleLoginResult(result)
       } catch (err: any) {
-        toast.error(err.message || '登录失败')
+        toast.error(err.message || '暂时无法登录')
       } finally {
         setLoading(false)
       }
@@ -100,7 +100,7 @@ export default function LoginPage() {
       const result = await loginByCode(email, code)
       handleLoginResult(result)
     } catch (err: any) {
-      toast.error(err.message || '登录失败')
+      toast.error(err.message || '暂时无法登录')
     } finally {
       setLoading(false)
     }
@@ -113,7 +113,7 @@ export default function LoginPage() {
     } else if (result.userInfo.status === 'BANNED') {
       toast.error('账号已被封禁')
     } else {
-      toast.success('登录成功')
+      toast.success('欢迎回来')
       navigate(from, { replace: true })
     }
   }
@@ -165,7 +165,7 @@ export default function LoginPage() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="请输入邮箱"
+            placeholder="你的邮箱"
             autoComplete="email"
             className="w-full rounded-2xl border bg-card px-4 py-3.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
           />
@@ -227,7 +227,7 @@ export default function LoginPage() {
           onClick={() => navigate(ROUTES.REGISTER)}
           className="text-primary font-semibold"
         >
-          立即注册
+          去注册
         </button>
       </div>
 

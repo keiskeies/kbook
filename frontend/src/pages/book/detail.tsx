@@ -10,6 +10,7 @@ import type { CommentVO } from '@/api/comment'
 import { formatProgress, formatFileSize, parseFormatTags } from '@/types/book'
 import CommentList from '@/components/comment/CommentList'
 import BookChatSheet from '@/components/book/BookChatSheet'
+import BookCover from '@/components/book/BookCover'
 import { toast } from 'sonner'
 
 export default function BookDetailPage() {
@@ -71,7 +72,7 @@ export default function BookDetailPage() {
         toast.success('已加入书架')
       }
     } catch {
-      toast.error('操作失败')
+      toast.error('操作未完成')
     }
   }
 
@@ -82,9 +83,9 @@ export default function BookDetailPage() {
       setBook({ ...book, rating })
       setUserRating(rating)
       setShowRating(false)
-      toast.success(`评分 ${rating} 星提交成功`)
+      toast.success(`评分 ${rating} 星已保存`)
     } catch {
-      toast.error('评分失败')
+      toast.error('评分暂时无法提交')
     }
   }
 
@@ -129,15 +130,7 @@ export default function BookDetailPage() {
       {/* 图书信息 — 渐变背景 */}
       <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
         <div className="flex gap-4">
-          <div className="h-44 w-32 flex-shrink-0 overflow-hidden rounded-2xl bg-muted shadow-lg">
-            {book.coverUrl ? (
-              <img src={book.coverUrl} alt={book.title} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-accent">
-                <BookOpen className="h-10 w-10 text-primary/30" />
-              </div>
-            )}
-          </div>
+          <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} size="xl" className="flex-shrink-0 shadow-lg" />
           <div className="flex flex-1 flex-col justify-between">
             <div>
               <h2 className="text-lg font-bold leading-tight">{book.title}</h2>

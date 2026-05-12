@@ -46,12 +46,12 @@ export function searchBooks(params: {
   return request.get<PageResult<Book>>('/books/search', { params })
 }
 
-/** 阅读排行 */
+/** 阅读热门 */
 export function getReadRank(page = 1, size = 20) {
   return request.get<PageResult<Book>>('/books/rank/read', { params: { page, size } })
 }
 
-/** 评分排行 */
+/** 高分推荐 */
 export function getRatingRank(page = 1, size = 20) {
   return request.get<PageResult<Book>>('/books/rank/rating', { params: { page, size } })
 }
@@ -232,6 +232,13 @@ export function getRecommendations(count = 10) {
 /** 清除推荐缓存 */
 export function clearRecommendCache() {
   return request.delete('/recommend/cache')
+}
+
+/** 批量获取规则匹配分（轻量级，基于用户画像） */
+export function getMatchScores(bookIds: number[]) {
+  return request.get<Record<string, number>>('/recommend/match-scores', {
+    params: { bookIds: bookIds.join(',') },
+  })
 }
 
 // ==================== 管理员AI图书操作 ====================

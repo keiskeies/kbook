@@ -144,7 +144,7 @@ export function streamAdminChat(
   if (currentToken) {
     doFetch(currentToken)
   } else {
-    onError(new Error('未登录，请先登录'))
+    onError(new Error('需要登录后才能继续'))
   }
 
   return controller

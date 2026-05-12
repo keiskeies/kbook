@@ -21,20 +21,29 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
- * 推荐服务 — 多路召回 + 评分融合 + MMR 多样性 + Redis 缓存
+ * 推荐服务 — 多路召回 + 质量调制 + 新鲜度 + MMR 多样性 + Redis 缓存
+ * <p>
+ * 核心公式：
+ *   finalScore = matchScore × qualityFactor × freshnessFactor + preferenceBonus
  * <p>
  * 推荐流程：
  * 1. 路径A - 规则召回：8维度画像匹配（年龄段/性别/婚姻/子女/MBTI）
  * 2. 路径B - 向量召回：Qdrant 语义相似度（书籍元数据 embedding → 用户兴趣 embedding）
  * 3. 路径C - 协同召回：相似用户的阅读行为（UserCF 简化版）
- * 4. 融合排序：加权融合三路得分 + 评分权重 + MMR 去重
- * 5. 过滤：排除已读完 + 同作者最多2本
- * 6. 缓存：Redis 30分钟 TTL
+ * 4. 路径D - 探索召回：随机采样 + 热门补充，防止信息茧房
+ * 5. 融合排序：加权融合四路得分
+ * 6. 质量调制：分段函数，低分书强压制、高分书温和加成
+ * 7. 新鲜度调制：新书获得曝光窗口
+ * 8. 用户偏好：排除/加权
+ * 9. MMR 去重 + 同作者限制
+ * 10. 缓存：Redis 30分钟 TTL
  * <p>
  * 注意：不使用 @RequiredArgsConstructor，需手动注入 @Lazy EmbeddingService 以打破循环依赖。
  */
@@ -50,6 +59,7 @@ public class RecommendService {
     private final UserBookPreferenceRepository preferenceRepository;
     private final ObjectMapper objectMapper;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final RecommendCoefficientService coefficientService;
 
     public RecommendService(
             BookRepository bookRepository,
@@ -59,7 +69,8 @@ public class RecommendService {
             @Lazy EmbeddingService embeddingService,
             UserBookPreferenceRepository preferenceRepository,
             ObjectMapper objectMapper,
-            RedisTemplate<String, Object> redisTemplate
+            RedisTemplate<String, Object> redisTemplate,
+            @Lazy RecommendCoefficientService coefficientService
     ) {
         this.bookRepository = bookRepository;
         this.progressRepository = progressRepository;
@@ -69,7 +80,10 @@ public class RecommendService {
         this.preferenceRepository = preferenceRepository;
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
+        this.coefficientService = coefficientService;
     }
+
+    // ==================== 算法参数（动态系数，由 RecommendCoefficientService 管理） ====================
 
     /**
      * Redis 缓存 key 前缀
@@ -81,36 +95,41 @@ public class RecommendService {
      */
     private static final int CACHE_TTL_MINUTES = 30;
 
-    /**
-     * 三路召回权重
-     */
-    private static final double WEIGHT_RULE = 0.35;
-    private static final double WEIGHT_VECTOR = 0.40;
-    private static final double WEIGHT_COLLAB = 0.25;
-
-    /**
-     * 评分权重系数
-     */
-    private static final double RATING_WEIGHT = 0.2;
-
-    /**
-     * 同作者最大推荐数
-     */
-    private static final int MAX_SAME_AUTHOR = 2;
-
-    /**
-     * MMR lambda 参数（0=最大多样性，1=最大相关性）
-     */
-    private static final double MMR_LAMBDA = 0.7;
-
     // ==================== 公开接口 ====================
 
     /**
-     * 获取个性化推荐（带缓存）
+     * 批量计算规则匹配分（轻量级，仅基于用户画像+书籍relevanceScores）
+     * 适用于在任意图书列表中展示匹配度，不涉及向量搜索和协同过滤
      *
-     * @param userId 用户ID
-     * @param count  推荐数量
-     * @return 推荐结果列表
+     * @param userId   用户ID
+     * @param bookIds  书籍ID列表
+     * @return Map<bookId, matchScore>，匹配分范围 0~1，无画像时返回 null
+     */
+    public Map<Long, Double> batchCalculateMatchScores(Long userId, List<Long> bookIds) {
+        if (bookIds == null || bookIds.isEmpty()) return Map.of();
+
+        User user = userService.getUserById(userId);
+        Map<Long, Double> result = new LinkedHashMap<>();
+
+        for (Long bookId : bookIds) {
+            Book book = bookRepository.findById(bookId).orElse(null);
+            if (book == null) continue;
+
+            double score = calculateMatchScore(user, book);
+            // 只有用户至少填了1个画像维度时才返回分数（否则都是默认0.5，无意义）
+            if (user.getBirthday() != null || user.getGender() != null
+                    || user.getMarried() != null || user.getHasChildren() != null
+                    || user.getMbti() != null || user.getOccupation() != null
+                    || user.getEducation() != null || user.getEntrepreneurship() != null
+                    || user.getAnnualIncome() != null || user.getMood() != null) {
+                result.put(bookId, Math.round(score * 100.0) / 100.0);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 获取个性化推荐（带缓存）
      */
     public List<RecommendedItem> getPersonalizedRecommendations(Long userId, int count) {
         // 1. 查缓存
@@ -151,23 +170,22 @@ public class RecommendService {
         List<Long> readBookIds = getReadBookIds(userId);
         log.debug("用户已交互图书: userId={}, count={}", userId, readBookIds.size());
 
-        // ======= 多路召回 =======
+        // ======= 多路召回（4路） =======
         Map<Long, Double> ruleScores = ruleRecall(user, readBookIds);
         Map<Long, Double> vectorScores = vectorRecall(user, readBookIds);
         Map<Long, Double> collabScores = collaborativeRecall(userId, readBookIds);
+        Map<Long, Double> exploreScores = exploreRecall(user, readBookIds);
 
-        log.debug("多路召回完成: rule={}, vector={}, collab={}",
-                ruleScores.size(), vectorScores.size(), collabScores.size());
+        log.debug("多路召回完成: rule={}, vector={}, collab={}, explore={}",
+                ruleScores.size(), vectorScores.size(), collabScores.size(), exploreScores.size());
 
         // ======= 融合排序 =======
-        Map<Long, Double> fusedScores = fuseScores(ruleScores, vectorScores, collabScores);
+        Map<Long, Double> fusedScores = fuseScores(ruleScores, vectorScores, collabScores, exploreScores);
 
-        // ======= 加载图书信息 + 加上评分权重 + 用户偏好过滤/加权 =======
-        // 获取用户排除偏好
+        // ======= 加载图书信息 + 质量调制 + 新鲜度调制 + 偏好过滤/加权 =======
         List<String> excludedTags = getExcludedTags(userId);
         List<String> excludedAuthors = getExcludedAuthors(userId);
         List<String> excludedFormats = getExcludedFormats(userId);
-        // 获取用户喜欢偏好
         List<String> includedTags = getIncludedTags(userId);
         List<String> includedAuthors = getIncludedAuthors(userId);
         List<String> includedFormats = getIncludedFormats(userId);
@@ -183,18 +201,28 @@ public class RecommendService {
                 continue;
             }
 
-            double fusedScore = entry.getValue();
-            double ratingBonus = (book.getRating() != null && book.getRating() > 0)
-                    ? (book.getRating() / 5.0) * RATING_WEIGHT : 0;
+            double matchScore = entry.getValue();
 
-            // 用户喜欢偏好加权：匹配用户喜欢的标签/作者/格式则加分
-            double includeBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
+            // 质量因子：分段函数，低分书强压制，高分书温和加成
+            double qualityFactor = calculateQualityFactor(book.getRating());
 
-            double finalScore = fusedScore + ratingBonus + includeBonus;
+            // 新鲜度因子：新书获得曝光窗口
+            double freshnessFactor = calculateFreshnessFactor(book.getCreatedAt());
 
-            scoredBooks.add(new ScoredBook(book, finalScore, ruleScores.getOrDefault(book.getId(), 0.0),
+            // 用户喜欢偏好加权
+            double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
+
+            // 最终得分 = 匹配度 × 质量 × 新鲜度 + 偏好加成
+            double finalScore = matchScore * qualityFactor * freshnessFactor + preferenceBonus;
+
+            // 构建召回路径信息（用于反馈追踪）
+            String recallPaths = buildRecallPaths(book.getId(), ruleScores, vectorScores, collabScores, exploreScores);
+
+            scoredBooks.add(new ScoredBook(book, finalScore, matchScore, qualityFactor,
+                    ruleScores.getOrDefault(book.getId(), 0.0),
                     vectorScores.getOrDefault(book.getId(), 0.0),
-                    collabScores.getOrDefault(book.getId(), 0.0)));
+                    collabScores.getOrDefault(book.getId(), 0.0),
+                    recallPaths));
         }
 
         // ======= 排序 =======
@@ -253,11 +281,188 @@ public class RecommendService {
         if (user.getMbti() != null) {
             sb.append(user.getMbti()).append("型人格 ");
         }
+        if (user.getOccupation() != null && !user.getOccupation().isBlank()) {
+            String[] occList = user.getOccupation().split(",");
+            for (String occ : occList) {
+                sb.append(getOccupationLabel(occ.trim())).append(" ");
+            }
+        }
+        if (user.getEducation() != null) {
+            sb.append(getEducationLabel(user.getEducation())).append(" ");
+        }
+        if (user.getEntrepreneurship() != null && !user.getEntrepreneurship().isBlank()) {
+            sb.append(getEntrepreneurshipLabel(user.getEntrepreneurship())).append(" ");
+        }
+        if (user.getAnnualIncome() != null && !user.getAnnualIncome().isBlank()) {
+            sb.append(getAnnualIncomeLabel(user.getAnnualIncome())).append(" ");
+        }
+        if (user.getMood() != null) {
+            sb.append(getMoodLabel(user.getMood())).append(" ");
+        }
         if (user.getBio() != null && !user.getBio().isBlank()) {
             sb.append("兴趣：").append(user.getBio());
         }
 
         return sb.toString().trim();
+    }
+
+    /**
+     * 获取职业的中文标签
+     */
+    private String getOccupationLabel(String occupation) {
+        if (occupation == null) return "";
+        return switch (occupation.toUpperCase()) {
+            case "STUDENT" -> "学生";
+            case "TECH" -> "技术/IT";
+            case "FINANCE" -> "金融/商业";
+            case "EDUCATION" -> "教育/科研";
+            case "MEDICAL" -> "医疗/健康";
+            case "ARTS" -> "文艺/传媒";
+            case "MANAGEMENT" -> "管理/行政";
+            case "FREELANCE" -> "自由职业";
+            case "RETIRED" -> "退休";
+            case "OTHER" -> "其他";
+            default -> occupation;
+        };
+    }
+
+    /**
+     * 获取学历的中文标签
+     */
+    private String getEducationLabel(String education) {
+        if (education == null) return "";
+        return switch (education.toUpperCase()) {
+            case "HIGH_SCHOOL" -> "高中及以下";
+            case "COLLEGE" -> "大专";
+            case "BACHELOR" -> "本科";
+            case "MASTER" -> "硕士";
+            case "DOCTORATE" -> "博士";
+            case "OTHER" -> "其他";
+            default -> education;
+        };
+    }
+
+    /**
+     * 获取心情的中文标签
+     */
+    private String getMoodLabel(String mood) {
+        if (mood == null) return "";
+        return switch (mood.toUpperCase()) {
+            case "HAPPY" -> "开心";
+            case "CALM" -> "平静";
+            case "ANXIOUS" -> "焦虑";
+            case "SAD" -> "低落";
+            case "MOTIVATED" -> "充满动力";
+            case "TIRED" -> "疲惫";
+            case "CURIOUS" -> "好奇";
+            default -> mood;
+        };
+    }
+
+    /**
+     * 获取创业意向的中文标签
+     */
+    private String getEntrepreneurshipLabel(String entrepreneurship) {
+        if (entrepreneurship == null) return "";
+        return switch (entrepreneurship.toUpperCase()) {
+            case "ENTREPRENEUR" -> "正在创业";
+            case "WANT_ENTREPRENEUR" -> "想创业";
+            case "NOT_INTERESTED" -> "暂不考虑创业";
+            default -> entrepreneurship;
+        };
+    }
+
+    /**
+     * 获取年收入的中文标签
+     */
+    private String getAnnualIncomeLabel(String annualIncome) {
+        if (annualIncome == null) return "";
+        return switch (annualIncome.toUpperCase()) {
+            case "UNDER_50K" -> "年收入5万以内";
+            case "50K_150K" -> "年收入5~15万";
+            case "150K_300K" -> "年收入15~30万";
+            case "300K_500K" -> "年收入30~50万";
+            case "500K_1M" -> "年收入50~100万";
+            case "OVER_1M" -> "年收入100万+";
+            case "PREFER_NOT_TO_SAY" -> "";
+            default -> annualIncome;
+        };
+    }
+
+    /**
+     * 获取创业意向的相关键（用于模糊匹配，创业和想创业互为相关）
+     */
+    private List<String> getRelatedEntrepreneurship(String entrepreneurship) {
+        return switch (entrepreneurship.toLowerCase()) {
+            case "entrepreneur" -> List.of("wantEntrepreneur");       // 正在创业 ↔ 想创业
+            case "want_entrepreneur" -> List.of("entrepreneur");      // 想创业 ↔ 正在创业
+            default -> List.of();
+        };
+    }
+
+    /**
+     * 获取相邻年收入（用于模糊匹配，收入区间相邻的互为相关）
+     */
+    private List<String> getAdjacentIncomes(String income) {
+        return switch (income.toLowerCase()) {
+            case "under_50k" -> List.of("50k_150k");
+            case "50k_150k" -> List.of("under_50k", "150k_300k");
+            case "150k_300k" -> List.of("50k_150k", "300k_500k");
+            case "300k_500k" -> List.of("150k_300k", "500k_1m");
+            case "500k_1m" -> List.of("300k_500k", "over_1m");
+            case "over_1m" -> List.of("500k_1m");
+            default -> List.of();
+        };
+    }
+
+    /**
+     * 获取相邻职业（用于模糊匹配，同一大类的职业互为相邻）
+     */
+    private List<String> getAdjacentOccupations(String occupation) {
+        return switch (occupation.toLowerCase()) {
+            case "student" -> List.of("education");         // 学生 ↔ 教育/科研
+            case "tech" -> List.of("education", "freelance"); // 技术 ↔ 教育、自由职业
+            case "finance" -> List.of("management");        // 金融 ↔ 管理
+            case "education" -> List.of("student", "tech");  // 教育 ↔ 学生、技术
+            case "medical" -> List.of("education");          // 医疗 ↔ 教育
+            case "arts" -> List.of("freelance", "education");// 文艺 ↔ 自由职业、教育
+            case "management" -> List.of("finance");        // 管理 ↔ 金融
+            case "freelance" -> List.of("arts", "tech");    // 自由职业 ↔ 文艺、技术
+            case "retired" -> List.of();                     // 退休无相邻
+            case "other" -> List.of();                       // 其他无相邻
+            default -> List.of();
+        };
+    }
+
+    /**
+     * 获取相邻学历（用于模糊匹配，学历等级相邻的互为相邻）
+     */
+    private List<String> getAdjacentEducations(String education) {
+        return switch (education.toLowerCase()) {
+            case "high_school" -> List.of("college");           // 高中 ↔ 大专
+            case "college" -> List.of("high_school", "bachelor"); // 大专 ↔ 高中、本科
+            case "bachelor" -> List.of("college", "master");    // 本科 ↔ 大专、硕士
+            case "master" -> List.of("bachelor", "doctorate");  // 硕士 ↔ 本科、博士
+            case "doctorate" -> List.of("master");              // 博士 ↔ 硕士
+            case "other" -> List.of();                           // 其他无相邻
+            default -> List.of();
+        };
+    }
+
+    /**
+     * 获取相关心情（用于模糊匹配，情绪相近的心情互为相关）
+     */
+    private List<String> getRelatedMoods(String mood) {
+        return switch (mood.toLowerCase()) {
+            case "happy" -> List.of("motivated", "calm");        // 开心 ↔ 充满动力、平静
+            case "calm" -> List.of("happy", "curious");          // 平静 ↔ 开心、好奇
+            case "anxious" -> List.of("sad", "tired");           // 焦虑 ↔ 低落、疲惫
+            case "sad" -> List.of("anxious", "tired");           // 低落 ↔ 焦虑、疲惫
+            case "motivated" -> List.of("happy", "curious");     // 充满动力 ↔ 开心、好奇
+            case "tired" -> List.of("sad", "anxious");           // 疲惫 ↔ 低落、焦虑
+            case "curious" -> List.of("calm", "motivated");      // 好奇 ↔ 平静、充满动力
+            default -> List.of();
+        };
     }
 
     /**
@@ -284,27 +489,94 @@ public class RecommendService {
         }
     }
 
+    // ==================== 质量因子 & 新鲜度因子 ====================
+
+    /**
+     * 质量因子（分段线性函数）
+     * <p>
+     * 设计原则：推荐烂书比错过好书更伤用户体验 → 低分惩罚 > 高分加成
+     * <p>
+     * 分段映射（系数由 RecommendCoefficientService 动态管理）：
+     * - 1.0 → very_low    （强压制，劣质书即使高匹配也不推）
+     * - 2.0 → low         （明显降权）
+     * - 3.0 → below_avg   （近中性，中等质量不影响推荐）
+     * - 4.0 → good        （温和加成）
+     * - 5.0 → excellent   （天花板加成，杰作但不霸榜）
+     * - 无评分 → unknown   （略压制，避免未评分书排太前）
+     */
+    private double calculateQualityFactor(Double rating) {
+        if (rating == null || rating <= 0) return coefficientService.getCoefficient("QUALITY", "unknown", 0.85);
+
+        double veryLow = coefficientService.getCoefficient("QUALITY", "very_low", 0.40);
+        double low = coefficientService.getCoefficient("QUALITY", "low", 0.70);
+        double belowAvg = coefficientService.getCoefficient("QUALITY", "below_avg", 0.95);
+        double good = coefficientService.getCoefficient("QUALITY", "good", 1.15);
+        double excellent = coefficientService.getCoefficient("QUALITY", "excellent", 1.30);
+
+        if (rating < 2.0) {
+            return veryLow + (low - veryLow) * (rating - 1.0);
+        } else if (rating < 3.0) {
+            return low + (belowAvg - low) * (rating - 2.0);
+        } else if (rating < 4.0) {
+            return belowAvg + (good - belowAvg) * (rating - 3.0);
+        } else {
+            return good + (excellent - good) * (rating - 4.0);
+        }
+    }
+
+    /**
+     * 新鲜度因子
+     * <p>
+     * 新入库的书获得短暂曝光窗口，帮助冷启动：
+     * - 7天内：1.03-1.12（线性衰减，越新越高）
+     * - 7-30天：1.00-1.03（线性衰减至中性）
+     * - 30天以上：1.00（不影响）
+     */
+    private double calculateFreshnessFactor(LocalDateTime createdAt) {
+        if (createdAt == null) return 1.0;
+
+        long daysAgo = ChronoUnit.DAYS.between(createdAt, LocalDateTime.now());
+        if (daysAgo < 0) daysAgo = 0;
+
+        int daysMax = (int) coefficientService.getCoefficient("FRESHNESS", "days_max", 7);
+        int daysDecay = (int) coefficientService.getCoefficient("FRESHNESS", "days_decay", 30);
+        double bonusMax = coefficientService.getCoefficient("FRESHNESS", "bonus_max", 1.12);
+        double bonusMin = coefficientService.getCoefficient("FRESHNESS", "bonus_min", 1.03);
+
+        if (daysAgo <= daysMax) {
+            double ratio = (double) daysAgo / daysMax;
+            return bonusMax - (bonusMax - bonusMin) * ratio;
+        } else if (daysAgo <= daysDecay) {
+            double ratio = (double) (daysAgo - daysMax) / (daysDecay - daysMax);
+            return bonusMin - (bonusMin - 1.0) * ratio;
+        } else {
+            return 1.0;
+        }
+    }
+
     // ==================== 路径A: 规则召回（8维度画像匹配） ====================
 
     /**
      * 规则召回：遍历候选集，按8维度 relevanceScores 计算匹配度
-     * 候选集 = 高分书籍 + 热门书籍（扩大到各100本）
+     * 候选集 = 高分书籍 + 热门书籍 + 新书 + 随机采样
+     * 扩大候选集以覆盖更多中等评分但高匹配度的书
      */
     private Map<Long, Double> ruleRecall(User user, List<Long> excludeBookIds) {
         Map<Long, Double> scores = new LinkedHashMap<>();
         Set<Long> excludeSet = new HashSet<>(excludeBookIds);
 
-        // 候选集：评分前100 + 阅读前100 + 新书前50
+        // 候选集：评分前200 + 阅读前150 + 新书前100
         List<Book> candidates = new ArrayList<>();
-        candidates.addAll(bookRepository.findAllByOrderByRatingDesc(PageRequest.of(0, 100)).getContent());
-        candidates.addAll(bookRepository.findAllByOrderByReadCountDesc(PageRequest.of(0, 100)).getContent());
-        candidates.addAll(bookRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 50)).getContent());
+        candidates.addAll(bookRepository.findAllByOrderByRatingDesc(PageRequest.of(0, 200)).getContent());
+        candidates.addAll(bookRepository.findAllByOrderByReadCountDesc(PageRequest.of(0, 150)).getContent());
+        candidates.addAll(bookRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 100)).getContent());
 
         for (Book book : candidates) {
             if (excludeSet.contains(book.getId())) continue;
 
             double score = calculateMatchScore(user, book);
-            if (score > 0.3) { // 低于0.3的太不匹配，直接跳过
+            double ruleMinScore = coefficientService.getCoefficient("OTHER", "rule_min_score", 0.3);
+            if (score > ruleMinScore) { // 低于阈值的太不匹配，直接跳过
                 scores.merge(book.getId(), score, Math::max); // 去重取最高分
             }
         }
@@ -313,69 +585,347 @@ public class RecommendService {
     }
 
     /**
-     * 计算8维度匹配度得分
+     * 计算8维度匹配度得分（正面 + 反面信号 + 相邻模糊匹配 + 覆盖度衰减）
+     * <p>
+     * 优化点：
+     * 1. 反面维度：用户是男性时，female 高分是负面信号 → 正面分 - 反面惩罚
+     * 2. 相邻年龄段模糊匹配：30岁用户看 20-29 也有弱匹配（衰减0.4）
+     * 3. 维度覆盖度衰减：维度越少，匹配分越不可靠，做置信度衰减
      */
     private double calculateMatchScore(User user, Book book) {
         if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
             return 0.5;
         }
 
+        // 读取动态系数
+        double ageWeight = coefficientService.getCoefficient("MATCH", "age_weight", 1.5);
+        double mbtiWeight = coefficientService.getCoefficient("MATCH", "mbti_weight", 1.3);
+        double adjacentDecay = coefficientService.getCoefficient("MATCH", "adjacent_decay", 0.40);
+        double oppositeThreshold = coefficientService.getCoefficient("MATCH", "opposite_threshold", 0.7);
+        double oppositeMaxPenalty = coefficientService.getCoefficient("MATCH", "opposite_penalty", 0.3);
+
+        // 覆盖度衰减系数
+        double covDim10 = coefficientService.getCoefficient("COVERAGE", "dim10", 1.0);
+        double covDim9 = coefficientService.getCoefficient("COVERAGE", "dim9", 0.98);
+        double covDim8 = coefficientService.getCoefficient("COVERAGE", "dim8", 0.96);
+        double covDim7 = coefficientService.getCoefficient("COVERAGE", "dim7", 0.93);
+        double covDim6 = coefficientService.getCoefficient("COVERAGE", "dim6", 0.89);
+        double covDim5 = coefficientService.getCoefficient("COVERAGE", "dim5", 0.84);
+        double covDim4 = coefficientService.getCoefficient("COVERAGE", "dim4", 0.78);
+        double covDim3 = coefficientService.getCoefficient("COVERAGE", "dim3", 0.70);
+        double covDim2 = coefficientService.getCoefficient("COVERAGE", "dim2", 0.58);
+        double covDim1 = coefficientService.getCoefficient("COVERAGE", "dim1", 0.42);
+
         try {
             JsonNode scores = objectMapper.readTree(book.getRelevanceScores());
             double totalScore = 0;
-            double dimensionCount = 0;
+            double totalWeight = 0;
+            int matchedDimensions = 0;
+            int totalDimensions = 10; // 年龄/性别/婚姻/子女/MBTI/职业/学历/创业/收入/心情 共10维
 
-            // 年龄段匹配（权重最高）
+            // ========== 年龄段匹配（权重最高） ==========
             if (user.getBirthday() != null) {
                 int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
                 String ageGroup = getAgeGroup(age);
+
+                // 正面：精确年龄段
                 if (scores.has(ageGroup)) {
-                    totalScore += scores.get(ageGroup).asDouble() * 1.5; // 年龄权重1.5x
-                    dimensionCount += 1.5;
+                    totalScore += scores.get(ageGroup).asDouble() * ageWeight;
+                    totalWeight += ageWeight;
                 }
+
+                // 模糊匹配：相邻年龄段（衰减）
+                String prevGroup = getAdjacentAgeGroup(age, -1);
+                String nextGroup = getAdjacentAgeGroup(age, 1);
+                if (prevGroup != null && !prevGroup.equals(ageGroup) && scores.has(prevGroup)) {
+                    totalScore += scores.get(prevGroup).asDouble() * ageWeight * adjacentDecay;
+                    totalWeight += ageWeight * adjacentDecay;
+                }
+                if (nextGroup != null && !nextGroup.equals(ageGroup) && scores.has(nextGroup)) {
+                    totalScore += scores.get(nextGroup).asDouble() * ageWeight * adjacentDecay;
+                    totalWeight += ageWeight * adjacentDecay;
+                }
+
+                matchedDimensions++;
             }
 
-            // 性别匹配
+            // ========== 性别匹配（反面惩罚） ==========
             if (user.getGender() != null) {
                 String genderKey = "MALE".equals(user.getGender()) ? "male" : "female";
+                String oppositeKey = "MALE".equals(user.getGender()) ? "female" : "male";
+
+                // 正面
                 if (scores.has(genderKey)) {
                     totalScore += scores.get(genderKey).asDouble();
-                    dimensionCount++;
+                    totalWeight += 1.0;
                 }
+                // 反面：异性高分 = 这本书不太适合我
+                if (scores.has(oppositeKey)) {
+                    double oppositeScore = scores.get(oppositeKey).asDouble();
+                    double penalty = Math.max(0, oppositeScore - oppositeThreshold) / (1.0 - oppositeThreshold) * oppositeMaxPenalty;
+                    penalty = Math.min(penalty, oppositeMaxPenalty);
+                    totalScore -= penalty;
+                }
+
+                matchedDimensions++;
             }
 
-            // 婚姻匹配
+            // ========== 婚姻匹配（反面惩罚） ==========
             if (user.getMarried() != null) {
                 String marryKey = user.getMarried() ? "married" : "unmarried";
+                String oppositeMarryKey = user.getMarried() ? "unmarried" : "married";
+
+                // 正面
                 if (scores.has(marryKey)) {
                     totalScore += scores.get(marryKey).asDouble();
-                    dimensionCount++;
+                    totalWeight += 1.0;
                 }
+                // 反面
+                if (scores.has(oppositeMarryKey)) {
+                    double oppositeScore = scores.get(oppositeMarryKey).asDouble();
+                    double penalty = Math.min(Math.max(0, oppositeScore - oppositeThreshold) / (1.0 - oppositeThreshold) * oppositeMaxPenalty, oppositeMaxPenalty);
+                    totalScore -= penalty;
+                }
+
+                matchedDimensions++;
             }
 
-            // 子女匹配
+            // ========== 子女匹配（反面惩罚） ==========
             if (user.getHasChildren() != null) {
                 String childKey = user.getHasChildren() ? "hasChildren" : "noChildren";
+                String oppositeChildKey = user.getHasChildren() ? "noChildren" : "hasChildren";
+
+                // 正面
                 if (scores.has(childKey)) {
                     totalScore += scores.get(childKey).asDouble();
-                    dimensionCount++;
+                    totalWeight += 1.0;
                 }
+                // 反面
+                if (scores.has(oppositeChildKey)) {
+                    double oppositeScore = scores.get(oppositeChildKey).asDouble();
+                    double penalty = Math.min(Math.max(0, oppositeScore - oppositeThreshold) / (1.0 - oppositeThreshold) * oppositeMaxPenalty, oppositeMaxPenalty);
+                    totalScore -= penalty;
+                }
+
+                matchedDimensions++;
             }
 
-            // MBTI匹配（权重次高）
+            // ========== MBTI 匹配（同组模糊匹配） ==========
             if (user.getMbti() != null) {
                 String mbtiKey = user.getMbti().toUpperCase();
+                // 正面
                 if (scores.has(mbtiKey)) {
-                    totalScore += scores.get(mbtiKey).asDouble() * 1.3; // MBTI权重1.3x
-                    dimensionCount += (int) 1.3;
+                    totalScore += scores.get(mbtiKey).asDouble() * mbtiWeight;
+                    totalWeight += mbtiWeight;
                 }
+
+                // MBTI 同组模糊匹配
+                List<String> adjacentMbti = getAdjacentMbti(mbtiKey);
+                for (String adj : adjacentMbti) {
+                    if (scores.has(adj)) {
+                        totalScore += scores.get(adj).asDouble() * mbtiWeight * adjacentDecay;
+                        totalWeight += mbtiWeight * adjacentDecay;
+                    }
+                }
+
+                matchedDimensions++;
             }
 
-            return dimensionCount == 0 ? 0.5 : totalScore / dimensionCount;
+            // ========== 职业匹配（多选，权重1.0，同职业正面+相邻职业衰减） ==========
+            if (user.getOccupation() != null && !user.getOccupation().isBlank()) {
+                String[] userOccList = user.getOccupation().split(",");
+                double occWeight = coefficientService.getCoefficient("MATCH", "occupation_weight", 1.0);
+                double occDecay = coefficientService.getCoefficient("MATCH", "occupation_decay", 0.40);
+
+                for (String userOcc : userOccList) {
+                    String occKey = userOcc.trim().toLowerCase();
+                    if (occKey.isEmpty()) continue;
+
+                    // 正面：精确职业
+                    if (scores.has(occKey)) {
+                        totalScore += scores.get(occKey).asDouble() * occWeight;
+                        totalWeight += occWeight;
+                    }
+
+                    // 模糊匹配：相邻职业（衰减）
+                    List<String> adjacentOcc = getAdjacentOccupations(occKey);
+                    for (String adj : adjacentOcc) {
+                        if (scores.has(adj)) {
+                            totalScore += scores.get(adj).asDouble() * occWeight * occDecay;
+                            totalWeight += occWeight * occDecay;
+                        }
+                    }
+                }
+
+                matchedDimensions++;
+            }
+
+            // ========== 学历匹配（权重0.8，同级别正面+相邻级别衰减） ==========
+            if (user.getEducation() != null) {
+                String eduKey = user.getEducation().toLowerCase();
+                double eduWeight = coefficientService.getCoefficient("MATCH", "education_weight", 0.8);
+                double eduDecay = coefficientService.getCoefficient("MATCH", "education_decay", 0.40);
+
+                // 正面：精确学历
+                if (scores.has(eduKey)) {
+                    totalScore += scores.get(eduKey).asDouble() * eduWeight;
+                    totalWeight += eduWeight;
+                }
+
+                // 模糊匹配：相邻学历（衰减）
+                List<String> adjacentEdu = getAdjacentEducations(eduKey);
+                for (String adj : adjacentEdu) {
+                    if (scores.has(adj)) {
+                        totalScore += scores.get(adj).asDouble() * eduWeight * eduDecay;
+                        totalWeight += eduWeight * eduDecay;
+                    }
+                }
+
+                matchedDimensions++;
+            }
+
+            // ========== 创业意向匹配（权重0.6，正面+相关衰减） ==========
+            if (user.getEntrepreneurship() != null && !user.getEntrepreneurship().isBlank()) {
+                String entreKey = user.getEntrepreneurship().toLowerCase();
+                double entreWeight = coefficientService.getCoefficient("MATCH", "entrepreneurship_weight", 0.6);
+                double entreDecay = coefficientService.getCoefficient("MATCH", "entrepreneurship_decay", 0.40);
+
+                // 正面：精确创业意向
+                if (scores.has(entreKey)) {
+                    totalScore += scores.get(entreKey).asDouble() * entreWeight;
+                    totalWeight += entreWeight;
+                }
+
+                // 模糊匹配：相关创业意向（衰减）
+                List<String> relatedEntre = getRelatedEntrepreneurship(entreKey);
+                for (String adj : relatedEntre) {
+                    if (scores.has(adj)) {
+                        totalScore += scores.get(adj).asDouble() * entreWeight * entreDecay;
+                        totalWeight += entreWeight * entreDecay;
+                    }
+                }
+
+                matchedDimensions++;
+            }
+
+            // ========== 年收入匹配（权重0.5，正面+相邻衰减） ==========
+            if (user.getAnnualIncome() != null && !user.getAnnualIncome().isBlank()
+                    && !"PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAnnualIncome())) {
+                String incomeKey = user.getAnnualIncome().toLowerCase();
+                double incomeWeight = coefficientService.getCoefficient("MATCH", "income_weight", 0.5);
+                double incomeDecay = coefficientService.getCoefficient("MATCH", "income_decay", 0.40);
+
+                // 正面：精确收入区间
+                if (scores.has(incomeKey)) {
+                    totalScore += scores.get(incomeKey).asDouble() * incomeWeight;
+                    totalWeight += incomeWeight;
+                }
+
+                // 模糊匹配：相邻收入区间（衰减）
+                List<String> adjacentIncome = getAdjacentIncomes(incomeKey);
+                for (String adj : adjacentIncome) {
+                    if (scores.has(adj)) {
+                        totalScore += scores.get(adj).asDouble() * incomeWeight * incomeDecay;
+                        totalWeight += incomeWeight * incomeDecay;
+                    }
+                }
+
+                matchedDimensions++;
+            }
+
+            // ========== 心情状态匹配（权重0.7） ==========
+            if (user.getMood() != null) {
+                String moodKey = user.getMood().toLowerCase();
+                double moodWeight = coefficientService.getCoefficient("MATCH", "mood_weight", 0.7);
+                double moodDecay = coefficientService.getCoefficient("MATCH", "mood_decay", 0.40);
+
+                // 正面：精确心情
+                if (scores.has(moodKey)) {
+                    totalScore += scores.get(moodKey).asDouble() * moodWeight;
+                    totalWeight += moodWeight;
+                }
+
+                // 模糊匹配：相关心情（衰减）
+                List<String> relatedMoods = getRelatedMoods(moodKey);
+                for (String adj : relatedMoods) {
+                    if (scores.has(adj)) {
+                        totalScore += scores.get(adj).asDouble() * moodWeight * moodDecay;
+                        totalWeight += moodWeight * moodDecay;
+                    }
+                }
+
+                matchedDimensions++;
+            }
+
+            // 无匹配维度
+            if (totalWeight == 0) return 0.5;
+
+            double matchScore = totalScore / totalWeight;
+
+            // ========== 维度覆盖度衰减 ==========
+            double coverageFactor = switch (matchedDimensions) {
+                case 10 -> covDim10;
+                case 9 -> covDim9;
+                case 8 -> covDim8;
+                case 7 -> covDim7;
+                case 6 -> covDim6;
+                case 5 -> covDim5;
+                case 4 -> covDim4;
+                case 3 -> covDim3;
+                case 2 -> covDim2;
+                case 1 -> covDim1;
+                default -> 0.35;
+            };
+
+            return matchScore * coverageFactor;
         } catch (Exception e) {
             log.debug("解析相关度得分失败: bookId={} - {}", book.getId(), e.getMessage());
             return 0.5;
         }
+    }
+
+    /**
+     * 获取相邻年龄段
+     * @param direction -1=前一个年龄段，1=后一个年龄段
+     */
+    private String getAdjacentAgeGroup(int age, int direction) {
+        // 先算出当前年龄段的起始年龄
+        int[] boundaries = {0, 10, 20, 30, 40, 50, 60, Integer.MAX_VALUE};
+        int currentIdx = -1;
+        for (int i = 0; i < boundaries.length - 1; i++) {
+            if (age >= boundaries[i] && age < boundaries[i + 1]) {
+                currentIdx = i;
+                break;
+            }
+        }
+        if (currentIdx < 0) return null;
+
+        int adjacentIdx = currentIdx + direction;
+        if (adjacentIdx < 0 || adjacentIdx >= boundaries.length - 1) return null;
+
+        return getAgeGroup(boundaries[adjacentIdx]);
+    }
+
+    /**
+     * 获取 MBTI 相邻类型（每个字母翻转一个，共4个相邻型）
+     * 例：INTJ → ENTJ, ISTJ, INFJ, INTP
+     */
+    private List<String> getAdjacentMbti(String mbti) {
+        if (mbti == null || mbti.length() != 4) return List.of();
+        List<String> adjacent = new ArrayList<>();
+        char[] chars = mbti.toCharArray();
+        char[][] flips = {
+                {chars[0], chars[0] == 'I' ? 'E' : 'I'},
+                {chars[1], chars[1] == 'N' ? 'S' : 'N'},
+                {chars[2], chars[2] == 'T' ? 'F' : 'T'},
+                {chars[3], chars[3] == 'J' ? 'P' : 'J'}
+        };
+        for (int i = 0; i < 4; i++) {
+            char[] copy = chars.clone();
+            copy[i] = flips[i][1];
+            adjacent.add(new String(copy));
+        }
+        return adjacent;
     }
 
     private String getAgeGroup(int age) {
@@ -507,46 +1057,106 @@ public class RecommendService {
         return scores;
     }
 
+    // ==================== 路径D: 探索召回（随机 + 热门补充） ====================
+
+    /**
+     * 探索召回：从全量书籍中随机采样 + 热门书补充
+     * 目的：打破信息茧房，给用户偶尔的惊喜（serendipity）
+     * <p>
+     * 采样策略：
+     * - 60% 随机采样（均匀分布，任何书都有机会）
+     * - 40% 热门书补充（基于阅读量，保证基本质量）
+     * <p>
+     * 探索召回的书获得较低的初始分数（WEIGHT_EXPLORE 系数由动态配置管理），
+     * 但如果恰好匹配用户画像，质量因子和偏好加成会让它浮上来。
+     */
+    private Map<Long, Double> exploreRecall(User user, List<Long> excludeBookIds) {
+        Map<Long, Double> scores = new LinkedHashMap<>();
+        Set<Long> excludeSet = new HashSet<>(excludeBookIds);
+
+        int exploreRandomCount = (int) coefficientService.getCoefficient("OTHER", "explore_random_count", 30);
+
+        try {
+            long totalBooks = bookRepository.count();
+            if (totalBooks == 0) return scores;
+
+            // 1. 随机采样
+            int randomCount = (int) (exploreRandomCount * 0.6);
+            Set<Long> randomIds = new HashSet<>();
+            int attempts = 0;
+            while (randomIds.size() < randomCount && attempts < randomCount * 3) {
+                long randomId = ThreadLocalRandom.current().nextLong(1, totalBooks + 1);
+                if (!excludeSet.contains(randomId)) {
+                    randomIds.add(randomId);
+                }
+                attempts++;
+            }
+            for (Long bookId : randomIds) {
+                Book book = bookRepository.findById(bookId).orElse(null);
+                if (book == null) continue;
+                // 随机书给一个基础分，基于画像匹配度适度调整
+                double baseScore = 0.3 + calculateMatchScore(user, book) * 0.3;
+                scores.put(bookId, baseScore);
+            }
+
+            // 2. 热门书补充
+            int hotCount = (int) (exploreRandomCount * 0.4);
+            List<Book> hotBooks = bookRepository.findAllByOrderByReadCountDesc(PageRequest.of(0, hotCount * 3)).getContent();
+            int added = 0;
+            for (Book book : hotBooks) {
+                if (excludeSet.contains(book.getId()) || scores.containsKey(book.getId())) continue;
+                double baseScore = 0.3 + calculateMatchScore(user, book) * 0.3;
+                scores.put(book.getId(), baseScore);
+                added++;
+                if (added >= hotCount) break;
+            }
+        } catch (Exception e) {
+            log.debug("探索召回失败: {}", e.getMessage());
+        }
+
+        return scores;
+    }
+
     // ==================== 评分融合 + MMR ====================
 
     /**
-     * 融合三路得分：加权平均
+     * 融合四路得分：加权平均（缺失路径的权重分配给其他路径）
      */
-    private Map<Long, Double> fuseScores(Map<Long, Double> rule, Map<Long, Double> vector, Map<Long, Double> collab) {
+    private Map<Long, Double> fuseScores(Map<Long, Double> rule, Map<Long, Double> vector,
+                                          Map<Long, Double> collab, Map<Long, Double> explore) {
         Set<Long> allBookIds = new HashSet<>();
         allBookIds.addAll(rule.keySet());
         allBookIds.addAll(vector.keySet());
         allBookIds.addAll(collab.keySet());
+        allBookIds.addAll(explore.keySet());
 
         Map<Long, Double> fused = new LinkedHashMap<>();
         for (Long bookId : allBookIds) {
             double r = rule.getOrDefault(bookId, 0.0);
             double v = vector.getOrDefault(bookId, 0.0);
             double c = collab.getOrDefault(bookId, 0.0);
+            double e = explore.getOrDefault(bookId, 0.0);
 
             // 计算有效路径数
-            int activePaths = (r > 0 ? 1 : 0) + (v > 0 ? 1 : 0) + (c > 0 ? 1 : 0);
+            int activePaths = (r > 0 ? 1 : 0) + (v > 0 ? 1 : 0) + (c > 0 ? 1 : 0) + (e > 0 ? 1 : 0);
             if (activePaths == 0) continue;
 
             // 加权融合（缺失路径的权重分配给其他路径）
+            double weightRule = coefficientService.getCoefficient("FUSION", "weight_rule", 0.30);
+            double weightVector = coefficientService.getCoefficient("FUSION", "weight_vector", 0.40);
+            double weightCollab = coefficientService.getCoefficient("FUSION", "weight_collab", 0.20);
+            double weightExplore = coefficientService.getCoefficient("FUSION", "weight_explore", 0.10);
+
             double totalWeight = 0;
             double totalScore = 0;
 
-            if (r > 0) {
-                totalScore += r * WEIGHT_RULE;
-                totalWeight += WEIGHT_RULE;
-            }
-            if (v > 0) {
-                totalScore += v * WEIGHT_VECTOR;
-                totalWeight += WEIGHT_VECTOR;
-            }
-            if (c > 0) {
-                totalScore += c * WEIGHT_COLLAB;
-                totalWeight += WEIGHT_COLLAB;
-            }
+            if (r > 0) { totalScore += r * weightRule; totalWeight += weightRule; }
+            if (v > 0) { totalScore += v * weightVector; totalWeight += weightVector; }
+            if (c > 0) { totalScore += c * weightCollab; totalWeight += weightCollab; }
+            if (e > 0) { totalScore += e * weightExplore; totalWeight += weightExplore; }
 
-            // 多路径命中加成
-            double pathBonus = activePaths >= 3 ? 0.15 : (activePaths >= 2 ? 0.08 : 0.0);
+            // 多路径命中加成（多路命中意味着更可靠的推荐）
+            double pathBonus = activePaths >= 4 ? 0.20 : (activePaths >= 3 ? 0.12 : (activePaths >= 2 ? 0.05 : 0.0));
 
             fused.put(bookId, totalScore / totalWeight + pathBonus);
         }
@@ -581,7 +1191,8 @@ public class RecommendService {
                 double maxSim = calculateMaxSimilarity(candidate.book, selectedTags);
 
                 // MMR = λ * relevance - (1-λ) * maxSimilarity
-                double mmr = MMR_LAMBDA * candidate.finalScore - (1 - MMR_LAMBDA) * maxSim;
+                double mmrLambda = coefficientService.getCoefficient("OTHER", "mmr_lambda", 0.7);
+                double mmr = mmrLambda * candidate.finalScore - (1 - mmrLambda) * maxSim;
 
                 if (mmr > bestMmr) {
                     bestMmr = mmr;
@@ -622,12 +1233,13 @@ public class RecommendService {
     private List<RecommendedItem> applyAuthorLimit(List<ScoredBook> books, int count) {
         Map<String, Integer> authorCount = new HashMap<>();
         List<RecommendedItem> result = new ArrayList<>();
+        int maxSameAuthor = (int) coefficientService.getCoefficient("OTHER", "max_same_author", 2);
 
         for (ScoredBook sb : books) {
             String author = sb.book.getAuthor() != null ? sb.book.getAuthor() : "未知";
             int currentCount = authorCount.getOrDefault(author, 0);
 
-            if (currentCount >= MAX_SAME_AUTHOR) continue; // 同作者超过限制，跳过
+            if (currentCount >= maxSameAuthor) continue; // 同作者超过限制，跳过
 
             authorCount.put(author, currentCount + 1);
             result.add(RecommendedItem.builder()
@@ -643,6 +1255,7 @@ public class RecommendService {
                     .ruleScore(Math.round(sb.ruleScore * 100.0) / 100.0)
                     .vectorScore(Math.round(sb.vectorScore * 100.0) / 100.0)
                     .collabScore(Math.round(sb.collabScore * 100.0) / 100.0)
+                    .recallPaths(sb.recallPaths)
                     .recommendedAt(LocalDateTime.now())
                     .build());
 
@@ -660,6 +1273,20 @@ public class RecommendService {
         ids.addAll(readHistoryRepository.findAllInteractedBookIdsByUserId(userId));
         ids.addAll(progressRepository.findAllBookIdsByUserId(userId));
         return new ArrayList<>(ids);
+    }
+
+    /**
+     * 构建召回路径信息（用于反馈追踪和自动调参）
+     */
+    private String buildRecallPaths(Long bookId, Map<Long, Double> ruleScores,
+                                     Map<Long, Double> vectorScores, Map<Long, Double> collabScores,
+                                     Map<Long, Double> exploreScores) {
+        List<String> paths = new ArrayList<>();
+        if (ruleScores.containsKey(bookId) && ruleScores.get(bookId) > 0) paths.add("RULE");
+        if (vectorScores.containsKey(bookId) && vectorScores.get(bookId) > 0) paths.add("VECTOR");
+        if (collabScores.containsKey(bookId) && collabScores.get(bookId) > 0) paths.add("COLLAB");
+        if (exploreScores.containsKey(bookId) && exploreScores.get(bookId) > 0) paths.add("EXPLORE");
+        return String.join(",", paths);
     }
 
     private void addTags(Set<String> tagSet, Book book) {
@@ -708,23 +1335,22 @@ public class RecommendService {
                 .stream().map(UserBookPreference::getValue).toList();
     }
 
-    /** 喜好偏好加权系数 */
-    private static final double INCLUDE_TAG_BONUS = 0.12;
-    private static final double INCLUDE_AUTHOR_BONUS = 0.15;
-    private static final double INCLUDE_FORMAT_BONUS = 0.05;
-
     /**
      * 计算用户喜欢偏好对推荐分数的加成
      */
     private double calculateIncludeBonus(Book book, List<String> includedTags,
                                           List<String> includedAuthors, List<String> includedFormats) {
+        double tagBonus = coefficientService.getCoefficient("PREFERENCE", "tag_bonus", 0.12);
+        double authorBonus = coefficientService.getCoefficient("PREFERENCE", "author_bonus", 0.15);
+        double formatBonus = coefficientService.getCoefficient("PREFERENCE", "format_bonus", 0.05);
+
         double bonus = 0.0;
         // 标签匹配加分
         if (!includedTags.isEmpty() && book.getFormatTags() != null) {
             Set<String> bookTags = parseTags(book.getFormatTags());
             for (String tag : includedTags) {
                 if (bookTags.stream().anyMatch(t -> t.equalsIgnoreCase(tag))) {
-                    bonus += INCLUDE_TAG_BONUS;
+                    bonus += tagBonus;
                 }
             }
         }
@@ -732,7 +1358,7 @@ public class RecommendService {
         if (!includedAuthors.isEmpty() && book.getAuthor() != null) {
             for (String author : includedAuthors) {
                 if (author.equalsIgnoreCase(book.getAuthor())) {
-                    bonus += INCLUDE_AUTHOR_BONUS;
+                    bonus += authorBonus;
                     break;
                 }
             }
@@ -741,7 +1367,7 @@ public class RecommendService {
         if (!includedFormats.isEmpty() && book.getFormat() != null) {
             for (String format : includedFormats) {
                 if (format.equalsIgnoreCase(book.getFormat())) {
-                    bonus += INCLUDE_FORMAT_BONUS;
+                    bonus += formatBonus;
                     break;
                 }
             }
@@ -781,16 +1407,23 @@ public class RecommendService {
     private static class ScoredBook {
         final Book book;
         final double finalScore;
+        final double matchScore;
+        final double qualityFactor;
         final double ruleScore;
         final double vectorScore;
         final double collabScore;
+        final String recallPaths;
 
-        ScoredBook(Book book, double finalScore, double ruleScore, double vectorScore, double collabScore) {
+        ScoredBook(Book book, double finalScore, double matchScore, double qualityFactor,
+                   double ruleScore, double vectorScore, double collabScore, String recallPaths) {
             this.book = book;
             this.finalScore = finalScore;
+            this.matchScore = matchScore;
+            this.qualityFactor = qualityFactor;
             this.ruleScore = ruleScore;
             this.vectorScore = vectorScore;
             this.collabScore = collabScore;
+            this.recallPaths = recallPaths;
         }
     }
 
@@ -820,6 +1453,10 @@ public class RecommendService {
          * 协同得分
          */
         private Double collabScore;
+        /**
+         * 命中的召回路径（逗号分隔，如 "RULE,VECTOR"），用于反馈追踪
+         */
+        private String recallPaths;
         private LocalDateTime recommendedAt;
     }
 }

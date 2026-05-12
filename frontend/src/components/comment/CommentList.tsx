@@ -161,7 +161,7 @@ export default function CommentList({
 
   const handleSubmit = async () => {
     if (!content.trim()) {
-      toast.error('请输入评论内容')
+      toast.error('先写点什么吧')
       return
     }
     setSubmitting(true)
@@ -174,7 +174,7 @@ export default function CommentList({
       })
       setContent('')
       setReplyTo(null)
-      toast.success('评论成功')
+      toast.success('评论已发布')
       onRefresh()
     } catch (err: any) {
       toast.error(err.message || '评论失败')

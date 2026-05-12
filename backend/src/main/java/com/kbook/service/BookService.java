@@ -212,6 +212,18 @@ public class BookService {
     }
 
     /**
+     * 更新图书简介
+     */
+    public Book updateDescription(Long bookId, String description) {
+        Book book = getBookById(bookId);
+        book.setDescription(description);
+        Book saved = bookRepository.save(book);
+        bookSearchService.indexBook(saved);
+        log.info("图书简介更新: bookId={}, 字数={}", bookId, description != null ? description.length() : 0);
+        return saved;
+    }
+
+    /**
      * 删除图书（全链路：JPA + ES + Qdrant向量 + Redis缓存 + 封面图片）
      */
     @Transactional

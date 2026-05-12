@@ -45,14 +45,25 @@ public class UserController {
     }
 
     /**
-     * 更新用户画像（出生日期/性别/婚否/孩子/MBTI）
+     * 更新用户画像（出生日期/性别/婚否/孩子/MBTI/职业/学历/创业意向/年收入）
      */
     @PutMapping("/profile/traits")
     public Result<User> updateTraits(Authentication authentication,
                                       @RequestBody UpdateTraitsRequest req) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(userService.updateTraits(userId, req.getBirthday(), req.getGender(),
-                req.getMarried(), req.getHasChildren(), req.getMbti()));
+                req.getMarried(), req.getHasChildren(), req.getMbti(), req.getOccupation(),
+                req.getEducation(), req.getEntrepreneurship(), req.getAnnualIncome()));
+    }
+
+    /**
+     * 更新当前心情状态
+     */
+    @PutMapping("/profile/mood")
+    public Result<User> updateMood(Authentication authentication,
+                                    @RequestParam(required = false) String mood) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(userService.updateMood(userId, mood));
     }
 
     /**
@@ -72,5 +83,9 @@ public class UserController {
         private Boolean married;
         private Boolean hasChildren;
         private String mbti;
+        private String occupation;
+        private String education;
+        private String entrepreneurship;
+        private String annualIncome;
     }
 }

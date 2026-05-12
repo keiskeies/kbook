@@ -23,7 +23,7 @@ export default function BindEmailPage() {
 
   const handleSendCode = async () => {
     if (!email.trim()) {
-      toast.error('请输入邮箱')
+      toast.error('输入邮箱')
       return
     }
     try {
@@ -40,11 +40,11 @@ export default function BindEmailPage() {
 
   const handleBind = async () => {
     if (!email.trim()) {
-      toast.error('请输入邮箱')
+      toast.error('输入邮箱')
       return
     }
     if (!code.trim()) {
-      toast.error('请输入验证码')
+      toast.error('输入验证码')
       return
     }
 
@@ -55,7 +55,7 @@ export default function BindEmailPage() {
         email: updatedUser.email,
         emailBound: updatedUser.emailBound,
       })
-      toast.success('邮箱绑定成功，现在可以重置密码了')
+      toast.success('邮箱已绑定，现在可以重置密码了')
       navigate('/home', { replace: true })
     } catch (err: any) {
       toast.error(err.message || '绑定失败')
@@ -80,7 +80,7 @@ export default function BindEmailPage() {
             <h3 className="text-sm font-medium">请绑定您的邮箱</h3>
             <p className="mt-1 text-xs text-muted-foreground">
               管理员账号需要绑定邮箱后才能使用密码重置功能。
-              请输入您常用的邮箱地址。
+              填入你常用的邮箱地址即可。
             </p>
           </div>
         </div>
@@ -91,7 +91,7 @@ export default function BindEmailPage() {
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="请输入常用邮箱"
+          placeholder="常用邮箱"
           autoComplete="email"
           className="w-full rounded-xl border bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary"
         />

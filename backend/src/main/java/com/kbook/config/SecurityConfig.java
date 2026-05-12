@@ -45,39 +45,42 @@ public class SecurityConfig {
                             response.setContentType("application/json;charset=UTF-8");
                             response.getWriter().write("{\"code\":401,\"message\":\"未登录或登录已过期\",\"data\":null}");
                         }))
-                // 接口权限配置
+                // 接口权限配置（注意：规则按从上到下顺序匹配，第一个匹配的规则生效）
                 .authorizeHttpRequests(auth -> auth
-                        // 公开接口（登录/注册/验证码/刷新Token/重置密码/图形验证码）
+                        // ===== 公开接口（无需认证）=====
+                        // 健康检查
+                        .requestMatchers("/api/health").permitAll()
+                        // 认证相关公开接口
                         .requestMatchers("/api/auth/send-code").permitAll()
                         .requestMatchers("/api/auth/login/**").permitAll()
                         .requestMatchers("/api/auth/register").permitAll()
                         .requestMatchers("/api/auth/refresh").permitAll()
                         .requestMatchers("/api/auth/reset-password").permitAll()
                         .requestMatchers("/api/captcha/**").permitAll()
-                        // 需认证的认证接口（修改密码/登出）
-                        .requestMatchers("/api/auth/change-password").authenticated()
-                        .requestMatchers("/api/auth/logout").authenticated()
-                        // 其他公开接口
+                        // 公共资源
                         .requestMatchers("/api/public/**").permitAll()
-                        .requestMatchers("/api/health").permitAll()
-                        // 上传文件访问（头像等）
                         .requestMatchers("/api/uploads/**").permitAll()
-                        // 管理员接口
+                        
+                        // ===== 管理员接口（需 ADMIN 角色）=====
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/books/admin/**").hasRole("ADMIN")
-                        // 图书管理接口需管理员（具体操作优先于通用规则）
                         .requestMatchers(HttpMethod.POST, "/api/books/reindex").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/books/*/tags").hasRole("ADMIN")
+                        
+                        // ===== 图书相关接口 =====
+                        // 注意：具体规则必须放在通用规则之前
+                        // 图书文件读取需认证（版权保护）- 优先匹配
+                        .requestMatchers(HttpMethod.GET, "/api/books/*/file").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/books/*/text-info").authenticated()
+                        // 图书浏览公开（GET 请求 - 搜索/排行/详情/封面）
+                        .requestMatchers(HttpMethod.GET, "/api/books/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/book-files/**").permitAll()
                         // 图书入库和修改需认证
                         .requestMatchers(HttpMethod.POST, "/api/books").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/books/**").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/books/**").authenticated()
-                        // 图书文件读取需认证（版权保护）
-                        .requestMatchers(HttpMethod.GET, "/api/books/*/file").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/books/*/text-info").authenticated()
-                        // 图书浏览公开（搜索/排行/详情/封面）- 放在后面避免前面的规则先匹配
-                        .requestMatchers(HttpMethod.GET, "/api/books/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/book-files/**").permitAll()
+                        
+                        // ===== 评论相关接口 =====
                         // 评论浏览公开（GET），其他操作需认证
                         .requestMatchers(HttpMethod.GET, "/api/comments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/comments").authenticated()
@@ -86,6 +89,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.DELETE, "/api/comments/*/like").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/comments/*/favorite").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/comments/*/favorite").authenticated()
+                        
+                        // ===== 用户相关接口 =====
                         // 用户主页公开浏览
                         .requestMatchers(HttpMethod.GET, "/api/user-profile/**").permitAll()
                         // 关注列表公开浏览，但关注/取消关注需认证
@@ -94,6 +99,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/follow/is-following/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/follow/**").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/follow/**").authenticated()
+                        
+                        // ===== 需认证的接口 =====
+                        // 认证相关（修改密码/登出）
+                        .requestMatchers("/api/auth/change-password").authenticated()
+                        .requestMatchers("/api/auth/logout").authenticated()
                         // 书架相关全部需认证
                         .requestMatchers("/api/bookshelf/**").authenticated()
                         // 阅读进度需认证
@@ -108,7 +118,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/user/**").authenticated()
                         // 首页数据需认证（包含个性化推荐）
                         .requestMatchers("/api/home/**").authenticated()
-                        // 其他接口需认证
+                        
+                        // 其他所有接口需认证
                         .anyRequest().authenticated()
                 )
                 // JWT 过滤器

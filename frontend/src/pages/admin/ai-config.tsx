@@ -72,7 +72,7 @@ export default function AdminAiConfigPage() {
   const handleSave = async () => {
     if (!editingConfig) return
     if (!editingConfig.configName?.trim()) {
-      toast.error('请填写配置名称')
+      toast.error('需要一个配置名称')
       return
     }
     if (!editingConfig.baseUrl?.trim()) {
@@ -80,7 +80,7 @@ export default function AdminAiConfigPage() {
       return
     }
     if (!editingConfig.modelName?.trim()) {
-      toast.error('请填写模型名称')
+      toast.error('模型名称还没有填写')
       return
     }
     if (editingConfig.provider === 'OPENAI' && !editingConfig.apiKey?.trim()) {
@@ -144,7 +144,7 @@ export default function AdminAiConfigPage() {
       }
       setTestResult((prev) => new Map(prev).set(testKey, result))
       if (result.success) {
-        toast.success('连接测试成功')
+        toast.success('连接测试通过')
       } else {
         toast.error(result.message)
       }

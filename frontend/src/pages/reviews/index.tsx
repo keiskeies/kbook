@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, MessageSquare, Heart, Bookmark, BookOpen } from 'lucide-react'
+import { ArrowLeft, MessageSquare, Heart, Bookmark } from 'lucide-react'
 import { getTopRatedComments } from '@/api/comment'
 import type { CommentVO } from '@/api/comment'
 import { formatRelativeTime } from '@/utils/time'
+import BookCover from '@/components/book/BookCover'
 
 export default function ReviewsPage() {
   const navigate = useNavigate()
@@ -92,13 +93,7 @@ export default function ReviewsPage() {
                     onClick={() => navigate(`/book/${comment.bookId}`)}
                     className="mb-2 flex items-center gap-2.5 rounded-lg bg-primary/5 px-2.5 py-2 hover:bg-primary/10 transition-colors w-full text-left"
                   >
-                    <div className="h-9 w-7 shrink-0 overflow-hidden rounded bg-muted">
-                      {comment.bookCoverUrl ? (
-                        <img src={comment.bookCoverUrl} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <BookOpen className="h-3.5 w-3.5 text-primary/30 m-auto" />
-                      )}
-                    </div>
+                    <BookCover coverUrl={comment.bookCoverUrl ?? null} title={comment.bookTitle || '查看书籍'} size="xs" />
                     <span className="text-xs font-medium text-primary truncate">{comment.bookTitle || '查看书籍'}</span>
                   </button>
 

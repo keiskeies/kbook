@@ -55,6 +55,22 @@ public class BookAdminController {
     @Value("${kbook.scan.content-embed-min-rating:3.5}")
     private double contentEmbedMinRating;
 
+    @Value("${kbook.scan.content-embed-max-size-mb:10}")
+    private double contentEmbedMaxSizeMb;
+
+    /**
+     * 判断书籍是否应该存储内容向量（评分达标 + 文件大小未超限）
+     */
+    private boolean shouldEmbedContent(Book book) {
+        if (book.getRating() == null || book.getRating() < contentEmbedMinRating) {
+            return false;
+        }
+        if (book.getFileSize() != null && book.getFileSize() > contentEmbedMaxSizeMb * 1024 * 1024) {
+            return false;
+        }
+        return true;
+    }
+
     /**
      * 刷新图书 — SSE 流式扫描，实时推送进度
      * @param skipBeforeId 跳过 ID 小于此值的已有图书（断点续扫，默认不跳过）
@@ -138,9 +154,9 @@ public class BookAdminController {
                 bookParserService.finalizeCover(book);
                 bookService.updateBook(book.getId(), book);
                 bookParserService.generateAllAiData(book.getId(), true);
-                // 根据评分决定是否存储内容向量
+                // 根据评分和文件大小决定是否存储内容向量
                 Book updatedBook = bookService.getBookById(book.getId());
-                if (updatedBook.getRating() != null && updatedBook.getRating() >= contentEmbedMinRating) {
+                if (shouldEmbedContent(updatedBook)) {
                     bookParserService.generateContentEmbedding(book.getId());
                     updatedBook.setContentEmbedded(true);
                     bookService.updateBook(updatedBook.getId(), updatedBook);
@@ -173,9 +189,9 @@ public class BookAdminController {
 
             // 生成 AI 数据（标签 + 评分 + 相关度 + 元数据向量，合并一次调用）
             bookParserService.generateAllAiData(saved.getId(), true);
-            // 根据评分决定是否存储内容向量
+            // 根据评分和文件大小决定是否存储内容向量
             Book bookWithRating = bookService.getBookById(saved.getId());
-            if (bookWithRating.getRating() != null && bookWithRating.getRating() >= contentEmbedMinRating) {
+            if (shouldEmbedContent(bookWithRating)) {
                 bookParserService.generateContentEmbedding(saved.getId());
                 bookWithRating.setContentEmbedded(true);
                 bookService.updateBook(bookWithRating.getId(), bookWithRating);
@@ -251,8 +267,8 @@ public class BookAdminController {
         Book saved = bookService.updateBook(id, book);
         // 重新生成 AI 数据（标签 + 评分 + 相关度，合并一次调用）
         bookParserService.generateAllAiData(saved.getId(), true);
-        // 根据评分决定是否存储内容向量
-        if (saved.getRating() != null && saved.getRating() >= contentEmbedMinRating) {
+        // 根据评分和文件大小决定是否存储内容向量
+        if (shouldEmbedContent(saved)) {
             bookParserService.generateContentEmbedding(saved.getId());
             saved.setContentEmbedded(true);
             bookService.updateBook(saved.getId(), saved);
@@ -336,6 +352,61 @@ public class BookAdminController {
         }
         log.info("重建完成: rebuilt={}, skipped={}", rebuilt, skipped);
         return Result.ok(Map.of("rebuiltCount", rebuilt, "skippedCount", skipped, "minRating", minRating));
+    }
+
+    /**
+     * 强制重建指定书籍的内容向量（不管 contentEmbedded 状态，用当前 embedding 模型重新生成）
+     * 用于修复因 embedding 模型更换导致旧向量 score 极低的问题
+     */
+    @PostMapping("/embeddings/force-rebuild/{bookId}")
+    public Result<Map<String, Object>> forceRebuildEmbedding(@PathVariable Long bookId) {
+        log.info("强制重建书籍内容向量: bookId={}", bookId);
+        try {
+            bookParserService.generateContentEmbedding(bookId);
+            return Result.ok(Map.of("bookId", bookId, "status", "completed"));
+        } catch (Exception e) {
+            log.error("强制重建内容向量失败: bookId={} - {}", bookId, e.getMessage());
+            return Result.fail("重建失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 批量强制重建所有已嵌入但 score 极低的书籍内容向量
+     * 检测方式：对每本 contentEmbedded=true 的书做一次低阈值向量搜索，score 过低则重建
+     */
+    @PostMapping("/embeddings/force-rebuild-stale")
+    public Result<Map<String, Object>> forceRebuildStaleEmbeddings(
+            @RequestParam(value = "scoreThreshold", defaultValue = "0.1") double scoreThreshold) {
+        log.info("开始批量检测并重建低 score 书籍内容向量: scoreThreshold={}", scoreThreshold);
+        List<Book> allBooks = bookRepository.findAll();
+        int rebuilt = 0;
+        int skipped = 0;
+        int noContent = 0;
+
+        for (Book book : allBooks) {
+            if (!Boolean.TRUE.equals(book.getContentEmbedded())) {
+                noContent++;
+                continue;
+            }
+            try {
+                // 用一个通用问题测试 score
+                var results = embeddingService.searchContent("这本书的主要内容", 1, book.getId());
+                if (results.isEmpty() || results.get(0).score() < scoreThreshold) {
+                    log.info("检测到低 score 书籍: bookId={}, title={}, score={} — 开始重建",
+                            book.getId(), book.getTitle(),
+                            results.isEmpty() ? "empty" : String.format("%.4f", results.get(0).score()));
+                    bookParserService.generateContentEmbedding(book.getId());
+                    rebuilt++;
+                } else {
+                    skipped++;
+                }
+            } catch (Exception e) {
+                log.warn("检测失败: bookId={} - {}", book.getId(), e.getMessage());
+            }
+        }
+
+        log.info("批量检测重建完成: rebuilt={}, skipped={}, noContent={}", rebuilt, skipped, noContent);
+        return Result.ok(Map.of("rebuiltCount", rebuilt, "skippedCount", skipped, "noContentCount", noContent));
     }
 
     /**

@@ -40,7 +40,7 @@ service.interceptors.response.use(
       error.code = code
       return Promise.reject(error)
     }
-    return Promise.reject(new Error(message || '请求失败'))
+    return Promise.reject(new Error(message || '请求未完成'))
   },
   async (error) => {
     const originalRequest = error.config
