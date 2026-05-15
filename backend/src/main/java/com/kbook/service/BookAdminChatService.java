@@ -58,10 +58,11 @@ public class BookAdminChatService {
     }
 
     /**
-     * 清除缓存
+     * 清除缓存（配置变更时由 AiProviderConfigService 调用）
      */
     public void clearCache() {
         adminAssistantCache.clear();
+        log.info("管理员 AI Assistant 缓存已清除");
     }
 
     /**

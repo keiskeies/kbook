@@ -183,17 +183,6 @@ public final class AiPromptConstants {
                     如果某项信息在图片中找不到，对应字段填 null。
                     只返回JSON，不要其他文字。""";
 
-    /** PDF 内容 OCR 系统提示词 */
-    public static final String OCR_CONTENT_SYSTEM_PROMPT =
-            "你是一个专业的 OCR 文字识别助手。你的唯一任务是准确识别图片中的文字内容并原样输出。" +
-            "不要添加任何额外的解释、总结或评论。只输出图片中出现的文字。";
-
-    /** PDF 内容 OCR 用户提示词模板 */
-    public static final String OCR_CONTENT_USER_PROMPT_TEMPLATE =
-            "请仔细识别以下PDF页面图片中的所有文字内容，原样输出，不要遗漏任何文字。" +
-            "保持原文的段落结构，如果图片中有表格，用文本形式还原表格内容。" +
-            "不要添加任何解释、总结或评论，只输出识别到的原文。" +
-            "（当前处理的是%s）";
 
     /** 图书信息提取系统提示词 */
     public static final String BOOK_INFO_EXTRACT_SYSTEM_PROMPT =

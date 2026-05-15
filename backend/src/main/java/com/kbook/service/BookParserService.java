@@ -708,12 +708,6 @@ public class BookParserService {
         }
     }
 
-    /**
-     * 为图书生成 AI 标签（入库后调用）- 非强制版本
-     */
-    public void generateTags(Long bookId) {
-        generateTags(bookId, false);
-    }
 
     /**
      * 从图书文件中重新提取内容用于标签生成

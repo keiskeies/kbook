@@ -45,6 +45,7 @@ export function streamChat(
   onError: (error: Error) => void,
   onThinking?: (status: string) => void,
   onThinkingContent?: (chunk: string) => void,
+  onBookMap?: (bookMap: Record<string, number>) => void,
 ): AbortController {
   const controller = new AbortController()
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
@@ -113,6 +114,11 @@ export function streamChat(
                   onThinking?.(data)
                 } else if (currentEventName === 'thinking_content') {
                   onThinkingContent?.(data)
+                } else if (currentEventName === 'book_map') {
+                  try {
+                    const bookMap = JSON.parse(data)
+                    onBookMap?.(bookMap)
+                  } catch { /* ignore parse error */ }
                 } else {
                   if (data === '[DONE]') {
                     onDone()

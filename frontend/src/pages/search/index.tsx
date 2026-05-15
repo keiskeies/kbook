@@ -20,10 +20,15 @@ export default function SearchPage() {
   const [showSuggest, setShowSuggest] = useState(false)
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>()
 
-  // 从 URL 参数自动搜索（如从首页分类发现跳转）
+  // 从 URL 参数自动搜索（如从首页分类发现跳转 / AI 对话点击书名）
   useEffect(() => {
+    const kw = searchParams.get('keyword')
     const fmt = searchParams.get('format')
-    if (fmt) {
+    if (kw) {
+      const decoded = decodeURIComponent(kw)
+      setKeyword(decoded)
+      doSearch(decoded, fmt || '')
+    } else if (fmt) {
       doSearch('', fmt)
     }
   }, [])

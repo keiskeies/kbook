@@ -47,9 +47,13 @@ public class SecurityConfig {
                             response.getWriter().write("{\"code\":401,\"message\":\"未登录或登录已过期\",\"data\":null}");
                         })
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
-                            response.setStatus(403);
-                            response.setContentType("application/json;charset=UTF-8");
-                            response.getWriter().write("{\"code\":403,\"message\":\"权限不足，无法访问此资源\",\"data\":null}");
+                            // 注意：此处理在 AuthorizationFilter 中执行，
+                            // 如果已提交响应则不再处理（避免 SSE 等异步场景异常）
+                            if (!response.isCommitted()) {
+                                response.setStatus(403);
+                                response.setContentType("application/json;charset=UTF-8");
+                                response.getWriter().write("{\"code\":403,\"message\":\"权限不足，无法访问此资源\",\"data\":null}");
+                            }
                         }))
                 // 接口权限配置（注意：规则按从上到下顺序匹配，第一个匹配的规则生效）
                 .authorizeHttpRequests(auth -> auth

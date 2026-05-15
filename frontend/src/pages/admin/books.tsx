@@ -104,7 +104,7 @@ export default function AdminBooksPage() {
           }
         }
       } catch { /* ignore */ }
-    }, 1000)
+    }, 3000)
   }, [stopPolling])
 
   // 页面加载检查

@@ -100,15 +100,21 @@ public class BookService {
     }
 
     /**
-     * ES 全文搜索（优先 ES，降级 JPA）
+     * 混合搜索（Qdrant 向量 + ES/MySQL 关键词，加权融合排序）
+     * <p>
+     * 替代原有的纯 ES 搜索，融合 Qdrant kbook_books 语义向量召回，
+     * 同时覆盖"精确匹配书名"和"理解语义意图"两种搜索需求。
      */
     public PageResult<BookDocument> searchBooksEs(String keyword, String format, int page, int size) {
-        log.debug("ES 搜索图书: keyword={}, format={}, page={}, size={}", keyword, format, page, size);
-        return bookSearchService.search(keyword, format, page, size);
+        log.debug("混合搜索: keyword={}, format={}, page={}, size={}", keyword, format, page, size);
+        return bookSearchService.hybridSearch(keyword, format, page, size);
     }
 
     /**
-     * 搜索图书（JPA 原始方法，保留兼容）
+     * 搜索图书（JPA 原始方法，保留兼容 — 供内部/AI工具使用）
+     * <p>
+     * 注意：此方法仅走 MySQL LIKE，不经过 Qdrant/ES。
+     * 需要混合搜索请使用 {@link #searchBooksEs}。
      */
     public PageResult<Book> searchBooks(String keyword, String format, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));

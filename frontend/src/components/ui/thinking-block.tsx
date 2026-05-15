@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ChevronDown, ChevronRight, Brain } from 'lucide-react'
 
 interface ThinkingBlockProps {
@@ -8,10 +8,19 @@ interface ThinkingBlockProps {
 
 /**
  * AI 思考过程展示组件 — 可折叠区块
- * 显示在 AI 回答正文上方，点击展开/收起思考过程
+ * 思考中自动展开，思考结束自动收起
  */
 export default function ThinkingBlock({ content, streaming }: ThinkingBlockProps) {
   const [expanded, setExpanded] = useState(streaming ?? false)
+  const prevStreaming = useRef(streaming)
+
+  // 思考结束（streaming: true → false）时自动收起
+  useEffect(() => {
+    if (prevStreaming.current && !streaming) {
+      setExpanded(false)
+    }
+    prevStreaming.current = streaming
+  }, [streaming])
 
   if (!content) return null
 

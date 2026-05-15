@@ -4,12 +4,15 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.entity.AiConversation;
 import com.kbook.repository.AiConversationRepository;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.service.Result;
 import dev.langchain4j.service.TokenStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
@@ -30,14 +33,33 @@ public class AiChatService {
 
     private final AiConversationRepository conversationRepository;
     private final AiProviderConfigService providerConfigService;
+    private final AiChatMemory chatMemoryStore;
 
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
     /**
-     * 创建新会话
+     * 创建新会话 — 同时初始化 ChatMemory 中的 SystemMessage
+     * <p>
+     * LangChain4j 1.13.0 在 streaming 模式下不会自动把 @SystemMessage 写入 ChatMemory，
+     * 导致后续请求中 SystemMessage 丢失。这里手动补偿。
      */
     public String createSession(Long userId) {
-        return UUID.randomUUID().toString();
+        String sessionId = UUID.randomUUID().toString();
+        // 手动将 @SystemMessage 写入 ChatMemory
+        try {
+            var smAnnotation = AiAssistant.class.getAnnotation(dev.langchain4j.service.SystemMessage.class);
+            if (smAnnotation != null) {
+                String systemText = String.join("\n", smAnnotation.value());
+                // 替换 {{userId}} 模板变量
+                systemText = systemText.replace("{{userId}}", String.valueOf(userId));
+                chatMemoryStore.updateMessages(sessionId,
+                        List.of(SystemMessage.from(systemText)));
+                log.debug("已为会话 {} 初始化 SystemMessage ({} 字符)", sessionId, systemText.length());
+            }
+        } catch (Exception e) {
+            log.warn("初始化 SystemMessage 失败: {}", e.getMessage());
+        }
+        return sessionId;
     }
 
     /**
@@ -121,7 +143,17 @@ public class AiChatService {
 
         saveMessage(userId, sessionId, "user", userMessage);
 
+        // 捕获当前请求上下文，传给工作线程（防止线程复用时数据串了）
+        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+
         sseExecutor.execute(() -> {
+            // 创建并绑定本请求的 ToolResultContext（ThreadLocal，不依赖 Spring 代理）
+            ToolResultContext ctx = new ToolResultContext();
+            ToolResultContext.bind(ctx);
+            // 恢复请求上下文到工作线程（供其他 @RequestScope bean 使用）
+            if (requestAttributes != null) {
+                RequestContextHolder.setRequestAttributes(requestAttributes);
+            }
             StringBuilder fullResponse = new StringBuilder();
             try {
                 long startTime = System.currentTimeMillis();
@@ -177,6 +209,17 @@ public class AiChatService {
 
                             CommonUtils.logAiCall("流式对话", elapsed, apiInputTokens, apiOutputTokens, text);
 
+                            // 下发书名→bookId 映射，让前端把《书名》渲染为可点击卡片
+                            try {
+                                if (ctx.hasBooks()) {
+                                    String bookMapJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                                            .writeValueAsString(ctx.getBookMap());
+                                    emitter.send(SseEmitter.event().name("book_map").data(bookMapJson));
+                                    log.debug("下发 book_map: {} 本书", ctx.getBookMap().size());
+                                }
+                            } catch (Exception ignored) {
+                            }
+
                             try {
                                 emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                                 emitter.complete();
@@ -218,6 +261,10 @@ public class AiChatService {
                     emitter.complete();
                 } catch (Exception ignored) {
                 }
+            } finally {
+                // 清理 ThreadLocal 和请求上下文，避免线程复用时残留
+                ToolResultContext.unbind();
+                RequestContextHolder.resetRequestAttributes();
             }
         });
 

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.PageResult;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.QdrantProperties;
+import com.kbook.document.BookDocument;
 import com.kbook.entity.Book;
 import com.kbook.entity.UserBookPreference;
 import dev.langchain4j.agent.tool.P;
@@ -56,29 +57,44 @@ public class AiToolService {
         this.qdrantProperties = qdrantProperties;
     }
 
+    /** 获取当前请求的工具结果上下文（可能为 null，非 AI 工具调用场景） */
+    private ToolResultContext ctx() {
+        return ToolResultContext.current();
+    }
+
+    /** 安全记录一本书到上下文 */
+    private void recordBook(String title, Long bookId) {
+        ToolResultContext c = ctx();
+        if (c != null) {
+            c.addBook(title, bookId);
+            c.markToolCalled();
+        }
+    }
+
     // ==================== 图书查询工具 ====================
 
-    @Tool("搜索图书，支持按关键词和格式筛选。返回图书列表，包含书名、作者、格式、评分、简介等。")
+    @Tool("搜索图书，支持按关键词和格式筛选（混合搜索：Qdrant语义向量 + ES全文检索融合排序）。返回图书列表，包含书名、作者、格式、评分、简介等。")
     public String searchBooks(
-            @P("搜索关键词，如书名或作者名") String keyword,
+            @P("搜索关键词，如书名或作者名，支持自然语言描述如'适合失恋看的治愈系书籍'") String keyword,
             @P("图书格式，可选值：TXT、EPUB、PDF，为空则不限格式") String format
     ) {
         log.debug("[AI Tool] searchBooks: keyword={}, format={}", keyword, format);
         try {
             String fmt = (format == null || format.isBlank()) ? null : format.toUpperCase();
-            PageResult<Book> result = bookService.searchBooks(keyword, fmt, 1, 5);
+            // 混合搜索：Qdrant 向量 + ES/MySQL 关键词加权融合
+            PageResult<BookDocument> result =
+                    bookService.searchBooksEs(keyword, fmt, 1, 5);
             if (result.getList().isEmpty()) {
                 return "没有找到相关图书。";
             }
             return result.getList().stream()
-                    .map(b -> String.format("[BOOK:id=%d]《%s》作者:%s 格式:%s 评分:%.1f 阅读:%d次 简介:%s",
-                            b.getId(),
+                    .peek(b -> recordBook(b.getTitle(), b.getId()))
+                    .map(b -> String.format("《%s》 作者:%s 格式:%s 评分:%.1f 阅读:%d次",
                             b.getTitle(),
                             b.getAuthor() != null ? b.getAuthor() : "未知",
                             b.getFormat(),
-                            b.getRating(),
-                            b.getReadCount(),
-                            b.getDescription() != null ? truncate(b.getDescription(), 80) : "暂无"))
+                            b.getRating() != null ? b.getRating() : 0.0,
+                            b.getReadCount() != null ? b.getReadCount() : 0))
                     .collect(Collectors.joining("\n"));
         } catch (Exception e) {
             log.error("[AI Tool] searchBooks error", e);
@@ -125,8 +141,10 @@ public class AiToolService {
             StringBuilder sb = new StringBuilder("阅读排行榜 TOP 10:\n");
             for (int i = 0; i < result.getList().size(); i++) {
                 Book b = result.getList().get(i);
-                sb.append(String.format("%d. [BOOK:id=%d]《%s》 作者:%s 阅读:%d次 评分:%.1f\n",
-                        i + 1, b.getId(), b.getTitle(), b.getAuthor() != null ? b.getAuthor() : "未知",
+                recordBook(b.getTitle(), b.getId());
+                sb.append(String.format("%d. 《%s》 作者:%s 阅读:%d次 评分:%.1f\n",
+                        i + 1, b.getTitle(),
+                        b.getAuthor() != null ? b.getAuthor() : "未知",
                         b.getReadCount(), b.getRating()));
             }
             return sb.toString();
@@ -147,8 +165,10 @@ public class AiToolService {
             StringBuilder sb = new StringBuilder("评分排行榜 TOP 10:\n");
             for (int i = 0; i < result.getList().size(); i++) {
                 Book b = result.getList().get(i);
-                sb.append(String.format("%d. [BOOK:id=%d]《%s》 作者:%s 评分:%.1f 阅读:%d次\n",
-                        i + 1, b.getId(), b.getTitle(), b.getAuthor() != null ? b.getAuthor() : "未知",
+                recordBook(b.getTitle(), b.getId());
+                sb.append(String.format("%d. 《%s》 作者:%s 评分:%.1f 阅读:%d次\n",
+                        i + 1, b.getTitle(),
+                        b.getAuthor() != null ? b.getAuthor() : "未知",
                         b.getRating(), b.getReadCount()));
             }
             return sb.toString();
@@ -335,9 +355,13 @@ public class AiToolService {
             sb.append("基于《").append(sourceBook.getTitle()).append("》的推荐：\n\n");
             for (int i = 0; i < recommendations.size(); i++) {
                 Map<String, Object> r = recommendations.get(i);
-                sb.append(String.format("%d. [BOOK:id=%s]《%s》 作者:%s 格式:%s 评分:%s 推荐原因:%s\n",
+                String title = (String) r.get("title");
+                Object bookIdObj = r.get("bookId");
+                if (title != null && bookIdObj != null) {
+                    recordBook(title, Long.valueOf(bookIdObj.toString()));
+                }
+                sb.append(String.format("%d. 《%s》 作者:%s 格式:%s 评分:%s 推荐原因:%s\n",
                         i + 1,
-                        r.get("bookId"),
                         r.get("title"),
                         r.get("author"),
                         r.get("format"),
@@ -483,9 +507,9 @@ public class AiToolService {
             StringBuilder sb = new StringBuilder("为你个性化推荐：\n\n");
             for (int i = 0; i < items.size(); i++) {
                 RecommendService.RecommendedItem item = items.get(i);
-                sb.append(String.format("%d. [BOOK:id=%d]《%s》 作者:%s 格式:%s 评分:%.1f 匹配度:%.0f%%\n",
+                recordBook(item.getTitle(), item.getBookId());
+                sb.append(String.format("%d. 《%s》 作者:%s 格式:%s 评分:%.1f 匹配度:%.0f%%\n",
                         i + 1,
-                        item.getBookId(),
                         item.getTitle(),
                         item.getAuthor() != null ? item.getAuthor() : "未知",
                         item.getFormat(),

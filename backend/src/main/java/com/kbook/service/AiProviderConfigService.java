@@ -7,6 +7,7 @@ import com.kbook.repository.AiProviderConfigRepository;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.SystemMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ public class AiProviderConfigService {
     private final ObjectProvider<AiToolService> toolServiceProvider;
     private final ChatModelFactory chatModelFactory;
     private final AiProviderConfigRepository configRepository;
+    private final ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider;
 
     /** 对话 AI 配置的缓存版本号，每次配置变更时递增 */
     private volatile long chatConfigVersion = 0;
@@ -46,12 +48,14 @@ public class AiProviderConfigService {
             AiChatMemory chatMemoryStore,
             ObjectProvider<AiToolService> toolServiceProvider,
             ChatModelFactory chatModelFactory,
-            AiProviderConfigRepository configRepository
+            AiProviderConfigRepository configRepository,
+            ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider
     ) {
         this.chatMemoryStore = chatMemoryStore;
         this.toolServiceProvider = toolServiceProvider;
         this.chatModelFactory = chatModelFactory;
         this.configRepository = configRepository;
+        this.bookAdminChatServiceProvider = bookAdminChatServiceProvider;
     }
 
     // ==================== 对话 AI 配置 ====================
@@ -126,6 +130,8 @@ public class AiProviderConfigService {
     public void invalidateChatCache() {
         chatConfigVersion++;
         cachedChatAssistant = null;
+        // 同时清除 BookAdminChatService 的独立缓存
+        bookAdminChatServiceProvider.ifAvailable(BookAdminChatService::clearCache);
         log.info("对话 AI 缓存已失效，下次请求将重新构建 Assistant");
     }
 
@@ -172,8 +178,28 @@ public class AiProviderConfigService {
         String modelName = config != null ? config.getModelName() : chatModelFactory.getModelName();
         boolean toolsSupported = chatModelFactory.isToolsSupported(config);
 
-        log.info("构建对话 AI Assistant: source={}, model={}, toolsEnabled={}",
-                config != null ? "DB(config)" : "yml(default)", modelName, toolsSupported);
+        log.info("构建对话 AI Assistant: source={}, model={}, toolsEnabled={}, baseUrl={}",
+                config != null ? "DB(config)" : "yml(default)", modelName, toolsSupported,
+                config != null ? config.getBaseUrl() : chatModelFactory.getDefaultBaseUrl());
+        if (config != null) {
+            log.info("  DB 配置详情: id={}, purpose={}, provider={}, enabled={}, toolsEnabled(explicit)={}",
+                    config.getId(), config.getPurpose(), config.getProvider(),
+                    config.getEnabled(), config.getToolsEnabled());
+        }
+        // 诊断：从 AiAssistant 接口反射读取 @SystemMessage 的实际值
+        try {
+            var sm = AiAssistant.class.getAnnotation(SystemMessage.class);
+            if (sm != null) {
+                String[] lines = sm.value();
+                String firstLine = lines.length > 0 ? lines[0] : "(空)";
+                log.info("  @SystemMessage 已读取: 总{}行, 首行={}", lines.length,
+                        firstLine.length() > 80 ? firstLine.substring(0, 80) + "..." : firstLine);
+            } else {
+                log.error("  ❌ AiAssistant 接口上未找到 @SystemMessage 注解！");
+            }
+        } catch (Exception e) {
+            log.error("  读取 @SystemMessage 失败: {}", e.getMessage());
+        }
 
         ChatModel chatModel = chatModelFactory.buildChatModel(config);
         StreamingChatModel streamingModel = chatModelFactory.buildStreamingChatModel(config);
@@ -188,9 +214,11 @@ public class AiProviderConfigService {
                         .build());
 
         if (toolsSupported) {
-            builder.tools(toolServiceProvider.getObject());
+            Object toolObj = toolServiceProvider.getObject();
+            builder.tools(toolObj);
+            log.info("  已注册 AI 工具: class={}", toolObj.getClass().getName());
         } else {
-            log.warn("对话模型 {} 不支持 Tool Calling，AI 助理将以纯对话模式运行", modelName);
+            log.warn("  对话模型 {} 不支持 Tool Calling，AI 助理将以纯对话模式运行（无法调用搜索/推荐等工具）", modelName);
         }
 
         return builder.build();
@@ -214,9 +242,11 @@ public class AiProviderConfigService {
                         .build());
 
         if (toolsSupported) {
-            builder.tools(toolServiceProvider.getObject());
+            Object toolObj = toolServiceProvider.getObject();
+            builder.tools(toolObj);
+            log.info("  已注册 AI 工具(legacy): class={}", toolObj.getClass().getName());
         } else {
-            log.warn("当前模型 {} 不支持 Tool Calling，AI 助理将以纯对话模式运行（无法调用图书搜索、推荐等工具）", modelName);
+            log.warn("  当前模型 {} 不支持 Tool Calling，AI 助理将以纯对话模式运行（无法调用图书搜索、推荐等工具）", modelName);
         }
 
         return builder.build();

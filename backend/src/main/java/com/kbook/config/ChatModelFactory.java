@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * AI 模型工厂 — 统一封装模型构建逻辑
@@ -203,7 +204,8 @@ public class ChatModelFactory {
                 .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
                 .timeout(timeout)
                 .returnThinking(true)
-                .sendThinking(true);
+                .sendThinking(true)
+                .listeners(List.of(new DiagnosticChatListener()));
         if (config.getApiKey() != null && !config.getApiKey().isBlank()) {
             builder.apiKey(config.getApiKey());
         } else {
@@ -219,7 +221,8 @@ public class ChatModelFactory {
                 .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
                 .timeout(timeout)
                 .returnThinking(true)
-                .sendThinking(true);
+                .sendThinking(true)
+                .listeners(List.of(new DiagnosticChatListener()));
         if (config.getApiKey() != null && !config.getApiKey().isBlank()) {
             builder.apiKey(config.getApiKey());
         } else {
