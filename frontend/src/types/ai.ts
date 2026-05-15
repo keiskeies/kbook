@@ -6,6 +6,10 @@ export interface AiMessage {
   timestamp: number
   /** 是否正在流式输出 */
   streaming?: boolean
+  /** thinking 状态文本（如"正在检索书籍内容..."） */
+  thinkingStatus?: string
+  /** AI 思考/推理过程内容（可折叠展示） */
+  thinkingContent?: string
 }
 
 /** AI 会话 */
@@ -47,51 +51,4 @@ export interface AiConversation {
   createdAt: string
 }
 
-/** AI 提供商类型 */
-export type AiProviderType = 'OPENAI' | 'OLLAMA'
 
-/** AI 提供商 Thinking 等级 */
-export type ThinkingLevel = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH'
-
-/** AI 提供商配置（全局配置，管理员管理） */
-export interface AiProviderConfig {
-  id?: number
-  /** 提供商类型: OPENAI / OLLAMA */
-  provider: AiProviderType
-  /** 配置名称 */
-  configName: string
-  /** API 端点地址 */
-  baseUrl: string
-  /** API Key（OpenAI 兼容需要，Ollama 可留空） */
-  apiKey?: string
-  /** 模型名称 */
-  modelName: string
-  /** 温度 (0~2) */
-  temperature?: number
-  /** 最大 Token 数 */
-  maxTokens?: number
-  /** Thinking 等级: NONE/LOW/MEDIUM/HIGH — thinking 模型需要更长超时 */
-  thinkingLevel?: ThinkingLevel
-  /** 是否启用 */
-  enabled?: boolean
-  createdAt?: string
-  updatedAt?: string
-}
-
-/** AI 提供商预设 */
-export interface AiProviderPreset {
-  label: string
-  provider: AiProviderType
-  baseUrl: string
-  modelName: string
-  requireApiKey: boolean
-  thinkingLevel?: ThinkingLevel
-}
-
-/** 连接测试结果 */
-export interface ConnectionTestResult {
-  success: boolean
-  message: string
-  reply?: string
-  modelName?: string
-}

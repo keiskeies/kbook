@@ -32,11 +32,6 @@ public interface UserBookPreferenceRepository extends JpaRepository<UserBookPref
     Optional<UserBookPreference> findByUserIdAndCategoryAndValueAndType(Long userId, String category, String value, String type);
 
     /**
-     * 删除用户特定偏好（用于恢复/取消排除）
-     */
-    void deleteByUserIdAndCategoryAndValue(Long userId, String category, String value);
-
-    /**
      * 查询用户所有偏好
      */
     List<UserBookPreference> findByUserId(Long userId);

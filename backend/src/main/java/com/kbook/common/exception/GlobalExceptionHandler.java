@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -40,8 +41,17 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Result<?> handleAccessDenied(AccessDeniedException e, HttpServletResponse response) {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        log.warn("访问被拒绝: {}", e.getMessage());
-        return Result.fail(403, "您没有权限访问此资源，请先登录或联系管理员");
+        log.debug("访问被拒绝: {}", e.getMessage());
+        return Result.fail(403, "您没有权限访问此资源");
+    }
+
+    /** Spring Security 6.x 方法级权限拒绝（@PreAuthorize 等） */
+    @ExceptionHandler(AuthorizationDeniedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Result<?> handleAuthorizationDenied(AuthorizationDeniedException e, HttpServletResponse response) {
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        log.debug("授权被拒绝: {}", e.getMessage());
+        return Result.fail(403, "您没有权限执行此操作");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -47,7 +47,7 @@ export default function ChangePasswordPage() {
   const hasPassword = userInfo?.emailBound ?? false
 
   return (
-    <div className="flex min-h-screen flex-col px-6 pt-safe-top">
+    <div className="flex flex-col px-6 pt-safe-top">
       <header className="flex items-center gap-3 py-3">
         <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />

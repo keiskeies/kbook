@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Send, Plus, Trash2, MessageSquare, Loader2, Bot, User } from 'lucide-react'
 import { streamChat, createSession, getHistory, getSessions, deleteSession, getHotPrompts } from '@/api/ai'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
+import ThinkingBlock from '@/components/ui/thinking-block'
 import type { AiMessage } from '@/types/ai'
 
 export default function AIPage() {
@@ -168,7 +169,7 @@ export default function AIPage() {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
-              ? { ...m, content: m.content + chunk }
+              ? { ...m, content: m.content + chunk, thinkingStatus: undefined }
               : m
           )
         )
@@ -177,7 +178,7 @@ export default function AIPage() {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
-              ? { ...m, streaming: false }
+              ? { ...m, streaming: false, thinkingStatus: undefined }
               : m
           )
         )
@@ -187,11 +188,29 @@ export default function AIPage() {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
-              ? { ...m, content: '抱歉，AI 助理暂时无法回复，请稍后重试。', streaming: false }
+              ? { ...m, content: '抱歉，AI 助理暂时无法回复，请稍后重试。', streaming: false, thinkingStatus: undefined }
               : m
           )
         )
         setLoading(false)
+      },
+      (status) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsg.id
+              ? { ...m, thinkingStatus: status }
+              : m
+          )
+        )
+      },
+      (chunk) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsg.id
+              ? { ...m, thinkingContent: (m.thinkingContent || '') + chunk }
+              : m
+          )
+        )
       },
     )
     abortRef.current = controller as any
@@ -334,12 +353,20 @@ export default function AIPage() {
                     {msg.role === 'user' ? (
                       <p>{msg.content}</p>
                     ) : (
-                      <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
+                      <>
+                        {(msg.thinkingContent || (msg.streaming && msg.thinkingStatus && !msg.content)) && (
+                          <ThinkingBlock
+                            content={msg.thinkingContent || msg.thinkingStatus || ''}
+                            streaming={msg.streaming && !msg.content}
+                          />
+                        )}
+                        <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
+                      </>
                     )}
                     {msg.streaming && !msg.content && (
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span className="text-xs">思考中...</span>
+                        <span className="text-xs">{msg.thinkingStatus || '思考中...'}</span>
                       </div>
                     )}
                     {msg.streaming && msg.content && (

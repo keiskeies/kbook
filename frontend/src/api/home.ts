@@ -28,6 +28,7 @@ export interface RecommendedBook {
   rating: number
   description: string | null
   matchScore: number
+  readCount: number
 }
 
 /** 简单图书信息 */

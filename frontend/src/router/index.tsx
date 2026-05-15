@@ -18,6 +18,7 @@ const AdminReviewPage = lazy(() => import('@/pages/admin/review'))
 const AdminBindEmailPage = lazy(() => import('@/pages/admin/bind-email'))
 const AdminBooksPage = lazy(() => import('@/pages/admin/books'))
 const AdminAiConfigPage = lazy(() => import('@/pages/admin/ai-config'))
+
 const BookDetailPage = lazy(() => import('@/pages/book/detail'))
 const SearchPage = lazy(() => import('@/pages/search'))
 const ReaderPage = lazy(() => import('@/pages/reader'))
@@ -142,6 +143,7 @@ export const router = createBrowserRouter([
         path: ROUTES.ADMIN_AI_CONFIG,
         element: <AdminGuard><LazyLoad><AdminAiConfigPage /></LazyLoad></AdminGuard>,
       },
+
     ],
   },
   // 404 - 兜底路由

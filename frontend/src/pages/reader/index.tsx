@@ -346,13 +346,12 @@ export default function ReaderPage() {
 
       {/* 底部进度 — 左下角小百分比 */}
       <div
-        className="fixed bottom-0 left-0 z-30 pl-3 pb-2 backdrop-blur-xl"
-        style={{ backgroundColor: theme.bg + '80' }}
+        className="fixed bottom-2 left-2 z-30 pointer-events-none"
         onClick={(e) => e.stopPropagation()}
       >
         <span
-          className="text-[10px] font-medium opacity-40"
-          style={{ color: theme.fg }}
+          className="text-[10px] font-medium opacity-40 rounded px-1.5 py-0.5"
+          style={{ color: theme.fg, backgroundColor: theme.bg + '60' }}
         >
           {Math.round(progress * 100)}%
         </span>

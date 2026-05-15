@@ -25,5 +25,7 @@ ENTRYPOINT ["java", \
     "-Xms256m", "-Xmx512m", \
     "-XX:+UseG1GC", \
     "-XX:+HeapDumpOnOutOfMemoryError", \
+    "-Dfile.encoding=UTF-8", \
+    "-Dsun.jnu.encoding=UTF-8", \
     "-Djava.security.egd=file:/dev/./urandom", \
     "-jar", "app.jar"]

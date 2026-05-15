@@ -39,11 +39,17 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 未认证时返回 401 而非 403（方便前端 refresh token）
+                // 权限不足时返回 403 JSON（避免 AuthorizationDeniedException 被全局异常处理器记录）
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {
                             response.setStatus(401);
                             response.setContentType("application/json;charset=UTF-8");
                             response.getWriter().write("{\"code\":401,\"message\":\"未登录或登录已过期\",\"data\":null}");
+                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setStatus(403);
+                            response.setContentType("application/json;charset=UTF-8");
+                            response.getWriter().write("{\"code\":403,\"message\":\"权限不足，无法访问此资源\",\"data\":null}");
                         }))
                 // 接口权限配置（注意：规则按从上到下顺序匹配，第一个匹配的规则生效）
                 .authorizeHttpRequests(auth -> auth

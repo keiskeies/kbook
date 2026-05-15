@@ -4,6 +4,7 @@ import {
   getReviewStats,
   getPendingUsers,
   getUsersByStatus,
+  searchUsers,
   approveUser,
   rejectUser,
   batchApprove,
@@ -14,7 +15,7 @@ import {
   type AdminUser,
   type ReviewStats,
 } from '@/api/admin'
-import { ArrowLeft, Check, X, Unlock, RefreshCw, CheckCircle2, Mail, Copy, CheckCheck, Ban } from 'lucide-react'
+import { ArrowLeft, Check, X, Unlock, RefreshCw, CheckCircle2, Mail, Copy, CheckCheck, Ban, Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -32,6 +33,10 @@ export default function AdminReviewPage() {
   const [loading, setLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
+  // 搜索
+  const [searchKeyword, setSearchKeyword] = useState('')
+  const [isSearching, setIsSearching] = useState(false)
+
   // 邀请功能
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -40,6 +45,13 @@ export default function AdminReviewPage() {
   const [copied, setCopied] = useState(false)
 
   const pageSize = 10
+
+  // 格式化大数字（如 1000000 -> 100万）
+  const formatCount = (n: number) => {
+    if (n >= 100_000_000) return (n / 100_000_000).toFixed(1).replace(/\.0$/, '') + '亿'
+    if (n >= 10_000) return (n / 10_000).toFixed(1).replace(/\.0$/, '') + '万'
+    return String(n)
+  }
 
   // 加载统计
   const loadStats = useCallback(async () => {
@@ -55,9 +67,15 @@ export default function AdminReviewPage() {
   const loadUsers = useCallback(async () => {
     setLoading(true)
     try {
-      const data = activeTab === 'ALL'
-        ? await getUsersByStatus([], page, pageSize)
-        : await getUsersByStatus([activeTab], page, pageSize)
+      let data
+      if (isSearching && searchKeyword.trim()) {
+        const status = activeTab === 'ALL' ? undefined : activeTab
+        data = await searchUsers(searchKeyword.trim(), status, page, pageSize)
+      } else if (activeTab === 'ALL') {
+        data = await getUsersByStatus([], page, pageSize)
+      } else {
+        data = await getUsersByStatus([activeTab], page, pageSize)
+      }
       setUsers(data.list || [])
       setTotal(data.total)
     } catch (err: any) {
@@ -65,11 +83,28 @@ export default function AdminReviewPage() {
     } finally {
       setLoading(false)
     }
-  }, [activeTab, page])
+  }, [activeTab, page, isSearching, searchKeyword])
 
   useEffect(() => {
     loadStats()
   }, [loadStats])
+
+  // 搜索处理
+  const handleSearch = () => {
+    if (searchKeyword.trim()) {
+      setIsSearching(true)
+      setPage(1)
+    } else {
+      setIsSearching(false)
+      setPage(1)
+    }
+  }
+
+  const clearSearch = () => {
+    setSearchKeyword('')
+    setIsSearching(false)
+    setPage(1)
+  }
 
   useEffect(() => {
     setSelectedIds(new Set())
@@ -242,7 +277,7 @@ export default function AdminReviewPage() {
             { label: '总计', value: stats.TOTAL, color: 'text-blue-600', bg: 'bg-blue-50' },
           ].map((stat) => (
             <div key={stat.label} className={`rounded-xl ${stat.bg} p-3 text-center`}>
-              <div className={`text-xl font-bold ${stat.color}`}>{stat.value}</div>
+              <div className={`text-xl font-bold ${stat.color}`}>{formatCount(stat.value)}</div>
               <div className="text-xs text-muted-foreground">{stat.label}</div>
             </div>
           ))}
@@ -254,7 +289,7 @@ export default function AdminReviewPage() {
         {(['PENDING', 'APPROVED', 'BANNED', 'ALL'] as StatusFilter[]).map((tab) => (
           <button
             key={tab}
-            onClick={() => { setActiveTab(tab); setPage(1) }}
+            onClick={() => { setActiveTab(tab); setPage(1); if (isSearching) loadUsers() }}
             className={`flex-shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
               activeTab === tab
                 ? 'bg-primary text-primary-foreground'
@@ -265,6 +300,42 @@ export default function AdminReviewPage() {
           </button>
         ))}
       </div>
+
+      {/* 搜索框 */}
+      <div className="flex items-center gap-2 px-4 pb-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder="搜索用户名或邮箱"
+            className="w-full rounded-lg border bg-background pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </div>
+        <button
+          onClick={handleSearch}
+          className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
+        >
+          搜索
+        </button>
+        {isSearching && (
+          <button
+            onClick={clearSearch}
+            className="rounded-lg bg-muted px-3 py-2 text-sm font-medium text-muted-foreground"
+          >
+            清除
+          </button>
+        )}
+      </div>
+
+      {/* 搜索提示 */}
+      {isSearching && (
+        <div className="px-4 pb-1 text-xs text-muted-foreground">
+          搜索: "{searchKeyword}" {activeTab !== 'ALL' ? `(筛选: ${activeTab === 'PENDING' ? '待审核' : activeTab === 'APPROVED' ? '已通过' : '已封禁'})` : ''}
+        </div>
+      )}
 
       {/* 批量操作 */}
       {selectedIds.size > 0 && (

@@ -1,9 +1,11 @@
 package com.kbook.service;
 
 import com.kbook.common.util.CommonUtils;
+import com.kbook.common.util.SseHelper;
 import com.kbook.entity.AiConversation;
 import com.kbook.repository.AiConversationRepository;
 import dev.langchain4j.service.Result;
+import dev.langchain4j.service.TokenStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,7 +21,7 @@ import java.util.concurrent.Executors;
  * AI 对话服务 — 管理会话、流式输出、历史记录
  * <p>
  * 使用 AiProviderConfigService 获取全局 AiAssistant，
- * 管理员通过配置界面动态切换模型提供商。
+ * AI 模型配置统一由 application.yml 管理。
  */
 @Slf4j
 @Service
@@ -47,22 +49,19 @@ public class AiChatService {
         log.info("用户ID: {}", userId);
         log.info("会话ID: {}", sessionId);
         log.info("问题内容: {}", userMessage);
-        
+
         saveMessage(userId, sessionId, "user", userMessage);
-        AiAssistant assistant = providerConfigService.getAssistant(userId);
+        AiAssistant assistant = providerConfigService.getChatAssistant(userId);
         if (assistant == null) {
             log.warn("AI 助理未配置: userId={}", userId);
             return "AI 助理暂未配置，请联系管理员在后台配置 LLM 接口后再试。";
         }
         try {
             long startTime = System.currentTimeMillis();
-            String thinkingSuffix = providerConfigService.getThinkingPromptSuffix();
-            log.info("发送消息到 AI: sessionId={}, thinkingSuffix='{}', 消息长度={}",
-                    sessionId, thinkingSuffix, userMessage.length());
-            Result<String> result = assistant.chatWithResponse(sessionId, userMessage + thinkingSuffix);
+            Result<String> result = assistant.chatWithResponse(sessionId, userId, userMessage);
             long elapsed = System.currentTimeMillis() - startTime;
             String text = result.content();
-            
+
             // 解析实际 API token 用量
             String thinkingContent = null;
             int thinkingLength = 0;
@@ -76,7 +75,7 @@ public class AiChatService {
                 apiInputTokens = result.tokenUsage().inputTokenCount() != null ? result.tokenUsage().inputTokenCount() : 0;
                 apiOutputTokens = result.tokenUsage().outputTokenCount() != null ? result.tokenUsage().outputTokenCount() : 0;
             }
-            
+
             log.info("========== AI 对话完整响应 ==========");
             log.info("耗时: {}ms", elapsed);
             log.info("Thinking长度: {} 字符 | Thinking前200字: {}",
@@ -88,9 +87,9 @@ public class AiChatService {
             log.info("Answer: {}", text != null && text.length() > 500 ? text.substring(0, 500) + "..." : text);
             log.info("FinishReason: {}", result.finishReason());
             log.info("======================================");
-            
+
             saveMessage(userId, sessionId, "assistant", text);
-            
+
             // 记录 AI 调用日志（使用 API 实际 token 用量）
             CommonUtils.logAiCall("对话", elapsed, apiInputTokens, apiOutputTokens, text);
             return text;
@@ -104,17 +103,21 @@ public class AiChatService {
     }
 
     /**
-     * 流式对话 — SSE（使用非流式 Assistant + 分段发送模拟打字效果）
-     * <p>
-     * 真正的 Token 级流式需要 StreamingChatModel，当前方案为兼容性实现。
+     * 流式对话 — SSE（真正的 Token 级流式，使用 StreamingChatModel）
      */
     public SseEmitter streamChat(Long userId, String sessionId, String userMessage) {
         log.info("========== AI 流式对话请求 ==========");
         log.info("用户ID: {}", userId);
         log.info("会话ID: {}", sessionId);
         log.info("问题内容: {}", userMessage);
-        
+
         SseEmitter emitter = new SseEmitter(120_000L);
+
+        // 立即发送 thinking 事件，让前端知道请求已被接受
+        try {
+            emitter.send(SseEmitter.event().name("thinking").data("正在思考..."));
+        } catch (Exception ignored) {
+        }
 
         saveMessage(userId, sessionId, "user", userMessage);
 
@@ -122,93 +125,99 @@ public class AiChatService {
             StringBuilder fullResponse = new StringBuilder();
             try {
                 long startTime = System.currentTimeMillis();
-                AiAssistant assistant = providerConfigService.getAssistant(userId);
+                AiAssistant assistant = providerConfigService.getChatAssistant(userId);
                 if (assistant == null) {
                     log.warn("AI 助理未配置: userId={}", userId);
                     String hint = "AI 助理暂未配置，请联系管理员在后台配置 LLM 接口后再试。";
-                    SseEmitter.SseEventBuilder event = SseEmitter.event()
-                            .name("message")
-                            .data(hint);
-                    emitter.send(event);
-                    
-                    SseEmitter.SseEventBuilder doneEvent = SseEmitter.event()
-                            .name("done")
-                            .data("[DONE]");
-                    emitter.send(doneEvent);
+                    emitter.send(SseEmitter.event().name("message").data(hint));
+                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                     emitter.complete();
                     saveMessage(userId, sessionId, "assistant", hint);
                     return;
                 }
-                String thinkingSuffix = providerConfigService.getThinkingPromptSuffix();
-                log.info("发送流式消息到 AI: sessionId={}, thinkingSuffix='{}', 消息长度={}",
-                        sessionId, thinkingSuffix, userMessage.length());
-                Result<String> result = assistant.chatWithResponse(sessionId, userMessage + thinkingSuffix);
-                long elapsed = System.currentTimeMillis() - startTime;
-                String responseText = result.content();
-                fullResponse.append(responseText);
-                
-                // 解析实际 API token 用量
-                String thinkingContent = null;
-                int thinkingLength = 0;
-                int apiInputTokens = 0;
-                int apiOutputTokens = 0;
-                if (result.finalResponse() != null && result.finalResponse().aiMessage() != null) {
-                    thinkingContent = result.finalResponse().aiMessage().thinking();
-                    thinkingLength = thinkingContent != null ? thinkingContent.length() : 0;
-                }
-                if (result.tokenUsage() != null) {
-                    apiInputTokens = result.tokenUsage().inputTokenCount() != null ? result.tokenUsage().inputTokenCount() : 0;
-                    apiOutputTokens = result.tokenUsage().outputTokenCount() != null ? result.tokenUsage().outputTokenCount() : 0;
-                }
-                
-                log.info("========== AI 流式对话完整响应 ==========");
-                log.info("耗时: {}ms", elapsed);
-                log.info("Thinking长度: {} 字符 | Thinking前200字: {}",
-                        thinkingLength,
-                        thinkingContent != null && thinkingContent.length() > 200
-                                ? thinkingContent.substring(0, 200) + "..."
-                                : thinkingContent);
-                log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-                log.info("Answer: {}", responseText != null && responseText.length() > 500 ? responseText.substring(0, 500) + "..." : responseText);
-                log.info("FinishReason: {}", result.finishReason());
-                log.info("==========================================");
 
-                // 记录 AI 调用日志（使用 API 实际 token 用量）
-                CommonUtils.logAiCall("流式对话", elapsed, apiInputTokens, apiOutputTokens, responseText);
+                TokenStream tokenStream = assistant.chatStream(sessionId, userId, userMessage);
+                StringBuilder fullThinking = new StringBuilder();
+                tokenStream
+                        .onPartialThinking(pt -> {
+                            String thinking = pt.text();
+                            if (thinking != null && !thinking.isEmpty()) {
+                                fullThinking.append(thinking);
+                                try {
+                                    emitter.send(SseEmitter.event().name("thinking_content").data(thinking));
+                                } catch (Exception e) {
+                                    log.warn("SSE发送thinking失败: {}", e.getMessage());
+                                }
+                            }
+                        })
+                        .onPartialResponse(token -> {
+                            fullResponse.append(token);
+                            if (!token.isEmpty()) {
+                                try {
+                                    emitter.send(SseEmitter.event().name("message").data(token));
+                                } catch (Exception e) {
+                                    log.warn("SSE发送token失败: {}", e.getMessage());
+                                }
+                            }
+                        })
+                        .onCompleteResponse(response -> {
+                            long elapsed = System.currentTimeMillis() - startTime;
 
-                // 分段发送，模拟打字效果
-                int chunkSize = 3;
-                for (int i = 0; i < responseText.length(); i += chunkSize) {
-                    int end = Math.min(i + chunkSize, responseText.length());
-                    String chunk = responseText.substring(i, end);
-                    SseEmitter.SseEventBuilder event = SseEmitter.event()
-                            .name("message")
-                            .data(chunk);
-                    emitter.send(event);
-                    Thread.sleep(30);
-                }
+                            // 解析 token 用量
+                            int apiInputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
+                                    ? response.tokenUsage().inputTokenCount() : 0;
+                            int apiOutputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
+                                    ? response.tokenUsage().outputTokenCount() : 0;
 
-                SseEmitter.SseEventBuilder doneEvent = SseEmitter.event()
-                        .name("done")
-                        .data("[DONE]");
-                emitter.send(doneEvent);
-                emitter.complete();
+                            String text = fullResponse.toString().trim();
+                            log.info("========== AI 流式对话响应完成 ==========");
+                            log.info("耗时: {}ms", elapsed);
+                            log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
+                            log.info("Answer: {}", text.length() > 500 ? text.substring(0, 500) + "..." : text);
 
-                saveMessage(userId, sessionId, "assistant", fullResponse.toString());
+                            CommonUtils.logAiCall("流式对话", elapsed, apiInputTokens, apiOutputTokens, text);
+
+                            try {
+                                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                                emitter.complete();
+                            } catch (Exception ignored) {
+                            }
+
+                            saveMessage(userId, sessionId, "assistant", text);
+                        })
+                        .onError(error -> {
+                            log.error("流式对话异常: sessionId={}", sessionId, error);
+                            providerConfigService.clearAssistantCache();
+                            String errMsg = SseHelper.extractFriendlyError(error);
+                            try {
+                                emitter.send(SseEmitter.event().name("error").data(errMsg));
+                            } catch (Exception ignored) {
+                            }
+                            try {
+                                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                                emitter.complete();
+                            } catch (Exception ignored) {
+                            }
+                            // 保存已接收的部分响应
+                            if (!fullResponse.isEmpty()) {
+                                saveMessage(userId, sessionId, "assistant", fullResponse.toString());
+                            }
+                        })
+                        .start();
 
             } catch (Exception e) {
-                log.error("流式对话异常: sessionId={}", sessionId, e);
-                log.info("====================================\n");
-                // 模型调用失败，清除缓存以便下次重新构建
+                log.error("流式对话启动异常: sessionId={}", sessionId, e);
                 providerConfigService.clearAssistantCache();
-                String errMsg = extractFriendlyError(e);
+                String errMsg = SseHelper.extractFriendlyError(e);
                 try {
-                    SseEmitter.SseEventBuilder errorEvent = SseEmitter.event()
-                            .name("error")
-                            .data(errMsg);
-                    emitter.send(errorEvent);
-                } catch (Exception ignored) {}
-                emitter.completeWithError(e);
+                    emitter.send(SseEmitter.event().name("error").data(errMsg));
+                } catch (Exception ignored) {
+                }
+                try {
+                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                    emitter.complete();
+                } catch (Exception ignored) {
+                }
             }
         });
 
@@ -250,27 +259,4 @@ public class AiChatService {
         conversationRepository.save(record);
     }
 
-    /** 从异常信息中提取用户友好的错误提示 */
-    private String extractFriendlyError(Exception e) {
-        String msg = e.getMessage();
-        if (msg == null) {
-            return "AI 响应异常，请稍后重试。";
-        }
-        if (msg.contains("not found")) {
-            return "AI 模型不存在，请管理员检查模型配置。";
-        }
-        if (msg.contains("timed out") || msg.contains("Timeout")) {
-            return "AI 响应超时，请检查模型服务是否正常运行。";
-        }
-        if (msg.contains("Connection refused") || msg.contains("connect")) {
-            return "无法连接到 AI 模型服务，请检查端点地址和网络。";
-        }
-        if (msg.contains("401") || msg.contains("Unauthorized") || msg.contains("api key")) {
-            return "AI 服务认证失败，请检查 API Key 配置。";
-        }
-        if (msg.contains("429") || msg.contains("rate limit")) {
-            return "AI 服务请求过于频繁，请稍后重试。";
-        }
-        return "AI 响应异常，请稍后重试。";
-    }
 }

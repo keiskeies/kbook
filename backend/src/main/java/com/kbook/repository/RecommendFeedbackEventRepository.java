@@ -16,11 +16,6 @@ public interface RecommendFeedbackEventRepository extends JpaRepository<Recommen
     long countByCreatedAtBetween(LocalDateTime from, LocalDateTime to);
 
     /**
-     * 获取指定时间窗口内的所有反馈事件
-     */
-    List<RecommendFeedbackEvent> findByCreatedAtBetween(LocalDateTime from, LocalDateTime to);
-
-    /**
      * 按反馈类型统计数量
      */
     @Query("SELECT e.feedbackType, COUNT(e), AVG(e.strength) FROM RecommendFeedbackEvent e " +

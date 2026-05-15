@@ -2,11 +2,11 @@ package com.kbook.service;
 
 import com.kbook.common.exception.BusinessException;
 import com.kbook.config.JwtUtil;
+import com.kbook.config.properties.VerificationProperties;
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -18,13 +18,13 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 认证服务 - 注册、登录、验证码、Token 刷新
- *
+ * <p>
  * 验证码场景：
  * - register: 注册，检查邮箱未注册
  * - login: 登录，不检查注册状态
  * - reset: 重置密码，检查邮箱已注册
  * - bind: 管理员绑定邮箱
- *
+ * <p>
  * 审核状态机：
  * - 注册 → PENDING(待审核)
  * - 管理员通过 → APPROVED(已通过)
@@ -42,18 +42,7 @@ public class AuthService {
     private final StringRedisTemplate redisTemplate;
     private final EmailNotificationService emailNotificationService;
     private final ClickCaptchaService clickCaptchaService;
-
-    @Value("${verification.code-length}")
-    private int codeLength;
-
-    @Value("${verification.expire-minutes}")
-    private int expireMinutes;
-
-    @Value("${verification.rate-limit-seconds}")
-    private int rateLimitSeconds;
-
-    @Value("${verification.daily-limit}")
-    private int dailyLimit;
+    private final VerificationProperties verificationProps;
 
     private static final String CODE_KEY_PREFIX = "verify:code:";
     private static final String RATE_KEY_PREFIX = "verify:rate:";
@@ -66,6 +55,7 @@ public class AuthService {
      * - 限频：60秒内不可重复发送
      * - 日限：每天最多10次
      * - 有效期：5分钟
+     *
      * @param captchaId 点击验证码ID（需先通过点击验证）
      */
     @Transactional
@@ -89,12 +79,12 @@ public class AuthService {
         // 限频检查
         if (Boolean.TRUE.equals(redisTemplate.hasKey(rateKey))) {
             Long ttl = redisTemplate.getExpire(rateKey, TimeUnit.SECONDS);
-            throw new BusinessException("发送太频繁，请" + (ttl != null ? ttl : 60) + "秒后再试");
+            throw new BusinessException("发送太频繁，请" + ttl + "秒后再试");
         }
 
         // 日限检查
         String dailyCount = redisTemplate.opsForValue().get(dailyKey);
-        if (dailyCount != null && Integer.parseInt(dailyCount) >= dailyLimit) {
+        if (dailyCount != null && Integer.parseInt(dailyCount) >= verificationProps.getDailyLimit()) {
             throw new BusinessException("今日发送次数已达上限");
         }
 
@@ -103,10 +93,10 @@ public class AuthService {
 
         // 存储验证码（按场景隔离）
         String codeKey = CODE_KEY_PREFIX + scene + ":" + email;
-        redisTemplate.opsForValue().set(codeKey, code, expireMinutes, TimeUnit.MINUTES);
+        redisTemplate.opsForValue().set(codeKey, code, verificationProps.getExpireMinutes(), TimeUnit.MINUTES);
 
         // 设置限频
-        redisTemplate.opsForValue().set(rateKey, "1", rateLimitSeconds, TimeUnit.SECONDS);
+        redisTemplate.opsForValue().set(rateKey, "1", verificationProps.getRateLimitSeconds(), TimeUnit.SECONDS);
 
         // 更新日限计数
         Long count = redisTemplate.opsForValue().increment(dailyKey);
@@ -148,6 +138,7 @@ public class AuthService {
 
     /**
      * 密码登录
+     *
      * @param captchaId 点击验证码ID（需先通过点击验证）
      */
     public LoginResult loginByPassword(String email, String password, String captchaId) {
@@ -179,8 +170,8 @@ public class AuthService {
      */
     @Transactional
     public LoginResult register(String email, String code, String password,
-                                 LocalDate birthday, String gender, Boolean married,
-                                 Boolean hasChildren, String mbti) {
+                                LocalDate birthday, String gender, Boolean married,
+                                Boolean hasChildren, String mbti) {
         validateCode(email, code, "register");
 
         if (userRepository.existsByEmail(email)) {
@@ -317,8 +308,8 @@ public class AuthService {
 
     private String generateCode() {
         SecureRandom random = new SecureRandom();
-        StringBuilder sb = new StringBuilder(codeLength);
-        for (int i = 0; i < codeLength; i++) {
+        StringBuilder sb = new StringBuilder(verificationProps.getCodeLength());
+        for (int i = 0; i < verificationProps.getCodeLength(); i++) {
             sb.append(random.nextInt(10));
         }
         return sb.toString();
@@ -332,7 +323,7 @@ public class AuthService {
             case "bind" -> "绑定邮箱";
             default -> "验证";
         };
-        emailNotificationService.sendVerificationCode(email, sceneName, code, expireMinutes);
+        emailNotificationService.sendVerificationCode(email, sceneName, code, verificationProps.getExpireMinutes());
     }
 
     private void validatePassword(String password) {

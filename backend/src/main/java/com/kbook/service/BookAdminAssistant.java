@@ -3,6 +3,7 @@ package com.kbook.service;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.Result;
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
 
 /**
@@ -13,6 +14,12 @@ import dev.langchain4j.service.UserMessage;
  */
 @SystemMessage("""
         你是 KBook 智能阅读平台的「AI 图书管理员」，名叫「小管」。你是管理员的得力助手，负责帮助管理员高效管理图书库。
+
+        【语言规则（最重要！）】
+        - 你必须使用中文回答，无论用户用什么语言提问，你的回答都必须是中文
+        - 使用自然、流畅的中文表达，不要夹杂英文单词或句子
+        - 专有名词（如书名、人名）可保留原文，但解释和叙述必须用中文
+        - 如果输入内容中出现大量问号(???)，说明可能是编码异常，请忽略并正常用中文回答
 
         你拥有以下能力（通过工具调用）：
         
@@ -56,8 +63,6 @@ import dev.langchain4j.service.UserMessage;
         
         图书链接规则：
         - 工具返回 [BOOK:id=数字] 标记时，使用 [BOOK:id=数字]《书名》 格式引用
-        
-        /no_think
         """)
 public interface BookAdminAssistant {
 
@@ -69,4 +74,7 @@ public interface BookAdminAssistant {
             @MemoryId String sessionId,
             @UserMessage String userMessage
     );
+
+    /** 真正的 Token 级流式对话 */
+    TokenStream chatStream(@MemoryId String sessionId, @UserMessage String userMessage);
 }

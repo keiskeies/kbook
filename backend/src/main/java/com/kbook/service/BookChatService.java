@@ -1,23 +1,29 @@
 package com.kbook.service;
 
 import com.kbook.common.util.CommonUtils;
+import com.kbook.common.util.SseHelper;
+import com.kbook.config.properties.QdrantProperties;
+import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.Book;
 import com.kbook.repository.AiConversationRepository;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -42,51 +48,101 @@ public class BookChatService {
     private final BookService bookService;
     private final AiProviderConfigService aiProviderConfigService;
     private final AiConversationRepository conversationRepository;
+    private final QdrantProperties qdrantProperties;
 
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
-    /** RAG 检索返回的最大片段数，受聊天模型上下文长度限制 */
-    @Value("${kbook.qdrant.rag-top-k:8}")
-    private int ragTopK;
-
-    /** 图书问答系统提示词模板 */
-    private static final String BOOK_CHAT_SYSTEM_PROMPT = """
-            你是 KBook 智能阅读平台的「图书伴读」AI 助手。你正在与读者讨论一本具体的书。
-            
-            你必须严格遵守以下规则：
-            1. 只根据提供的「书籍参考内容」回答问题，不要编造书中没有的内容
-            2. 如果参考内容不足以回答问题，诚实告知用户，并建议用户阅读原著获取更多信息
-            3. 回答时可以引用书中的具体段落或细节来支撑你的分析
-            4. 优先使用中文回答，语言风格友好、有深度
-            5. 当用户问及"主旨、主题、核心思想"时，从多个角度综合分析
-            6. 当用户问及"人物关系"时，尽量梳理人物之间的关联脉络
-            7. 当用户问及"叙事手法、写作技巧"时，结合具体内容分析
-            8. 当用户问及"时间线"时，按照时间顺序整理关键事件
-            9. 当用户根据书中思想提出实际应用问题时，给出基于书中理念的可行建议
-            
-            /no_think
-            """;
-
-    /** 每本书的推荐问题 — 按类型分类 */
-    private static final Map<String, List<String>> DEFAULT_QUESTIONS = Map.of(
-            "general", List.of(
-                    "这本书的主旨和核心思想是什么？",
-                    "这本书的叙事结构和写作手法有什么特点？",
+    /** 每本书的推荐问题 — 按书籍类型分类，匹配实际标签体系 */
+    private static final Map<String, List<String>> SUGGESTED_QUESTIONS = Map.ofEntries(
+            // 小说/虚构 — 悬疑、都市、奇幻、科幻、校园、武侠、冒险等
+            Map.entry("fiction", List.of(
+                    "这本书的主要人物之间是什么关系？",
+                    "故事的情节有哪些关键转折？",
+                    "主角经历了怎样的成长或变化？",
+                    "这本书的结局给你怎样的感受？"
+            )),
+            // 历史/纪实 — 历史、战争、政治、文化、社会等
+            Map.entry("history", List.of(
+                    "这本书对这段历史有什么独特的解读？",
+                    "书中哪些史实或细节最让你印象深刻？",
+                    "作者的历史观是否客观，有没有明显的立场？",
+                    "这段历史对今天有什么现实启示？"
+            )),
+            // 哲学/思想 — 哲学、人生、命运、宗教等
+            Map.entry("philosophy", List.of(
+                    "这本书讨论的核心哲学问题是什么？",
+                    "作者的观点和传统看法有什么不同？",
+                    "书中的思想如何应用到日常生活中？",
+                    "这本书对你的人生观有什么启发？"
+            )),
+            // 心理/成长 — 心理、心理学、成长、励志、认知、积极心态等
+            Map.entry("psychology", List.of(
+                    "这本书讲了哪些心理学原理或方法？",
+                    "书中哪些观点能帮助解决实际困惑？",
+                    "作者的建议有科学依据吗，还是更多经验之谈？",
+                    "这本书和同类心理学读物相比有什么不同？"
+            )),
+            // 教育/家庭 — 教育、亲子、家庭、亲情等
+            Map.entry("education", List.of(
+                    "这本书的核心教育理念是什么？",
+                    "书中哪些方法可以直接实践？",
+                    "作者的观点和传统教育观念有什么不同？",
+                    "这本书适合哪些家长或教育者阅读？"
+            )),
+            // 健康/生活 — 健康、养生、饮食、瑜伽、中医、运动等
+            Map.entry("health", List.of(
+                    "这本书的核心健康理念是什么？",
+                    "书中提供了哪些具体的实操方法？",
+                    "这些建议有哪些注意事项或适用条件？",
+                    "这本书的观点和主流认知有什么不同？"
+            )),
+            // 职场/商业 — 营销、职场、金融、效率、时间管理、沟通等
+            Map.entry("business", List.of(
+                    "这本书的核心方法论是什么？",
+                    "书中的案例和经验如何应用到自己的工作中？",
+                    "作者的观点有哪些局限性？",
+                    "这本书适合什么阶段的职场人阅读？"
+            )),
+            // 通用 — 兜底问题
+            Map.entry("general", List.of(
+                    "这本书的核心内容是什么？",
                     "这本书适合什么样的读者？",
-                    "读完这本书能获得什么启发？"
-            ),
-            "fiction", List.of(
-                    "这本书的主要人物关系是怎样的？",
-                    "故事的时间线是如何展开的？",
-                    "书中有哪些关键的情节转折？",
-                    "主角经历了怎样的成长或变化？"
-            ),
-            "nonfiction", List.of(
-                    "这本书的核心观点和论据是什么？",
-                    "作者提出了哪些解决方案或建议？",
-                    "书中的观点有哪些可以应用到实际生活中？",
-                    "这本书与同类书相比有什么独特之处？"
-            )
+                    "读完这本书最大的收获是什么？"
+            ))
+    );
+
+    /** 标签到问题类别的映射关键词 */
+    private static final Map<String, String> TAG_CATEGORY_MAP = Map.<String, String>ofEntries(
+            // 小说/虚构
+            Map.entry("小说", "fiction"), Map.entry("悬疑", "fiction"), Map.entry("推理", "fiction"),
+            Map.entry("都市", "fiction"), Map.entry("奇幻", "fiction"), Map.entry("科幻", "fiction"),
+            Map.entry("武侠", "fiction"), Map.entry("仙侠", "fiction"), Map.entry("言情", "fiction"),
+            Map.entry("校园", "fiction"), Map.entry("冒险", "fiction"), Map.entry("传奇", "fiction"),
+            Map.entry("复仇", "fiction"), Map.entry("游戏", "fiction"),
+            // 历史/纪实
+            Map.entry("历史", "history"), Map.entry("战争", "history"), Map.entry("政治", "history"),
+            Map.entry("社会", "history"), Map.entry("社会学", "history"), Map.entry("人物", "history"),
+            Map.entry("权谋", "history"), Map.entry("回忆录", "history"),
+            // 哲学/思想
+            Map.entry("哲学", "philosophy"), Map.entry("人生", "philosophy"), Map.entry("命运", "philosophy"),
+            Map.entry("传统文化", "philosophy"), Map.entry("易学", "philosophy"),
+            // 心理/成长
+            Map.entry("心理", "psychology"), Map.entry("心理学", "psychology"), Map.entry("成长", "psychology"),
+            Map.entry("励志", "psychology"), Map.entry("认知", "psychology"), Map.entry("积极心态", "psychology"),
+            Map.entry("自我成长", "psychology"), Map.entry("个人成长", "psychology"), Map.entry("孤独", "psychology"),
+            Map.entry("情感", "psychology"), Map.entry("爱情", "psychology"),
+            // 教育/家庭
+            Map.entry("教育", "education"), Map.entry("亲子", "education"), Map.entry("家庭", "education"),
+            Map.entry("亲情", "education"), Map.entry("青春", "education"),
+            // 健康/生活
+            Map.entry("健康", "health"), Map.entry("养生", "health"), Map.entry("饮食", "health"),
+            Map.entry("瑜伽", "health"), Map.entry("中医", "health"), Map.entry("生活", "health"),
+            Map.entry("自然", "health"),
+            // 职场/商业
+            Map.entry("营销", "business"), Map.entry("职场", "business"), Map.entry("金融", "business"),
+            Map.entry("效率", "business"), Map.entry("时间管理", "business"), Map.entry("沟通", "business"),
+            Map.entry("学习", "business"), Map.entry("技巧", "business"), Map.entry("记忆", "business"),
+            Map.entry("创新", "business"), Map.entry("互联网", "business")
     );
 
     /**
@@ -108,18 +164,23 @@ public class BookChatService {
 
         SseEmitter emitter = new SseEmitter(180_000L); // 3分钟超时（大书可能较慢）
 
+        // 立即发送 thinking 事件，让前端知道请求已被接受，正在检索
+        try {
+            emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍内容..."));
+        } catch (Exception ignored) {}
+
         sseExecutor.execute(() -> {
             try {
                 // 1. 获取图书信息
                 Book book = bookService.getBookById(bookId);
                 if (book == null) {
-                    sendErrorAndComplete(emitter, "图书不存在");
+                    SseHelper.sendErrorAndComplete(emitter, "图书不存在");
                     return;
                 }
 
                 // 1.5 检查是否有内容向量数据，没有则无法进行基于原著的问答
                 if (!Boolean.TRUE.equals(book.getContentEmbedded())) {
-                    sendErrorAndComplete(emitter, "该书暂未生成内容向量数据，无法进行 AI 问答");
+                    SseHelper.sendErrorAndComplete(emitter, "该书暂未生成内容向量数据，无法进行 AI 问答");
                     return;
                 }
 
@@ -127,70 +188,102 @@ public class BookChatService {
                 String ragContext = retrieveRagContext(bookId, question);
                 log.debug("RAG 检索结果长度: {}", ragContext.length());
 
+                // 检索完成，发送 thinking 更新
+                try {
+                    emitter.send(SseEmitter.event().name("thinking").data("正在生成回答..."));
+                } catch (Exception ignored) {}
+
                 // 3. 构建完整提示词
                 String fullPrompt = buildPrompt(book, question, ragContext);
 
-                // 4. 调用 LLM
-                ChatModel chatModel = aiProviderConfigService.buildTagChatModel();
-                if (chatModel == null) {
-                    sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
+                // 4. 调用 StreamingChatModel 实现真正的 token 级流式输出
+                StreamingChatModel streamingChatModel = aiProviderConfigService.buildChatStreamingModel();
+                if (streamingChatModel == null) {
+                    SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
                 }
 
-                String thinkingSuffix = aiProviderConfigService.getThinkingPromptSuffix();
                 long startTime = System.currentTimeMillis();
-                ChatResponse response = chatModel.chat(List.of(
-                        SystemMessage.from(BOOK_CHAT_SYSTEM_PROMPT),
-                        UserMessage.from(fullPrompt + thinkingSuffix)
-                ));
-                long elapsed = System.currentTimeMillis() - startTime;
-                String answer = response.aiMessage().text();
 
-                // 解析 thinking 和 token 用量
-                String thinkingContent = response.aiMessage().thinking();
-                int thinkingLength = thinkingContent != null ? thinkingContent.length() : 0;
-                int apiInputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
-                        ? response.tokenUsage().inputTokenCount() : 0;
-                int apiOutputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
-                        ? response.tokenUsage().outputTokenCount() : 0;
+                log.debug("图书问答: bookId={}, question={}, ragContextLen={}, fullPromptLen={}",
+                        bookId, question, ragContext.length(), fullPrompt.length());
 
-                log.info("========== 图书问答 AI 完整响应 ==========");
-                log.info("耗时: {}ms", elapsed);
-                log.info("Thinking长度: {} 字符 | Thinking前200字: {}",
-                        thinkingLength,
-                        thinkingContent != null && thinkingContent.length() > 200
-                                ? thinkingContent.substring(0, 200) + "..."
-                                : thinkingContent);
-                log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-                log.info("Answer: {}", answer.length() > 500 ? answer.substring(0, 500) + "..." : answer);
-                log.info("FinishReason: {}", response.finishReason());
-                log.info("Model: {}", response.modelName());
-                log.info("==========================================");
+                // 4.5 构建带历史对话的消息列表（最近 N 轮，避免上下文过长）
+                List<ChatMessage> messages = buildChatMessages(finalSessionId, userId, fullPrompt);
 
-                // 5. 分段发送 SSE
-                int chunkSize = 3;
-                for (int i = 0; i < answer.length(); i += chunkSize) {
-                    int end = Math.min(i + chunkSize, answer.length());
-                    String chunk = answer.substring(i, end);
-                    emitter.send(SseEmitter.event().name("message").data(chunk));
-                    Thread.sleep(30);
-                }
+                StringBuilder fullResponse = new StringBuilder();
 
-                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                emitter.complete();
+                streamingChatModel.chat(
+                        messages,
+                        new StreamingChatResponseHandler() {
+                            @Override
+                            public void onPartialThinking(dev.langchain4j.model.chat.response.PartialThinking partialThinking) {
+                                String thinking = partialThinking.text();
+                                if (thinking != null && !thinking.isEmpty()) {
+                                    try {
+                                        emitter.send(SseEmitter.event().name("thinking_content").data(thinking));
+                                    } catch (Exception e) {
+                                        log.warn("SSE发送thinking失败: {}", e.getMessage());
+                                    }
+                                }
+                            }
 
-                // 6. 保存对话记录
-                saveMessage(userId, finalSessionId, "user", question, bookId);
-                saveMessage(userId, finalSessionId, "assistant", answer, bookId);
+                            @Override
+                            public void onPartialResponse(String partialResponse) {
+                                fullResponse.append(partialResponse);
+                                if (!partialResponse.isEmpty()) {
+                                    try {
+                                        emitter.send(SseEmitter.event().name("message").data(partialResponse));
+                                    } catch (Exception e) {
+                                        log.warn("SSE发送token失败: {}", e.getMessage());
+                                    }
+                                }
+                            }
 
-                // 7. 记录日志（使用 API 实际 token）
-                CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
-                        String.format("bookId=%d, question=%s", bookId, question.substring(0, Math.min(30, question.length()))));
+                            @Override
+                            public void onCompleteResponse(ChatResponse completeResponse) {
+                                long elapsed = System.currentTimeMillis() - startTime;
+                                String answer = fullResponse.toString().trim();
+
+                                // 解析 token 用量
+                                int apiInputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
+                                        ? completeResponse.tokenUsage().inputTokenCount() : 0;
+                                int apiOutputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
+                                        ? completeResponse.tokenUsage().outputTokenCount() : 0;
+
+                                log.info("========== 图书问答 AI 流式响应完成 ==========");
+                                log.info("耗时: {}ms", elapsed);
+                                log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
+                                log.info("Answer: {}", answer.length() > 500 ? answer.substring(0, 500) + "..." : answer);
+                                log.info("==========================================");
+
+                                try {
+                                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                                    emitter.complete();
+                                } catch (Exception ignored) {}
+
+                                // 保存对话记录
+                                saveMessage(userId, finalSessionId, "user", question, bookId);
+                                saveMessage(userId, finalSessionId, "assistant", answer, bookId);
+
+                                // 记录日志
+                                CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
+                                        String.format("bookId=%d, question=%s", bookId, question.substring(0, Math.min(30, question.length()))));
+                            }
+
+                            @Override
+                            public void onError(Throwable error) {
+                                log.error("图书问答流式异常: bookId={} - {}", bookId, error.getMessage(), error);
+                                aiProviderConfigService.clearAssistantCache();
+                                SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(error));
+                            }
+                        }
+                );
 
             } catch (Exception e) {
                 log.error("图书问答异常: bookId={} - {}", bookId, e.getMessage(), e);
                 aiProviderConfigService.clearAssistantCache();
-                sendErrorAndComplete(emitter, "AI 响应异常: " + extractFriendlyError(e));
+                SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(e));
             }
         });
 
@@ -205,21 +298,11 @@ public class BookChatService {
      */
     public List<String> getSuggestedQuestions(Long bookId) {
         Book book = bookService.getBookById(bookId);
-        if (book == null) return DEFAULT_QUESTIONS.get("general");
+        if (book == null) return SUGGESTED_QUESTIONS.get("general");
 
-        List<String> questions = new ArrayList<>();
-
-        // 根据标签判断是小说还是非虚构
-        boolean isFiction = isLikelyFiction(book);
-
-        if (isFiction) {
-            questions.addAll(DEFAULT_QUESTIONS.get("fiction"));
-        } else {
-            questions.addAll(DEFAULT_QUESTIONS.get("nonfiction"));
-        }
-
-        // 添加通用问题
-        questions.addAll(DEFAULT_QUESTIONS.get("general"));
+        // 根据标签匹配最相关的问题类别
+        String category = detectBookCategory(book);
+        List<String> questions = new ArrayList<>(SUGGESTED_QUESTIONS.getOrDefault(category, SUGGESTED_QUESTIONS.get("general")));
 
         // 根据书籍标题生成个性化问题
         if (book.getTitle() != null) {
@@ -251,6 +334,51 @@ public class BookChatService {
 
     // ==================== 内部方法 ====================
 
+    /** 对话历史保留的最大轮数 — 使用 AiPromptConstants 统一管理 */
+    private static final int MAX_HISTORY_TURNS = AiPromptConstants.MAX_HISTORY_TURNS;
+
+    /**
+     * 构建包含系统提示词、历史对话和当前问题的完整消息列表
+     * <p>
+     * 消息顺序：SystemMessage → 历史对话(user/assistant交替) → 当前 UserMessage
+     * 历史对话最多保留最近 MAX_HISTORY_TURNS 轮，避免上下文过长
+     */
+    private List<ChatMessage> buildChatMessages(String sessionId, Long userId, String currentPrompt) {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from(AiPromptConstants.BOOK_CHAT_SYSTEM_PROMPT));
+
+        // 加载历史对话
+        try {
+            List<AiConversation> history = conversationRepository
+                    .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+            if (!history.isEmpty()) {
+                // 只取最近 MAX_HISTORY_TURNS 轮（2条/轮）
+                int startIndex = Math.max(0, history.size() - MAX_HISTORY_TURNS * 2);
+                for (int i = startIndex; i < history.size(); i++) {
+                    AiConversation conv = history.get(i);
+                    String content = conv.getContent();
+                    if (content == null || content.isBlank()) continue;
+                    // 截断过长的历史消息（避免单条消息消耗过多 token）
+                    if (content.length() > AiPromptConstants.MAX_HISTORY_MESSAGE_LENGTH) {
+                        content = content.substring(0, AiPromptConstants.MAX_HISTORY_MESSAGE_LENGTH) + "...";
+                    }
+                    if ("user".equals(conv.getRole())) {
+                        messages.add(UserMessage.from(content));
+                    } else if ("assistant".equals(conv.getRole())) {
+                        messages.add(AiMessage.from(content));
+                    }
+                }
+                log.debug("加载图书问答历史: sessionId={}, totalRecords={}, loadedFrom={}", sessionId, history.size(), startIndex);
+            }
+        } catch (Exception e) {
+            log.warn("加载图书问答历史失败，继续无历史对话: {}", e.getMessage());
+        }
+
+        // 当前用户消息
+        messages.add(UserMessage.from(currentPrompt));
+        return messages;
+    }
+
     /**
      * RAG 检索：根据问题在书籍内容向量中检索相关片段
      */
@@ -262,7 +390,7 @@ public class BookChatService {
 
         try {
             List<EmbeddingMatch<TextSegment>> matches =
-                    embeddingService.searchContent(question, ragTopK, bookId);
+                    embeddingService.searchContent(question, qdrantProperties.getRagTopK(), bookId);
 
             if (matches.isEmpty()) {
                 log.debug("RAG 检索无结果: bookId={}, question={}", bookId, question.substring(0, Math.min(30, question.length())));
@@ -279,8 +407,21 @@ public class BookChatService {
                 }
             }
 
-            log.info("RAG 检索命中: bookId={}, hits={}", bookId, matches.size());
-            return sb.toString();
+            String ragContext = sb.toString();
+            log.info("RAG 检索命中: bookId={}, hits={}, contextLen={}", bookId, matches.size(), ragContext.length());
+
+            // 编码诊断：检查 RAG 上下文中是否有乱码（中文字符被替换为 ?）
+            long questionMarkCount = ragContext.chars().filter(c -> c == '?').count();
+            if (questionMarkCount > ragContext.length() * 0.1) {
+                log.warn("[编码诊断] RAG 上下文疑似乱码! bookId={}, 问号占比={}/{}, 丢弃乱码上下文",
+                        bookId, questionMarkCount, ragContext.length());
+                // 乱码上下文会误导模型语言判断，丢弃后基于书籍元数据回答
+                return "";
+            } else {
+//                log.debug("RAG 上下文: {}", ragContext);
+            }
+
+            return ragContext;
         } catch (Exception e) {
             log.warn("RAG 检索异常: bookId={} - {}", bookId, e.getMessage());
             return "";
@@ -327,27 +468,57 @@ public class BookChatService {
         // 用户问题
         sb.append("\n【读者的问题】\n").append(question);
 
-        return sb.toString();
+        // 末尾强化指令：防止模型跑偏（分析/分类参考内容或使用英文回答）
+        sb.append("\n\n【重要提醒】请用中文直接回答上述问题，不要翻译、分类或解释参考片段。");
+
+        String prompt = sb.toString();
+
+        // 编码诊断：检查完整提示词中是否有乱码
+        long qmCount = prompt.chars().filter(c -> c == '?').count();
+        if (qmCount > prompt.length() * 0.05) {
+            log.warn("[编码诊断] 提示词疑似乱码! bookId={}, 问号占比={}/{}, JVM默认编码={}",
+                    book.getId(), qmCount, prompt.length(), java.nio.charset.Charset.defaultCharset());
+        }
+
+        return prompt;
     }
 
     /**
-     * 判断书籍是否可能是小说/虚构类
+     * 根据书籍标签检测最匹配的问题类别
+     * 优先匹配标签体系，匹配不到则按标题关键词推断，最后兜底 general
      */
-    private boolean isLikelyFiction(Book book) {
-        String fictionKeywords = "小说,奇幻,科幻,武侠,仙侠,言情,悬疑,推理,历史小说,文学,故事,冒险,冒险,fiction,novel";
-        if (book.getFormatTags() != null) {
-            String tags = book.getFormatTags().toLowerCase();
-            for (String keyword : fictionKeywords.split(",")) {
-                if (tags.contains(keyword.trim())) return true;
+    private String detectBookCategory(Book book) {
+        // 1. 优先根据 formatTags 匹配
+        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+            String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "");
+            Map<String, Integer> categoryHits = new HashMap<>();
+            for (String tag : tags.split("[,，]")) {
+                String t = tag.trim();
+                if (t.isBlank()) continue;
+                String cat = TAG_CATEGORY_MAP.get(t);
+                if (cat != null) {
+                    categoryHits.merge(cat, 1, Integer::sum);
+                }
+            }
+            // 取命中次数最多的类别
+            if (!categoryHits.isEmpty()) {
+                return categoryHits.entrySet().stream()
+                        .max(Map.Entry.comparingByValue())
+                        .map(Map.Entry::getKey)
+                        .orElse("general");
             }
         }
-        // 标题含常见小说关键词
+
+        // 2. 标题关键词推断
         if (book.getTitle() != null) {
             String title = book.getTitle();
-            return title.contains("传") || title.contains("记") || title.contains("录") ||
-                    title.contains("奇谭") || title.contains("物语") || title.contains("演义");
+            if (title.contains("传") || title.contains("记") || title.contains("录") ||
+                    title.contains("奇谭") || title.contains("物语") || title.contains("演义")) {
+                return "fiction";
+            }
         }
-        return false;
+
+        return "general";
     }
 
     private void saveMessage(Long userId, String sessionId, String role, String content, Long bookId) {
@@ -364,20 +535,4 @@ public class BookChatService {
         }
     }
 
-    private void sendErrorAndComplete(SseEmitter emitter, String message) {
-        try {
-            emitter.send(SseEmitter.event().name("error").data(message));
-            emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-            emitter.complete();
-        } catch (Exception ignored) {}
-    }
-
-    private String extractFriendlyError(Exception e) {
-        String msg = e.getMessage();
-        if (msg == null) return "AI 响应异常，请稍后重试。";
-        if (msg.contains("timed out") || msg.contains("Timeout")) return "AI 响应超时，书籍内容较多，请稍后重试。";
-        if (msg.contains("Connection refused")) return "无法连接 AI 服务，请检查模型服务状态。";
-        if (msg.contains("429")) return "AI 服务请求过于频繁，请稍后重试。";
-        return "AI 响应异常，请稍后重试。";
-    }
 }

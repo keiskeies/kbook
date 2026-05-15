@@ -5,15 +5,9 @@ import com.kbook.entity.AiConversation;
 import com.kbook.service.BookAdminChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
@@ -31,7 +25,7 @@ import java.util.Map;
 @RequestMapping("/api/admin/ai")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-public class BookAdminAiController {
+public class BookAdminAiController extends BaseController {
 
     private final BookAdminChatService adminChatService;
 
@@ -114,22 +108,4 @@ public class BookAdminAiController {
         return Result.ok();
     }
 
-    /** 从认证信息中提取用户 ID */
-    private Long extractUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()
-                || authentication instanceof AnonymousAuthenticationToken) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");
-        }
-        Object principal = authentication.getPrincipal();
-        if (principal instanceof Long) return (Long) principal;
-        if (principal instanceof UserDetails) {
-            try {
-                return Long.parseLong(((UserDetails) principal).getUsername());
-            } catch (NumberFormatException e) {
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "用户信息异常");
-            }
-        }
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户信息获取失败");
-    }
 }

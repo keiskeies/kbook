@@ -1,0 +1,56 @@
+# ========================
+# 测试环境配置 - 性能优化
+# ========================
+spring:
+  # JPA 批量插入优化
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        # 禁用二级缓存
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+        # 禁用统计信息收集
+        generate_statistics: false
+        # JDBC 批量处理
+        jdbc:
+          batch_size: 2000
+          batch_versioned_data: true
+        # 禁用脏检查（提升插入性能）
+        order_inserts: true
+        order_updates: true
+        # 禁用自动刷新
+        flush_mode: MANUAL
+        # 禁用验证（提升性能）
+        javax:
+          persistence:
+            validation:
+              mode: NONE
+  
+  # HikariCP 连接池优化
+  datasource:
+    hikari:
+      minimum-idle: 10
+      maximum-pool-size: 50
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      pool-name: KBookTestHikariCP
+  
+  # Elasticsearch 超时优化（测试环境生成大量数据时需要更长的超时）
+  elasticsearch:
+    connection-timeout: 30s
+    socket-timeout: 120s  # 增加到120秒，避免批量索引时超时
+
+# 日志级别调整（减少日志输出提升性能）
+logging:
+  level:
+    root: WARN
+    com.kbook: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN

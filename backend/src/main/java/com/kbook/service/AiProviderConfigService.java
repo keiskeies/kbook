@@ -1,313 +1,224 @@
 package com.kbook.service;
 
 import com.kbook.config.ChatModelFactory;
+import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * AI 提供商配置服务 — 全局配置管理 + 动态构建 ChatModel
+ * AI 配置服务 — 支持从数据库动态读取对话 AI 配置，未配置时回退到 yml 默认模型
  * <p>
- * 管理员可配置多个 LLM 提供商，只有 enabled=true 的配置会被使用。
- * 支持连接测试功能，验证 API 连通性。
+ * 配置优先级：
+ * 1. 数据库 ai_provider_config 表中 purpose=CHAT 且 enabled=true 的记录
+ * 2. application.yml 中的 langchain4j.ollama.chat-model 配置
  * <p>
- * ChatModel 的构建委托给 ChatModelFactory，本类不直接依赖 Ollama/OpenAI 实现类。
- * <p>
- * 注意：AiToolService 使用 ObjectProvider 延迟获取，
- * 因为 LangChain4j 的 .tools() 需要扫描真实类上的 @Tool 注解。
+ * ChatModel 的构建委托给 ChatModelFactory。
+ * AiToolService 使用 ObjectProvider 延迟获取（@Lazy 代理会导致 @Tool 注解不可见）。
  */
 @Slf4j
 @Service
 public class AiProviderConfigService {
 
-    private final AiProviderConfigRepository configRepository;
     private final AiChatMemory chatMemoryStore;
     private final ObjectProvider<AiToolService> toolServiceProvider;
     private final ChatModelFactory chatModelFactory;
+    private final AiProviderConfigRepository configRepository;
+
+    /** 对话 AI 配置的缓存版本号，每次配置变更时递增 */
+    private volatile long chatConfigVersion = 0;
+
+    /** 按版本号缓存的 AiAssistant 实例 */
+    private volatile AiAssistant cachedChatAssistant;
+    private volatile long cachedChatAssistantVersion = -1;
+
+    /** 旧版全局 Assistant 缓存（兼容保留） */
+    private final ConcurrentHashMap<String, AiAssistant> assistantCache = new ConcurrentHashMap<>();
 
     public AiProviderConfigService(
-            AiProviderConfigRepository configRepository,
             AiChatMemory chatMemoryStore,
             ObjectProvider<AiToolService> toolServiceProvider,
-            ChatModelFactory chatModelFactory
+            ChatModelFactory chatModelFactory,
+            AiProviderConfigRepository configRepository
     ) {
-        this.configRepository = configRepository;
         this.chatMemoryStore = chatMemoryStore;
         this.toolServiceProvider = toolServiceProvider;
         this.chatModelFactory = chatModelFactory;
+        this.configRepository = configRepository;
     }
 
-    /** AiAssistant 缓存（key: "global"，全局共用一个活跃实例） */
-    private final ConcurrentHashMap<String, AiAssistant> assistantCache = new ConcurrentHashMap<>();
-
-    // ==================== 配置 CRUD ====================
-
-    /** 获取所有配置 */
-    public List<AiProviderConfig> getAllConfigs() {
-        return configRepository.findAll();
-    }
-
-    /** 获取指定配置 */
-    public AiProviderConfig getConfigById(Long id) {
-        return configRepository.findById(id).orElse(null);
-    }
-
-    /** 获取当前活跃的配置 */
-    public AiProviderConfig getActiveConfig() {
-        return configRepository.findActiveConfig().orElse(null);
-    }
-
-    /** 保存配置 */
-    @Transactional
-    public AiProviderConfig saveConfig(AiProviderConfig config) {
-        if (Boolean.TRUE.equals(config.getEnabled())) {
-            disableAllConfigs();
-        }
-        AiProviderConfig saved = configRepository.save(config);
-        clearAssistantCache();
-        log.info("保存 AI 配置: id={}, name={}, provider={}, model={}, enabled={}",
-                saved.getId(), saved.getConfigName(), saved.getProvider(), saved.getModelName(), saved.getEnabled());
-        return saved;
-    }
-
-    /** 删除配置 */
-    @Transactional
-    public void deleteConfig(Long id) {
-        configRepository.deleteById(id);
-        clearAssistantCache();
-        log.info("删除 AI 配置: id={}", id);
-    }
-
-    /** 启用指定配置 */
-    @Transactional
-    public AiProviderConfig enableConfig(Long id) {
-        disableAllConfigs();
-        AiProviderConfig config = configRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("配置不存在"));
-        config.setEnabled(true);
-        AiProviderConfig saved = configRepository.save(config);
-        clearAssistantCache();
-        log.info("启用 AI 配置: id={}, name={}", id, saved.getConfigName());
-        return saved;
-    }
-
-    /** 禁用所有配置 */
-    @Transactional
-    public void disableAllConfigs() {
-        List<AiProviderConfig> enabledConfigs = configRepository.findByEnabledTrue();
-        enabledConfigs.forEach(c -> c.setEnabled(false));
-        configRepository.saveAll(enabledConfigs);
-    }
-
-    // ==================== 思考模式控制 ====================
+    // ==================== 对话 AI 配置 ====================
 
     /**
-     * 获取当前活跃配置的 Thinking prompt 后缀
+     * 获取对话用途的数据库配置（CHAT purpose），如果不存在或未启用则返回 null
+     */
+    public AiProviderConfig getChatConfig() {
+        return configRepository.findByPurposeAndEnabledTrue(AiProviderConfig.Purpose.CHAT.name())
+                .orElse(null);
+    }
+
+    /**
+     * 构建对话用的 ChatModel
      * <p>
-     * Qwen3 系列模型支持通过 prompt 指令控制思考模式：
-     * - thinkingLevel = NONE 时追加 "/no_think"，关闭思考（快速响应）
-     * - thinkingLevel != NONE 时不追加，保持模型默认思考行为
+     * 优先使用数据库 CHAT 配置，未配置时回退到 yml 默认（标签评分模型）
+     */
+    public ChatModel buildChatChatModel() {
+        AiProviderConfig config = getChatConfig();
+        if (config != null) {
+            log.debug("使用数据库对话配置: provider={}, model={}", config.getProvider(), config.getModelName());
+        } else {
+            log.debug("无数据库对话配置，回退到 yml 默认模型");
+        }
+        return chatModelFactory.buildChatModel(config);
+    }
+
+    /**
+     * 构建对话用的 StreamingChatModel
      * <p>
-     * 对非 Qwen 模型，追加此后缀也无害（模型会忽略不认识的指令）。
+     * 优先使用数据库 CHAT 配置，未配置时回退到 yml 默认
      */
-    public String getThinkingPromptSuffix() {
-        AiProviderConfig activeConfig = getActiveConfig();
-        if (activeConfig == null) {
-            return "";
-        }
-        String thinkingLevel = activeConfig.getThinkingLevel();
-        if (thinkingLevel == null || "NONE".equalsIgnoreCase(thinkingLevel)) {
-            return " /no_think";
-        }
-        return "";
+    public StreamingChatModel buildChatStreamingModel() {
+        AiProviderConfig config = getChatConfig();
+        return chatModelFactory.buildStreamingChatModel(config);
     }
 
     /**
-     * 判断当前活跃配置是否启用了思考模式
+     * 判断对话模型是否支持 Tool Calling
      */
-    public boolean isThinkingEnabled() {
-        AiProviderConfig activeConfig = getActiveConfig();
-        if (activeConfig == null) {
-            return false;
-        }
-        String thinkingLevel = activeConfig.getThinkingLevel();
-        return thinkingLevel != null && !"NONE".equalsIgnoreCase(thinkingLevel);
+    public boolean isChatToolsSupported() {
+        AiProviderConfig config = getChatConfig();
+        return chatModelFactory.isToolsSupported(config);
     }
 
-    // ==================== 连接测试 ====================
-
     /**
-     * 测试 AI 提供商连接
-     * @return 测试结果（成功/失败 + 响应信息）
+     * 获取对话 AiAssistant（带版本缓存）
+     * <p>
+     * 当管理员更新对话配置后，调用 invalidateChatCache() 使缓存失效，
+     * 下次获取时将重新构建 Assistant。
      */
-    public ConnectionTestResult testConnection(AiProviderConfig config) {
-        long startTime = System.currentTimeMillis();
-        try {
-            log.info("========== AI 连接测试请求 ==========");
-            log.info("提供商: {}", config.getProvider());
-            log.info("模型名称: {}", config.getModelName());
-            log.info("基础 URL: {}", config.getBaseUrl());
-            log.info("测试问题: 你好");
-            
-            ChatModel chatModel = chatModelFactory.buildChatModel(config);
-            String thinkingSuffix = (config.getThinkingLevel() == null || "NONE".equalsIgnoreCase(config.getThinkingLevel()))
-                    ? " /no_think" : "";
-            ChatResponse response = chatModel.chat(List.of(
-                    UserMessage.from("你好" + thinkingSuffix)
-            ));
-            String reply = response.aiMessage().text();
-            long elapsed = System.currentTimeMillis() - startTime;
-            
-            int inputTokens = estimateTokens("你好");
-            int outputTokens = estimateTokens(reply);
-            double totalTokens = inputTokens + outputTokens;
-            double tokensPerSecond = (elapsed > 0) ? (totalTokens / (elapsed / 1000.0)) : 0;
-            
-            log.info("测试回答: {}", reply);
-            log.info("耗时: {}ms | 输入tokens: {} | 输出tokens: {} | 总tokens: {} | 速度: {} tokens/s",
-                    elapsed, inputTokens, outputTokens, (int)totalTokens, String.format("%.2f", tokensPerSecond));
-            log.info("====================================\n");
-            
-            return ConnectionTestResult.success("连接成功 (" + elapsed + "ms)", reply, config.getModelName());
-        } catch (Exception e) {
-            long elapsed = System.currentTimeMillis() - startTime;
-            log.warn("AI 连接测试失败: provider={}, model={}, 耗时={}ms, error={}",
-                    config.getProvider(), config.getModelName(), elapsed, e.getMessage());
-            log.info("====================================\n");
-            return ConnectionTestResult.fail("连接失败 (" + elapsed + "ms): " + e.getMessage());
+    public AiAssistant getChatAssistant(Long userId) {
+        long currentVersion = chatConfigVersion;
+        if (cachedChatAssistant != null && cachedChatAssistantVersion == currentVersion) {
+            return cachedChatAssistant;
+        }
+
+        synchronized (this) {
+            // 双重检查
+            if (cachedChatAssistant != null && cachedChatAssistantVersion == currentVersion) {
+                return cachedChatAssistant;
+            }
+            cachedChatAssistant = buildChatAssistant();
+            cachedChatAssistantVersion = currentVersion;
+            return cachedChatAssistant;
         }
     }
 
     /**
-     * 测试已保存配置的连接（按 ID）
+     * 使对话缓存失效（配置变更时调用）
      */
-    public ConnectionTestResult testConnectionById(Long id) {
-        AiProviderConfig config = configRepository.findById(id).orElse(null);
-        if (config == null) {
-            return ConnectionTestResult.fail("配置不存在");
-        }
-        return testConnection(config);
+    public void invalidateChatCache() {
+        chatConfigVersion++;
+        cachedChatAssistant = null;
+        log.info("对话 AI 缓存已失效，下次请求将重新构建 Assistant");
     }
-
-    // ==================== Assistant 构建 ====================
 
     /**
-     * 获取全局 AiAssistant（带缓存）
-     * @return AiAssistant，如果没有可用的 AI 配置则返回 null
+     * 清除所有缓存（兼容旧代码）
      */
-    public AiAssistant getAssistant(Long userId) {
-        return assistantCache.computeIfAbsent("global", k -> buildAssistant());
-    }
-
-    /** 清除 Assistant 缓存 */
     public void clearAssistantCache() {
         assistantCache.clear();
-        log.debug("已清除 AI Assistant 缓存");
+        invalidateChatCache();
+        log.debug("已清除所有 AI Assistant 缓存");
     }
 
-    /**
-     * 构建用于标签生成的 ChatModel（不需要 tools 和 memory）
-     * @return ChatModel，如果没有可用的 AI 配置则使用默认
-     */
+    // ==================== 标签/评分/OCR 配置（仍用 yml） ====================
+
     public ChatModel buildTagChatModel() {
-        AiProviderConfig activeConfig = getActiveConfig();
-        return chatModelFactory.buildChatModelOrDefault(activeConfig);
+        return chatModelFactory.buildChatModel();
     }
 
-    /**
-     * 构建用于 PDF OCR 的视觉 ChatModel
-     * <p>
-     * 优先使用管理员配置的活跃模型（需支持视觉/多模态能力），
-     * 如果管理员配置的模型不支持视觉，仍会尝试调用（调用失败时会回退到 PDFTextStripper）。
-     * OCR 需要更长的超时时间（图片编码消耗更多 token），默认 10 分钟。
-     *
-     * @return ChatModel，如果没有可用的 AI 配置则使用默认
-     */
+    public StreamingChatModel buildStreamingChatModel() {
+        return chatModelFactory.buildStreamingChatModel();
+    }
+
     public ChatModel buildVisionChatModel() {
-        AiProviderConfig activeConfig = getActiveConfig();
-        return chatModelFactory.buildVisionChatModel(activeConfig);
+        return chatModelFactory.buildVisionChatModel();
     }
 
+    // ==================== 旧版全局 Assistant（兼容保留） ====================
+
     /**
-     * 根据当前活跃配置构建 AiAssistant
+     * @deprecated 使用 {@link #getChatAssistant(Long)} 代替
      */
-    private AiAssistant buildAssistant() {
-        AiProviderConfig activeConfig = getActiveConfig();
-        ChatModel chatModel = chatModelFactory.buildChatModelOrDefault(activeConfig);
+    @Deprecated
+    public AiAssistant getAssistant(Long userId) {
+        return assistantCache.computeIfAbsent("global", k -> buildLegacyAssistant());
+    }
 
-        if (activeConfig != null) {
-            log.info("构建自定义 AI Assistant: provider={}, model={}",
-                    activeConfig.getProvider(), activeConfig.getModelName());
-        } else {
-            log.debug("使用默认 AI Assistant（无自定义配置）");
-        }
+    // ==================== 内部方法 ====================
 
-        return AiServices.builder(AiAssistant.class)
+    /**
+     * 构建对话用途的 AiAssistant（使用数据库配置或 yml 回退）
+     */
+    private AiAssistant buildChatAssistant() {
+        AiProviderConfig config = getChatConfig();
+        String modelName = config != null ? config.getModelName() : chatModelFactory.getModelName();
+        boolean toolsSupported = chatModelFactory.isToolsSupported(config);
+
+        log.info("构建对话 AI Assistant: source={}, model={}, toolsEnabled={}",
+                config != null ? "DB(config)" : "yml(default)", modelName, toolsSupported);
+
+        ChatModel chatModel = chatModelFactory.buildChatModel(config);
+        StreamingChatModel streamingModel = chatModelFactory.buildStreamingChatModel(config);
+
+        var builder = AiServices.builder(AiAssistant.class)
                 .chatModel(chatModel)
+                .streamingChatModel(streamingModel)
                 .chatMemoryProvider(sessionId -> dev.langchain4j.memory.chat.MessageWindowChatMemory.builder()
                         .id(sessionId)
-                        .maxMessages(20)
+                        .maxMessages(AiPromptConstants.ADMIN_MAX_MESSAGES)
                         .chatMemoryStore(chatMemoryStore)
-                        .build())
-                .tools(toolServiceProvider.getObject())
-                .build();
+                        .build());
+
+        if (toolsSupported) {
+            builder.tools(toolServiceProvider.getObject());
+        } else {
+            log.warn("对话模型 {} 不支持 Tool Calling，AI 助理将以纯对话模式运行", modelName);
+        }
+
+        return builder.build();
     }
 
     /**
-     * 估算文本的 token 数量（粗略估算：中文约1字符=1token，英文约4字符=1token）
+     * 构建旧版全局 Assistant（从 yml 配置，兼容保留）
      */
-    private int estimateTokens(String text) {
-        if (text == null || text.isEmpty()) {
-            return 0;
-        }
-        int chineseChars = 0;
-        int otherChars = 0;
-        for (char c : text.toCharArray()) {
-            if (c >= '一' && c <= '鿿') {
-                chineseChars++;
-            } else {
-                otherChars++;
-            }
-        }
-        return chineseChars + (otherChars / 4);
-    }
+    private AiAssistant buildLegacyAssistant() {
+        String modelName = chatModelFactory.getModelName();
+        boolean toolsSupported = chatModelFactory.isToolsSupported();
+        log.info("构建旧版 AI Assistant: model={}, toolsEnabled={}", modelName, toolsSupported);
 
-    // ==================== 内部类 ====================
+        var builder = AiServices.builder(AiAssistant.class)
+                .chatModel(chatModelFactory.buildChatModel())
+                .streamingChatModel(chatModelFactory.buildStreamingChatModel())
+                .chatMemoryProvider(sessionId -> dev.langchain4j.memory.chat.MessageWindowChatMemory.builder()
+                        .id(sessionId)
+                        .maxMessages(AiPromptConstants.ADMIN_MAX_MESSAGES)
+                        .chatMemoryStore(chatMemoryStore)
+                        .build());
 
-    /** 连接测试结果 */
-    @lombok.Data
-    @lombok.AllArgsConstructor(staticName = "of")
-    @lombok.NoArgsConstructor
-    public static class ConnectionTestResult {
-        private boolean success;
-        private String message;
-        private String reply;
-        private String modelName;
-
-        public static ConnectionTestResult success(String message, String reply, String modelName) {
-            ConnectionTestResult r = new ConnectionTestResult();
-            r.setSuccess(true);
-            r.setMessage(message);
-            r.setReply(reply);
-            r.setModelName(modelName);
-            return r;
+        if (toolsSupported) {
+            builder.tools(toolServiceProvider.getObject());
+        } else {
+            log.warn("当前模型 {} 不支持 Tool Calling，AI 助理将以纯对话模式运行（无法调用图书搜索、推荐等工具）", modelName);
         }
 
-        public static ConnectionTestResult fail(String message) {
-            ConnectionTestResult r = new ConnectionTestResult();
-            r.setSuccess(false);
-            r.setMessage(message);
-            return r;
-        }
+        return builder.build();
     }
 }

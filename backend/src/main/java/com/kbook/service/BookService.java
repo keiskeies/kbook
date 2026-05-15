@@ -2,12 +2,11 @@ package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.document.BookDocument;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -36,18 +35,19 @@ public class BookService {
     private final EmbeddingService embeddingService;
     private final StringRedisTemplate redisTemplate;
 
+    private final BookStorageProperties storageProps;
+
     public BookService(BookRepository bookRepository,
                        BookSearchService bookSearchService,
                        @Lazy EmbeddingService embeddingService,
-                       StringRedisTemplate redisTemplate) {
+                       StringRedisTemplate redisTemplate,
+                       BookStorageProperties storageProps) {
         this.bookRepository = bookRepository;
         this.bookSearchService = bookSearchService;
         this.embeddingService = embeddingService;
         this.redisTemplate = redisTemplate;
+        this.storageProps = storageProps;
     }
-
-    @Value("${kbook.cover-path:./covers}")
-    private String coverPath;
 
     /**
      * 图书入库（JPA + ES 双写）
@@ -190,12 +190,11 @@ public class BookService {
      * 更新8维度相关度得分
      */
     @Transactional
-    public Book updateRelevanceScores(Long bookId, String scoresJson) {
+    public void updateRelevanceScores(Long bookId, String scoresJson) {
         Book book = getBookById(bookId);
         book.setRelevanceScores(scoresJson);
         Book saved = bookRepository.save(book);
         bookSearchService.indexBook(saved);
-        return saved;
     }
 
     /**
@@ -214,13 +213,12 @@ public class BookService {
     /**
      * 更新图书简介
      */
-    public Book updateDescription(Long bookId, String description) {
+    public void updateDescription(Long bookId, String description) {
         Book book = getBookById(bookId);
         book.setDescription(description);
         Book saved = bookRepository.save(book);
         bookSearchService.indexBook(saved);
         log.info("图书简介更新: bookId={}, 字数={}", bookId, description != null ? description.length() : 0);
-        return saved;
     }
 
     /**
@@ -381,7 +379,7 @@ public class BookService {
         try {
             // 封面URL格式：/api/books/admin/cover/filename.jpg 或 /api/books/cover/filename.jpg
             String filename = coverUrl.substring(coverUrl.lastIndexOf('/') + 1);
-            Path imagePath = Paths.get(coverPath).resolve(filename);
+            Path imagePath = Paths.get(storageProps.getCoverPath()).resolve(filename);
             if (Files.exists(imagePath)) {
                 Files.delete(imagePath);
                 log.debug("删除封面图片: {}", imagePath);
@@ -398,7 +396,7 @@ public class BookService {
         try {
             // 清除所有推荐缓存
             var recommendKeys = redisTemplate.keys("kbook:recommend:*");
-            if (recommendKeys != null && !recommendKeys.isEmpty()) {
+            if (!recommendKeys.isEmpty()) {
                 redisTemplate.delete(recommendKeys);
             }
             // 清除榜单缓存

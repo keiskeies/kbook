@@ -1,13 +1,14 @@
 package com.kbook.config;
 
-import com.kbook.common.api.Result;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.common.api.Result;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -34,9 +35,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request,
-                                    HttpServletResponse response,
-                                    FilterChain filterChain) throws ServletException, IOException {
+    protected void doFilterInternal(@NonNull HttpServletRequest request,
+                                    @NonNull HttpServletResponse response,
+                                    @NonNull FilterChain filterChain) throws ServletException, IOException {
         String token = extractToken(request);
 
         if (StringUtils.hasText(token) && jwtUtil.validateToken(token)) {
@@ -44,7 +45,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 if (isTokenBlacklisted(token)) {
                     log.debug("Token 已在黑名单中: uri={}", request.getRequestURI());
-                    sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "Token 已失效，请重新登录");
+                    sendErrorResponse(response, "Token 已失效，请重新登录");
                     return;
                 }
             } catch (Exception e) {
@@ -65,7 +66,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 log.debug("JWT 认证成功: userId={}, role={}, uri={}", userId, role, request.getRequestURI());
             } catch (Exception e) {
                 log.warn("Token 解析失败: {} - {}", request.getRequestURI(), e.getMessage());
-                sendErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "Token 无效或已过期");
+                sendErrorResponse(response, "Token 无效或已过期");
                 return;
             }
         } else if (StringUtils.hasText(token)) {
@@ -92,10 +93,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return null;
     }
 
-    private void sendErrorResponse(HttpServletResponse response, int status, String message) throws IOException {
-        response.setStatus(status);
+    private void sendErrorResponse(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write(objectMapper.writeValueAsString(Result.fail(status, message)));
+        response.getWriter().write(objectMapper.writeValueAsString(Result.fail(HttpServletResponse.SC_UNAUTHORIZED, message)));
     }
 
     /**
@@ -106,13 +107,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         return path.equals("/api/auth/send-code") ||
-               path.startsWith("/api/auth/login/") ||
-               path.equals("/api/auth/register") ||
-               path.equals("/api/auth/refresh") ||
-               path.equals("/api/auth/reset-password") ||
-               path.startsWith("/api/public/") ||
-               path.equals("/api/health") ||
-               path.startsWith("/swagger") ||
-               path.startsWith("/actuator");
+                path.startsWith("/api/auth/login/") ||
+                path.equals("/api/auth/register") ||
+                path.equals("/api/auth/refresh") ||
+                path.equals("/api/auth/reset-password") ||
+                path.startsWith("/api/public/") ||
+                path.equals("/api/health") ||
+                path.startsWith("/swagger") ||
+                path.startsWith("/actuator");
     }
 }

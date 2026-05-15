@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 点击验证码服务
- *
+ * <p>
  * 原理：
  * 1. 后端生成一组随机图形（形状+颜色+大小），从中随机选择一个目标图形
  * 2. 前端展示图形网格，用户点击与目标匹配的图形
@@ -92,9 +92,7 @@ public class ClickCaptchaService {
 
         // 生成图形网格
         List<CaptchaItem> items = new ArrayList<>();
-        Set<String> usedCombos = new HashSet<>();
         String targetCombo = targetShape + ":" + targetColor + ":" + targetSize;
-        usedCombos.add(targetCombo);
 
         // 先放置目标图形（在随机位置）
         List<Integer> positions = new ArrayList<>();
@@ -102,14 +100,14 @@ public class ClickCaptchaService {
         Collections.shuffle(positions);
 
         // 放置 TARGET_COUNT 个目标
-        List<Integer> targetPositions = new ArrayList<>();
+        List<Integer> answer = new ArrayList<>();
         for (int i = 0; i < TARGET_COUNT; i++) {
-            targetPositions.add(positions.get(i));
+            answer.add(positions.get(i));
         }
 
         // 填充所有9个格子
         for (int i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
-            if (targetPositions.contains(i)) {
+            if (answer.contains(i)) {
                 items.add(new CaptchaItem(i, targetShape, targetColor, targetSize,
                         COLOR_HEX.getOrDefault(targetColor, "#999999"), true));
             } else {
@@ -135,7 +133,6 @@ public class ClickCaptchaService {
         CaptchaData data = new CaptchaData(captchaId, hint, items);
 
         // 存储答案到 Redis（只存目标位置索引）
-        List<Integer> answer = targetPositions;
         try {
             String json = objectMapper.writeValueAsString(new CaptchaAnswer(captchaId, answer));
             redisTemplate.opsForValue().set(CAPTCHA_PREFIX + captchaId, json, EXPIRE_SECONDS, TimeUnit.SECONDS);
@@ -207,9 +204,12 @@ public class ClickCaptchaService {
 
     // ========== DTO ==========
 
-    public record CaptchaData(String captchaId, String hint, List<CaptchaItem> items) {}
+    public record CaptchaData(String captchaId, String hint, List<CaptchaItem> items) {
+    }
 
-    public record CaptchaItem(int index, String shape, String color, String size, String colorHex, boolean isTarget) {}
+    public record CaptchaItem(int index, String shape, String color, String size, String colorHex, boolean isTarget) {
+    }
 
-    record CaptchaAnswer(String captchaId, List<Integer> positions) {}
+    record CaptchaAnswer(String captchaId, List<Integer> positions) {
+    }
 }

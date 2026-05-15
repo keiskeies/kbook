@@ -26,31 +26,45 @@ public class AiConversation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** 用户 ID */
+    /**
+     * 用户 ID
+     */
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    /** 会话 ID（一次多轮对话共享） */
+    /**
+     * 会话 ID（一次多轮对话共享）
+     */
     @Column(name = "session_id", nullable = false, length = 36)
     private String sessionId;
 
-    /** 角色：user / assistant / system / tool */
+    /**
+     * 角色：user / assistant / system / tool
+     */
     @Column(nullable = false, length = 20)
     private String role;
 
-    /** 消息内容 */
+    /**
+     * 消息内容
+     */
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
-    /** 工具调用 ID（当 role=tool 时记录） */
+    /**
+     * 工具调用 ID（当 role=tool 时记录）
+     */
     @Column(name = "tool_call_id", length = 100)
     private String toolCallId;
 
-    /** 工具名称（当 role=tool 时记录） */
+    /**
+     * 工具名称（当 role=tool 时记录）
+     */
     @Column(name = "tool_name", length = 100)
     private String toolName;
 
-    /** Token 消耗 */
+    /**
+     * Token 消耗
+     */
     @Column(name = "token_count")
     private Integer tokenCount;
 

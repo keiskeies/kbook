@@ -20,6 +20,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "users", uniqueConstraints = {
         @UniqueConstraint(name = "uk_email", columnNames = "email")
+}, indexes = {
+        @Index(name = "idx_users_status", columnList = "status")
 })
 public class User {
 

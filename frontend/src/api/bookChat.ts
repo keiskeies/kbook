@@ -13,6 +13,8 @@ export function streamBookChat(
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (error: Error) => void,
+  onThinking?: (status: string) => void,
+  onThinkingContent?: (chunk: string) => void,
 ): AbortController {
   const controller = new AbortController()
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
@@ -75,6 +77,10 @@ export function streamBookChat(
                 } else if (currentEventName === 'error') {
                   onError(new Error(data))
                   return
+                } else if (currentEventName === 'thinking') {
+                  onThinking?.(data)
+                } else if (currentEventName === 'thinking_content') {
+                  onThinkingContent?.(data)
                 } else {
                   if (data === '[DONE]') {
                     onDone()

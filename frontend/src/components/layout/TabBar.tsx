@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Home, Trophy, Bot, BookOpen, User } from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { cn } from '@/lib/utils'
+import { useUiStore } from '@/store/ui'
 
 const tabs = [
   { path: ROUTES.HOME, label: '首页', icon: Home },
@@ -14,8 +15,11 @@ const tabs = [
 export function TabBar() {
   const location = useLocation()
   const navigate = useNavigate()
+  const tabBarVisible = useUiStore((s) => s.tabBarVisible)
 
   const isActive = (path: string) => location.pathname.startsWith(path)
+
+  if (!tabBarVisible) return null
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-gradient-to-t from-primary/8 via-primary/3 to-transparent backdrop-blur-xl safe-area-bottom">

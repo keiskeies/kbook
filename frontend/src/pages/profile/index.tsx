@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
-import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, Bot, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
+import { useUiStore } from '@/store/ui'
 import { useNavigate } from 'react-router-dom'
 import { ROUTES } from '@/constants'
 import { toast } from 'sonner'
@@ -38,8 +39,7 @@ const EDUCATION_OPTIONS = [
 ]
 
 const ENTREPRENEURSHIP_OPTIONS = [
-  { value: 'ENTREPRENEUR', label: '正在创业' },
-  { value: 'WANT_ENTREPRENEUR', label: '想创业' },
+  { value: 'ENTREPRENEUR_OR_WANT', label: '正在创业/想创业' },
   { value: 'NOT_INTERESTED', label: '暂不考虑' },
 ]
 
@@ -78,6 +78,7 @@ function calcAge(birthday: string | null | undefined): number | null {
 
 export default function ProfilePage() {
   const { userInfo, updateUserInfo, logout } = useAuthStore()
+  const setTabBarVisible = useUiStore((s) => s.setTabBarVisible)
   const navigate = useNavigate()
   const [stats, setStats] = useState<ReadingStats | null>(null)
   const [shelfCount, setShelfCount] = useState<number>(0)
@@ -141,8 +142,14 @@ export default function ProfilePage() {
       if (edu) parts.push(edu.label)
     }
     if (userInfo?.entrepreneurship) {
-      const ent = ENTREPRENEURSHIP_OPTIONS.find(o => o.value === userInfo.entrepreneurship)
-      if (ent) parts.push(ent.label)
+      const val = userInfo.entrepreneurship
+      // 兼容旧值：ENTREPRENEUR / WANT_ENTREPRENEUR → 合并为新标签
+      if (val === 'ENTREPRENEUR' || val === 'WANT_ENTREPRENEUR') {
+        parts.push('正在创业/想创业')
+      } else {
+        const ent = ENTREPRENEURSHIP_OPTIONS.find(o => o.value === val)
+        if (ent) parts.push(ent.label)
+      }
     }
     if (userInfo?.annualIncome && userInfo.annualIncome !== 'PREFER_NOT_TO_SAY') {
       const inc = ANNUAL_INCOME_OPTIONS.find(o => o.value === userInfo.annualIncome)
@@ -155,6 +162,13 @@ export default function ProfilePage() {
     getReadingStats().then((res) => setStats((res as any) || null)).catch(() => {})
     getBookshelfCount().then((res) => setShelfCount((res as any) || 0)).catch(() => {})
   }, [])
+
+  // 弹窗打开时隐藏 TabBar，关闭时恢复
+  useEffect(() => {
+    const anyModalOpen = showProfileModal || showTraitsModal || showPreferenceModal
+    setTabBarVisible(!anyModalOpen)
+    return () => setTabBarVisible(true)
+  }, [showProfileModal, showTraitsModal, showPreferenceModal])
 
   // 打开用户信息编辑弹窗时同步最新数据
   useEffect(() => {
@@ -218,8 +232,8 @@ export default function ProfilePage() {
 
   const adminMenuItems = [
     { label: '图书管理', icon: BookMarked, path: ROUTES.ADMIN_BOOKS, badge: '' },
-    { label: 'AI 模型配置', icon: Bot, path: ROUTES.ADMIN_AI_CONFIG, badge: '' },
     { label: '用户审核', icon: ShieldCheck, path: ROUTES.ADMIN_REVIEW, badge: '' },
+    { label: 'AI 配置', icon: Settings, path: ROUTES.ADMIN_AI_CONFIG, badge: '' },
     ...(needBindEmail
       ? [{ label: '绑定邮箱', icon: Mail, path: ROUTES.ADMIN_BIND_EMAIL, badge: '待绑定' }]
       : []),
@@ -524,15 +538,18 @@ export default function ProfilePage() {
               {/* 分组菜单项 */}
               {group.items.map((item, i) => {
                 const Icon = item.icon
+                const isCustom = !!(item as any).custom
+                const Wrapper = isCustom ? 'div' : 'button'
                 return (
-                  <button
+                  <Wrapper
                     key={item.label}
-                    onClick={() => {
-                      if ((item as any).custom) return
-                      if ((item as any).action) (item as any).action()
-                      else if (item.path) navigate(item.path)
-                    }}
-                    className={`flex w-full items-center justify-between px-4 py-3 active:bg-muted/50 transition-colors ${
+                    {...(isCustom ? {} : {
+                      onClick: () => {
+                        if ((item as any).action) (item as any).action()
+                        else if (item.path) navigate(item.path)
+                      }
+                    })}
+                    className={`flex w-full items-center justify-between px-4 py-3 ${isCustom ? '' : 'active:bg-muted/50'} transition-colors ${
                       i < group.items.length - 1 ? 'border-b border-border/50' : ''
                     }`}
                   >
@@ -542,7 +559,7 @@ export default function ProfilePage() {
                       </div>
                       <span className="text-sm font-medium shrink-0">{item.label}</span>
                     </div>
-                    {(item as any).custom ? (
+                    {isCustom ? (
                       <ThemeToggle />
                     ) : (
                       <div className="flex items-center gap-2 min-w-0 ml-auto">
@@ -552,7 +569,7 @@ export default function ProfilePage() {
                         <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                       </div>
                     )}
-                  </button>
+                  </Wrapper>
                 )
               })}
             </div>
@@ -681,7 +698,7 @@ export default function ProfilePage() {
       {/* 画像编辑弹窗 */}
       {showTraitsModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowTraitsModal(false)}>
-          <div className="w-full max-w-lg max-h-[85vh] rounded-t-3xl bg-card shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-lg max-h-[85vh] rounded-t-3xl bg-card shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex justify-center pt-3 pb-1">
               <div className="h-1 w-10 rounded-full bg-muted-foreground/20" />
             </div>
@@ -690,7 +707,7 @@ export default function ProfilePage() {
               <button onClick={() => setShowTraitsModal(false)} className="text-muted-foreground text-sm font-medium">关闭</button>
             </div>
             <p className="px-5 pt-1 text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</p>
-            <div className="overflow-y-auto px-5 py-4 space-y-4" style={{ paddingBottom: 'calc(1rem + 5rem)' }}>
+            <div className="w-full min-w-0 overflow-y-auto overflow-x-hidden px-5 py-4 space-y-4" style={{ paddingBottom: 'calc(1rem + 5rem)' }}>
 
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">出生日期</label>
@@ -699,7 +716,7 @@ export default function ProfilePage() {
                 value={traitBirthday}
                 onChange={(e) => setTraitBirthday(e.target.value)}
                 max={new Date().toISOString().split('T')[0]}
-                className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
+                className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
               />
               {traitBirthday && (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -711,7 +728,7 @@ export default function ProfilePage() {
             <select
               value={traitGender}
               onChange={(e) => setTraitGender(e.target.value)}
-              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
             >
               <option value="">选择性别</option>
               <option value="MALE">男</option>
@@ -722,7 +739,7 @@ export default function ProfilePage() {
             <select
               value={traitMarried}
               onChange={(e) => setTraitMarried(e.target.value)}
-              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
             >
               <option value="">婚姻状况</option>
               <option value="yes">已婚</option>
@@ -732,7 +749,7 @@ export default function ProfilePage() {
             <select
               value={traitHasChildren}
               onChange={(e) => setTraitHasChildren(e.target.value)}
-              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
             >
               <option value="">是否有孩子</option>
               <option value="yes">有孩子</option>
@@ -742,7 +759,7 @@ export default function ProfilePage() {
             <select
               value={traitMbti}
               onChange={(e) => setTraitMbti(e.target.value)}
-              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
             >
               <option value="">MBTI 人格</option>
               {MBTI_OPTIONS.map(m => (
@@ -783,9 +800,9 @@ export default function ProfilePage() {
             <select
               value={traitEducation}
               onChange={(e) => setTraitEducation(e.target.value)}
-              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
             >
-              <option value="">最高学历</option>
+              <option value="">当前/目标学历</option>
               {EDUCATION_OPTIONS.map(e => (
                 <option key={e.value} value={e.value}>{e.label}</option>
               ))}
@@ -795,7 +812,7 @@ export default function ProfilePage() {
             <select
               value={traitEntrepreneurship}
               onChange={(e) => setTraitEntrepreneurship(e.target.value)}
-              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
             >
               <option value="">创业意向</option>
               {ENTREPRENEURSHIP_OPTIONS.map(e => (
@@ -807,9 +824,9 @@ export default function ProfilePage() {
             <select
               value={traitAnnualIncome}
               onChange={(e) => setTraitAnnualIncome(e.target.value)}
-              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
             >
-              <option value="">年收入范围</option>
+              <option value="">当前/期望年收入</option>
               {ANNUAL_INCOME_OPTIONS.map(e => (
                 <option key={e.value} value={e.value}>{e.label}</option>
               ))}

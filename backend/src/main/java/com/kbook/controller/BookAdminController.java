@@ -8,9 +8,9 @@ import com.kbook.service.BookParserService;
 import com.kbook.service.BookScanService;
 import com.kbook.service.BookService;
 import com.kbook.service.EmbeddingService;
+import com.kbook.config.properties.BookStorageProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +24,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 管理员图书管理控制器 — 扫描、上传、封面
@@ -39,36 +40,24 @@ public class BookAdminController {
     private final BookParserService bookParserService;
     private final BookRepository bookRepository;
     private final EmbeddingService embeddingService;
-
-    @Value("${kbook.book-paths.epub}")
-    private String epubPath;
-
-    @Value("${kbook.book-paths.pdf}")
-    private String pdfPath;
-
-    @Value("${kbook.book-paths.txt}")
-    private String txtPath;
-
-    @Value("${kbook.cover-path:./covers}")
-    private String coverPath;
-
-    @Value("${kbook.scan.content-embed-min-rating:3.5}")
-    private double contentEmbedMinRating;
-
-    @Value("${kbook.scan.content-embed-max-size-mb:10}")
-    private double contentEmbedMaxSizeMb;
+    private final BookStorageProperties storageProps;
 
     /**
      * 判断书籍是否应该存储内容向量（评分达标 + 文件大小未超限）
      */
     private boolean shouldEmbedContent(Book book) {
-        if (book.getRating() == null || book.getRating() < contentEmbedMinRating) {
+        if (book.getRating() == null || book.getRating() < storageProps.getScan().getContentEmbedMinRating()) {
             return false;
         }
-        if (book.getFileSize() != null && book.getFileSize() > contentEmbedMaxSizeMb * 1024 * 1024) {
-            return false;
-        }
-        return true;
+        return passesContentEmbedPreCheck(book);
+    }
+
+    /**
+     * 内容向量预检查（不依赖 AI 评分，可在 AI 数据生成前判断）
+     */
+    private boolean passesContentEmbedPreCheck(Book book) {
+        double maxSizeMb = storageProps.getScan().getContentEmbedMaxSizeMb();
+        return !(maxSizeMb > 0) || book.getFileSize() == null || !(book.getFileSize() > maxSizeMb * 1024 * 1024);
     }
 
     /**
@@ -122,10 +111,10 @@ public class BookAdminController {
 
         // 确定存储目录
         String targetDir = switch (extension) {
-            case "EPUB" -> epubPath;
-            case "PDF" -> pdfPath;
-            case "TXT" -> txtPath;
-            default -> epubPath;
+            case "EPUB" -> storageProps.getBookPaths().getEpub();
+            case "PDF" -> storageProps.getBookPaths().getPdf();
+            case "TXT" -> storageProps.getBookPaths().getTxt();
+            default -> storageProps.getBookPaths().getEpub();
         };
 
         try {
@@ -153,15 +142,36 @@ public class BookAdminController {
                 bookParserService.parseAndFill(book, targetPath);
                 bookParserService.finalizeCover(book);
                 bookService.updateBook(book.getId(), book);
-                bookParserService.generateAllAiData(book.getId(), true);
-                // 根据评分和文件大小决定是否存储内容向量
-                Book updatedBook = bookService.getBookById(book.getId());
-                if (shouldEmbedContent(updatedBook)) {
-                    bookParserService.generateContentEmbedding(book.getId());
-                    updatedBook.setContentEmbedded(true);
-                    bookService.updateBook(updatedBook.getId(), updatedBook);
+
+                // AI数据生成 和 内容向量生成 并行执行
+                boolean preCheckPassed = passesContentEmbedPreCheck(book);
+                if (preCheckPassed) {
+                    CompletableFuture<Void> aiDataFuture = CompletableFuture.runAsync(() -> bookParserService.generateAllAiData(book.getId(), true));
+                    CompletableFuture<Void> contentEmbedFuture = CompletableFuture.runAsync(() -> bookParserService.generateContentEmbedding(book.getId()));
+                    try {
+                        CompletableFuture.allOf(aiDataFuture, contentEmbedFuture).join();
+                    } catch (Exception e) {
+                        log.warn("并行任务异常: bookId={} - {}", book.getId(), e.getMessage());
+                    }
+                    // 根据评分决定是否保留内容向量
+                    Book updatedBook = bookService.getBookById(book.getId());
+                    if (shouldEmbedContent(updatedBook)) {
+                        updatedBook.setContentEmbedded(true);
+                        bookService.updateBook(updatedBook.getId(), updatedBook);
+                    } else {
+                        embeddingService.removeContentEmbedding(book.getId());
+                    }
+                    return Result.ok(updatedBook);
+                } else {
+                    bookParserService.generateAllAiData(book.getId(), true);
+                    Book updatedBook = bookService.getBookById(book.getId());
+                    if (shouldEmbedContent(updatedBook)) {
+                        bookParserService.generateContentEmbedding(book.getId());
+                        updatedBook.setContentEmbedded(true);
+                        bookService.updateBook(updatedBook.getId(), updatedBook);
+                    }
+                    return Result.ok(updatedBook);
                 }
-                return Result.ok(updatedBook);
             }
 
             // 新文件 → 按新增流程处理（与扫描的 handleNewBook 一致）
@@ -187,14 +197,32 @@ public class BookAdminController {
                 }
             }
 
-            // 生成 AI 数据（标签 + 评分 + 相关度 + 元数据向量，合并一次调用）
-            bookParserService.generateAllAiData(saved.getId(), true);
-            // 根据评分和文件大小决定是否存储内容向量
-            Book bookWithRating = bookService.getBookById(saved.getId());
-            if (shouldEmbedContent(bookWithRating)) {
-                bookParserService.generateContentEmbedding(saved.getId());
-                bookWithRating.setContentEmbedded(true);
-                bookService.updateBook(bookWithRating.getId(), bookWithRating);
+            // AI数据生成 和 内容向量生成 并行执行
+            boolean preCheckPassed = passesContentEmbedPreCheck(saved);
+            if (preCheckPassed) {
+                CompletableFuture<Void> aiDataFuture = CompletableFuture.runAsync(() -> bookParserService.generateAllAiData(saved.getId(), true));
+                CompletableFuture<Void> contentEmbedFuture = CompletableFuture.runAsync(() -> bookParserService.generateContentEmbedding(saved.getId()));
+                try {
+                    CompletableFuture.allOf(aiDataFuture, contentEmbedFuture).join();
+                } catch (Exception e) {
+                    log.warn("并行任务异常: bookId={} - {}", saved.getId(), e.getMessage());
+                }
+                // 根据评分决定是否保留内容向量
+                Book bookWithRating = bookService.getBookById(saved.getId());
+                if (shouldEmbedContent(bookWithRating)) {
+                    bookWithRating.setContentEmbedded(true);
+                    bookService.updateBook(bookWithRating.getId(), bookWithRating);
+                } else {
+                    embeddingService.removeContentEmbedding(saved.getId());
+                }
+            } else {
+                bookParserService.generateAllAiData(saved.getId(), true);
+                Book bookWithRating = bookService.getBookById(saved.getId());
+                if (shouldEmbedContent(bookWithRating)) {
+                    bookParserService.generateContentEmbedding(saved.getId());
+                    bookWithRating.setContentEmbedded(true);
+                    bookService.updateBook(bookWithRating.getId(), bookWithRating);
+                }
             }
 
             log.info("上传图书成功: {} [{}]", title, extension);
@@ -213,7 +241,7 @@ public class BookAdminController {
     public ResponseEntity<Resource> getCover(@PathVariable String filename) {
         // 注意：此接口映射在 /api/books/admin/cover，但前端使用 /api/books/cover
         // 在 BookController 中添加了转发
-        Path coverDir = Paths.get(coverPath);
+        Path coverDir = Paths.get(storageProps.getCoverPath());
         Path imagePath = CommonUtils.safeResolvePath(coverDir, filename);
 
         if (imagePath == null || !Files.exists(imagePath)) {
@@ -293,10 +321,10 @@ public class BookAdminController {
         // 按评分区间统计
         List<Book> allBooks = bookRepository.findAll();
         long highRatedNotEmbedded = allBooks.stream()
-                        .filter(b -> b.getRating() != null && b.getRating() >= contentEmbedMinRating && !Boolean.TRUE.equals(b.getContentEmbedded()))
+                        .filter(b -> b.getRating() != null && b.getRating() >= storageProps.getScan().getContentEmbedMinRating() && !Boolean.TRUE.equals(b.getContentEmbedded()))
                         .count();
                 long lowRatedEmbedded = allBooks.stream()
-                        .filter(b -> b.getRating() != null && b.getRating() < contentEmbedMinRating && Boolean.TRUE.equals(b.getContentEmbedded()))
+                        .filter(b -> b.getRating() != null && b.getRating() < storageProps.getScan().getContentEmbedMinRating() && Boolean.TRUE.equals(b.getContentEmbedded()))
                 .count();
 
         return Result.ok(Map.of(

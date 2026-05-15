@@ -6,7 +6,7 @@ import { getBook } from '@/api/book'
 import type { ReadingProgress } from '@/types/book'
 import type { Book } from '@/types/book'
 import { formatProgress } from '@/types/book'
-import { formatRelativeTime } from '@/utils/time'
+import { formatRelativeTime, formatTag } from '@/utils/time'
 import BookCover from '@/components/book/BookCover'
 
 interface HistoryItem {
@@ -88,7 +88,7 @@ export default function ReadingHistoryPage() {
               <div
                 key={item.progress.id}
                 className="flex items-center gap-3.5 rounded-2xl bg-card p-3.5 shadow-sm border border-border/50 active:scale-[0.98] transition-all duration-150 cursor-pointer"
-                onClick={() => book && navigate(completed ? `/book/${book.id}` : `/reader/${book.id}`)}
+                onClick={() => book && navigate(`/book/${book.id}`)}
               >
                 {/* 封面 */}
                 <BookCover coverUrl={book?.coverUrl ?? null} title={book?.title ?? '未知图书'} author={book?.author} size="sm" className="flex-shrink-0 shadow-sm" />

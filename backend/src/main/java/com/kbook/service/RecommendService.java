@@ -365,9 +365,8 @@ public class RecommendService {
     private String getEntrepreneurshipLabel(String entrepreneurship) {
         if (entrepreneurship == null) return "";
         return switch (entrepreneurship.toUpperCase()) {
-            case "ENTREPRENEUR" -> "正在创业";
-            case "WANT_ENTREPRENEUR" -> "想创业";
-            case "NOT_INTERESTED" -> "暂不考虑创业";
+            case "ENTREPRENEUR", "WANT_ENTREPRENEUR", "ENTREPRENEUR_OR_WANT" -> "正在创业/想创业";
+            case "NOT_INTERESTED" -> "暂不考虑";
             default -> entrepreneurship;
         };
     }
@@ -394,8 +393,7 @@ public class RecommendService {
      */
     private List<String> getRelatedEntrepreneurship(String entrepreneurship) {
         return switch (entrepreneurship.toLowerCase()) {
-            case "entrepreneur" -> List.of("wantEntrepreneur");       // 正在创业 ↔ 想创业
-            case "want_entrepreneur" -> List.of("entrepreneur");      // 想创业 ↔ 正在创业
+            case "entrepreneur", "want_entrepreneur", "entrepreneur_or_want" -> List.of();  // 已合并，无需关联
             default -> List.of();
         };
     }
@@ -1249,6 +1247,7 @@ public class RecommendService {
                     .coverUrl(sb.book.getCoverUrl())
                     .format(sb.book.getFormat())
                     .rating(sb.book.getRating())
+                    .readCount(sb.book.getReadCount())
                     .description(sb.book.getDescription() != null && sb.book.getDescription().length() > 80
                             ? sb.book.getDescription().substring(0, 80) + "..." : sb.book.getDescription())
                     .matchScore(Math.round(sb.finalScore * 100.0) / 100.0)
@@ -1404,27 +1403,8 @@ public class RecommendService {
 
     // ==================== 内部类 ====================
 
-    private static class ScoredBook {
-        final Book book;
-        final double finalScore;
-        final double matchScore;
-        final double qualityFactor;
-        final double ruleScore;
-        final double vectorScore;
-        final double collabScore;
-        final String recallPaths;
-
-        ScoredBook(Book book, double finalScore, double matchScore, double qualityFactor,
-                   double ruleScore, double vectorScore, double collabScore, String recallPaths) {
-            this.book = book;
-            this.finalScore = finalScore;
-            this.matchScore = matchScore;
-            this.qualityFactor = qualityFactor;
-            this.ruleScore = ruleScore;
-            this.vectorScore = vectorScore;
-            this.collabScore = collabScore;
-            this.recallPaths = recallPaths;
-        }
+    private record ScoredBook(Book book, double finalScore, double matchScore, double qualityFactor, double ruleScore,
+                              double vectorScore, double collabScore, String recallPaths) {
     }
 
     /**
@@ -1441,6 +1421,7 @@ public class RecommendService {
         private Double rating;
         private String description;
         private Double matchScore;
+        private Long readCount;
         /**
          * 规则得分
          */

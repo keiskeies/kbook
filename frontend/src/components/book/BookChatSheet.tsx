@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Bot, User, Sparkles } from 'lucide-react'
+import { Send, Loader2, Bot, User, Sparkles, RefreshCw, Copy, Check } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { streamBookChat, getBookSuggestedQuestions } from '@/api/bookChat'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
+import ThinkingBlock from '@/components/ui/thinking-block'
 import type { AiMessage } from '@/types/ai'
 import type { Book } from '@/types/book'
 
@@ -18,6 +19,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
   const [loading, setLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [sessionId, setSessionId] = useState<string>('')
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -63,6 +65,12 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     const message = (text || input).trim()
     if (!message || loading) return
 
+    // 中断之前未完成的流，防止并发
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+    }
+
     // 添加用户消息
     const userMsg: AiMessage = {
       id: `u-${Date.now()}`,
@@ -91,14 +99,14 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
       (chunk) => {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, content: m.content + chunk } : m
+            m.id === assistantMsg.id ? { ...m, content: m.content + chunk, thinkingStatus: undefined } : m
           )
         )
       },
       () => {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, streaming: false } : m
+            m.id === assistantMsg.id ? { ...m, streaming: false, thinkingStatus: undefined } : m
           )
         )
         setLoading(false)
@@ -107,15 +115,71 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
-              ? { ...m, content: '抱歉，AI 助理暂时无法回复，请稍后重试。', streaming: false }
+              ? { ...m, content: '抱歉，AI 助理暂时无法回复，请稍后重试。', streaming: false, thinkingStatus: undefined }
               : m
           )
         )
         setLoading(false)
       },
+      (status) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsg.id ? { ...m, thinkingStatus: status } : m
+          )
+        )
+      },
+      (chunk) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsg.id ? { ...m, thinkingContent: (m.thinkingContent || '') + chunk } : m
+          )
+        )
+      },
     )
     abortRef.current = controller
   }, [input, loading, book.id, sessionId])
+
+  /** 重新生成最后一条 AI 回答 */
+  const handleRegenerate = useCallback(() => {
+    if (loading) return
+
+    // 1. 先中断当前正在进行的流
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+    }
+
+    // 2. 找到最后一条 assistant 消息及其对应的 user 消息
+    let lastAssistantIdx = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && !messages[i].streaming) {
+        lastAssistantIdx = i
+        break
+      }
+    }
+    if (lastAssistantIdx === -1) return
+
+    // 获取要重发的问题
+    let userMsgContent = ''
+    if (lastAssistantIdx > 0 && messages[lastAssistantIdx - 1].role === 'user') {
+      userMsgContent = messages[lastAssistantIdx - 1].content
+    }
+
+    // 截断消息（删除最后的 user + assistant 对）
+    const cutIdx = lastAssistantIdx > 0 && messages[lastAssistantIdx - 1].role === 'user'
+      ? lastAssistantIdx - 1
+      : lastAssistantIdx
+    const newMessages = messages.slice(0, cutIdx)
+    setMessages(newMessages)
+
+    // 3. 在下一帧重新发送（确保 setMessages 已生效）
+    if (userMsgContent) {
+      // 用 requestAnimationFrame 确保 React 完成渲染后再发送
+      requestAnimationFrame(() => {
+        handleSend(userMsgContent)
+      })
+    }
+  }, [messages, loading, handleSend])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -195,30 +259,75 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
                   </div>
 
                   {/* 消息气泡 */}
-                  <div
-                    className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm ${
-                      msg.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted'
-                    }`}
-                  >
-                    {msg.role === 'user' ? (
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                    ) : (
-                      <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
-                    )}
-                    {msg.streaming && !msg.content && (
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span className="text-xs">思考中...</span>
+                  <div className="max-w-[80%]">
+                    <div
+                      className={`rounded-2xl px-3.5 py-2.5 text-sm ${
+                        msg.role === 'user'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted'
+                      }`}
+                    >
+                      {msg.role === 'user' ? (
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                      ) : (
+                        <>
+                          {(msg.thinkingContent || (msg.streaming && msg.thinkingStatus && !msg.content)) && (
+                            <ThinkingBlock
+                              content={msg.thinkingContent || msg.thinkingStatus || ''}
+                              streaming={msg.streaming && !msg.content}
+                            />
+                          )}
+                          <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
+                        </>
+                      )}
+                      {msg.streaming && !msg.content && (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span className="text-xs">{msg.thinkingStatus || '思考中...'}</span>
+                        </div>
+                      )}
+                      {msg.streaming && msg.content && (
+                        <span className="ml-0.5 inline-flex gap-0.5">
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:0ms]" />
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:150ms]" />
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:300ms]" />
+                        </span>
+                      )}
+                    </div>
+                    {/* AI 回答操作按钮 */}
+                    {msg.role === 'assistant' && !msg.streaming && msg.content && (
+                      <div className="mt-1.5 flex items-center gap-1 px-1">
+                        <button
+                          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                          onClick={() => handleRegenerate()}
+                          disabled={loading}
+                          title="重新生成"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          <span>重新生成</span>
+                        </button>
+                        <button
+                          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                          onClick={() => {
+                            navigator.clipboard.writeText(msg.content)
+                            setCopiedId(msg.id)
+                            setTimeout(() => setCopiedId(null), 2000)
+                          }}
+                          title="复制"
+                        >
+                          {copiedId === msg.id ? (
+                            <>
+                              <Check className="h-3.5 w-3.5 text-green-500" />
+                              <span className="text-green-500">已复制</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              <span>复制</span>
+                            </>
+                          )}
+                        </button>
                       </div>
-                    )}
-                    {msg.streaming && msg.content && (
-                      <span className="ml-0.5 inline-flex gap-0.5">
-                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:0ms]" />
-                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:150ms]" />
-                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:300ms]" />
-                      </span>
                     )}
                   </div>
                 </div>

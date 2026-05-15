@@ -39,6 +39,7 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
   const initialPositionRef = useRef<string | null>(initialPosition)
   const locationsReadyRef = useRef(false)
   const onContentClickRef = useRef(onContentClick)
+  const sandboxObserverRef = useRef<MutationObserver | null>(null)
 
   // 更新 chapters ref
   useEffect(() => { chaptersRef.current = chapters }, [chapters])
@@ -157,6 +158,10 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
 
   // 安全销毁 rendition
   const safeDestroyRendition = useCallback(() => {
+    if (sandboxObserverRef.current) {
+      sandboxObserverRef.current.disconnect()
+      sandboxObserverRef.current = null
+    }
     if (renditionRef.current) {
       try {
         renditionRef.current.destroy?.()
@@ -301,6 +306,33 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
           manager: 'continuous',
         })
         renditionRef.current = rendition
+
+        // 修复：epubjs 创建的 iframe 带有 sandbox 但缺少 allow-scripts，
+        // 导致 "Blocked script execution in 'about:srcdoc'" 控制台警告。
+        // 通过 MutationObserver 监听 iframe 插入，补全 sandbox 权限。
+        const sandboxObserver = new MutationObserver((mutations) => {
+          for (const mutation of mutations) {
+            for (const node of Array.from(mutation.addedNodes)) {
+              if (node instanceof HTMLIFrameElement && node.sandbox) {
+                const current = node.getAttribute('sandbox') || ''
+                if (!current.includes('allow-scripts')) {
+                  node.setAttribute('sandbox', current ? `${current} allow-scripts` : 'allow-scripts')
+                }
+              }
+              // epubjs 可能将 iframe 嵌套在 div 中
+              if (node instanceof HTMLElement) {
+                node.querySelectorAll?.('iframe[sandbox]').forEach((iframe) => {
+                  const current = iframe.getAttribute('sandbox') || ''
+                  if (!current.includes('allow-scripts')) {
+                    iframe.setAttribute('sandbox', current ? `${current} allow-scripts` : 'allow-scripts')
+                  }
+                })
+              }
+            }
+          }
+        })
+        sandboxObserver.observe(container, { childList: true, subtree: true })
+        sandboxObserverRef.current = sandboxObserver
 
         // 设置基础样式 - 边距 + 两端对齐
         rendition.themes.default({

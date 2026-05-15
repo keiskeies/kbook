@@ -6,15 +6,8 @@ import com.kbook.repository.AiConversationRepository;
 import com.kbook.service.AiChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
@@ -28,7 +21,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/ai")
 @RequiredArgsConstructor
-public class AiController {
+public class AiController extends BaseController {
 
     private final AiChatService chatService;
     private final AiConversationRepository conversationRepository;
@@ -45,10 +38,8 @@ public class AiController {
      * 创建新会话
      */
     @PostMapping("/sessions")
-    public Result<Map<String, String>> createSession(
-            @AuthenticationPrincipal UserDetails userDetails
-    ) {
-        Long userId = extractUserId(userDetails);
+    public Result<Map<String, String>> createSession() {
+        Long userId = extractUserId();
         String sessionId = chatService.createSession(userId);
         return Result.ok(Map.of("sessionId", sessionId));
     }
@@ -57,11 +48,8 @@ public class AiController {
      * 流式对话 — SSE
      */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter streamChat(
-            @AuthenticationPrincipal UserDetails userDetails,
-            @RequestBody Map<String, String> body
-    ) {
-        Long userId = extractUserId(userDetails);
+    public SseEmitter streamChat(@RequestBody Map<String, String> body) {
+        Long userId = extractUserId();
         String sessionId = body.get("sessionId");
         String message = body.get("message");
 
@@ -82,11 +70,8 @@ public class AiController {
      * 非流式对话
      */
     @PostMapping("/chat")
-    public Result<Map<String, String>> chat(
-            @AuthenticationPrincipal UserDetails userDetails,
-            @RequestBody Map<String, String> body
-    ) {
-        Long userId = extractUserId(userDetails);
+    public Result<Map<String, String>> chat(@RequestBody Map<String, String> body) {
+        Long userId = extractUserId();
         String sessionId = body.get("sessionId");
         String message = body.get("message");
 
@@ -108,11 +93,8 @@ public class AiController {
      * 获取对话历史
      */
     @GetMapping("/history")
-    public Result<List<AiConversation>> getHistory(
-            @AuthenticationPrincipal UserDetails userDetails,
-            @RequestParam String sessionId
-    ) {
-        Long userId = extractUserId(userDetails);
+    public Result<List<AiConversation>> getHistory(@RequestParam String sessionId) {
+        Long userId = extractUserId();
         return Result.ok(chatService.getHistory(userId, sessionId));
     }
 
@@ -120,10 +102,8 @@ public class AiController {
      * 获取会话列表
      */
     @GetMapping("/sessions")
-    public Result<List<String>> getSessions(
-            @AuthenticationPrincipal UserDetails userDetails
-    ) {
-        Long userId = extractUserId(userDetails);
+    public Result<List<String>> getSessions() {
+        Long userId = extractUserId();
         return Result.ok(chatService.getSessionIds(userId));
     }
 
@@ -131,11 +111,8 @@ public class AiController {
      * 删除会话
      */
     @DeleteMapping("/sessions/{sessionId}")
-    public Result<Void> deleteSession(
-            @AuthenticationPrincipal UserDetails userDetails,
-            @PathVariable String sessionId
-    ) {
-        Long userId = extractUserId(userDetails);
+    public Result<Void> deleteSession(@PathVariable String sessionId) {
+        Long userId = extractUserId();
         chatService.deleteSession(userId, sessionId);
         return Result.ok();
     }
@@ -160,30 +137,4 @@ public class AiController {
         }
     }
 
-    /** 从认证信息中提取用户 ID */
-    private Long extractUserId(UserDetails userDetails) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()
-                || authentication instanceof AnonymousAuthenticationToken) {
-            log.warn("用户未认证，无法访问 AI 接口");
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");
-        }
-
-        Object principal = authentication.getPrincipal();
-        // JwtAuthenticationFilter 设置的 principal 是 Long 类型（userId）
-        if (principal instanceof Long) {
-            return (Long) principal;
-        }
-        // 兼容 UserDetails 类型
-        if (principal instanceof UserDetails) {
-            try {
-                return Long.parseLong(((UserDetails) principal).getUsername());
-            } catch (NumberFormatException e) {
-                log.error("用户 ID 格式错误: {}", ((UserDetails) principal).getUsername());
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "用户信息异常");
-            }
-        }
-        log.error("无法从认证信息中获取用户详情: {}", principal.getClass().getName());
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户信息获取失败");
-    }
 }

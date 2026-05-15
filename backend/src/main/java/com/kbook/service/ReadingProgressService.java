@@ -1,10 +1,8 @@
 package com.kbook.service;
 
-import com.kbook.common.exception.BusinessException;
 import com.kbook.entity.ReadingProgress;
-import com.kbook.entity.Book;
-import com.kbook.repository.ReadingProgressRepository;
 import com.kbook.repository.BookRepository;
+import com.kbook.repository.ReadingProgressRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;

@@ -1,13 +1,16 @@
 import { Outlet } from 'react-router-dom'
 import { TabBar } from './TabBar'
+import { useUiStore } from '@/store/ui'
 
 /**
  * 应用主布局 - 包含底部TabBar
  */
 export function AppLayout() {
+  const tabBarVisible = useUiStore((s) => s.tabBarVisible)
+
   return (
     <div className="relative min-h-screen bg-background">
-      <main className="pb-20">
+      <main className={tabBarVisible ? 'pb-20' : ''}>
         <Outlet />
       </main>
       <TabBar />

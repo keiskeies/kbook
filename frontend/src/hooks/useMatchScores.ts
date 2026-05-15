@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getMatchScores } from '@/api/book'
+import { useAuthStore } from '@/store/auth'
 
 /**
  * 批量获取图书与当前用户的匹配分
@@ -8,9 +9,10 @@ import { getMatchScores } from '@/api/book'
  */
 export function useMatchScores(bookIds: number[]) {
   const [scores, setScores] = useState<Record<string, number>>({})
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
   useEffect(() => {
-    if (!bookIds || bookIds.length === 0) return
+    if (!isAuthenticated || !bookIds || bookIds.length === 0) return
 
     getMatchScores(bookIds)
       .then((res) => {
@@ -18,7 +20,7 @@ export function useMatchScores(bookIds: number[]) {
         setScores(data)
       })
       .catch(() => setScores({}))
-  }, [bookIds.join(',')])
+  }, [isAuthenticated, bookIds.join(',')])
 
   return scores
 }

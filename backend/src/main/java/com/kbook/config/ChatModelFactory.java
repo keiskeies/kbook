@@ -1,210 +1,230 @@
 package com.kbook.config;
 
+import com.kbook.config.properties.AiModelProperties;
 import com.kbook.entity.AiProviderConfig;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.ollama.OllamaChatModel;
 import dev.langchain4j.model.ollama.OllamaEmbeddingModel;
+import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.Map;
 
 /**
- * AI 模型工厂 — 统一封装 Ollama / OpenAI 兼容模型的构建逻辑
+ * AI 模型工厂 — 统一封装模型构建逻辑
  * <p>
- * 所有 ChatModel 和 EmbeddingModel 的创建都通过此类进行，
- * 业务 Service 不再直接依赖 langchain4j-ollama / langchain4j-open-ai 的具体实现类。
+ * 支持两种构建来源：
+ * 1. 从 application.yml 静态配置（AiModelProperties）— 用于标签评分/OCR/Embedding 等固定场景
+ * 2. 从数据库 AiProviderConfig 实体动态构建 — 用于管理员可配置的对话场景
+ * <p>
+ * 支持 Ollama 和 OpenAI 兼容 API 两种提供商。
+ * <p>
+ * 重要：所有模型构建必须设置 customHeaders 携带 Content-Type: application/json;charset=utf-8，
+ * 否则 LangChain4j 默认请求头缺少字符集声明，Ollama 返回的中文内容会被按 iso-8859-1 解码导致乱码。
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class ChatModelFactory {
 
-    @Value("${langchain4j.ollama.chat-model.base-url:http://localhost:11434}")
-    private String defaultBaseUrl;
+    private final AiModelProperties aiProps;
 
-    @Value("${langchain4j.ollama.chat-model.model-name:gemma4:e4b}")
-    private String defaultModelName;
+    // ==================== 从 yml 配置构建（原有逻辑） ====================
 
-    @Value("${langchain4j.ollama.chat-model.temperature:0.7}")
-    private Double defaultTemperature;
-
-    @Value("${langchain4j.ollama.chat-model.timeout:120s}")
-    private Duration defaultTimeout;
-
-    @Value("${langchain4j.ollama.embedding-model.model-name:qwen3-embedding:0.6b}")
-    private String defaultEmbeddingModelName;
-
-    // ==================== ChatModel 构建 ====================
-
-    /**
-     * 根据 AiProviderConfig 构建 ChatModel
-     */
-    public ChatModel buildChatModel(AiProviderConfig config) {
-        double temperature = config.getTemperature() != null ? config.getTemperature() : defaultTemperature;
-        int maxTokens = config.getMaxTokens() != null ? config.getMaxTokens() : 2048;
-        String thinkingLevel = config.getThinkingLevel() != null ? config.getThinkingLevel() : "NONE";
-
-        if ("OLLAMA".equalsIgnoreCase(config.getProvider())) {
-            Duration baseTimeout = Duration.ofSeconds(300);
-            Duration timeout = getTimeoutWithDuration(thinkingLevel, baseTimeout);
-            return OllamaChatModel.builder()
-                    .baseUrl(config.getBaseUrl())
-                    .modelName(config.getModelName())
-                    .temperature(temperature)
-                    .timeout(timeout)
-                    .build();
-        } else {
-            // OpenAI 兼容（含 DeepSeek、通义千问、智谱等）
-            Duration baseTimeout = Duration.ofSeconds(120);
-            Duration timeout = getTimeoutWithDuration(thinkingLevel, baseTimeout);
-            return OpenAiChatModel.builder()
-                    .apiKey(config.getApiKey() != null ? config.getApiKey() : "sk-placeholder")
-                    .baseUrl(config.getBaseUrl())
-                    .modelName(config.getModelName())
-                    .temperature(temperature)
-                    .maxTokens(maxTokens)
-                    .timeout(timeout)
-                    .build();
-        }
-    }
-
-    /**
-     * 构建默认 ChatModel（使用 application.yml 中的 Ollama 配置）
-     */
-    public ChatModel buildDefaultChatModel() {
+    public ChatModel buildChatModel() {
+        var chat = aiProps.getChatModel();
         return OllamaChatModel.builder()
-                .baseUrl(defaultBaseUrl)
-                .modelName(defaultModelName)
-                .temperature(defaultTemperature)
-                .customHeaders(Map.of("X-Ollama-Thinking", "false"))
-                .timeout(defaultTimeout != null ? defaultTimeout : Duration.ofSeconds(120))
+                .baseUrl(chat.getBaseUrl())
+                .modelName(chat.getModelName())
+                .temperature(chat.getTemperature())
+                .timeout(chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(120))
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .build();
     }
 
-    /**
-     * 根据配置构建 ChatModel，如果没有活跃配置则使用默认
-     */
-    public ChatModel buildChatModelOrDefault(AiProviderConfig activeConfig) {
-        if (activeConfig != null) {
-            return buildChatModel(activeConfig);
-        }
-        return buildDefaultChatModel();
-    }
+    public ChatModel buildVisionChatModel() {
+        var chat = aiProps.getChatModel();
+        var vision = aiProps.getVision();
 
-    // ==================== Vision ChatModel 构建（PDF OCR 用） ====================
+        String modelName = (vision.getModelName() != null && !vision.getModelName().isBlank())
+                ? vision.getModelName()
+                : chat.getModelName();
 
-    /** PDF OCR 视觉模型名称（需支持图片输入，如 gemma4:e4b、llava、qwen2.5vl 等） */
-    @Value("${kbook.ai.vision-model-name:}")
-    private String visionModelName;
-
-    /** PDF OCR 视觉模型超时（OCR 处理图片更慢，需要更长超时） */
-    @Value("${kbook.ai.vision-timeout:600s}")
-    private Duration visionTimeout;
-
-    /**
-     * 构建用于 PDF OCR 的视觉 ChatModel
-     * <p>
-     * 如果配置了专用的视觉模型名称 (kbook.ai.vision-model-name)，则使用该模型；
-     * 否则使用管理员配置的活跃模型（需确保该模型支持视觉能力）。
-     * OCR 超时默认 10 分钟（图片编码消耗大量 token，处理较慢）。
-     *
-     * @param activeConfig 管理员配置的活跃 AI 配置
-     * @return ChatModel（支持视觉/多模态）
-     */
-    public ChatModel buildVisionChatModel(AiProviderConfig activeConfig) {
-        // 确定使用的模型名称：优先使用专用视觉模型，否则使用活跃配置的模型
-        String modelName = (visionModelName != null && !visionModelName.isBlank())
-                ? visionModelName
-                : (activeConfig != null ? activeConfig.getModelName() : defaultModelName);
-
-        // 确定基础 URL
-        String baseUrl = (activeConfig != null && activeConfig.getBaseUrl() != null && !activeConfig.getBaseUrl().isBlank())
-                ? activeConfig.getBaseUrl()
-                : defaultBaseUrl;
-
-        // 确定提供商类型
-        boolean isOllama = activeConfig == null || "OLLAMA".equalsIgnoreCase(activeConfig.getProvider());
-
-        Duration timeout = visionTimeout != null ? visionTimeout : Duration.ofSeconds(600);
+        Duration timeout = vision.getTimeout() != null ? vision.getTimeout() : Duration.ofSeconds(600);
         double temperature = 0.3; // OCR 任务用低温度，保证准确性
 
-        if (isOllama) {
-            log.info("构建 OCR 视觉 ChatModel (Ollama): baseUrl={}, model={}, timeout={}s",
-                    baseUrl, modelName, timeout.getSeconds());
-            return OllamaChatModel.builder()
-                    .baseUrl(baseUrl)
-                    .modelName(modelName)
-                    .temperature(temperature)
-                    .timeout(timeout)
-                    .build();
-        } else {
-            String apiKey = activeConfig.getApiKey() != null
-                    ? activeConfig.getApiKey() : "sk-placeholder";
-            log.info("构建 OCR 视觉 ChatModel (OpenAI兼容): baseUrl={}, model={}, timeout={}s",
-                    baseUrl, modelName, timeout.getSeconds());
-            return OpenAiChatModel.builder()
-                    .apiKey(apiKey)
-                    .baseUrl(baseUrl)
-                    .modelName(modelName)
-                    .temperature(temperature)
-                    .maxTokens(4096)
-                    .timeout(timeout)
-                    .build();
-        }
+        log.info("构建 OCR 视觉 ChatModel (Ollama): baseUrl={}, model={}, timeout={}s",
+                chat.getBaseUrl(), modelName, timeout.getSeconds());
+        return OllamaChatModel.builder()
+                .baseUrl(chat.getBaseUrl())
+                .modelName(modelName)
+                .temperature(temperature)
+                .timeout(timeout)
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
+                .build();
     }
 
-    // ==================== EmbeddingModel 构建 ====================
+    public StreamingChatModel buildStreamingChatModel() {
+        var chat = aiProps.getChatModel();
+        return OllamaStreamingChatModel.builder()
+                .baseUrl(chat.getBaseUrl())
+                .modelName(chat.getModelName())
+                .temperature(chat.getTemperature())
+                .timeout(chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(120))
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
+                .build();
+    }
 
-    /**
-     * 构建 Ollama Embedding 模型（当前仅支持 Ollama）
-     */
     public EmbeddingModel buildOllamaEmbeddingModel(String baseUrl, String modelName) {
         return OllamaEmbeddingModel.builder()
                 .baseUrl(baseUrl)
                 .modelName(modelName)
                 .timeout(Duration.ofSeconds(120))
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .build();
     }
 
-    /**
-     * 使用默认配置构建 Ollama Embedding 模型
-     */
     public EmbeddingModel buildDefaultEmbeddingModel() {
-        return buildOllamaEmbeddingModel(defaultBaseUrl, defaultEmbeddingModelName);
+        var embedding = aiProps.getEmbeddingModel();
+        return buildOllamaEmbeddingModel(embedding.getBaseUrl(), embedding.getModelName());
+    }
+
+    public String getEmbeddingModelName() {
+        return aiProps.getEmbeddingModel().getModelName();
+    }
+
+    public String getDefaultBaseUrl() {
+        return aiProps.getChatModel().getBaseUrl();
+    }
+
+    public String getModelName() {
+        return aiProps.getChatModel().getModelName();
+    }
+
+    public boolean isToolsSupported() {
+        return aiProps.isToolsSupported();
+    }
+
+    // ==================== 从数据库配置动态构建 ====================
+
+    /**
+     * 从 AiProviderConfig 实体构建 ChatModel
+     * <p>
+     * 根据 provider 字段自动选择 Ollama 或 OpenAI 兼容 API 构建。
+     */
+    public ChatModel buildChatModel(AiProviderConfig config) {
+        if (config == null) {
+            return buildChatModel(); // 无配置时回退到 yml 默认
+        }
+
+        Duration timeout = Duration.ofSeconds(config.getTimeout() != null ? config.getTimeout() : 120);
+        String provider = config.getProvider();
+
+        log.info("构建 ChatModel (from DB): provider={}, model={}, baseUrl={}, temperature={}, timeout={}s",
+                provider, config.getModelName(), config.getBaseUrl(), config.getTemperature(), timeout.getSeconds());
+
+        if (AiProviderConfig.Provider.OPENAI.name().equalsIgnoreCase(provider)) {
+            return buildOpenAiChatModel(config, timeout);
+        } else {
+            return buildOllamaChatModel(config, timeout);
+        }
     }
 
     /**
-     * 根据活跃 AI 配置自动选择 baseUrl 构建 Embedding 模型
+     * 从 AiProviderConfig 实体构建 StreamingChatModel
      */
-    public EmbeddingModel buildEmbeddingModel(AiProviderConfig activeConfig) {
-        String baseUrl = defaultBaseUrl;
-        if (activeConfig != null && activeConfig.getBaseUrl() != null && !activeConfig.getBaseUrl().isBlank()) {
-            baseUrl = activeConfig.getBaseUrl();
-            log.info("使用管理员配置的 AI 模型生成 Embedding: baseUrl={}, model={}", baseUrl, defaultEmbeddingModelName);
+    public StreamingChatModel buildStreamingChatModel(AiProviderConfig config) {
+        if (config == null) {
+            return buildStreamingChatModel(); // 无配置时回退到 yml 默认
         }
-        return buildOllamaEmbeddingModel(baseUrl, defaultEmbeddingModelName);
+
+        Duration timeout = Duration.ofSeconds(config.getTimeout() != null ? config.getTimeout() : 120);
+        String provider = config.getProvider();
+
+        log.info("构建 StreamingChatModel (from DB): provider={}, model={}, baseUrl={}",
+                provider, config.getModelName(), config.getBaseUrl());
+
+        if (AiProviderConfig.Provider.OPENAI.name().equalsIgnoreCase(provider)) {
+            return buildOpenAiStreamingChatModel(config, timeout);
+        } else {
+            return buildOllamaStreamingChatModel(config, timeout);
+        }
     }
 
-    // ==================== 辅助方法 ====================
-
     /**
-     * 根据 Thinking 等级计算超时时间
-     * NONE = 基础超时, LOW = 2x, MEDIUM = 4x, HIGH = 8x
+     * 判断指定配置是否支持 Tool Calling
+     * <p>
+     * 优先使用显式配置 toolsEnabled，未配置则按模型名自动检测
      */
-    private Duration getTimeoutWithDuration(String thinkingLevel, Duration baseTimeout) {
-        if (thinkingLevel == null || "NONE".equalsIgnoreCase(thinkingLevel)) {
-            return baseTimeout;
+    public boolean isToolsSupported(AiProviderConfig config) {
+        if (config == null) {
+            return isToolsSupported(); // 无配置时回退到 yml 默认
         }
-        int multiplier = switch (thinkingLevel.toUpperCase()) {
-            case "LOW" -> 2;
-            case "MEDIUM" -> 4;
-            case "HIGH" -> 8;
-            default -> 1;
-        };
-        return baseTimeout.multipliedBy(multiplier);
+        if (config.getToolsEnabled() != null) {
+            return config.getToolsEnabled();
+        }
+        // 自动检测：已知不支持 tools 的模型
+        String model = config.getModelName().toLowerCase();
+        return !model.startsWith("gemma3n");
+    }
+
+    // ==================== 内部构建方法 ====================
+
+    private ChatModel buildOllamaChatModel(AiProviderConfig config, Duration timeout) {
+        return OllamaChatModel.builder()
+                .baseUrl(config.getBaseUrl())
+                .modelName(config.getModelName())
+                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
+                .timeout(timeout)
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
+                .build();
+    }
+
+    private StreamingChatModel buildOllamaStreamingChatModel(AiProviderConfig config, Duration timeout) {
+        return OllamaStreamingChatModel.builder()
+                .baseUrl(config.getBaseUrl())
+                .modelName(config.getModelName())
+                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
+                .timeout(timeout)
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
+                .build();
+    }
+
+    private ChatModel buildOpenAiChatModel(AiProviderConfig config, Duration timeout) {
+        var builder = OpenAiChatModel.builder()
+                .baseUrl(config.getBaseUrl())
+                .modelName(config.getModelName())
+                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
+                .timeout(timeout)
+                .returnThinking(true)
+                .sendThinking(true);
+        if (config.getApiKey() != null && !config.getApiKey().isBlank()) {
+            builder.apiKey(config.getApiKey());
+        } else {
+            builder.apiKey("sk-placeholder"); // 某些兼容 API 不需要 key，但字段不能为空
+        }
+        return builder.build();
+    }
+
+    private StreamingChatModel buildOpenAiStreamingChatModel(AiProviderConfig config, Duration timeout) {
+        var builder = OpenAiStreamingChatModel.builder()
+                .baseUrl(config.getBaseUrl())
+                .modelName(config.getModelName())
+                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)
+                .timeout(timeout)
+                .returnThinking(true)
+                .sendThinking(true);
+        if (config.getApiKey() != null && !config.getApiKey().isBlank()) {
+            builder.apiKey(config.getApiKey());
+        } else {
+            builder.apiKey("sk-placeholder");
+        }
+        return builder.build();
     }
 }

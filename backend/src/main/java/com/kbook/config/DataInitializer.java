@@ -12,13 +12,13 @@ import org.springframework.stereotype.Component;
 
 /**
  * 初始管理员账号注入方案
- *
+ * <p>
  * 方案一（默认）：环境变量注入
- *   KBOOK_ADMIN_EMAIL / KBOOK_ADMIN_PASSWORD
- *
+ * KBOOK_ADMIN_EMAIL / KBOOK_ADMIN_PASSWORD
+ * <p>
  * 方案二：初始化脚本
- *   通过 application.yml 中的 kbook.admin 配置
- *
+ * 通过 application.yml 中的 kbook.admin 配置
+ * <p>
  * 首次启动时自动创建管理员账号，管理员登录后强制引导绑定邮箱
  * 绑定邮箱后开启密码重置功能
  */

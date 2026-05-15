@@ -11,6 +11,7 @@ import type { HomeData, RecentBookVO, RecommendedBook, SimpleBookVO, FormatCateg
 import { formatRelativeTime } from '@/utils/time'
 import BookCover from '@/components/book/BookCover'
 import { useMatchScores } from '@/hooks/useMatchScores'
+import { useAuthStore } from '@/store/auth'
 
 /** 最近阅读卡片 */
 function RecentBookCard({ book, onClick }: { book: RecentBookVO; onClick: () => void }) {
@@ -48,16 +49,15 @@ function MatchBadge({ score }: { score: number | undefined | null }) {
 }
 
 /** 横向书籍滚动列表 */
-function BookScrollList({ books, onBookClick, matchScores, renderExtra }: {
+function BookScrollList({ books, onBookClick, matchScores }: {
   books: (SimpleBookVO | RecommendedBook)[]
   onBookClick: (id: number) => void
   matchScores?: Record<string, number>
-  renderExtra?: (book: SimpleBookVO | RecommendedBook) => React.ReactNode
 }) {
   return (
     <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4" style={{ scrollbarWidth: 'none' }}>
       {books.map((book) => {
-        const ms = matchScores?.[String(book.id)]
+        const ms = matchScores?.[String(book.id)] ?? (book as RecommendedBook).matchScore
         return (
           <div
             key={book.id}
@@ -66,19 +66,23 @@ function BookScrollList({ books, onBookClick, matchScores, renderExtra }: {
           >
             <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} format={book.format} />
             <p className="mt-1.5 w-full truncate text-xs font-semibold">{book.title}</p>
-            <div className="flex items-center gap-1">
-              {/* 评分 */}
-              {book.rating > 0 && (
+            {/* 第一行：评分(左) + 匹配度(右) */}
+            <div className="flex items-center justify-between px-2">
+              {book.rating > 0 ? (
                 <div className="flex items-center gap-0.5">
                   <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
                   <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{book.rating.toFixed(1)}</span>
                 </div>
-              )}
-              {/* 匹配度 */}
+              ) : <span />}
               <MatchBadge score={ms} />
-              {/* 额外信息 */}
-              {renderExtra?.(book)}
             </div>
+            {/* 第二行：阅读次数(右) */}
+            {book.readCount > 0 && (
+              <div className="flex items-center gap-0.5 mt-0.5 justify-end px-2">
+                <BookOpen className="h-2.5 w-2.5 text-muted-foreground/60" />
+                <span className="text-[10px] text-muted-foreground">{book.readCount}次阅读</span>
+              </div>
+            )}
           </div>
         )
       })}
@@ -118,14 +122,19 @@ export default function HomePage() {
   const [homeData, setHomeData] = useState<HomeData | null>(null)
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setLoading(false)
+      return
+    }
     getHomeData()
       .then((res) => setHomeData((res as any)?.data || (res as any)))
       .catch(() => {})
       .finally(() => setLoading(false))
     getUnreadCount().then(res => setUnreadCount((res as any)?.data || (res as any) || 0)).catch(() => {})
-  }, [])
+  }, [isAuthenticated])
 
   // 收集所有非个性化书籍的ID，批量获取匹配分
   const matchBookIds = useMemo(() => {
@@ -343,18 +352,6 @@ export default function HomePage() {
             <BookScrollList
               books={d.personalizedBooks}
               onBookClick={goToBook}
-              renderExtra={(book) => {
-                const rb = book as RecommendedBook
-                if (rb.matchScore > 0) {
-                  return (
-                    <div className="flex items-center gap-0.5">
-                      <Sparkles className="h-2.5 w-2.5 text-amber-500" />
-                      <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{Math.round(rb.matchScore * 100)}%</span>
-                    </div>
-                  )
-                }
-                return null
-              }}
             />
           </section>
         )}
@@ -411,15 +408,6 @@ export default function HomePage() {
               books={d.popularBooks}
               onBookClick={goToBook}
               matchScores={matchScores}
-              renderExtra={(book) => {
-                const sb = book as SimpleBookVO
-                return (
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <TrendingUp className="h-2.5 w-2.5 text-rose-400" />
-                    <span className="text-[10px] text-muted-foreground">{sb.readCount}次阅读</span>
-                  </div>
-                )
-              }}
             />
           </section>
         )}

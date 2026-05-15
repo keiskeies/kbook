@@ -169,6 +169,7 @@ public class HomeController {
         private Double rating;
         private String description;
         private Double matchScore;
+        private Long readCount;
 
         public static RecommendedBook from(Book book, double matchScore) {
             return RecommendedBook.builder()
@@ -178,6 +179,7 @@ public class HomeController {
                     .coverUrl(book.getCoverUrl())
                     .format(book.getFormat())
                     .rating(book.getRating())
+                    .readCount(book.getReadCount())
                     .description(book.getDescription() != null && book.getDescription().length() > 80
                             ? book.getDescription().substring(0, 80) + "..." : book.getDescription())
                     .matchScore(Math.round(matchScore * 100.0) / 100.0)
@@ -195,6 +197,7 @@ public class HomeController {
                     .rating(item.getRating())
                     .description(item.getDescription())
                     .matchScore(item.getMatchScore())
+                    .readCount(item.getReadCount())
                     .build();
         }
     }

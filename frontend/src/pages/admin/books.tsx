@@ -6,6 +6,7 @@ import { scanBooksStream, getScanStatus, resetScanStatus, uploadBook, getEmbeddi
 import type { ScanProgress, ScanResult, ScanError, EmbeddingStats } from '@/api/book'
 import { createAdminSession, streamAdminChat, getAdminHistory, getAdminSessions, deleteAdminSession } from '@/api/adminAi'
 import type { AiMessage } from '@/types/ai'
+import ThinkingBlock from '@/components/ui/thinking-block'
 import { toast } from 'sonner'
 
 /** 管理员快捷指令 */
@@ -108,7 +109,9 @@ export default function AdminBooksPage() {
 
   // 页面加载检查
   useEffect(() => {
+    let cancelled = false
     getScanStatus().then(res => {
+      if (cancelled) return
       if (res.scanning) {
         setScanning(true)
         setProgress({
@@ -127,7 +130,12 @@ export default function AdminBooksPage() {
       }
     }).catch(() => {})
     loadEmbedStats()
-    return () => { stopPolling(); chatAbortRef.current?.abort() }
+    return () => {
+      cancelled = true
+      stopPolling()
+      abortRef.current?.abort()
+      chatAbortRef.current?.abort()
+    }
   }, [])
 
   // 滚动到底部
@@ -294,12 +302,12 @@ export default function AdminBooksPage() {
       { sessionId, message },
       (chunk) => {
         setChatMessages(prev =>
-          prev.map(m => m.id === assistantMsg.id ? { ...m, content: m.content + chunk } : m)
+          prev.map(m => m.id === assistantMsg.id ? { ...m, content: m.content + chunk, thinkingStatus: undefined } : m)
         )
       },
       () => {
         setChatMessages(prev =>
-          prev.map(m => m.id === assistantMsg.id ? { ...m, streaming: false } : m)
+          prev.map(m => m.id === assistantMsg.id ? { ...m, streaming: false, thinkingStatus: undefined } : m)
         )
         setChatLoading(false)
       },
@@ -307,11 +315,21 @@ export default function AdminBooksPage() {
         setChatMessages(prev =>
           prev.map(m =>
             m.id === assistantMsg.id
-              ? { ...m, content: `抱歉，AI 助理暂时无法回复：${error.message}`, streaming: false }
+              ? { ...m, content: `抱歉，AI 助理暂时无法回复：${error.message}`, streaming: false, thinkingStatus: undefined }
               : m
           )
         )
         setChatLoading(false)
+      },
+      (status) => {
+        setChatMessages(prev =>
+          prev.map(m => m.id === assistantMsg.id ? { ...m, thinkingStatus: status } : m)
+        )
+      },
+      (chunk) => {
+        setChatMessages(prev =>
+          prev.map(m => m.id === assistantMsg.id ? { ...m, thinkingContent: (m.thinkingContent || '') + chunk } : m)
+        )
       },
     )
     chatAbortRef.current = controller
@@ -779,15 +797,23 @@ export default function AdminBooksPage() {
                         {msg.role === 'user' ? (
                           <p className="whitespace-pre-wrap">{msg.content}</p>
                         ) : (
-                          <div
-                            className="prose-sm text-justify"
-                            dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
-                          />
+                          <>
+                            {(msg.thinkingContent || (msg.streaming && msg.thinkingStatus && !msg.content)) && (
+                              <ThinkingBlock
+                                content={msg.thinkingContent || msg.thinkingStatus || ''}
+                                streaming={msg.streaming && !msg.content}
+                              />
+                            )}
+                            <div
+                              className="prose-sm text-justify"
+                              dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                            />
+                          </>
                         )}
                         {msg.streaming && !msg.content && (
                           <div className="flex items-center gap-2 text-muted-foreground">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            <span className="text-xs">思考中...</span>
+                            <span className="text-xs">{msg.thinkingStatus || '思考中...'}</span>
                           </div>
                         )}
                         {msg.streaming && msg.content && (

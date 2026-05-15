@@ -2,11 +2,11 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.ScanStepTimer;
+import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 /**
@@ -30,40 +31,13 @@ public class BookScanService {
     private final BookParserService bookParserService;
     private final EmbeddingService embeddingService;
     private final ObjectMapper objectMapper;
-
-    @Value("${kbook.book-paths.epub}")
-    private String epubPath;
-
-    @Value("${kbook.book-paths.pdf}")
-    private String pdfPath;
-
-    @Value("${kbook.book-paths.txt}")
-    private String txtPath;
-
-    @Value("${kbook.scan.force-update:false}")
-    private boolean forceUpdate;
+    private final BookStorageProperties storageProps;
 
     /** 扫描进行中标记，防止重复扫描 */
     private volatile boolean scanningInProgress = false;
 
     /** SSE emitter 是否已完成 */
     private volatile boolean emitterCompleted = false;
-
-    /** 内容向量存储的最低评分阈值（低于此值的书籍不存储内容向量到 Qdrant） */
-    @Value("${kbook.scan.content-embed-min-rating:3.0}")
-    private double contentEmbedMinRating;
-
-    /** 内容向量存储的最大文件大小（超过此大小的书籍不存储内容向量，单位 MB） */
-    @Value("${kbook.scan.content-embed-max-size-mb:20}")
-    private double contentEmbedMaxSizeMb;
-
-    /** 合集类图书检测关键词（书名中包含这些词则不存入RAG向量库，逗号分隔） */
-    @Value("${kbook.scan.compilation-keywords:合集,全集,作品集,选集,集锦,大全,丛书,套装,汇编}")
-    private String compilationKeywords;
-
-    /** 合集类图书检测：文件大小阈值（超过此大小则视为合集，单位 MB，0 表示不按大小判断） */
-    @Value("${kbook.scan.compilation-max-size-mb:30}")
-    private double compilationMaxSizeMb;
 
     /** 步骤计时器 — 统计各步骤平均耗时 */
     private final ScanStepTimer stepTimer = new ScanStepTimer(
@@ -138,15 +112,15 @@ public class BookScanService {
         stepTimer.reset();
     }
 
-    private void doScanWithProgress(SseEmitter emitter, Long skipBeforeId) throws IOException {
+    private void doScanWithProgress(SseEmitter emitter, Long skipBeforeId) {
         log.info("开始扫描图书目录... (skipBeforeId={})", skipBeforeId);
         long startTime = System.currentTimeMillis();
 
         // 先收集所有待处理文件
         Map<String, String> pathFormatMap = new LinkedHashMap<>();
-        pathFormatMap.put(epubPath, "EPUB");
-        pathFormatMap.put(pdfPath, "PDF");
-        pathFormatMap.put(txtPath, "TXT");
+        pathFormatMap.put(storageProps.getBookPaths().getEpub(), "EPUB");
+        pathFormatMap.put(storageProps.getBookPaths().getPdf(), "PDF");
+        pathFormatMap.put(storageProps.getBookPaths().getTxt(), "TXT");
 
         List<ScanItem> allFiles = new ArrayList<>();
         for (Map.Entry<String, String> entry : pathFormatMap.entrySet()) {
@@ -171,6 +145,15 @@ public class BookScanService {
                 log.error("扫描目录失败: {} - {}", dir, e.getMessage(), e);
             }
         }
+
+        // 按文件大小从小到大排序，优先录入小文件
+        allFiles.sort((a, b) -> {
+            try {
+                return Long.compare(Files.size(a.path), Files.size(b.path));
+            } catch (IOException e) {
+                return 0;
+            }
+        });
 
         scanTotal = allFiles.size();
         scanCurrentFile = "准备扫描...";
@@ -258,8 +241,8 @@ public class BookScanService {
     private ScanResultType handleExistingBook(Book book, Path filePath, String title) throws Exception {
         long fileSize = Files.size(filePath);
 
-        if (forceUpdate || !Objects.equals(book.getFileSize(), fileSize)) {
-            log.debug("{}图书: {}", forceUpdate ? "强制更新" : "文件大小变化", title);
+        if (storageProps.getScan().isForceUpdate() || !Objects.equals(book.getFileSize(), fileSize)) {
+            log.debug("{}图书: {}", storageProps.getScan().isForceUpdate() ? "强制更新" : "文件大小变化", title);
             book.setFileSize(fileSize);
 
             stepTimer.start("文件解析");
@@ -274,30 +257,56 @@ public class BookScanService {
             bookService.updateBook(book.getId(), book);
             stepTimer.end("数据库保存");
 
-            stepTimer.start("AI数据生成");
-            bookParserService.generateAllAiData(book.getId(), true);
-            stepTimer.end("AI数据生成");
-
-            // 根据评分决定是否存储内容向量
-            if (shouldEmbedContent(book)) {
-                stepTimer.start("内容向量生成");
-                bookParserService.generateContentEmbedding(book.getId(), book.getRagContent());
-                stepTimer.end("内容向量生成");
-                book.setContentEmbedded(true);
-                stepTimer.start("数据库保存");
-                bookService.updateBook(book.getId(), book);
-                stepTimer.end("数据库保存");
-            } else {
-                // 评分不达标，删除已有内容向量（如有）
-                if (Boolean.TRUE.equals(book.getContentEmbedded())) {
-                    embeddingService.removeContentEmbedding(book.getId());
-                    book.setContentEmbedded(false);
-                    stepTimer.start("数据库保存");
-                    bookService.updateBook(book.getId(), book);
-                    stepTimer.end("数据库保存");
+            // AI数据生成 和 内容向量生成 并行执行
+            boolean preCheckPassed = passesContentEmbedPreCheck(book);
+            if (preCheckPassed && book.getRagContent() != null && !book.getRagContent().isBlank()) {
+                stepTimer.start("AI数据生成+内容向量生成(并行)");
+                CompletableFuture<Void> aiDataFuture = CompletableFuture.runAsync(() -> bookParserService.generateAllAiData(book.getId(), true));
+                CompletableFuture<Void> contentEmbedFuture = CompletableFuture.runAsync(() -> bookParserService.generateContentEmbedding(book.getId(), book.getRagContent()));
+                try {
+                    CompletableFuture.allOf(aiDataFuture, contentEmbedFuture).join();
+                } catch (Exception e) {
+                    log.warn("并行任务异常: bookId={} - {}", book.getId(), e.getMessage());
                 }
-                log.info("{}，跳过内容向量存储: bookId={}, title={}",
-                        getSkipEmbedReason(book), book.getId(), title);
+                stepTimer.end("AI数据生成+内容向量生成(并行)");
+
+                // 根据评分决定是否保留内容向量
+                Book bookWithRating = bookService.getBookById(book.getId());
+                if (shouldEmbedContent(bookWithRating)) {
+                    bookWithRating.setContentEmbedded(true);
+                    stepTimer.start("数据库保存");
+                    bookService.updateBook(bookWithRating.getId(), bookWithRating);
+                    stepTimer.end("数据库保存");
+                } else {
+                    embeddingService.removeContentEmbedding(book.getId());
+                    log.info("{}，删除已生成的内容向量: bookId={}, title={}",
+                            getSkipEmbedReason(bookWithRating), book.getId(), title);
+                }
+            } else {
+                stepTimer.start("AI数据生成");
+                bookParserService.generateAllAiData(book.getId(), true);
+                stepTimer.end("AI数据生成");
+
+                Book bookWithRating = bookService.getBookById(book.getId());
+                if (shouldEmbedContent(bookWithRating)) {
+                    stepTimer.start("内容向量生成");
+                    bookParserService.generateContentEmbedding(book.getId(), book.getRagContent());
+                    stepTimer.end("内容向量生成");
+                    bookWithRating.setContentEmbedded(true);
+                    stepTimer.start("数据库保存");
+                    bookService.updateBook(bookWithRating.getId(), bookWithRating);
+                    stepTimer.end("数据库保存");
+                } else {
+                    if (Boolean.TRUE.equals(book.getContentEmbedded())) {
+                        embeddingService.removeContentEmbedding(book.getId());
+                        book.setContentEmbedded(false);
+                        stepTimer.start("数据库保存");
+                        bookService.updateBook(book.getId(), book);
+                        stepTimer.end("数据库保存");
+                    }
+                    log.info("{}，跳过内容向量存储: bookId={}, title={}",
+                            getSkipEmbedReason(bookWithRating), book.getId(), title);
+                }
             }
             return ScanResultType.UPDATED;
         } else {
@@ -308,15 +317,9 @@ public class BookScanService {
             }
 
             // 补提取缺失的目录/章节摘要/作者，或始终重新生成简介（AI更完整）
-            boolean needsMetadata = (book.getToc() == null || book.getToc().isBlank())
-                    || (book.getChapterSummary() == null || book.getChapterSummary().isBlank())
-                    || (book.getAuthor() == null || book.getAuthor().isBlank())
-                    || true /* 始终重新生成简介 */;
-            if (needsMetadata) {
-                log.debug("补提取旧书元数据: bookId={}, title={}", book.getId(), title);
-                bookParserService.parseAndFill(book, filePath);
-                bookService.updateBook(book.getId(), book);
-            }
+            log.debug("补提取旧书元数据: bookId={}, title={}", book.getId(), title);
+            bookParserService.parseAndFill(book, filePath);
+            bookService.updateBook(book.getId(), book);
 
             // 补生成缺失的向量数据（旧数据可能从未进过向量库）
             boolean needsBookEmbedding = !embeddingService.hasBookEmbedding(book.getId());
@@ -378,24 +381,52 @@ public class BookScanService {
             stepTimer.end("封面处理");
         }
 
-        stepTimer.start("AI数据生成");
-        bookParserService.generateAllAiData(saved.getId(), true);
-        stepTimer.end("AI数据生成");
+        // AI数据生成 和 内容向量生成 并行执行（乐观策略：预检查通过即并行，完成后按评分决定是否保留内容向量）
+        boolean preCheckPassed = passesContentEmbedPreCheck(saved);
+        if (preCheckPassed && newBook.getRagContent() != null && !newBook.getRagContent().isBlank()) {
+            // 并行执行
+            stepTimer.start("AI数据生成+内容向量生成(并行)");
+            CompletableFuture<Void> aiDataFuture = CompletableFuture.runAsync(() -> bookParserService.generateAllAiData(saved.getId(), true));
+            CompletableFuture<Void> contentEmbedFuture = CompletableFuture.runAsync(() -> bookParserService.generateContentEmbedding(saved.getId(), newBook.getRagContent()));
+            try {
+                CompletableFuture.allOf(aiDataFuture, contentEmbedFuture).join();
+            } catch (Exception e) {
+                log.warn("并行任务异常: bookId={} - {}", saved.getId(), e.getMessage());
+            }
+            stepTimer.end("AI数据生成+内容向量生成(并行)");
 
-        // 根据评分决定是否存储内容向量（需重新获取含评分的 book 对象）
-        Book bookWithRating = bookService.getBookById(saved.getId());
-        if (shouldEmbedContent(bookWithRating)) {
-            stepTimer.start("内容向量生成");
-            // 传入 newBook 缓存的 ragContent，避免二次文件读取
-            bookParserService.generateContentEmbedding(saved.getId(), newBook.getRagContent());
-            stepTimer.end("内容向量生成");
-            bookWithRating.setContentEmbedded(true);
-            stepTimer.start("数据库保存");
-            bookService.updateBook(bookWithRating.getId(), bookWithRating);
-            stepTimer.end("数据库保存");
+            // 根据评分决定是否保留内容向量
+            Book bookWithRating = bookService.getBookById(saved.getId());
+            if (shouldEmbedContent(bookWithRating)) {
+                bookWithRating.setContentEmbedded(true);
+                stepTimer.start("数据库保存");
+                bookService.updateBook(bookWithRating.getId(), bookWithRating);
+                stepTimer.end("数据库保存");
+            } else {
+                // 评分不达标，删除已生成的内容向量
+                log.info("{}，删除已生成的内容向量: bookId={}, title={}",
+                        getSkipEmbedReason(bookWithRating), saved.getId(), title);
+                embeddingService.removeContentEmbedding(saved.getId());
+            }
         } else {
-            log.info("{}，跳过内容向量存储: bookId={}, title={}",
-                    getSkipEmbedReason(bookWithRating), saved.getId(), title);
+            // 预检查不通过，仅执行 AI 数据生成
+            stepTimer.start("AI数据生成");
+            bookParserService.generateAllAiData(saved.getId(), true);
+            stepTimer.end("AI数据生成");
+
+            Book bookWithRating = bookService.getBookById(saved.getId());
+            if (shouldEmbedContent(bookWithRating)) {
+                stepTimer.start("内容向量生成");
+                bookParserService.generateContentEmbedding(saved.getId(), newBook.getRagContent());
+                stepTimer.end("内容向量生成");
+                bookWithRating.setContentEmbedded(true);
+                stepTimer.start("数据库保存");
+                bookService.updateBook(bookWithRating.getId(), bookWithRating);
+                stepTimer.end("数据库保存");
+            } else {
+                log.info("{}，跳过内容向量存储: bookId={}, title={}",
+                        getSkipEmbedReason(bookWithRating), saved.getId(), title);
+            }
         }
         log.info("新增图书: {} [{}]", title, format);
         return ScanResultType.ADDED;
@@ -413,19 +444,25 @@ public class BookScanService {
 
     /**
      * 判断书籍是否应该存储内容向量
-     * 需同时满足：评分 >= contentEmbedMinRating 且文件大小 <= contentEmbedMaxSizeMb 且非合集类图书
+     * 需同时满足：评分 >= storageProps.getScan().getContentEmbedMinRating() 且文件大小 <= storageProps.getScan().getContentEmbedMaxSizeMb() 且非合集类图书
      */
     private boolean shouldEmbedContent(Book book) {
-        if (book.getRating() == null || book.getRating() < contentEmbedMinRating) {
+        if (book.getRating() == null || book.getRating() < storageProps.getScan().getContentEmbedMinRating()) {
             return false;
         }
-        if (book.getFileSize() != null && book.getFileSize() > contentEmbedMaxSizeMb * 1024 * 1024) {
+        return passesContentEmbedPreCheck(book);
+    }
+
+    /**
+     * 内容向量预检查（不依赖 AI 评分，可在 AI 数据生成前判断）
+     * 检查文件大小和合集类限制
+     */
+    private boolean passesContentEmbedPreCheck(Book book) {
+        double maxSizeMb = storageProps.getScan().getContentEmbedMaxSizeMb();
+        if (maxSizeMb > 0 && book.getFileSize() != null && book.getFileSize() > maxSizeMb * 1024 * 1024) {
             return false;
         }
-        if (isCompilationBook(book)) {
-            return false;
-        }
-        return true;
+        return !isCompilationBook(book);
     }
 
     /**
@@ -435,7 +472,7 @@ public class BookScanService {
     private boolean isCompilationBook(Book book) {
         String title = book.getTitle();
         if (title != null && !title.isBlank()) {
-            String[] keywords = compilationKeywords.split(",");
+            String[] keywords = storageProps.getScan().getCompilationKeywords().split(",");
             for (String keyword : keywords) {
                 String kw = keyword.trim();
                 if (!kw.isEmpty() && title.contains(kw)) {
@@ -444,27 +481,25 @@ public class BookScanService {
             }
         }
         // 文件超大且超过合集阈值时也视为合集（超大文件通常是多本合集）
-        if (compilationMaxSizeMb > 0 && book.getFileSize() != null
-                && book.getFileSize() > compilationMaxSizeMb * 1024 * 1024) {
-            return true;
-        }
-        return false;
+        return storageProps.getScan().getCompilationMaxSizeMb() > 0 && book.getFileSize() != null
+                && book.getFileSize() > storageProps.getScan().getCompilationMaxSizeMb() * 1024 * 1024;
     }
 
     /**
      * 获取跳过内容向量存储的原因（用于日志）
      */
     private String getSkipEmbedReason(Book book) {
-        if (book.getRating() == null || book.getRating() < contentEmbedMinRating) {
-            return String.format("评分 %.1f < %.1f", book.getRating() != null ? book.getRating() : 0, contentEmbedMinRating);
+        if (book.getRating() == null || book.getRating() < storageProps.getScan().getContentEmbedMinRating()) {
+            return String.format("评分 %.1f < %.1f", book.getRating() != null ? book.getRating() : 0, storageProps.getScan().getContentEmbedMinRating());
         }
-        if (book.getFileSize() != null && book.getFileSize() > contentEmbedMaxSizeMb * 1024 * 1024) {
-            return String.format("文件 %.1fMB > %.0fMB", book.getFileSize() / 1024.0 / 1024.0, contentEmbedMaxSizeMb);
+        double maxSizeMb = storageProps.getScan().getContentEmbedMaxSizeMb();
+        if (maxSizeMb > 0 && book.getFileSize() != null && book.getFileSize() > maxSizeMb * 1024 * 1024) {
+            return String.format("文件 %.1fMB > %.0fMB", book.getFileSize() / 1024.0 / 1024.0, maxSizeMb);
         }
         if (isCompilationBook(book)) {
-            if (book.getFileSize() != null && compilationMaxSizeMb > 0
-                    && book.getFileSize() > compilationMaxSizeMb * 1024 * 1024) {
-                return String.format("合集类图书(文件 %.1fMB > %.0fMB)", book.getFileSize() / 1024.0 / 1024.0, compilationMaxSizeMb);
+            if (book.getFileSize() != null && storageProps.getScan().getCompilationMaxSizeMb() > 0
+                    && book.getFileSize() > storageProps.getScan().getCompilationMaxSizeMb() * 1024 * 1024) {
+                return String.format("合集类图书(文件 %.1fMB > %.0fMB)", book.getFileSize() / 1024.0 / 1024.0, storageProps.getScan().getCompilationMaxSizeMb());
             }
             return "合集类图书(书名匹配)";
         }
@@ -488,9 +523,9 @@ public class BookScanService {
         int added = 0, updated = 0, skipped = 0;
 
         Map<String, String> pathFormatMap = new LinkedHashMap<>();
-        pathFormatMap.put(epubPath, "EPUB");
-        pathFormatMap.put(pdfPath, "PDF");
-        pathFormatMap.put(txtPath, "TXT");
+        pathFormatMap.put(storageProps.getBookPaths().getEpub(), "EPUB");
+        pathFormatMap.put(storageProps.getBookPaths().getPdf(), "PDF");
+        pathFormatMap.put(storageProps.getBookPaths().getTxt(), "TXT");
 
         for (Map.Entry<String, String> entry : pathFormatMap.entrySet()) {
             String dir = entry.getKey();
@@ -526,7 +561,7 @@ public class BookScanService {
                             Book book = existing.get();
                             long fileSize = Files.size(filePath);
 
-                            if (forceUpdate || !Objects.equals(book.getFileSize(), fileSize)) {
+                            if (storageProps.getScan().isForceUpdate() || !Objects.equals(book.getFileSize(), fileSize)) {
                                 book.setFileSize(fileSize);
                                 bookParserService.parseAndFill(book, filePath);
                                 bookParserService.finalizeCover(book);
@@ -543,14 +578,8 @@ public class BookScanService {
                                 if (needsAiDataGeneration(book)) {
                                     bookParserService.generateAllAiData(book.getId());
                                 }
-                                boolean needsMetadata = (book.getToc() == null || book.getToc().isBlank())
-                                        || (book.getChapterSummary() == null || book.getChapterSummary().isBlank())
-                                        || (book.getAuthor() == null || book.getAuthor().isBlank())
-                                        || true /* 始终重新生成简介 */;
-                                if (needsMetadata) {
-                                    bookParserService.parseAndFill(book, filePath);
-                                    bookService.updateBook(book.getId(), book);
-                                }
+                                bookParserService.parseAndFill(book, filePath);
+                                bookService.updateBook(book.getId(), book);
                                 if (!embeddingService.hasBookEmbedding(book.getId())) {
                                     bookParserService.generateBookEmbedding(book.getId());
                                 }

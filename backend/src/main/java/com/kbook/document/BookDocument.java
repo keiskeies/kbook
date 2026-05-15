@@ -18,7 +18,7 @@ import org.springframework.data.elasticsearch.annotations.Setting;
 @NoArgsConstructor
 @AllArgsConstructor
 @Document(indexName = "kbook-books")
-@Setting(shards = 1, replicas = 0)
+@Setting(replicas = 0)
 public class BookDocument {
 
     @Id

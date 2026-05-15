@@ -1,6 +1,5 @@
 import request from '@/utils/request'
 import type { PageResult } from '@/types/common'
-import type { AiProviderConfig, ConnectionTestResult } from '@/types/ai'
 
 export interface AdminUser {
   id: number
@@ -95,44 +94,4 @@ export function sendInvitation(email: string, bookId?: number) {
   return request.post<InviteResult>('/admin/invite', { email, bookId })
 }
 
-// ==================== AI 提供商配置管理 ====================
 
-/** 获取所有 AI 配置 */
-export function getAiConfigs() {
-  return request.get<AiProviderConfig[]>('/admin/ai-provider')
-}
-
-/** 获取当前活跃的 AI 配置 */
-export function getActiveAiConfig() {
-  return request.get<AiProviderConfig>('/admin/ai-provider/active')
-}
-
-/** 保存 AI 配置（新增或更新） */
-export function saveAiConfig(config: AiProviderConfig) {
-  return request.post<AiProviderConfig>('/admin/ai-provider', config)
-}
-
-/** 删除 AI 配置 */
-export function deleteAiConfig(id: number) {
-  return request.delete(`/admin/ai-provider/${id}`)
-}
-
-/** 启用 AI 配置 */
-export function enableAiConfig(id: number) {
-  return request.post<AiProviderConfig>(`/admin/ai-provider/${id}/enable`)
-}
-
-/** 禁用 AI 配置 */
-export function disableAiConfig(id: number) {
-  return request.post(`/admin/ai-provider/${id}/disable`)
-}
-
-/** 测试已保存的 AI 配置连接 */
-export function testAiConfig(id: number) {
-  return request.post<ConnectionTestResult>(`/admin/ai-provider/${id}/test`, {}, { timeout: 120000 })
-}
-
-/** 测试未保存的 AI 配置连接（实时测试） */
-export function testAiConnection(config: AiProviderConfig) {
-  return request.post<ConnectionTestResult>('/admin/ai-provider/test', config, { timeout: 120000 })
-}

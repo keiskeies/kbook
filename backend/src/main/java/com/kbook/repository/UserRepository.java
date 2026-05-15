@@ -19,8 +19,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     boolean existsByEmail(String email);
 
-    List<User> findByStatus(String status);
-
     Page<User> findByStatus(String status, Pageable pageable);
 
     /**
@@ -32,13 +30,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * 按昵称/邮箱模糊搜索
      */
     @Query("SELECT u FROM User u WHERE " +
-           "(:keyword IS NULL OR u.nickname LIKE %:keyword% OR u.email LIKE %:keyword%) AND " +
-           "(:status IS NULL OR u.status = :status)")
+            "(:keyword IS NULL OR u.nickname LIKE %:keyword% OR u.email LIKE %:keyword%) AND " +
+            "(:status IS NULL OR u.status = :status)")
     Page<User> searchUsers(@Param("keyword") String keyword,
                            @Param("status") String status,
                            Pageable pageable);
-
-    long countByStatus(String status);
 
     /**
      * 统计各状态用户数

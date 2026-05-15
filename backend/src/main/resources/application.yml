@@ -92,8 +92,8 @@ spring:
     uris: ${ES_URIS:http://localhost:9201}
     username: ${ES_USERNAME:}
     password: ${ES_PASSWORD:}
-    connection-timeout: 5s
-    socket-timeout: 30s
+    connection-timeout: 30s
+    socket-timeout: 120s
 
 
 
@@ -152,6 +152,10 @@ kbook:
   # 扫描配置
   scan:
     force-update: ${SCAN_FORCE_UPDATE:false}  # 设为 true 时，扫描已存在书籍也会强制更新评分/简介/作者/8维度相关度得分
+    # 内容向量存储的最低评分阈值（低于此值的书籍不存储内容向量到 Qdrant，0 表示不限制）
+    content-embed-min-rating: ${SCAN_CONTENT_EMBED_MIN_RATING:0.0}
+    # 内容向量存储的最大文件大小（超过此大小的书籍不存储内容向量，单位 MB，0 表示不限制）
+    content-embed-max-size-mb: ${SCAN_CONTENT_EMBED_MAX_SIZE_MB:0}
     # 合集类图书检测：书名包含以下关键词则不存入 RAG 向量库（逗号分隔）
     compilation-keywords: ${SCAN_COMPILATION_KEYWORDS:合集,全集,作品集,选集,集锦,大全,丛书,套装,汇编}
     # 合集类图书检测：文件超过此大小也视为合集（单位 MB，0 表示不按大小判断）
@@ -180,7 +184,7 @@ kbook:
     # 估算：top-k × chunk-size × 1.5(中文token比) ≈ 注入 prompt 的 token 数
     # 例：16K上下文 → 5×512×1.5≈3840 tokens，加上系统提示+书籍信息+输出，约 7~9K，安全
     #     32K上下文 → 可用 8~10
-    rag-top-k: ${QDRANT_RAG_TOP_K:5}
+    rag-top-k: ${QDRANT_RAG_TOP_K:100}
     # 原始向量是否存磁盘（默认 true，大幅节省内存；关闭则常驻 RAM 加速搜索但内存占用极大）
     vectors-on-disk: ${QDRANT_VECTORS_ON_DISK:true}
     # 标量量化配置：float32 → int8，内存占用降约 75%，精度损失 <1%
@@ -190,16 +194,15 @@ kbook:
       always-ram: ${QDRANT_QUANTIZATION_ALWAYS_RAM:false} # 量化向量常驻 RAM（关闭可大幅节省内存，搜索稍慢）
   # ========================
   # AI 视觉模型配置（PDF OCR 用）
-  # 需支持图片输入的模型，如 Ollama 的 llava、gemma4:e4b、minicpm-v 等
-  # 如果留空，则使用管理员配置的活跃模型（需确保该模型支持视觉能力）
+  # 需支持图片输入的模型，如 Ollama 的 llava、gemma3n:e4b、minicpm-v 等
+  # 如果留空，则使用下方 langchain4j.ollama.chat-model 的模型
   # ========================
   ai:
     vision-model-name: ${AI_VISION_MODEL:}
     vision-timeout: ${AI_VISION_TIMEOUT:600s}
 # ========================
-# AI 助理兜底配置 (LangChain4j Ollama)
-# 仅在管理员未配置任何 AI 模型时作为兜底使用
-# 请在管理后台 → AI 模型配置 页面配置实际的 LLM 接口
+# AI 模型配置 (LangChain4j Ollama)
+# 所有 AI 配置统一在此管理，修改后需重启服务生效
 # ========================
 langchain4j:
   ollama:
@@ -220,7 +223,7 @@ logging:
   level:
     root: INFO
     com.kbook: DEBUG
-    org.hibernate.SQL: DEBUG
+    org.hibernate.SQL: INFO
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
     # LangChain4j 内部日志（调试 AI 请求/响应/耗时）
     dev.langchain4j: DEBUG

@@ -9,11 +9,11 @@ interface MarkdownRendererProps {
   className?: string
 }
 
-/** 书籍链接预处理：将 [BOOK:id=123]《书名》 转为 [📖《书名》](/reader/123) */
+/** 书籍链接预处理：将 [BOOK:id=123]《书名》 转为 [📖《书名》](kbook://book-detail/123) */
 function preprocessBookLinks(text: string): string {
   return text.replace(
     /\[BOOK:id=(\d+)\]《(.+?)》/g,
-    (_match, bookId, title) => `[📖《${title}》](kbook://book/${bookId})`
+    (_match, bookId, title) => `[📖《${title}》](kbook://book-detail/${bookId})`
   )
 }
 
@@ -29,10 +29,10 @@ export default function MarkdownRenderer({ content, className = '' }: MarkdownRe
     const anchor = target.closest('a')
     if (anchor) {
       const href = anchor.getAttribute('href')
-      if (href?.startsWith('kbook://book/')) {
+      if (href?.startsWith('kbook://book-detail/')) {
         e.preventDefault()
-        const bookId = href.replace('kbook://book/', '')
-        navigate(`/reader/${bookId}`)
+        const bookId = href.replace('kbook://book-detail/', '')
+        navigate(`/book/${bookId}`)
       }
     }
   }

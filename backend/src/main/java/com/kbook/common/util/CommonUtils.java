@@ -37,7 +37,7 @@ public class CommonUtils {
         int chineseChars = 0;
         int otherChars = 0;
         for (char c : text.toCharArray()) {
-            if (c >= '\u4e00' && c <= '\u9fff') {
+            if (c >= '一' && c <= '鿿') {
                 chineseChars++;
             } else {
                 otherChars++;
@@ -64,19 +64,18 @@ public class CommonUtils {
         }
 
         double scale = (double) maxWidth / srcWidth;
-        int newWidth = maxWidth;
         int newHeight = (int) Math.round(srcHeight * scale);
 
-        BufferedImage resized = new BufferedImage(newWidth, newHeight,
+        BufferedImage resized = new BufferedImage(maxWidth, newHeight,
                 format.equalsIgnoreCase("png") ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
         Graphics2D g2d = resized.createGraphics();
         g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2d.drawImage(srcImage, 0, 0, newWidth, newHeight, null);
+        g2d.drawImage(srcImage, 0, 0, maxWidth, newHeight, null);
         g2d.dispose();
 
-        log.debug("图片压缩: {}x{} -> {}x{}", srcWidth, srcHeight, newWidth, newHeight);
+        log.debug("图片压缩: {}x{} -> {}x{}", srcWidth, srcHeight, maxWidth, newHeight);
         return resized;
     }
 

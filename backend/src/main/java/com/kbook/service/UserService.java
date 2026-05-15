@@ -4,9 +4,9 @@ import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
+import com.kbook.config.properties.BookStorageProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -34,12 +34,7 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
-
-    @Value("${kbook.upload.avatar-dir:./uploads/avatars}")
-    private String avatarDir;
-
-    @Value("${kbook.upload.avatar-url-prefix:/api/uploads/avatars}")
-    private String avatarUrlPrefix;
+    private final BookStorageProperties storageProps;
 
     public User getUserById(Long id) {
         return userRepository.findById(id)
@@ -50,16 +45,17 @@ public class UserService {
      * 分页查询待审核用户
      */
     public PageResult<User> getPendingUsers(int page, int size) {
-        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "id"));
         Page<User> pageData = userRepository.findByStatus("PENDING", pageable);
         return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
     }
 
     /**
      * 按状态筛选用户（支持多状态）
+     * 按 id DESC 排序（自增主键，等价于按注册时间倒序但索引效率更高）
      */
     public PageResult<User> getUsersByStatus(List<String> statuses, int page, int size) {
-        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "id"));
         Page<User> pageData;
         if (statuses == null || statuses.isEmpty()) {
             pageData = userRepository.findAll(pageable);
@@ -71,9 +67,10 @@ public class UserService {
 
     /**
      * 搜索用户（关键词 + 状态筛选）
+     * 按 id DESC 排序（自增主键，索引效率更高）
      */
     public PageResult<User> searchUsers(String keyword, String status, int page, int size) {
-        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "id"));
         Page<User> pageData = userRepository.searchUsers(keyword, status, pageable);
         return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
     }
@@ -251,7 +248,7 @@ public class UserService {
 
         // 保存文件
         try {
-            Path dirPath = Paths.get(avatarDir);
+            Path dirPath = Paths.get(storageProps.getUpload().getAvatarDir());
             if (!Files.exists(dirPath)) {
                 Files.createDirectories(dirPath);
             }
@@ -259,7 +256,7 @@ public class UserService {
             file.transferTo(filePath.toFile());
 
             // 生成 URL
-            String avatarUrl = avatarUrlPrefix + "/" + filename;
+            String avatarUrl = storageProps.getUpload().getAvatarUrlPrefix() + "/" + filename;
 
             // 更新用户头像
             User user = getUserById(userId);

@@ -9,9 +9,9 @@ import com.kbook.repository.BookRepository;
 import com.kbook.service.BookSearchService;
 import com.kbook.service.BookService;
 import com.kbook.service.RecommendService;
+import com.kbook.config.properties.BookStorageProperties;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -35,9 +35,7 @@ public class BookController {
     private final BookSearchService bookSearchService;
     private final BookRepository bookRepository;
     private final RecommendService recommendService;
-
-    @Value("${kbook.cover-path:./covers}")
-    private String coverPath;
+    private final BookStorageProperties storageProps;
 
     /**
      * 获取封面图片
@@ -45,7 +43,7 @@ public class BookController {
      */
     @GetMapping(value = "/cover/{filename}")
     public ResponseEntity<Resource> getCover(@PathVariable String filename) {
-        Path coverDir = Paths.get(coverPath);
+        Path coverDir = Paths.get(storageProps.getCoverPath());
         
         // 安全检查并解析路径
         Path imagePath = CommonUtils.safeResolvePath(coverDir, filename);

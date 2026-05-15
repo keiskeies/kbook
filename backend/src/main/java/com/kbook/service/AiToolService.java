@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.PageResult;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
 import com.kbook.entity.UserBookPreference;
 import dev.langchain4j.agent.tool.P;
@@ -11,7 +12,6 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -36,10 +36,7 @@ public class AiToolService {
     private final UserBookPreferenceService preferenceService;
     private final RecommendService recommendService;
     private final ObjectMapper objectMapper;
-
-    /** RAG 内容检索返回的最大片段数 */
-    @Value("${kbook.qdrant.rag-top-k:5}")
-    private int ragTopK;
+    private final QdrantProperties qdrantProperties;
 
     public AiToolService(
             BookService bookService,
@@ -47,7 +44,8 @@ public class AiToolService {
             @Lazy EmbeddingService embeddingService,
             UserBookPreferenceService preferenceService,
             @Lazy RecommendService recommendService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            QdrantProperties qdrantProperties
     ) {
         this.bookService = bookService;
         this.bookshelfService = bookshelfService;
@@ -55,6 +53,7 @@ public class AiToolService {
         this.preferenceService = preferenceService;
         this.recommendService = recommendService;
         this.objectMapper = objectMapper;
+        this.qdrantProperties = qdrantProperties;
     }
 
     // ==================== 图书查询工具 ====================
@@ -194,7 +193,7 @@ public class AiToolService {
                 return "向量检索功能暂不可用。";
             }
 
-            List<EmbeddingMatch<TextSegment>> matches = embeddingService.searchContent(query, ragTopK, bookId);
+            List<EmbeddingMatch<TextSegment>> matches = embeddingService.searchContent(query, qdrantProperties.getRagTopK(), bookId);
             if (matches.isEmpty()) {
                 return "未在该书中找到相关内容。";
             }
@@ -250,8 +249,7 @@ public class AiToolService {
     ) {
         log.info("[AI Tool] mergeBooksByTitle: title={}", title);
         try {
-            String result = bookService.mergeBooksByTitle(title);
-            return result;
+            return bookService.mergeBooksByTitle(title);
         } catch (Exception e) {
             log.error("[AI Tool] mergeBooksByTitle error", e);
             return "合并书籍时发生错误：" + e.getMessage();
@@ -600,13 +598,6 @@ public class AiToolService {
         return denominator > 0 ? dotProduct / denominator : 0.0;
     }
 
-    private static class ScoredBook {
-        final Book book;
-        final double score;
-
-        ScoredBook(Book book, double score) {
-            this.book = book;
-            this.score = score;
-        }
+    private record ScoredBook(Book book, double score) {
     }
 }

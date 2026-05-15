@@ -11,7 +11,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,9 +60,6 @@ public class BookSearchService {
 
             // 填充高亮内容
             List<BookDocument> docs = result.getContent();
-            if (result instanceof org.springframework.data.elasticsearch.core.SearchPage) {
-                // 高亮由 Spring Data Elasticsearch 自动处理
-            }
 
             esAvailable = true;
             return PageResult.of(docs, result.getTotalElements(), page, size);
