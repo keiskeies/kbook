@@ -42,11 +42,9 @@ export interface SimpleBookVO {
   readCount: number
 }
 
-/** 格式分类 */
-export interface FormatCategory {
-  format: string
-  label: string
-  icon: string
+/** 热门标签 */
+export interface TagStat {
+  name: string
   count: number
 }
 
@@ -58,10 +56,45 @@ export interface HomeData {
   topRatedBooks: SimpleBookVO[]
   newBooks: SimpleBookVO[]
   popularBooks: SimpleBookVO[]
-  categories: FormatCategory[]
+  categories: TagStat[]
 }
 
-/** 获取首页全部数据 */
+/** 获取首页全部数据（兼容旧接口） */
 export function getHomeData() {
   return request.get<HomeData>('/home')
+}
+
+/** 获取阅读统计 */
+export function getHomeStats() {
+  return request.get<ReadingStatsVO>('/home/stats')
+}
+
+/** 获取最近阅读 */
+export function getHomeRecent() {
+  return request.get<RecentBookVO[]>('/home/recent')
+}
+
+/** 获取猜你喜欢 */
+export function getHomePersonalized() {
+  return request.get<RecommendedBook[]>('/home/personalized')
+}
+
+/** 获取高分佳作 */
+export function getHomeTopRated() {
+  return request.get<SimpleBookVO[]>('/home/top-rated')
+}
+
+/** 获取新书速递 */
+export function getHomeNewBooks() {
+  return request.get<SimpleBookVO[]>('/home/new-books')
+}
+
+/** 获取热门榜单 */
+export function getHomePopular() {
+  return request.get<SimpleBookVO[]>('/home/popular')
+}
+
+/** 获取热门标签 */
+export function getHomeCategories() {
+  return request.get<TagStat[]>('/home/categories')
 }

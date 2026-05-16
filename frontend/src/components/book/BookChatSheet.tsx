@@ -20,6 +20,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [sessionId, setSessionId] = useState<string>('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [chatTitle, setChatTitle] = useState<string>('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -58,6 +59,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     setInput('')
     setLoading(false)
     setSessionId('')
+    setChatTitle('')
     onOpenChange(false)
   }, [onOpenChange])
 
@@ -79,6 +81,13 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
       timestamp: Date.now(),
     }
     setMessages((prev) => [...prev, userMsg])
+    
+    // 设置会话标题：书籍名称-第一句问题
+    if (!chatTitle) {
+      const questionPreview = message.length > 15 ? message.slice(0, 15) + '...' : message
+      setChatTitle(`${book.title}-${questionPreview}`)
+    }
+    
     setInput('')
     setLoading(true)
 
@@ -200,7 +209,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
               <Sparkles className="h-5 w-5 text-primary" />
             </div>
             <div className="min-w-0 flex-1">
-              <SheetTitle className="text-base">AI 书籍问答</SheetTitle>
+              <SheetTitle className="text-base">{chatTitle || 'AI 书籍问答'}</SheetTitle>
               <SheetDescription className="truncate text-xs">
                 基于原著内容回答关于《{book.title}》的问题
               </SheetDescription>

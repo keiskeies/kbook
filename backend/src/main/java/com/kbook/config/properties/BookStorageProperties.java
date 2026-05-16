@@ -39,14 +39,5 @@ public class BookStorageProperties {
 
     @Data
     public static class ScanConfig {
-        private boolean forceUpdate = false;
-        /** 内容向量存储的最低评分阈值 */
-        private double contentEmbedMinRating = 0.0;
-        /** 内容向量存储的最大文件大小（MB，0 表示不限制） */
-        private double contentEmbedMaxSizeMb = 0;
-        /** 合集类图书检测关键词（逗号分隔） */
-        private String compilationKeywords = "合集,全集,作品集,选集,集锦,大全,丛书,套装,汇编";
-        /** 合集类图书文件大小阈值（MB，0 表示不按大小判断） */
-        private double compilationMaxSizeMb = 30;
     }
 }

@@ -1,4 +1,3 @@
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 import { ThemeProvider } from 'next-themes'
@@ -14,13 +13,11 @@ import './App.css'
 useAuthStore.getState().hydrate()
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-        <RouterProvider router={router} />
-        <Toaster position="top-center" richColors closeButton duration={4000} style={{ marginTop: '60px' }} />
-        <TtsFloatPlayer />
-      </ThemeProvider>
-    </ErrorBoundary>
-  </StrictMode>
+  <ErrorBoundary>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <RouterProvider router={router} />
+      <Toaster position="top-center" richColors closeButton duration={4000} style={{ marginTop: '60px' }} />
+      <TtsFloatPlayer />
+    </ThemeProvider>
+  </ErrorBoundary>
 )

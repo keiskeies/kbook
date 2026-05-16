@@ -28,9 +28,9 @@ public interface ReadingProgressRepository extends JpaRepository<ReadingProgress
                                                     @Param("bookIds") List<Long> bookIds);
 
     /**
-     * 获取用户最近阅读的进度（带数量限制）
+     * 获取用户最近阅读的进度（带数量限制，包括已读完的）
      */
-    @Query("SELECT rp FROM ReadingProgress rp WHERE rp.userId = :userId AND rp.progress < 1.0 ORDER BY rp.updatedAt DESC")
+    @Query("SELECT rp FROM ReadingProgress rp WHERE rp.userId = :userId ORDER BY rp.updatedAt DESC")
     List<ReadingProgress> findRecentReading(@Param("userId") Long userId, Pageable pageable);
 
     /**

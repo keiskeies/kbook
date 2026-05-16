@@ -385,6 +385,8 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
 
 export interface AiProviderConfig {
   id?: number
+  /** 配置名称（用于多配置时区分显示） */
+  name: string
   /** 配置用途：CHAT=对话, TAG=标签评分, EMBEDDING=向量, VISION=OCR */
   purpose: string
   /** 供应商类型：OLLAMA 或 OPENAI */
@@ -403,6 +405,8 @@ export interface AiProviderConfig {
   toolsEnabled?: boolean | null
   /** 是否启用 */
   enabled?: boolean
+  /** 是否为当前 purpose 的默认（激活）配置 */
+  isDefault?: boolean
   createdAt?: string
   updatedAt?: string
 }
@@ -412,19 +416,34 @@ export function listAiConfigs() {
   return request.get<AiProviderConfig[]>('/admin/ai-config')
 }
 
-/** 按用途获取配置 */
-export function getAiConfigByPurpose(purpose: string) {
-  return request.get<AiProviderConfig>(`/admin/ai-config/${purpose}`)
+/** 按用途获取所有配置列表 */
+export function listAiConfigsByPurpose(purpose: string) {
+  return request.get<AiProviderConfig[]>(`/admin/ai-config/purpose/${purpose}`)
 }
 
-/** 创建或更新 AI 配置 */
-export function saveAiConfig(data: AiProviderConfig) {
+/** 按用途获取默认（激活）配置 */
+export function getDefaultAiConfig(purpose: string) {
+  return request.get<AiProviderConfig>(`/admin/ai-config/${purpose}/default`)
+}
+
+/** 创建 AI 配置 */
+export function createAiConfig(data: AiProviderConfig) {
   return request.post<AiProviderConfig>('/admin/ai-config', data)
+}
+
+/** 更新 AI 配置 */
+export function updateAiConfig(id: number, data: AiProviderConfig) {
+  return request.put<AiProviderConfig>(`/admin/ai-config/${id}`, data)
 }
 
 /** 删除 AI 配置 */
 export function deleteAiConfig(id: number) {
   return request.delete(`/admin/ai-config/${id}`)
+}
+
+/** 切换默认（激活）配置 */
+export function switchDefaultConfig(id: number) {
+  return request.post<AiProviderConfig>(`/admin/ai-config/${id}/switch-default`)
 }
 
 /** 测试 AI 配置连接 */

@@ -20,7 +20,7 @@ export default function RecommendPage() {
   return (
     <div className="page-enter">
       {/* 头部 */}
-      <div className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-xl pt-safe-top border-b border-border/30">
+      <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
         <header className="flex items-center gap-3 px-4 py-3">
           <button onClick={() => navigate(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">
             <ArrowLeft className="h-5 w-5" />

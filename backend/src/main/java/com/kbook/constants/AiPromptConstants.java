@@ -30,21 +30,6 @@ public final class AiPromptConstants {
             13. 当用户根据书中思想提出实际应用问题时，给出基于书中理念的可行建议
             """;
 
-    // ==================== 图书标签生成提示词 ====================
-
-    public static final String TAG_SYSTEM_PROMPT = """
-            你是一个专业的图书标签生成助手。根据提供的图书信息（书名、作者、简介、正文片段），生成3-8个精准的标签。
-
-            规则：
-            - 标签应涵盖：类型/题材、风格、主题、读者群体等维度
-            - 每个标签2-4个字，简洁准确
-            - 基于你读到的正文内容判断，不要仅凭书名推测
-            - 只返回标签，用逗号分隔，不要编号和解释
-            - 示例：科幻,太空歌剧,经典,冒险
-
-            图书信息如下：
-            """;
-
     // ==================== 合并 AI 请求提示词（标签+评分+相关度+简介） ====================
 
     public static final String COMBINED_PROMPT = """
@@ -96,7 +81,7 @@ public final class AiPromptConstants {
             MBTI："INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP","ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP"
             职业："student","tech","finance","education","medical","arts","management","freelance","retired","other"
             学历："high_school","college","bachelor","master","doctorate","other_edu"
-            创业意向："entrepreneur","wantEntrepreneur","notInterested"
+            创业意向："entrepreneur_or_want","notInterested"
             年收入："under_50k","50k_150k","150k_300k","300k_500k","500k_1m","over_1m","prefer_not_to_say"
             心情："happy","calm","anxious","sad","motivated","tired","curious"
 
@@ -112,56 +97,9 @@ public final class AiPromptConstants {
             {
               "tags": "标签1,标签2,标签3",
               "rating": 3.0,
-              "relevance": {"0-9":0.1,"10-19":0.3,"20-29":0.8,"30-39":0.7,"40-49":0.5,"50-59":0.3,"60+":0.2,"male":0.6,"female":0.7,"married":0.5,"unmarried":0.8,"hasChildren":0.4,"noChildren":0.8,"INTJ":0.7,"INTP":0.6,"ENTJ":0.5,"ENTP":0.6,"INFJ":0.8,"INFP":0.9,"ENFJ":0.7,"ENFP":0.7,"ISTJ":0.4,"ISFJ":0.5,"ESTJ":0.3,"ESFJ":0.4,"ISTP":0.4,"ISFP":0.5,"ESTP":0.3,"ESFP":0.4,"student":0.3,"tech":0.5,"finance":0.4,"education":0.6,"medical":0.3,"arts":0.5,"management":0.4,"freelance":0.4,"retired":0.3,"other":0.4,"high_school":0.2,"college":0.4,"bachelor":0.6,"master":0.7,"doctorate":0.5,"other_edu":0.3,"entrepreneur":0.6,"wantEntrepreneur":0.5,"notInterested":0.4,"under_50k":0.3,"50k_150k":0.4,"150k_300k":0.6,"300k_500k":0.7,"500k_1m":0.6,"over_1m":0.5,"prefer_not_to_say":0.5,"happy":0.6,"calm":0.7,"anxious":0.3,"sad":0.4,"motivated":0.7,"tired":0.3,"curious":0.8},
+              "relevance": {"0-9":0.1,"10-19":0.3,"20-29":0.8,"30-39":0.7,"40-49":0.5,"50-59":0.3,"60+":0.2,"male":0.6,"female":0.7,"married":0.5,"unmarried":0.8,"hasChildren":0.4,"noChildren":0.8,"INTJ":0.7,"INTP":0.6,"ENTJ":0.5,"ENTP":0.6,"INFJ":0.8,"INFP":0.9,"ENFJ":0.7,"ENFP":0.7,"ISTJ":0.4,"ISFJ":0.5,"ESTJ":0.3,"ESFJ":0.4,"ISTP":0.4,"ISFP":0.5,"ESTP":0.3,"ESFP":0.4,"student":0.3,"tech":0.5,"finance":0.4,"education":0.6,"medical":0.3,"arts":0.5,"management":0.4,"freelance":0.4,"retired":0.3,"other":0.4,"high_school":0.2,"college":0.4,"bachelor":0.6,"master":0.7,"doctorate":0.5,"other_edu":0.3,"entrepreneur_or_want":0.6,"notInterested":0.4,"under_50k":0.3,"50k_150k":0.4,"150k_300k":0.6,"300k_500k":0.7,"500k_1m":0.6,"over_1m":0.5,"prefer_not_to_say":0.5,"happy":0.6,"calm":0.7,"anxious":0.3,"sad":0.4,"motivated":0.7,"tired":0.3,"curious":0.8},
               "description": "基于正文内容生成的100-300字图书简介"
             }
-
-            图书信息如下：
-            """;
-
-    // ==================== 评分提示词（单独调用时使用） ====================
-
-    public static final String RATING_PROMPT = """
-            你是一位严格的图书评论家。根据提供的图书信息（书名、作者、简介、正文片段），给出一个1.0-5.0之间的评分（5星制，一位小数）。
-
-            【评分原则】你必须像一个严苛的评论家，评分应当符合正态分布：
-            - 绝大多数书应在 2.5-3.5 之间（中等水平）
-            - 4.0 及以上是稀缺的，只给真正思想深刻、文笔精湛或具有里程碑意义的书
-            - 4.5 以上极其罕见，仅限传世经典或开创性著作
-            - 1.5-2.5 给内容浅薄、逻辑混乱或纯粹无营养的书
-
-            【评分尺度】（严格遵守）：
-            - 1.0-1.9：质量很差，逻辑混乱或毫无价值
-            - 2.0-2.5：平庸之作，浅尝辄止，缺乏深度
-            - 2.6-3.0：中等偏下，有一定可读性但缺乏亮点
-            - 3.1-3.5：中等水平，有合理内容但无突出价值
-            - 3.6-4.0：良好，在某个维度有明显价值
-            - 4.1-4.5：优秀，多维度出色
-            - 4.6-5.0：传世经典
-
-            只返回一个数字（如 3.0），不要其他文字。
-
-            图书信息如下：
-            """;
-
-    // ==================== 相关度得分提示词 ====================
-
-    public static final String RELEVANCE_PROMPT = """
-            你是一个专业的图书读者匹配分析助手。根据提供的图书信息（书名、作者、简介或目录），分析这本书对不同读者群体的适合程度。
-
-            为以下维度打分（0-1之间的小数），返回JSON格式：
-            年龄段："0-9","10-19","20-29","30-39","40-49","50-59","60+"
-            性别："male","female"
-            婚姻："married","unmarried"
-            子女："hasChildren","noChildren"
-            MBTI："INTJ","INTP","ENTJ","ENTP","INFJ","INFP","ENFJ","ENFP","ISTJ","ISFJ","ESTJ","ESFJ","ISTP","ISFP","ESTP","ESFP"
-            职业："student","tech","finance","education","medical","arts","management","freelance","retired","other"
-            学历："high_school","college","bachelor","master","doctorate","other_edu"
-            创业意向："entrepreneur","wantEntrepreneur","notInterested"
-            年收入："under_50k","50k_150k","150k_300k","300k_500k","500k_1m","over_1m","prefer_not_to_say"
-            心情："happy","calm","anxious","sad","motivated","tired","curious"
-
-            只返回JSON，不要其他文字。
 
             图书信息如下：
             """;

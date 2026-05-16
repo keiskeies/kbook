@@ -65,9 +65,6 @@ public class BookParserService {
     /**
      * AI 调用操作类型常量
      */
-    private static final String AI_OP_TAGS = "标签生成";
-    private static final String AI_OP_RATING = "评分生成";
-    private static final String AI_OP_RELEVANCE = "相关度得分生成";
     private static final String AI_OP_COMBINED = "合并请求（标签+评分+相关度）";
 
 
@@ -165,34 +162,118 @@ public class BookParserService {
             // 提取封面图片
             var coverImage = epubBook.getCoverImage();
             if (coverImage != null && coverImage.getData() != null) {
-                long ts = System.currentTimeMillis();
-                String ext = "jpg";
-                if (coverImage.getMediaType() != null) {
-                    String mediaTypeName = coverImage.getMediaType().getName().toLowerCase();
-                    if (mediaTypeName.contains("png")) ext = "png";
-                    else if (mediaTypeName.contains("gif")) ext = "gif";
-                    else if (mediaTypeName.contains("webp")) ext = "webp";
+                saveCoverImage(book, coverImage.getData(), coverImage.getMediaType());
+                log.info("EPUB 封面保存(元数据): {}", book.getCoverUrl());
+            } else {
+                // 元数据没有封面，尝试从正文中提取第一张图片
+                log.info("EPUB 元数据无封面，尝试从正文提取第一张图片: bookId={}", book.getId());
+                byte[] firstImageData = extractFirstImageFromEpub(epubBook);
+                if (firstImageData != null) {
+                    saveCoverImage(book, firstImageData, null);
+                    log.info("EPUB 封面保存(正文第一张图): {}", book.getCoverUrl());
                 }
-                String tempFileName = "book_new_" + ts + "_cover." + ext;
-                Path coverDir = Paths.get(storageProps.getCoverPath());
-                Files.createDirectories(coverDir);
-                Path coverFilePath = coverDir.resolve(tempFileName);
-
-                // 等比例压缩封面
-                BufferedImage srcImage = ImageIO.read(new ByteArrayInputStream(coverImage.getData()));
-                if (srcImage != null) {
-                    BufferedImage resized = CommonUtils.compressImage(srcImage, ext, COVER_MAX_WIDTH);
-                    ImageIO.write(resized, ext, coverFilePath.toFile());
-                } else {
-                    Files.write(coverFilePath, coverImage.getData());
-                }
-
-                book.setCoverUrl("/api/books/cover/" + tempFileName);
-                log.info("EPUB 封面保存: {}", tempFileName);
             }
 
         } catch (Exception e) {
             log.warn("EPUB 解析失败: {} - {}", book.getTitle(), e.getMessage());
+        }
+    }
+
+    /**
+     * 保存封面图片
+     */
+    private void saveCoverImage(Book book, byte[] imageData, nl.siegmann.epublib.domain.MediaType mediaType) {
+        long ts = System.currentTimeMillis();
+        String ext = "jpg";
+        if (mediaType != null) {
+            String mediaTypeName = mediaType.getName().toLowerCase();
+            if (mediaTypeName.contains("png")) ext = "png";
+            else if (mediaTypeName.contains("gif")) ext = "gif";
+            else if (mediaTypeName.contains("webp")) ext = "webp";
+        }
+        String tempFileName = "book_new_" + ts + "_cover." + ext;
+        try {
+            Path coverDir = Paths.get(storageProps.getCoverPath());
+            Files.createDirectories(coverDir);
+            Path coverFilePath = coverDir.resolve(tempFileName);
+
+            BufferedImage srcImage = ImageIO.read(new ByteArrayInputStream(imageData));
+            if (srcImage != null) {
+                BufferedImage resized = CommonUtils.compressImage(srcImage, ext, COVER_MAX_WIDTH);
+                ImageIO.write(resized, ext, coverFilePath.toFile());
+            } else {
+                Files.write(coverFilePath, imageData);
+            }
+            book.setCoverUrl("/api/books/cover/" + tempFileName);
+        } catch (Exception e) {
+            log.warn("保存封面图片失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 从 EPUB 正文中提取第一张图片
+     */
+    private byte[] extractFirstImageFromEpub(nl.siegmann.epublib.domain.Book epubBook) {
+        try {
+            // 预编译图片标签正则
+            Pattern imgPattern = Pattern.compile("<img[^>]+src=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
+
+            for (var spineRef : epubBook.getSpine().getSpineReferences()) {
+                try {
+                    var resource = spineRef.getResource();
+                    if (resource == null || resource.getData() == null) continue;
+
+                    String html = new String(resource.getData(), StandardCharsets.UTF_8);
+                    var matcher = imgPattern.matcher(html);
+
+                    if (matcher.find()) {
+                        String imgSrc = matcher.group(1);
+                        if (imgSrc == null || imgSrc.isBlank()) continue;
+
+                        // 解析图片路径（可能是相对路径或绝对路径）
+                        String imgPath = resolveEpubImagePath(imgSrc, resource);
+                        if (imgPath == null) continue;
+
+                        // 从 EPUB 资源中获取图片数据
+                        var imageResource = epubBook.getResources().getByHref(imgPath);
+                        if (imageResource != null && imageResource.getData() != null) {
+                            return imageResource.getData();
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception e) {
+            log.debug("从EPUB正文提取第一张图片失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 解析 EPUB 中的图片路径（处理相对路径）
+     */
+    private String resolveEpubImagePath(String imgSrc, nl.siegmann.epublib.domain.Resource contextResource) {
+        try {
+            // 如果是绝对路径（以 / 开头），直接使用
+            if (imgSrc.startsWith("/")) {
+                return imgSrc.substring(1);
+            }
+
+            // 获取当前资源的 href（文件路径）
+            String contextHref = contextResource.getHref();
+            if (contextHref == null) return imgSrc;
+
+            // 获取当前资源所在目录
+            int lastSlash = contextHref.lastIndexOf('/');
+            if (lastSlash >= 0) {
+                String contextDir = contextHref.substring(0, lastSlash + 1);
+                return contextDir + imgSrc;
+            }
+
+            return imgSrc;
+        } catch (Exception e) {
+            log.debug("解析EPUB图片路径失败: {}", e.getMessage());
+            return imgSrc;
         }
     }
 
@@ -664,52 +745,6 @@ public class BookParserService {
     }
 
     /**
-     * 为图书生成 AI 标签（入库后调用）
-     *
-     * @param force 是否强制重新生成（即使已有标签）
-     */
-    public void generateTags(Long bookId, boolean force) {
-        try {
-            Book book = bookService.getBookById(bookId);
-            // 如果已有标签且非强制，跳过
-            if (!force && book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
-                log.debug("图书已有标签，跳过 AI 生成: bookId={}", bookId);
-                return;
-            }
-
-            String content = book.getParsedContent();
-            // parsedContent 是 @Transient 字段，数据库取出的 book 没有此字段，需重新解析
-            if (content == null || content.isBlank()) {
-                content = extractContentForTags(book);
-            }
-            if (content == null || content.isBlank()) {
-                log.debug("图书无内容可供生成标签: bookId={}", bookId);
-                return;
-            }
-
-            String tags = callAiForTags(content);
-            if (tags != null && !tags.isBlank()) {
-                // 将标签字符串转为 JSON 数组格式
-                List<String> tagList = List.of(tags.split("[,，、]"));
-                String tagsJson = tagList.stream()
-                        .map(String::trim)
-                        .filter(t -> !t.isBlank())
-                        .map(t -> "\"" + t + "\"")
-                        .collect(Collectors.joining(",", "[", "]"));
-
-                bookService.updateFormatTags(bookId, tagList.stream()
-                        .map(String::trim)
-                        .filter(t -> !t.isBlank())
-                        .toList());
-                log.info("AI 标签生成成功: bookId={}, tags={}", bookId, tagsJson);
-            }
-        } catch (Exception e) {
-            log.warn("AI 标签生成失败: bookId={} - {}", bookId, e.getMessage());
-        }
-    }
-
-
-    /**
      * 从图书文件中重新提取内容用于标签生成
      */
     private String extractContentForTags(Book book) {
@@ -792,172 +827,6 @@ public class BookParserService {
         return buildContentForTags(book, preview);
     }
 
-    /**
-     * 调用 AI 模型生成标签
-     */
-    private String callAiForTags(String content) {
-        try {
-            log.info("========== AI 标签生成请求 ==========");
-            log.info("callAiForTags 输入内容: {}", content);
-
-            ChatModel chatModel = aiProviderConfigService.buildTagChatModel();
-            if (chatModel == null) {
-                log.debug("无可用的 AI 模型，跳过标签生成");
-                return null;
-            }
-
-            long startTime = System.currentTimeMillis();
-            ChatResponse response = chatModel.chat(List.of(
-                    SystemMessage.from(AiPromptConstants.TAG_SYSTEM_PROMPT),
-                    UserMessage.from(content)
-            ));
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            String result = response.aiMessage().text();
-            // 清理可能的 markdown 格式
-            if (result != null) {
-                result = result.replaceAll("```[\\s\\S]*?```", "")
-                        .replaceAll("[\\[\\]\"'`]", "")
-                        .trim();
-            }
-
-            // 记录 AI 调用日志
-            int inputTokens = CommonUtils.estimateTokens(content);
-            int outputTokens = CommonUtils.estimateTokens(result);
-            CommonUtils.logAiCall(AI_OP_TAGS, elapsed, inputTokens, outputTokens, result);
-
-            return result;
-        } catch (Exception e) {
-            log.warn("AI 标签生成调用失败: {}", e.getMessage());
-            return null;
-        }
-    }
-
-
-    /**
-     * 为图书生成 AI 评分
-     */
-    public void generateRating(Long bookId, boolean force) {
-        try {
-            Book book = bookService.getBookById(bookId);
-            if (!force && book.getRating() != null && book.getRating() > 0) {
-                log.debug("图书已有评分，跳过 AI 评分: bookId={}", bookId);
-                return;
-            }
-
-            String content = book.getParsedContent();
-            if (content == null || content.isBlank()) {
-                content = extractContentForTags(book);
-            }
-            if (content == null || content.isBlank()) {
-                log.debug("图书无内容可供生成评分: bookId={}", bookId);
-                return;
-            }
-
-            Double rating = callAiForRating(content);
-            if (rating != null) {
-                bookService.updateRating(bookId, rating);
-                log.info("AI 评分生成成功: bookId={}, rating={}", bookId, rating);
-            }
-        } catch (Exception e) {
-            log.warn("AI 评分生成失败: bookId={} - {}", bookId, e.getMessage());
-        }
-    }
-
-    /**
-     * 为图书生成 AI 评分 - 非强制版本
-     */
-    public void generateRating(Long bookId) {
-        generateRating(bookId, false);
-    }
-
-    /**
-     * 调用 AI 模型生成评分
-     */
-    private Double callAiForRating(String content) {
-        try {
-            log.info("========== AI 评分生成请求 ==========");
-
-            ChatModel chatModel = aiProviderConfigService.buildTagChatModel();
-            if (chatModel == null) {
-                log.debug("无可用的 AI 模型，跳过评分生成");
-                return null;
-            }
-
-            long startTime = System.currentTimeMillis();
-            ChatResponse response = chatModel.chat(List.of(
-                    UserMessage.from(AiPromptConstants.RATING_PROMPT + content)
-            ));
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            String result = response.aiMessage().text();
-            if (result != null) {
-                result = result.trim().replaceAll("[^0-9.]", "");
-            }
-
-            double rating = 0D;
-            try {
-                if (result != null) {
-                    rating = Double.parseDouble(result);
-                }
-            } catch (Exception e) {
-                log.warn("AI 评分解析失败: result={}", result);
-                return null;
-            }
-
-            // 限制范围 1.0-5.0
-            rating = Math.max(1.0, Math.min(5.0, Math.round(rating * 10.0) / 10.0));
-
-            // 记录 AI 调用日志
-            int inputTokens = CommonUtils.estimateTokens(content);
-            int outputTokens = CommonUtils.estimateTokens(result);
-            CommonUtils.logAiCall(AI_OP_RATING, elapsed, inputTokens, outputTokens, String.valueOf(rating));
-
-            return rating;
-        } catch (Exception e) {
-            log.warn("AI 评分生成调用失败: {}", e.getMessage());
-            return null;
-        }
-    }
-
-
-    /**
-     * 为图书生成8维度相关度得分
-     */
-    public void generateRelevanceScores(Long bookId, boolean force) {
-        try {
-            Book book = bookService.getBookById(bookId);
-            if (!force && book.getRelevanceScores() != null && !book.getRelevanceScores().isBlank()) {
-                log.debug("图书已有相关度得分，跳过: bookId={}", bookId);
-                return;
-            }
-
-            String content = book.getParsedContent();
-            if (content == null || content.isBlank()) {
-                content = extractContentForTags(book);
-            }
-            if (content == null || content.isBlank()) {
-                log.debug("图书无内容可供生成相关度得分: bookId={}", bookId);
-                return;
-            }
-
-            String scoresJson = callAiForRelevanceScores(content);
-            if (scoresJson != null && !scoresJson.isBlank()) {
-                bookService.updateRelevanceScores(bookId, scoresJson);
-                log.info("8维度相关度得分生成成功: bookId={}", bookId);
-            }
-        } catch (Exception e) {
-            log.warn("8维度相关度得分生成失败: bookId={} - {}", bookId, e.getMessage());
-        }
-    }
-
-    /**
-     * 为图书生成8维度相关度得分 - 非强制版本
-     */
-    public void generateRelevanceScores(Long bookId) {
-        generateRelevanceScores(bookId, false);
-    }
-
     // ======================== 合并 AI 请求（标签 + 评分 + 相关度，一次调用） ========================
 
     /**
@@ -990,24 +859,24 @@ public class BookParserService {
 
             // 合并调用 AI
             CombinedAiResult result = callAiCombined(content);
+            
+            // 打印AI返回的完整结果
+            log.info("========== AI合并调用结果 ==========");
+            log.info("bookId={}", bookId);
+            log.info("tags: {}", result != null ? result.tags : "null");
+            log.info("rating: {}", result != null ? result.rating : "null");
+            log.info("relevanceScoresJson: {}", result != null ? result.relevanceScoresJson : "null");
+            log.info("description: {}", result != null ? result.description : "null");
+            log.info("description长度: {}", result != null && result.description != null ? result.description.length() : 0);
+            log.info("force模式: {}", force);
+            log.info("====================================");
+            
             if (result == null) {
-                log.warn("合并AI调用返回空结果，回退到单独生成: bookId={}", bookId);
-                // 回退到单独调用
-                if (force || book.getFormatTags() == null || book.getFormatTags().isBlank()) {
-                    generateTags(bookId, force);
-                }
-                if (force || book.getRating() == null || book.getRating() <= 0) {
-                    generateRating(bookId, force);
-                }
-                if (force || book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
-                    generateRelevanceScores(bookId, force);
-                }
-                // 回退分支也需要生成元数据向量
-                embeddingService.generateBookEmbedding(bookId);
+                log.warn("合并AI调用返回空结果: bookId={}", bookId);
                 return;
             }
 
-            // 保存标签
+            // 保存标签（force=true 时始终覆盖）
             if (result.tags != null && !result.tags.isEmpty()) {
                 if (force || book.getFormatTags() == null || book.getFormatTags().isBlank()) {
                     bookService.updateFormatTags(bookId, result.tags);
@@ -1015,7 +884,7 @@ public class BookParserService {
                 }
             }
 
-            // 保存评分
+            // 保存评分（force=true 时始终覆盖）
             if (result.rating != null) {
                 if (force || book.getRating() == null || book.getRating() <= 0) {
                     bookService.updateRating(bookId, result.rating);
@@ -1023,7 +892,7 @@ public class BookParserService {
                 }
             }
 
-            // 保存8维度相关度得分
+            // 保存8维度相关度得分（force=true 时始终覆盖）
             if (result.relevanceScoresJson != null && !result.relevanceScoresJson.isBlank()) {
                 if (force || book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
                     bookService.updateRelevanceScores(bookId, result.relevanceScoresJson);
@@ -1031,10 +900,17 @@ public class BookParserService {
                 }
             }
 
-            // 保存AI生成的简介（始终覆盖原简介，AI基于正文生成更完整）
+            // 保存AI生成的简介（force=true 时始终覆盖，否则仅当简介为空时生成）
             if (result.description != null && !result.description.isBlank()) {
-                bookService.updateDescription(bookId, result.description);
-                log.info("合并AI - 简介生成成功: bookId={}, 字数={}", bookId, result.description.length());
+                if (force) {
+                    // 强制模式：始终覆盖
+                    bookService.updateDescription(bookId, result.description);
+                    log.info("合并AI - 简介生成成功(强制覆盖): bookId={}, 字数={}", bookId, result.description.length());
+                } else if (book.getDescription() == null || book.getDescription().isBlank()) {
+                    // 非强制模式：仅当简介为空时生成
+                    bookService.updateDescription(bookId, result.description);
+                    log.info("合并AI - 简介生成成功: bookId={}, 字数={}", bookId, result.description.length());
+                }
             }
 
             // 生成书籍元数据向量（异步执行，不阻塞后续流程）
@@ -1048,23 +924,7 @@ public class BookParserService {
             });
 
         } catch (Exception e) {
-            log.warn("合并AI数据生成失败: bookId={} - {}，回退到单独生成", bookId, e.getMessage());
-            // 回退到单独调用
-            try {
-                generateTags(bookId, force);
-                generateRating(bookId, force);
-                generateRelevanceScores(bookId, force);
-                // 回退分支也异步生成元数据向量
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        embeddingService.generateBookEmbedding(bookId);
-                    } catch (Exception ex) {
-                        log.warn("异步生成元数据向量失败: bookId={} - {}", bookId, ex.getMessage());
-                    }
-                });
-            } catch (Exception ex) {
-                log.warn("回退单独生成也失败: bookId={} - {}", bookId, ex.getMessage());
-            }
+            log.warn("合并AI数据生成失败: bookId={} - {}", bookId, e.getMessage());
         }
     }
 
@@ -1485,52 +1345,6 @@ public class BookParserService {
 
         } catch (Exception e) {
             log.warn("AI 合并调用失败: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 调用 AI 模型生成8维度相关度得分
-     */
-    private String callAiForRelevanceScores(String content) {
-        try {
-            log.info("========== AI 相关度得分生成请求 ==========");
-            log.info("callAiForRelevanceScores 输入内容: {}", content);
-
-            ChatModel chatModel = aiProviderConfigService.buildTagChatModel();
-            if (chatModel == null) {
-                log.debug("无可用的 AI 模型，跳过相关度得分生成");
-                return null;
-            }
-
-            long startTime = System.currentTimeMillis();
-            ChatResponse response = chatModel.chat(List.of(
-                    UserMessage.from(AiPromptConstants.RELEVANCE_PROMPT + content)
-            ));
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            String result = response.aiMessage().text();
-            if (result != null) {
-                // 提取 JSON 部分
-                result = result.trim();
-                int start = result.indexOf('{');
-                int end = result.lastIndexOf('}');
-                if (start >= 0 && end > start) {
-                    result = result.substring(start, end + 1);
-                }
-                // 验证 JSON 格式
-                objectMapper.readTree(result);
-            }
-
-            // 记录 AI 调用日志
-            int inputTokens = CommonUtils.estimateTokens(content);
-            int outputTokens = CommonUtils.estimateTokens(result);
-            CommonUtils.logAiCall(AI_OP_RELEVANCE, elapsed, inputTokens, outputTokens,
-                    result != null ? "已生成" : "无");
-
-            return result;
-        } catch (Exception e) {
-            log.warn("AI 相关度得分生成调用失败: {}", e.getMessage());
             return null;
         }
     }

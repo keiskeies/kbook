@@ -2,23 +2,21 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.entity.Book;
+import com.kbook.entity.ReadingProgress;
 import com.kbook.service.BookService;
 import com.kbook.service.BookshelfService;
 import com.kbook.service.ReadingProgressService;
 import com.kbook.service.RecommendService;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 首页数据聚合控制器
@@ -36,24 +34,125 @@ public class HomeController {
     private final RecommendService recommendService;
 
     /**
-     * 获取首页全部数据
+     * 获取筛选标签列表（独立接口，供搜索页使用）
+     */
+    @GetMapping("/tags")
+    public Result<List<TagStat>> getFilterTags() {
+        return Result.ok(getTopTags());
+    }
+
+    /**
+     * 获取阅读统计
+     */
+    @GetMapping("/stats")
+    public Result<ReadingStatsVO> getStats(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        ReadingProgressService.ReadingStats stats = progressService.getReadingStats(userId);
+        return Result.ok(ReadingStatsVO.from(stats));
+    }
+
+    /**
+     * 获取最近阅读（继续阅读）
+     */
+    @GetMapping("/recent")
+    public Result<List<RecentBookVO>> getRecentBooks(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        List<ReadingProgress> recentProgress = progressService.getRecentReading(userId, 4);
+        List<RecentBookVO> recentBooks = recentProgress.stream()
+                .map(rp -> {
+                    Book book = bookService.getBookById(rp.getBookId());
+                    return RecentBookVO.builder()
+                            .bookId(book.getId())
+                            .title(book.getTitle())
+                            .author(book.getAuthor())
+                            .coverUrl(book.getCoverUrl())
+                            .format(book.getFormat())
+                            .progress(rp.getProgress())
+                            .lastReadAt(rp.getUpdatedAt())
+                            .build();
+                })
+                .toList();
+        return Result.ok(recentBooks);
+    }
+
+    /**
+     * 获取猜你喜欢（个性化推荐）
+     */
+    @GetMapping("/personalized")
+    public Result<List<RecommendedBook>> getPersonalized(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        try {
+            List<RecommendService.RecommendedItem> items =
+                    recommendService.getPersonalizedRecommendations(userId, 6);
+            return Result.ok(items.stream()
+                    .map(RecommendedBook::fromRecommendItem)
+                    .toList());
+        } catch (Exception e) {
+            log.error("个性化推荐失败", e);
+            return Result.ok(List.of());
+        }
+    }
+
+    /**
+     * 获取高分佳作
+     */
+    @GetMapping("/top-rated")
+    public Result<List<SimpleBookVO>> getTopRated() {
+        List<Book> topRated = bookService.getRatingRank(1, 6).getList();
+        return Result.ok(topRated.stream().map(SimpleBookVO::from).toList());
+    }
+
+    /**
+     * 获取新书速递
+     */
+    @GetMapping("/new-books")
+    public Result<List<SimpleBookVO>> getNewBooks() {
+        List<Book> newBooks = bookService.getNewBooksRank(1, 12).getList();
+        return Result.ok(newBooks.stream().map(SimpleBookVO::from).toList());
+    }
+
+    /**
+     * 获取热门榜单
+     */
+    @GetMapping("/popular")
+    public Result<List<SimpleBookVO>> getPopular() {
+        List<Book> popular = bookService.getReadRank(1, 6).getList();
+        return Result.ok(popular.stream().map(SimpleBookVO::from).toList());
+    }
+
+    /**
+     * 获取热门标签
+     */
+    @GetMapping("/categories")
+    public Result<List<TagStat>> getCategories() {
+        return Result.ok(getTopTags());
+    }
+
+    /**
+     * 获取首页全部数据（保留兼容）
      */
     @GetMapping
     public Result<HomeData> getHomeData(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
 
-        // 1. 阅读统计
         ReadingProgressService.ReadingStats stats = progressService.getReadingStats(userId);
 
-        // 2. 最近阅读（从书架中取最近阅读未完成的4本）
-        List<BookshelfService.BookshelfItem> shelf = bookshelfService.getBookshelf(userId);
-        List<BookshelfService.BookshelfItem> recentBooks = shelf.stream()
-                .filter(s -> s.getLastReadAt() != null && s.getProgress() < 1.0)
-                .sorted((a, b) -> b.getLastReadAt().compareTo(a.getLastReadAt()))
-                .limit(4)
+        List<ReadingProgress> recentProgress = progressService.getRecentReading(userId, 4);
+        List<RecentBookVO> recentBooks = recentProgress.stream()
+                .map(rp -> {
+                    Book book = bookService.getBookById(rp.getBookId());
+                    return RecentBookVO.builder()
+                            .bookId(book.getId())
+                            .title(book.getTitle())
+                            .author(book.getAuthor())
+                            .coverUrl(book.getCoverUrl())
+                            .format(book.getFormat())
+                            .progress(rp.getProgress())
+                            .lastReadAt(rp.getUpdatedAt())
+                            .build();
+                })
                 .toList();
 
-        // 3. 猜你喜欢（个性化推荐 — 委托给 RecommendService）
         List<RecommendedBook> personalized;
         try {
             List<RecommendService.RecommendedItem> items =
@@ -66,21 +165,14 @@ public class HomeController {
             personalized = List.of();
         }
 
-        // 4. 高分佳作
         List<Book> topRated = bookService.getRatingRank(1, 6).getList();
-
-        // 5. 新书速递
-        List<Book> newBooks = bookService.getNewBooksRank(1, 6).getList();
-
-        // 6. 热门榜单
+        List<Book> newBooks = bookService.getNewBooksRank(1, 12).getList();
         List<Book> popular = bookService.getReadRank(1, 6).getList();
-
-        // 7. 分类发现（格式统计）
-        List<FormatCategory> categories = getFormatCategories();
+        List<TagStat> categories = getTopTags();
 
         return Result.ok(HomeData.builder()
                 .stats(ReadingStatsVO.from(stats))
-                .recentBooks(recentBooks.stream().map(RecentBookVO::from).toList())
+                .recentBooks(recentBooks)
                 .personalizedBooks(personalized)
                 .topRatedBooks(topRated.stream().map(SimpleBookVO::from).toList())
                 .newBooks(newBooks.stream().map(SimpleBookVO::from).toList())
@@ -89,28 +181,51 @@ public class HomeController {
                 .build());
     }
 
-    private List<FormatCategory> getFormatCategories() {
-        List<Book> all = bookService.getReadRank(1, 200).getList();
-        Map<String, Long> countByFormat = all.stream()
-                .collect(Collectors.groupingBy(Book::getFormat, Collectors.counting()));
+    /**
+     * 统计热门标签（从所有书籍的 formatTags 中提取）
+     * formatTags 格式示例: ["小说","历史","传记"]
+     */
+    private List<TagStat> getTopTags() {
+        List<Book> all = bookService.getReadRank(1, 500).getList();
+        Map<String, Long> tagCount = new HashMap<>();
 
-        Map<String, String> formatLabels = Map.of("TXT", "文本", "EPUB", "电子书", "PDF", "文档");
-        Map<String, String> formatIcons = Map.of("TXT", "📖", "EPUB", "📕", "PDF", "📄");
+        for (Book book : all) {
+            if (book.getFormatTags() == null || book.getFormatTags().isBlank()) continue;
+            // 移除 JSON 数组符号和引号: ["a","b"] -> a,b
+            String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "");
+            for (String tag : tags.split("[,，]")) {
+                String t = tag.trim();
+                if (!t.isEmpty()) {
+                    tagCount.merge(t, 1L, Long::sum);
+                }
+            }
+        }
 
-        return countByFormat.entrySet().stream()
-                .map(e -> FormatCategory.builder()
-                        .format(e.getKey())
-                        .label(formatLabels.getOrDefault(e.getKey(), e.getKey()))
-                        .icon(formatIcons.getOrDefault(e.getKey(), "📚"))
+        return tagCount.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .limit(50)
+                .map(e -> TagStat.builder()
+                        .name(e.getKey())
                         .count(e.getValue())
                         .build())
-                .sorted((a, b) -> Long.compare(b.count, a.count))
                 .toList();
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TagStat {
+        private String name;
+        private Long count;
     }
 
     // ===== VO classes =====
 
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class HomeData {
         private ReadingStatsVO stats;
         private List<RecentBookVO> recentBooks;
@@ -118,10 +233,13 @@ public class HomeController {
         private List<SimpleBookVO> topRatedBooks;
         private List<SimpleBookVO> newBooks;
         private List<SimpleBookVO> popularBooks;
-        private List<FormatCategory> categories;
+        private List<TagStat> categories;
     }
 
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class ReadingStatsVO {
         private long totalBooks;
         private long completedBooks;
@@ -136,7 +254,10 @@ public class HomeController {
         }
     }
 
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class RecentBookVO {
         private Long bookId;
         private String title;
@@ -159,7 +280,10 @@ public class HomeController {
         }
     }
 
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class RecommendedBook {
         private Long id;
         private String title;
@@ -186,7 +310,9 @@ public class HomeController {
                     .build();
         }
 
-        /** 从 RecommendService.RecommendedItem 转换 */
+        /**
+         * 从 RecommendService.RecommendedItem 转换
+         */
         public static RecommendedBook fromRecommendItem(RecommendService.RecommendedItem item) {
             return RecommendedBook.builder()
                     .id(item.getBookId())
@@ -202,7 +328,10 @@ public class HomeController {
         }
     }
 
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class SimpleBookVO {
         private Long id;
         private String title;
@@ -225,7 +354,10 @@ public class HomeController {
         }
     }
 
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class FormatCategory {
         private String format;
         private String label;

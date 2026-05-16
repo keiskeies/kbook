@@ -11,7 +11,9 @@ import dev.langchain4j.service.SystemMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -61,11 +63,44 @@ public class AiProviderConfigService {
     // ==================== 对话 AI 配置 ====================
 
     /**
-     * 获取对话用途的数据库配置（CHAT purpose），如果不存在或未启用则返回 null
+     * 获取对话用途的默认数据库配置（CHAT purpose, isDefault=true, enabled=true），
+     * 如果不存在或未启用则返回 null
      */
     public AiProviderConfig getChatConfig() {
-        return configRepository.findByPurposeAndEnabledTrue(AiProviderConfig.Purpose.CHAT.name())
+        return configRepository.findByPurposeAndIsDefaultTrueAndEnabledTrue(AiProviderConfig.Purpose.CHAT.name())
                 .orElse(null);
+    }
+
+    /**
+     * 获取指定用途的所有配置列表
+     */
+    public List<AiProviderConfig> getConfigsByPurpose(String purpose) {
+        return configRepository.findByPurposeOrderByIsDefaultDescUpdatedAtDesc(purpose);
+    }
+
+    /**
+     * 切换指定配置为默认（激活）状态
+     * <p>
+     * 将同 purpose 的其他配置的 isDefault 设为 false，
+     * 将目标配置的 isDefault 设为 true。
+     */
+    @Transactional
+    public AiProviderConfig switchDefault(Long configId) {
+        AiProviderConfig config = configRepository.findById(configId)
+                .orElseThrow(() -> new RuntimeException("配置不存在: " + configId));
+
+        // 清除同 purpose 其他配置的默认标记
+        configRepository.clearDefaultForPurpose(config.getPurpose(), configId);
+
+        // 设置目标配置为默认
+        config.setIsDefault(true);
+        AiProviderConfig saved = configRepository.save(config);
+
+        // 使对话缓存失效
+        invalidateChatCache();
+
+        log.info("已切换默认配置: id={}, name={}, purpose={}", configId, config.getName(), config.getPurpose());
+        return saved;
     }
 
     /**

@@ -209,7 +209,7 @@ public class ChatModelFactory {
         if (config.getApiKey() != null && !config.getApiKey().isBlank()) {
             builder.apiKey(config.getApiKey());
         } else {
-            builder.apiKey("sk-placeholder"); // 某些兼容 API 不需要 key，但字段不能为空
+            builder.apiKey("sk-placeholder");
         }
         return builder.build();
     }

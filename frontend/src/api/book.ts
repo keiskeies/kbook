@@ -71,6 +71,11 @@ export function getBooksByFormat(format: string, page = 1, size = 20) {
   return request.get<PageResult<Book>>(`/books/format/${format}`, { params: { page, size } })
 }
 
+/** 按标签筛选 */
+export function getBooksByTag(tag: string, page = 1, size = 20) {
+  return request.get<PageResult<Book>>(`/books/tag/${encodeURIComponent(tag)}`, { params: { page, size } })
+}
+
 /** 图书入库（管理员） */
 export function createBook(data: {
   title: string
@@ -261,8 +266,6 @@ export interface EmbeddingStats {
   embeddedBooks: number
   notEmbeddedBooks: number
   totalContentVectors: number
-  highRatedNotEmbedded: number
-  lowRatedEmbedded: number
 }
 
 /** 获取内容向量统计 */
@@ -270,17 +273,9 @@ export function getEmbeddingStats() {
   return request.get<EmbeddingStats>('/books/admin/embeddings/stats')
 }
 
-/** 清理低评分书籍的内容向量 */
-export function cleanupEmbeddings(maxRating = 3.5) {
-  return request.post<{ cleanedCount: number; maxRating: number }>('/books/admin/embeddings/cleanup', null, { params: { maxRating } })
-}
-
-/** 重建高评分书籍的内容向量 */
-export function rebuildEmbeddings(minRating = 3.5) {
-  return request.post<{ rebuiltCount: number; skippedCount: number; minRating: number }>('/books/admin/embeddings/rebuild', null, { params: { minRating }, timeout: 600000 })
-}
-
-/** 重新评分所有书籍 */
-export function rerateAllBooks(minRating = 3.5) {
-  return request.post<{ reratedCount: number; newlyEmbedded: number; removedEmbedding: number; minRating: number }>('/books/admin/rerate', null, { params: { minRating }, timeout: 600000 })
+/** 重新评分/重建书籍（完整覆盖所有数据） */
+export function rerateAllBooks(bookId?: number) {
+  const params: Record<string, number> = {}
+  if (bookId) params.bookId = bookId
+  return request.post<{ reratedCount: number; status: string }>('/books/admin/rerate', null, { params, timeout: 600000 })
 }

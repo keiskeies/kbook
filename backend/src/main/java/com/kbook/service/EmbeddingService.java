@@ -1592,41 +1592,35 @@ public class EmbeddingService {
      * 优化版本：使用预编译正则 + StringBuilder 预分配
      */
     private String buildBookMetadataText(Book book) {
-        // 预估容量：标题(50) + 作者(30) + 标签(100) + 简介(1500) + 目录(500) + 摘要(2000) ≈ 4180
-        StringBuilder sb = new StringBuilder(4200);
+        StringBuilder sb = new StringBuilder(2000);
 
-        if (book.getTitle() != null && !book.getTitle().isBlank()) {
-            sb.append("书名：").append(book.getTitle()).append('\n');
-        }
-        if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
-            sb.append("作者：").append(book.getAuthor()).append('\n');
-        }
+        sb.append("书名:").append(book.getTitle() != null ? book.getTitle() : "").append(";");
+        sb.append("作者:").append(book.getAuthor() != null ? book.getAuthor() : "").append(";");
+        sb.append("评分:").append(book.getRating() != null ? book.getRating() : 0.0).append(";");
+        
         if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
-            // 使用预编译正则，避免每次重新编译
-            String tags = TAGS_CLEAN_PATTERN.matcher(book.getFormatTags())
-                    .replaceAll("")
-                    .replace(',', '、');
-            sb.append("标签：").append(tags).append('\n');
+            String tags = TAGS_CLEAN_PATTERN.matcher(book.getFormatTags()).replaceAll("").replace(',', '、');
+            sb.append("标签:").append(tags).append(";");
+        } else {
+            sb.append("标签:;");
         }
+        
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            // 简介取前1500字（增强语义信号）
-            String desc = book.getDescription();
-            if (desc.length() > 1500) {
-                sb.append("简介：").append(desc, 0, 1500).append('\n');
-            } else {
-                sb.append("简介：").append(desc).append('\n');
-            }
+            String desc = book.getDescription().length() > 1500 
+                    ? book.getDescription().substring(0, 1500) 
+                    : book.getDescription();
+            sb.append("简介:").append(desc).append(";");
+        } else {
+            sb.append("简介:;");
         }
+        
         if (book.getToc() != null && !book.getToc().isBlank()) {
-            // 目录结构蕴含主题和组织方式
-            sb.append("目录：\n").append(book.getToc()).append('\n');
-        }
-        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-            // 核心章节摘要提供深层语义
-            sb.append("核心内容：\n").append(book.getChapterSummary()).append('\n');
+            sb.append("目录:").append(book.getToc()).append(";");
+        } else {
+            sb.append("目录:;");
         }
 
-        return sb.toString().trim();
+        return sb.toString();
     }
 
     /**

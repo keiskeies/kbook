@@ -81,7 +81,6 @@ public class RecommendCoefficientService {
             {"MATCH", "education_weight", 0.8, 0.4, 1.2, "学历匹配权重"},
             {"MATCH", "education_decay", 0.40, 0.10, 0.70, "相邻学历衰减系数"},
             {"MATCH", "entrepreneurship_weight", 0.6, 0.3, 1.0, "创业意向匹配权重"},
-            {"MATCH", "entrepreneurship_decay", 0.40, 0.10, 0.70, "相关创业意向衰减系数"},
             {"MATCH", "income_weight", 0.5, 0.2, 0.8, "年收入匹配权重"},
             {"MATCH", "income_decay", 0.40, 0.10, 0.70, "相邻收入衰减系数"},
             {"MATCH", "mood_weight", 0.7, 0.3, 1.2, "心情状态匹配权重"},

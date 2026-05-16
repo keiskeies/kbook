@@ -26,14 +26,18 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "ai_provider_config", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_purpose", columnNames = {"purpose"})
+@Table(name = "ai_provider_config", indexes = {
+        @Index(name = "idx_purpose_enabled", columnList = "purpose, enabled")
 })
 public class AiProviderConfig {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /** 配置名称（用于多配置时区分显示，如 "DeepSeek-V4"、"Qwen3-Max"） */
+    @Column(nullable = false, length = 50)
+    private String name;
 
     /** 配置用途：CHAT=对话, TAG=标签评分, EMBEDDING=向量, VISION=OCR */
     @Column(nullable = false, length = 20)
@@ -69,6 +73,10 @@ public class AiProviderConfig {
     /** 是否启用 */
     @Builder.Default
     private Boolean enabled = true;
+
+    /** 是否为当前 purpose 的默认/激活配置（同 purpose 下仅一条可为 true） */
+    @Builder.Default
+    private Boolean isDefault = false;
 
     @Column(updatable = false)
     private LocalDateTime createdAt;

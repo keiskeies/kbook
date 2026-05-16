@@ -97,12 +97,91 @@ export default function BookDetailPage() {
 
   if (loading || !book) {
     return (
-      <div className="min-h-screen bg-background">
-        <div className="h-14 animate-pulse bg-muted" />
-        <div className="p-4 space-y-4">
-          <div className="h-40 rounded-2xl bg-muted animate-pulse" />
-          <div className="h-6 w-3/4 rounded bg-muted animate-pulse" />
-          <div className="h-4 w-1/2 rounded bg-muted animate-pulse" />
+      <div className="min-h-screen bg-background page-enter pb-20">
+        {/* 顶部导航骨架 */}
+        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
+          <div className="h-9 w-9 animate-pulse rounded-xl bg-muted" />
+          <div className="h-5 flex-1 animate-pulse rounded bg-muted" />
+          <div className="h-9 w-9 animate-pulse rounded-xl bg-muted" />
+        </header>
+
+        {/* 图书信息区骨架 */}
+        <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
+          <div className="flex gap-4">
+            {/* 封面占位 */}
+            <div className="h-36 w-24 flex-shrink-0 animate-pulse rounded-xl bg-muted shadow-lg" />
+            {/* 信息区占位 */}
+            <div className="flex flex-1 flex-col justify-between py-1">
+              <div className="space-y-2">
+                <div className="h-5 w-4/5 animate-pulse rounded bg-muted" />
+                <div className="h-3.5 w-1/2 animate-pulse rounded bg-muted" />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="h-4 w-12 animate-pulse rounded bg-muted" />
+                <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+                <div className="h-5 w-10 animate-pulse rounded-md bg-muted" />
+                <div className="h-4 w-14 animate-pulse rounded bg-muted" />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="h-3 w-12 animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-8 animate-pulse rounded bg-muted" />
+                </div>
+                <div className="h-2 w-full animate-pulse rounded-full bg-muted" />
+              </div>
+            </div>
+          </div>
+
+          {/* 标签占位 */}
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-7 animate-pulse rounded-full bg-muted" style={{ width: `${50 + i * 15}px` }} />
+            ))}
+          </div>
+        </div>
+
+        {/* 简介区骨架 */}
+        <div className="px-4 pb-4 space-y-2">
+          <div className="h-4 w-10 animate-pulse rounded bg-muted" />
+          <div className="space-y-1.5">
+            <div className="h-3.5 w-full animate-pulse rounded bg-muted" />
+            <div className="h-3.5 w-full animate-pulse rounded bg-muted" />
+            <div className="h-3.5 w-4/5 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="h-3 w-8 animate-pulse rounded bg-muted" />
+        </div>
+
+        {/* 评论区骨架 */}
+        <div className="px-4 border-t border-border/50 pt-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-10 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-8 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex gap-3">
+                <div className="h-8 w-8 flex-shrink-0 animate-pulse rounded-full bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-10 animate-pulse rounded bg-muted" />
+                  </div>
+                  <div className="h-3 w-full animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 底部操作栏骨架 */}
+        <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background/80 backdrop-blur-xl p-4 pb-safe-bottom">
+          <div className="flex gap-3">
+            <div className="h-11 flex-1 animate-pulse rounded-2xl bg-muted" />
+            <div className="h-11 flex-1 animate-pulse rounded-2xl bg-muted" />
+            <div className="h-11 flex-[2] animate-pulse rounded-2xl bg-muted" />
+          </div>
         </div>
       </div>
     )

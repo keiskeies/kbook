@@ -166,13 +166,22 @@ public class BookService {
     }
 
     /**
+     * 按标签筛选
+     */
+    public PageResult<Book> getBooksByTag(String tag, int page, int size) {
+        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
+        Page<Book> pageData = bookRepository.findByTag(tag, pageable);
+        return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
+    }
+
+    /**
      * 增加阅读计数（JPA + ES 双写）
      */
     @Transactional
     public void incrementReadCount(Long bookId) {
         Book book = getBookById(bookId);
         book.setReadCount(book.getReadCount() + 1);
-        Book saved = bookRepository.save(book);
+        Book saved = bookRepository.saveAndFlush(book);
         bookSearchService.indexBook(saved);
         log.debug("阅读计数增加: bookId={}, readCount={}", bookId, saved.getReadCount());
     }
@@ -187,7 +196,7 @@ public class BookService {
                 .map(t -> "\"" + t + "\"")
                 .collect(Collectors.joining(",", "[", "]"));
         book.setFormatTags(tagsJson);
-        Book saved = bookRepository.save(book);
+        Book saved = bookRepository.saveAndFlush(book);
         bookSearchService.indexBook(saved);
         return saved;
     }
@@ -199,7 +208,7 @@ public class BookService {
     public void updateRelevanceScores(Long bookId, String scoresJson) {
         Book book = getBookById(bookId);
         book.setRelevanceScores(scoresJson);
-        Book saved = bookRepository.save(book);
+        Book saved = bookRepository.saveAndFlush(book);
         bookSearchService.indexBook(saved);
     }
 
@@ -210,7 +219,7 @@ public class BookService {
     public Book updateRating(Long bookId, Double rating) {
         Book book = getBookById(bookId);
         book.setRating(rating);
-        Book saved = bookRepository.save(book);
+        Book saved = bookRepository.saveAndFlush(book);
         bookSearchService.indexBook(saved);
         log.info("图书评分更新: bookId={}, rating={}", bookId, rating);
         return saved;
@@ -222,7 +231,7 @@ public class BookService {
     public void updateDescription(Long bookId, String description) {
         Book book = getBookById(bookId);
         book.setDescription(description);
-        Book saved = bookRepository.save(book);
+        Book saved = bookRepository.saveAndFlush(book);
         bookSearchService.indexBook(saved);
         log.info("图书简介更新: bookId={}, 字数={}", bookId, description != null ? description.length() : 0);
     }

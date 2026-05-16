@@ -191,7 +191,7 @@ export default function BookshelfPage() {
             <div
               key={item.bookshelfId}
               className="group relative flex flex-col items-center active:scale-[0.97] transition-transform duration-150"
-              onClick={() => navigate(`/reader/${item.bookId}`)}
+              onClick={() => navigate(`/book/${item.bookId}`)}
             >
               {/* 封面容器 */}
               <div className="relative">

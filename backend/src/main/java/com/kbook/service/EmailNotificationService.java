@@ -5,6 +5,7 @@ import jakarta.mail.internet.MimeMessage;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -28,6 +29,9 @@ public class EmailNotificationService {
     private final JavaMailSender mailSender;
     private final StringRedisTemplate redisTemplate;
     private final NotificationProperties notificationProps;
+
+    @Value("${spring.mail.username:}")
+    private String mailFrom;
 
     private static final String INVITE_CODE_PREFIX = "invite:code:";
     private static final String REPLY_NOTIFIED_PREFIX = "notified:reply:";
@@ -186,10 +190,16 @@ public class EmailNotificationService {
             return;
         }
 
+        String from = mailFrom;
+        if (from == null || from.isBlank()) {
+            log.warn("邮件发送跳过: 未配置发件人邮箱 (notification.mail-username)");
+            return;
+        }
+
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            helper.setFrom(notificationProps.getMailUsername());
+            helper.setFrom(from);
             helper.setTo(to);
             helper.setSubject(subject);
 
@@ -199,7 +209,7 @@ public class EmailNotificationService {
             mailSender.send(message);
             log.info("邮件发送成功: to={}, subject={}", to, subject);
         } catch (Exception e) {
-            log.error("邮件发送失败: to={}, error={}", to, e.getMessage());
+            log.error("邮件发送失败: to={}", to, e);
         }
     }
 

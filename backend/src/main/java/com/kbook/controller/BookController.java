@@ -166,6 +166,17 @@ public class BookController {
     }
 
     /**
+     * 按标签筛选
+     */
+    @GetMapping("/tag/{tag}")
+    public Result<PageResult<Book>> getBooksByTag(
+            @PathVariable String tag,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return Result.ok(bookService.getBooksByTag(tag, page, size));
+    }
+
+    /**
      * 图书入库（管理员）
      */
     @PostMapping

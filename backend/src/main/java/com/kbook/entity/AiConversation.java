@@ -35,7 +35,7 @@ public class AiConversation {
     /**
      * 会话 ID（一次多轮对话共享）
      */
-    @Column(name = "session_id", nullable = false, length = 36)
+    @Column(name = "session_id", nullable = false, length = 100)
     private String sessionId;
 
     /**

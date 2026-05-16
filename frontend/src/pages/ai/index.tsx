@@ -61,13 +61,10 @@ export default function AIPage() {
 
   /** 生成会话标题 */
   const generateTitle = (content: string): string => {
-    // 去除首尾空白和换行
     const trimmed = content.trim()
-    // 如果内容超过20个字符，截取前20个字符并添加省略号
-    if (trimmed.length > 20) {
-      return trimmed.slice(0, 20) + '...'
-    }
-    return trimmed || '新会话'
+    // 截取前15个字符作为问题预览
+    const questionPreview = trimmed.length > 15 ? trimmed.slice(0, 15) + '...' : trimmed
+    return `阅读助手-${questionPreview || '新会话'}`
   }
 
   const loadHistory = async (sessionId: string) => {
@@ -221,29 +218,31 @@ export default function AIPage() {
     abortRef.current = controller as any
   }, [input, loading, currentSessionId, sessionTitles])
 
-  /** 重新生成最后一条 AI 回答 */
-  const handleRegenerate = useCallback(() => {
+  /** 重新生成指定位置的 AI 回答 */
+  const handleRegenerate = useCallback((msgIndex?: number) => {
     if (loading) return
     if (abortRef.current) {
       abortRef.current.abort()
       abortRef.current = null
     }
-    let lastAssistantIdx = -1
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'assistant' && !messages[i].streaming) {
-        lastAssistantIdx = i
-        break
+    let targetIdx = msgIndex ?? -1
+    if (targetIdx === -1) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant' && !messages[i].streaming) {
+          targetIdx = i
+          break
+        }
       }
     }
-    if (lastAssistantIdx === -1) return
+    if (targetIdx === -1) return
     let userMsgContent = ''
-    if (lastAssistantIdx > 0 && messages[lastAssistantIdx - 1].role === 'user') {
-      userMsgContent = messages[lastAssistantIdx - 1].content
+    if (targetIdx > 0 && messages[targetIdx - 1].role === 'user') {
+      userMsgContent = messages[targetIdx - 1].content
     }
-    const cutIdx = lastAssistantIdx > 0 && messages[lastAssistantIdx - 1].role === 'user'
-      ? lastAssistantIdx - 1
-      : lastAssistantIdx
-    setMessages(messages.slice(0, cutIdx))
+    const cutIdx = targetIdx > 0 && messages[targetIdx - 1].role === 'user'
+      ? targetIdx - 1
+      : targetIdx
+    setMessages((prev) => prev.slice(0, cutIdx))
     if (userMsgContent) {
       requestAnimationFrame(() => {
         handleSend(userMsgContent)
@@ -359,7 +358,7 @@ export default function AIPage() {
             </div>
           ) : (
             <div className="space-y-4 pb-4">
-              {messages.map((msg) => (
+              {messages.map((msg, i) => (
                 <div
                   key={msg.id}
                   className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
@@ -415,29 +414,29 @@ export default function AIPage() {
                     </div>
                     {/* AI 回答操作按钮 — 图标按钮，位于气泡下方 */}
                     {msg.role === 'assistant' && !msg.streaming && msg.content && (
-                      <div className="mt-1.5 flex items-center gap-0.5 px-1">
+                      <div className="mt-1.5 flex items-center gap-1 px-1">
                         <button
-                          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-                          onClick={handleRegenerate}
+                          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                          onClick={() => handleRegenerate(i)}
                           disabled={loading}
-                          title="重新生成"
                         >
-                          <RefreshCw className="h-3.5 w-3.5" />
+                          <RefreshCw className="h-3 w-3" />
+                          重新生成
                         </button>
                         <button
-                          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
                           onClick={() => {
                             navigator.clipboard.writeText(msg.content)
                             setCopiedId(msg.id)
                             setTimeout(() => setCopiedId(null), 2000)
                           }}
-                          title="复制"
                         >
                           {copiedId === msg.id ? (
-                            <Check className="h-3.5 w-3.5 text-green-500" />
+                            <Check className="h-3 w-3 text-green-500" />
                           ) : (
-                            <Copy className="h-3.5 w-3.5" />
+                            <Copy className="h-3 w-3" />
                           )}
+                          {copiedId === msg.id ? '已复制' : '复制'}
                         </button>
                       </div>
                     )}

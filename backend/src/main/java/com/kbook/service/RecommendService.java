@@ -365,10 +365,17 @@ public class RecommendService {
     private String getEntrepreneurshipLabel(String entrepreneurship) {
         if (entrepreneurship == null) return "";
         return switch (entrepreneurship.toUpperCase()) {
-            case "ENTREPRENEUR", "WANT_ENTREPRENEUR", "ENTREPRENEUR_OR_WANT" -> "正在创业/想创业";
+            case "ENTREPRENEUR_OR_WANT" -> "正在创业/想创业";
             case "NOT_INTERESTED" -> "暂不考虑";
             default -> entrepreneurship;
         };
+    }
+
+    /**
+     * 获取创业意向的相关键（已合并为单一维度，无需关联）
+     */
+    private List<String> getRelatedEntrepreneurship(String entrepreneurship) {
+        return List.of();
     }
 
     /**
@@ -388,15 +395,7 @@ public class RecommendService {
         };
     }
 
-    /**
-     * 获取创业意向的相关键（用于模糊匹配，创业和想创业互为相关）
-     */
-    private List<String> getRelatedEntrepreneurship(String entrepreneurship) {
-        return switch (entrepreneurship.toLowerCase()) {
-            case "entrepreneur", "want_entrepreneur", "entrepreneur_or_want" -> List.of();  // 已合并，无需关联
-            default -> List.of();
-        };
-    }
+
 
     /**
      * 获取相邻年收入（用于模糊匹配，收入区间相邻的互为相关）
@@ -782,25 +781,15 @@ public class RecommendService {
                 matchedDimensions++;
             }
 
-            // ========== 创业意向匹配（权重0.6，正面+相关衰减） ==========
+            // ========== 创业意向匹配（权重0.6，单一维度精确匹配） ==========
             if (user.getEntrepreneurship() != null && !user.getEntrepreneurship().isBlank()) {
                 String entreKey = user.getEntrepreneurship().toLowerCase();
                 double entreWeight = coefficientService.getCoefficient("MATCH", "entrepreneurship_weight", 0.6);
-                double entreDecay = coefficientService.getCoefficient("MATCH", "entrepreneurship_decay", 0.40);
 
-                // 正面：精确创业意向
+                // 精确匹配创业意向
                 if (scores.has(entreKey)) {
                     totalScore += scores.get(entreKey).asDouble() * entreWeight;
                     totalWeight += entreWeight;
-                }
-
-                // 模糊匹配：相关创业意向（衰减）
-                List<String> relatedEntre = getRelatedEntrepreneurship(entreKey);
-                for (String adj : relatedEntre) {
-                    if (scores.has(adj)) {
-                        totalScore += scores.get(adj).asDouble() * entreWeight * entreDecay;
-                        totalWeight += entreWeight * entreDecay;
-                    }
                 }
 
                 matchedDimensions++;

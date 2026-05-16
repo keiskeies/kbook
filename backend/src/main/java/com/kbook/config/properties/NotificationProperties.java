@@ -27,9 +27,6 @@ public class NotificationProperties {
     /** 邮件发送是否启用 */
     private boolean sendEnabled = false;
 
-    /** 邮件发件人地址 */
-    private String mailUsername = "";
-
     @Data
     public static class InvitationConfig {
         /** 邀请链接有效期（小时） */

@@ -15,9 +15,9 @@ public interface AiConversationRepository extends JpaRepository<AiConversation, 
     /** 查询某个用户某次会话的所有消息（按时间正序） */
     List<AiConversation> findByUserIdAndSessionIdOrderByCreatedAtAsc(Long userId, String sessionId);
 
-    /** 查询某个用户的会话 ID 列表（去重，按最近消息时间倒序） */
+    /** 查询某个用户的会话 ID 列表（去重，按最近消息时间倒序，排除管理员会话） */
     @Query("SELECT c.sessionId FROM AiConversation c " +
-            "WHERE c.userId = :userId " +
+            "WHERE c.userId = :userId AND c.sessionId NOT LIKE 'admin-%' " +
             "GROUP BY c.sessionId " +
             "ORDER BY MAX(c.createdAt) DESC")
     List<String> findSessionIdsByUserId(@Param("userId") Long userId);

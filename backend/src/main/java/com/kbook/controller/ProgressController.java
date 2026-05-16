@@ -2,6 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.entity.ReadingProgress;
+import com.kbook.service.BookService;
 import com.kbook.service.ReadingProgressService;
 import com.kbook.service.RecommendCoefficientService;
 import com.kbook.service.RecommendService;
@@ -24,6 +25,7 @@ public class ProgressController {
     private final ReadingProgressService progressService;
     private final RecommendService recommendService;
     private final RecommendCoefficientService coefficientService;
+    private final BookService bookService;
 
     /**
      * 上报阅读进度
@@ -32,7 +34,13 @@ public class ProgressController {
     public Result<ReadingProgress> reportProgress(Authentication authentication,
                                                    @RequestBody ReportRequest req) {
         Long userId = (Long) authentication.getPrincipal();
-        ReadingProgress progress = progressService.reportProgress(userId, req.getBookId(), req.getProgress(), req.getCurrentPosition());
+        ReadingProgressService.ProgressResult result = progressService.reportProgress(userId, req.getBookId(), req.getProgress(), req.getCurrentPosition());
+        ReadingProgress progress = result.progress();
+
+        // 如果是首次阅读（新创建的记录），增加阅读计数
+        if (result.isNew()) {
+            bookService.incrementReadCount(req.getBookId());
+        }
 
         // 记录阅读行为
         recommendService.recordReadAction(userId, req.getBookId(), "READ", 1,
@@ -57,9 +65,15 @@ public class ProgressController {
      */
     @PostMapping("/batch")
     public Result<Void> batchReportProgress(Authentication authentication,
-                                             @RequestBody List<ReadingProgressService.ProgressBatchItem> items) {
+                                              @RequestBody List<ReadingProgressService.ProgressBatchItem> items) {
         Long userId = (Long) authentication.getPrincipal();
-        progressService.batchReportProgress(userId, items);
+        ReadingProgressService.BatchProgressResult result = progressService.batchReportProgress(userId, items);
+        
+        // 为新创建的阅读记录增加阅读计数
+        for (Long bookId : result.newBookIds()) {
+            bookService.incrementReadCount(bookId);
+        }
+        
         return Result.ok(null);
     }
 

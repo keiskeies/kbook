@@ -36,36 +36,44 @@ public class ReadingProgressService {
      * 上报阅读进度
      * 上报时机：翻页/切后台
      * 冲突解决：时间戳覆盖策略
+     * @return ProgressResult 包含进度记录和是否是新创建的标志
      */
     @Transactional
-    public ReadingProgress reportProgress(Long userId, Long bookId, Double progress, String currentPosition) {
+    public ProgressResult reportProgress(Long userId, Long bookId, Double progress, String currentPosition) {
         log.debug("上报阅读进度: userId={}, bookId={}, progress={}", userId, bookId, progress);
-        ReadingProgress rp = progressRepository.findByUserIdAndBookId(userId, bookId)
-                .orElseGet(() -> {
-                    log.debug("创建新的阅读进度记录: userId={}, bookId={}", userId, bookId);
-                    return ReadingProgress.builder()
-                            .userId(userId)
-                            .bookId(bookId)
-                            .build();
-                });
+        
+        ReadingProgress existing = progressRepository.findByUserIdAndBookId(userId, bookId).orElse(null);
+        boolean isNew = (existing == null);
+        
+        ReadingProgress rp = isNew ? ReadingProgress.builder()
+                .userId(userId)
+                .bookId(bookId)
+                .build() : existing;
 
         // 时间戳覆盖策略：始终接受最新上报
         rp.setProgress(clampProgress(progress));
         rp.setCurrentPosition(currentPosition);
 
         ReadingProgress saved = progressRepository.save(rp);
-        log.debug("阅读进度保存成功: userId={}, bookId={}, progress={}", userId, bookId, saved.getProgress());
-        return saved;
+        log.debug("阅读进度保存成功: userId={}, bookId={}, progress={}, isNew={}", userId, bookId, saved.getProgress(), isNew);
+        return new ProgressResult(saved, isNew);
     }
+
+    /**
+     * 进度上报结果
+     */
+    public record ProgressResult(ReadingProgress progress, boolean isNew) {}
 
     /**
      * 批量上报进度（断网恢复后使用）
      * 冲突解决：比较客户端时间戳与服务器时间戳，较新者胜出
+     * @return BatchProgressResult 包含统计信息和新创建的bookId列表
      */
     @Transactional
-    public void batchReportProgress(Long userId, List<ProgressBatchItem> items) {
+    public BatchProgressResult batchReportProgress(Long userId, List<ProgressBatchItem> items) {
         log.info("开始批量上报进度: userId={}, count={}", userId, items.size());
         int updated = 0, created = 0, skipped = 0;
+        List<Long> newBookIds = new java.util.ArrayList<>();
         
         for (ProgressBatchItem item : items) {
             ReadingProgress existing = progressRepository.findByUserIdAndBookId(userId, item.getBookId())
@@ -80,6 +88,7 @@ public class ReadingProgressService {
                         .build();
                 progressRepository.save(rp);
                 created++;
+                newBookIds.add(item.getBookId());
             } else {
                 // 时间戳覆盖：客户端时间戳比服务器更新才覆盖
                 if (item.getClientTimestamp() != null &&
@@ -101,7 +110,13 @@ public class ReadingProgressService {
             }
         }
         log.info("批量上报进度完成: userId={}, created={}, updated={}, skipped={}", userId, created, updated, skipped);
+        return new BatchProgressResult(created, updated, skipped, newBookIds);
     }
+
+    /**
+     * 批量上报结果
+     */
+    public record BatchProgressResult(int created, int updated, int skipped, List<Long> newBookIds) {}
 
     /**
      * 获取阅读进度

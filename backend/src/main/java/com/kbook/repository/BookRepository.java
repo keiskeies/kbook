@@ -83,4 +83,10 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      */
     @Query("SELECT b FROM Book b WHERE b.formatTags LIKE CONCAT('%', :tag, '%')")
     List<Book> findByTag(@Param("tag") String tag);
+
+    /**
+     * 按标签分页查找书籍
+     */
+    @Query("SELECT b FROM Book b WHERE b.formatTags LIKE CONCAT('%', :tag, '%')")
+    Page<Book> findByTag(@Param("tag") String tag, Pageable pageable);
 }

@@ -69,7 +69,7 @@ public class Book {
      *       unmarried(未婚), hasChildren(有孩子), noChildren(无孩子), mbti(MBTI匹配),
      *       occupation(职业: student/tech/finance/education/medical/arts/management/freelance/retired/other),
      *       education(学历: high_school/college/bachelor/master/doctorate/other_edu),
-     *       entrepreneurship(entrepreneur/wantEntrepreneur/notInterested),
+     *       entrepreneurship(entrepreneur_or_want/notInterested),
      *       income(under_50k/50k_150k/150k_300k/300k_500k/500k_1m/over_1m/prefer_not_to_say),
      *       mood(happy/calm/anxious/sad/motivated/tired/curious)
      * 格式：{"0-9":0.5,"10-19":0.8,...,"male":0.7,...,"entrepreneur":0.6,...,"under_50k":0.3,...,"happy":0.6,...}

@@ -151,4 +151,6 @@ export const router = createBrowserRouter([
     path: '*',
     element: <LazyLoad><NotFoundPage /></LazyLoad>,
   },
-])
+], {
+  scrollRestoration: false,
+})

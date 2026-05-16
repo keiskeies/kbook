@@ -73,9 +73,8 @@ spring:
     host: smtp.qq.com
     protocol: smtp
     port: 465
-    username: ${MAIL_USERNAME:}
-    password: ${MAIL_PASSWORD:}
-    send-enabled: true  # dev 环境关闭真实发送，只打印验证码
+    username: ${MAIL_USERNAME:aa@bb.com}
+    password: ${MAIL_PASSWORD:123456}
     properties:
       mail:
         smtp:
@@ -127,6 +126,7 @@ notification:
   comment-reply-thresholds: 10, 50, 100
   # 书评点赞通知阈值（阶梯）
   comment-like-thresholds: 10, 50, 100, 500
+  send-enabled: true
 
 # ========================
 # 日志
@@ -149,17 +149,6 @@ kbook:
   upload:
     avatar-dir: ${AVATAR_DIR:G:/uploads/avatars}
     avatar-url-prefix: /api/uploads/avatars
-  # 扫描配置
-  scan:
-    force-update: ${SCAN_FORCE_UPDATE:false}  # 设为 true 时，扫描已存在书籍也会强制更新评分/简介/作者/8维度相关度得分
-    # 内容向量存储的最低评分阈值（低于此值的书籍不存储内容向量到 Qdrant，0 表示不限制）
-    content-embed-min-rating: ${SCAN_CONTENT_EMBED_MIN_RATING:0.0}
-    # 内容向量存储的最大文件大小（超过此大小的书籍不存储内容向量，单位 MB，0 表示不限制）
-    content-embed-max-size-mb: ${SCAN_CONTENT_EMBED_MAX_SIZE_MB:0}
-    # 合集类图书检测：书名包含以下关键词则不存入 RAG 向量库（逗号分隔）
-    compilation-keywords: ${SCAN_COMPILATION_KEYWORDS:合集,全集,作品集,选集,集锦,大全,丛书,套装,汇编}
-    # 合集类图书检测：文件超过此大小也视为合集（单位 MB，0 表示不按大小判断）
-    compilation-max-size-mb: ${SCAN_COMPILATION_MAX_SIZE_MB:30}
   # ========================
   # Qdrant 向量数据库
   # ========================

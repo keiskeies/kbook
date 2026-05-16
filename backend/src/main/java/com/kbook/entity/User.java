@@ -88,7 +88,7 @@ public class User {
     @Column(length = 20)
     private String education;
 
-    /** 创业意向：ENTREPRENEUR(正在创业) / WANT_ENTREPRENEUR(想创业) / NOT_INTERESTED(暂不考虑) */
+    /** 创业意向：ENTREPRENEUR_OR_WANT(正在创业/想创业) / NOT_INTERESTED(暂不考虑) */
     @Column(name = "entrepreneurship", length = 30)
     private String entrepreneurship;
 

@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ArrowLeft, RefreshCw, Upload, Scan, BookOpen, FileText, File, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle, Bot, User, Send, Loader2, Sparkles, X, MessageCircle, Database, Trash2, HardDriveDownload, Star } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Upload, Scan, BookOpen, FileText, File, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle, Bot, User, Send, Loader2, Sparkles, X, MessageCircle, Database, Star } from 'lucide-react'
 import DraggableFab from '@/components/DraggableFab'
 import { useNavigate } from 'react-router-dom'
-import { scanBooksStream, getScanStatus, resetScanStatus, uploadBook, getEmbeddingStats, cleanupEmbeddings, rebuildEmbeddings, rerateAllBooks } from '@/api/book'
+import { scanBooksStream, getScanStatus, resetScanStatus, uploadBook, getEmbeddingStats, rerateAllBooks } from '@/api/book'
 import type { ScanProgress, ScanResult, ScanError, EmbeddingStats } from '@/api/book'
 import { createAdminSession, streamAdminChat, getAdminHistory, getAdminSessions, deleteAdminSession } from '@/api/adminAi'
 import type { AiMessage } from '@/types/ai'
@@ -52,9 +52,9 @@ export default function AdminBooksPage() {
 
   // 内容向量管理状态
   const [embedStats, setEmbedStats] = useState<EmbeddingStats | null>(null)
-  const [embedMinRating, setEmbedMinRating] = useState('3.5')
   const [embedLoading, setEmbedLoading] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [rerateBookId, setRerateBookId] = useState('')
 
   // AI 管理员对话状态
   const [showChat, setShowChat] = useState(false)
@@ -224,39 +224,19 @@ export default function AdminBooksPage() {
     finally { setStatsLoading(false) }
   }, [])
 
-  const handleCleanupEmbeddings = async () => {
-    const rating = parseFloat(embedMinRating) || 3.5
+  const handleRerateAll = async () => {
     setEmbedLoading(true)
     try {
-      const result = await cleanupEmbeddings(rating)
-      toast.success(`已清理 ${result.cleanedCount} 本低评分书籍的内容向量`)
-      loadEmbedStats()
-    } catch (err: any) {
-      toast.error(err.message || '清理失败')
-    } finally { setEmbedLoading(false) }
-  }
-
-  const handleRebuildEmbeddings = async () => {
-    const rating = parseFloat(embedMinRating) || 3.5
-    setEmbedLoading(true)
-    try {
-      const result = await rebuildEmbeddings(rating)
-      toast.success(`已重建 ${result.rebuiltCount} 本高评分书籍的内容向量，跳过 ${result.skippedCount} 本`)
+      const bookId = rerateBookId ? parseInt(rerateBookId, 10) : undefined
+      const result = await rerateAllBooks(bookId)
+      if (bookId) {
+        toast.success(`已重建指定书籍：${result.reratedCount} 本`)
+      } else {
+        toast.success(`已重建全部书籍：${result.reratedCount} 本`)
+      }
       loadEmbedStats()
     } catch (err: any) {
       toast.error(err.message || '重建失败')
-    } finally { setEmbedLoading(false) }
-  }
-
-  const handleRerateAll = async () => {
-    const rating = parseFloat(embedMinRating) || 3.5
-    setEmbedLoading(true)
-    try {
-      const result = await rerateAllBooks(rating)
-      toast.success(`重新评分 ${result.reratedCount} 本，新增嵌入 ${result.newlyEmbedded}，移除嵌入 ${result.removedEmbedding}`)
-      loadEmbedStats()
-    } catch (err: any) {
-      toast.error(err.message || '重新评分失败')
     } finally { setEmbedLoading(false) }
   }
 
@@ -571,7 +551,7 @@ export default function AdminBooksPage() {
             </div>
             <div>
               <h3 className="text-sm font-semibold">内容向量管理</h3>
-              <p className="text-xs text-muted-foreground">管理 Qdrant 内容向量存储，节省内存</p>
+              <p className="text-xs text-muted-foreground">管理 Qdrant 内容向量存储</p>
             </div>
           </div>
 
@@ -593,46 +573,6 @@ export default function AdminBooksPage() {
             </div>
           )}
 
-          {/* 状态提示 */}
-          {embedStats && (
-            <div className="mb-3 space-y-1.5">
-              {embedStats.lowRatedEmbedded > 0 && (
-                <div className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  <span>{embedStats.lowRatedEmbedded} 本低评分书籍仍有内容向量，建议清理</span>
-                </div>
-              )}
-              {embedStats.highRatedNotEmbedded > 0 && (
-                <div className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/20 dark:text-blue-400">
-                  <HardDriveDownload className="h-3.5 w-3.5 shrink-0" />
-                  <span>{embedStats.highRatedNotEmbedded} 本高评分书籍未存内容向量，建议重建</span>
-                </div>
-              )}
-              {embedStats.lowRatedEmbedded === 0 && embedStats.highRatedNotEmbedded === 0 && (
-                <div className="flex items-center gap-1.5 rounded-lg bg-green-50 px-3 py-2 text-xs text-green-700 dark:bg-green-950/20 dark:text-green-400">
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                  <span>内容向量状态良好，无异常</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 评分阈值配置 */}
-          <div className="mb-3 flex items-center gap-2">
-            <label className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">评分阈值</label>
-            <input
-              type="number"
-              min="1"
-              max="5"
-              step="0.5"
-              value={embedMinRating}
-              onChange={(e) => setEmbedMinRating(e.target.value)}
-              disabled={embedLoading}
-              className="h-8 w-20 rounded-lg border border-border bg-background px-2.5 text-xs outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-            />
-            <span className="text-[10px] text-muted-foreground">评分 ≥ 此值才存储内容向量</span>
-          </div>
-
           {/* 操作按钮 */}
           <div className="space-y-2">
             <button
@@ -643,31 +583,36 @@ export default function AdminBooksPage() {
               <Database className={`h-4 w-4 ${statsLoading ? 'animate-pulse' : ''}`} />
               {statsLoading ? '加载中...' : '刷新统计'}
             </button>
+
+            {/* 指定书籍重建 */}
             <div className="flex gap-2">
-              <button
-                onClick={handleCleanupEmbeddings}
+              <input
+                type="number"
+                min="1"
+                value={rerateBookId}
+                onChange={(e) => setRerateBookId(e.target.value)}
+                placeholder="书籍 ID"
                 disabled={embedLoading}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-400 dark:hover:bg-amber-950/30"
-              >
-                <Trash2 className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
-                清理低评分
-              </button>
+                className="h-9 w-28 rounded-lg border border-border bg-background px-2.5 text-xs outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+              />
               <button
-                onClick={handleRebuildEmbeddings}
-                disabled={embedLoading}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                onClick={handleRerateAll}
+                disabled={embedLoading || !rerateBookId}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 py-2.5 text-sm font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50 dark:border-purple-800 dark:bg-purple-950/20 dark:text-purple-400 dark:hover:bg-purple-950/30"
               >
-                <HardDriveDownload className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
-                重建高评分
+                <Star className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
+                重建指定书籍
               </button>
             </div>
+
+            {/* 重建全部 */}
             <button
               onClick={handleRerateAll}
-              disabled={embedLoading}
-              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 py-2.5 text-sm font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50 dark:border-purple-800 dark:bg-purple-950/20 dark:text-purple-400 dark:hover:bg-purple-950/30"
+              disabled={embedLoading || !!rerateBookId}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50 py-2.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-950/30"
             >
-              <Star className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
-              重新评分全部（耗时较长）
+              <RefreshCw className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
+              重建全部书籍（耗时较长）
             </button>
           </div>
         </section>
@@ -691,8 +636,7 @@ export default function AdminBooksPage() {
             <li>书名默认使用文件名（不含扩展名）</li>
             <li>扫描已入库的文件会自动跳过</li>
             <li>AI 标签会在入库后自动生成</li>
-            <li>评分 ≥ 阈值的书籍才会存储全书内容向量到 Qdrant</li>
-            <li>哲学/思想/谋略类评分偏高，网络小说/言情类评分偏低</li>
+            <li>重建功能会完整覆盖图书的元数据、AI 数据、向量数据</li>
             <li className="flex items-center gap-1">
               <Sparkles className="h-3 w-3 text-purple-500" />
               <span>点击右下角紫色圆圈唤醒 AI 管理员，用自然语言管理图书</span>
