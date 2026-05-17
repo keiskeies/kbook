@@ -887,7 +887,7 @@ public class BookParserService {
             // 保存评分（force=true 时始终覆盖）
             if (result.rating != null) {
                 if (force || book.getRating() == null || book.getRating() <= 0) {
-                    bookService.updateRating(bookId, result.rating);
+                    bookService.setAiRating(bookId, result.rating);
                     log.info("合并AI - 评分生成成功: bookId={}, rating={}", bookId, result.rating);
                 }
             }

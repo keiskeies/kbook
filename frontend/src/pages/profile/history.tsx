@@ -1,13 +1,52 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Clock, CheckCircle2, BookOpen } from 'lucide-react'
+import { ArrowLeft, Clock, CheckCircle2, BookOpen, Star, Sparkles } from 'lucide-react'
 import { getUserProgresses } from '@/api/progress'
 import { getBook } from '@/api/book'
 import type { ReadingProgress } from '@/types/book'
 import type { Book } from '@/types/book'
 import { formatProgress } from '@/types/book'
-import { formatRelativeTime, formatTag } from '@/utils/time'
+import { formatRelativeTime } from '@/utils/time'
 import BookCover from '@/components/book/BookCover'
+import { useMatchScores } from '@/hooks/useMatchScores'
+
+/** 评分徽章 */
+function RatingBadge({ rating }: { rating: number | undefined | null }) {
+  if (rating == null || rating <= 0) return null
+  const r = Number(rating.toFixed(1))
+  let colorClass = ''
+  if (r >= 4.5) colorClass = 'text-amber-600 dark:text-amber-400'
+  else if (r >= 4.0) colorClass = 'text-amber-500 dark:text-amber-300'
+  else if (r >= 3.0) colorClass = 'text-orange-500 dark:text-orange-400'
+  else if (r >= 2.0) colorClass = 'text-sky-500 dark:text-sky-400'
+  else colorClass = 'text-slate-400 dark:text-slate-500'
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+      <Star className="h-2.5 w-2.5" />
+      {r}
+    </span>
+  )
+}
+
+/** 匹配度徽章 */
+function MatchBadge({ score }: { score: number | undefined | null }) {
+  if (score == null || score <= 0) return null
+  const pct = Math.round(score * 100)
+  if (pct <= 0) return null
+  let colorClass = ''
+  if (pct >= 80) colorClass = 'text-emerald-600 dark:text-emerald-400'
+  else if (pct >= 60) colorClass = 'text-sky-500 dark:text-sky-400'
+  else if (pct >= 40) colorClass = 'text-amber-500 dark:text-amber-400'
+  else colorClass = 'text-orange-500 dark:text-orange-400'
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+      <Sparkles className="h-2.5 w-2.5" />
+      {pct}%
+    </span>
+  )
+}
 
 interface HistoryItem {
   progress: ReadingProgress
@@ -26,7 +65,6 @@ export default function ReadingHistoryPage() {
         const progresses = (res as any)?.data || (res as any) || []
         const list: ReadingProgress[] = Array.isArray(progresses) ? progresses : []
 
-        // 批量获取图书信息
         const bookPromises = list.map((p) =>
           getBook(p.bookId).catch(() => null)
         )
@@ -47,9 +85,10 @@ export default function ReadingHistoryPage() {
     load()
   }, [])
 
-  const isCompleted = (p: ReadingProgress) => p.progress >= 1.0
+  const bookIds = items.map(i => i.book?.id).filter((id): id is number => id != null)
+  const matchScores = useMatchScores(bookIds)
 
-  // 计算读完和在读数量
+  const isCompleted = (p: ReadingProgress) => p.progress >= 1.0
   const completedCount = items.filter((item) => isCompleted(item.progress)).length
   const readingCount = items.length - completedCount
 
@@ -63,7 +102,6 @@ export default function ReadingHistoryPage() {
 
   return (
     <div className="min-h-screen bg-background page-enter">
-      {/* 顶部导航 */}
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
         <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
@@ -84,19 +122,27 @@ export default function ReadingHistoryPage() {
           {items.map((item) => {
             const book = item.book
             const completed = isCompleted(item.progress)
+            const ms = book ? matchScores?.[String(book.id)] : null
+
             return (
               <div
                 key={item.progress.id}
                 className="flex items-center gap-3.5 rounded-2xl bg-card p-3.5 shadow-sm border border-border/50 active:scale-[0.98] transition-all duration-150 cursor-pointer"
                 onClick={() => book && navigate(`/book/${book.id}`)}
               >
-                {/* 封面 */}
                 <BookCover coverUrl={book?.coverUrl ?? null} title={book?.title ?? '未知图书'} author={book?.author} size="sm" className="flex-shrink-0 shadow-sm" />
 
-                {/* 信息 */}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">{book?.title || '未知图书'}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">{book?.author || '未知作者'}</p>
+                  
+                  {/* 评分与推荐度 */}
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <RatingBadge rating={book?.rating} />
+                    <MatchBadge score={ms} />
+                  </div>
+
+                  {/* 进度条 */}
                   <div className="mt-2 flex items-center gap-2">
                     {completed ? (
                       <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500">
@@ -117,7 +163,6 @@ export default function ReadingHistoryPage() {
                   </div>
                 </div>
 
-                {/* 时间 */}
                 <div className="flex flex-shrink-0 flex-col items-end gap-1">
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                     <Clock className="h-2.5 w-2.5" />
@@ -125,7 +170,7 @@ export default function ReadingHistoryPage() {
                   </span>
                   {book?.format && (
                     <span className="rounded-md bg-primary/8 px-1.5 py-0.5 text-[9px] font-medium text-primary">
-                      {formatTag(book.format)}
+                      {book.format}
                     </span>
                   )}
                 </div>

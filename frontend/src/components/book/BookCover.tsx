@@ -131,7 +131,7 @@ export default function BookCover({
         <span
           className={`absolute right-1 top-1 rounded-md bg-black/50 font-medium text-white backdrop-blur-sm ${tagSizeMap[size]}`}
         >
-          {formatTag(format)}
+          {format}
         </span>
       )}
     </div>

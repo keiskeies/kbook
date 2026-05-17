@@ -123,7 +123,7 @@ function ContinueReadingCarousel({ books, onReadClick }: {
   }
 
   const gradients = [
-    'from-primary to-primary/80',
+    'from-primary to-primary/95',
     'from-violet-500 to-purple-600',
     'from-sky-500 to-blue-600',
   ]

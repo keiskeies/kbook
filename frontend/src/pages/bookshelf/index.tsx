@@ -190,11 +190,11 @@ export default function BookshelfPage() {
           return (
             <div
               key={item.bookshelfId}
-              className="group relative flex flex-col items-center active:scale-[0.97] transition-transform duration-150"
+              className="group relative flex flex-col w-full active:scale-[0.97] transition-transform duration-150"
               onClick={() => navigate(`/book/${item.bookId}`)}
             >
               {/* 封面容器 */}
-              <div className="relative">
+              <div className="relative w-full">
                 <BookCover coverUrl={item.coverUrl} title={item.title} author={item.author} format={item.format} />
 
                 {/* 更多按钮 */}

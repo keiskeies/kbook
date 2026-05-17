@@ -299,6 +299,12 @@ export default function SearchPage() {
     return text.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="bg-primary/20 text-foreground rounded px-0.5">$1</mark>')
   }
 
+  const handleTagChange = (t: string) => {
+    setTag(t === '全部' ? '' : t)
+    window.scrollTo(0, 0)
+    doSearch(keyword, t === '全部' ? '' : t)
+  }
+
   return (
     <div className="min-h-screen bg-background page-enter">
       {/* 顶部固定区域：搜索框 + 筛选标签 */}
@@ -348,7 +354,7 @@ export default function SearchPage() {
           <TagFilterBar
             tags={popularTags}
             activeTag={tag}
-            onTagChange={(t) => { setTag(t); doSearch(keyword, t) }}
+            onTagChange={handleTagChange}
           />
         )}
       </div>

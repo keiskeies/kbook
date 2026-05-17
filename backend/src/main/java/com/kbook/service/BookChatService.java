@@ -6,7 +6,9 @@ import com.kbook.config.properties.QdrantProperties;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.Book;
+import com.kbook.entity.BookSuggestedQuestion;
 import com.kbook.repository.AiConversationRepository;
+import com.kbook.repository.BookSuggestedQuestionRepository;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -21,11 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -48,102 +46,199 @@ public class BookChatService {
     private final BookService bookService;
     private final AiProviderConfigService aiProviderConfigService;
     private final AiConversationRepository conversationRepository;
+    private final BookSuggestedQuestionRepository suggestedQuestionRepository;
+    private final BookQuestionGenService questionGenService;
     private final QdrantProperties qdrantProperties;
 
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
-    /** 每本书的推荐问题 — 按书籍类型分类，匹配实际标签体系 */
+    /**
+     * 每本书的推荐问题 — 按书籍类型分类，匹配实际标签体系
+     */
     private static final Map<String, List<String>> SUGGESTED_QUESTIONS = Map.ofEntries(
-            // 小说/虚构 — 悬疑、都市、奇幻、科幻、校园、武侠、冒险等
             Map.entry("fiction", List.of(
                     "这本书的主要人物之间是什么关系？",
-                    "故事的情节有哪些关键转折？",
+                    "故事的情节有哪些关键转折点？",
                     "主角经历了怎样的成长或变化？",
-                    "这本书的结局给你怎样的感受？"
+                    "书中描写的爱情/友情给你留下了什么印象？"
             )),
-            // 历史/纪实 — 历史、战争、政治、文化、社会等
             Map.entry("history", List.of(
                     "这本书对这段历史有什么独特的解读？",
                     "书中哪些史实或细节最让你印象深刻？",
                     "作者的历史观是否客观，有没有明显的立场？",
                     "这段历史对今天有什么现实启示？"
             )),
-            // 哲学/思想 — 哲学、人生、命运、宗教等
             Map.entry("philosophy", List.of(
                     "这本书讨论的核心哲学问题是什么？",
                     "作者的观点和传统看法有什么不同？",
                     "书中的思想如何应用到日常生活中？",
                     "这本书对你的人生观有什么启发？"
             )),
-            // 心理/成长 — 心理、心理学、成长、励志、认知、积极心态等
             Map.entry("psychology", List.of(
                     "这本书讲了哪些心理学原理或方法？",
                     "书中哪些观点能帮助解决实际困惑？",
                     "作者的建议有科学依据吗，还是更多经验之谈？",
                     "这本书和同类心理学读物相比有什么不同？"
             )),
-            // 教育/家庭 — 教育、亲子、家庭、亲情等
             Map.entry("education", List.of(
                     "这本书的核心教育理念是什么？",
                     "书中哪些方法可以直接实践？",
                     "作者的观点和传统教育观念有什么不同？",
                     "这本书适合哪些家长或教育者阅读？"
             )),
-            // 健康/生活 — 健康、养生、饮食、瑜伽、中医、运动等
             Map.entry("health", List.of(
                     "这本书的核心健康理念是什么？",
                     "书中提供了哪些具体的实操方法？",
                     "这些建议有哪些注意事项或适用条件？",
                     "这本书的观点和主流认知有什么不同？"
             )),
-            // 职场/商业 — 营销、职场、金融、效率、时间管理、沟通等
             Map.entry("business", List.of(
                     "这本书的核心方法论是什么？",
                     "书中的案例和经验如何应用到自己的工作中？",
                     "作者的观点有哪些局限性？",
                     "这本书适合什么阶段的职场人阅读？"
             )),
-            // 通用 — 兜底问题
             Map.entry("general", List.of(
                     "这本书的核心内容是什么？",
                     "这本书适合什么样的读者？",
-                    "读完这本书最大的收获是什么？"
+                    "读完这本书最大的收获是什么？",
+                    "书中哪些观点最打动你？"
             ))
     );
 
-    /** 标签到问题类别的映射关键词 */
+    /**
+     * 标签到问题类别的映射关键词
+     */
     private static final Map<String, String> TAG_CATEGORY_MAP = Map.<String, String>ofEntries(
-            // 小说/虚构
             Map.entry("小说", "fiction"), Map.entry("悬疑", "fiction"), Map.entry("推理", "fiction"),
             Map.entry("都市", "fiction"), Map.entry("奇幻", "fiction"), Map.entry("科幻", "fiction"),
             Map.entry("武侠", "fiction"), Map.entry("仙侠", "fiction"), Map.entry("言情", "fiction"),
             Map.entry("校园", "fiction"), Map.entry("冒险", "fiction"), Map.entry("传奇", "fiction"),
-            Map.entry("复仇", "fiction"), Map.entry("游戏", "fiction"),
-            // 历史/纪实
+            Map.entry("复仇", "fiction"), Map.entry("游戏", "fiction"), Map.entry("爱情", "fiction"),
+            Map.entry("友情", "fiction"),
+            Map.entry("误会", "fiction"), Map.entry("搞笑", "fiction"), Map.entry("当代文学", "fiction"),
+            Map.entry("文学", "fiction"),
             Map.entry("历史", "history"), Map.entry("战争", "history"), Map.entry("政治", "history"),
             Map.entry("社会", "history"), Map.entry("社会学", "history"), Map.entry("人物", "history"),
-            Map.entry("权谋", "history"), Map.entry("回忆录", "history"),
-            // 哲学/思想
+            Map.entry("权谋", "history"), Map.entry("回忆录", "history"), Map.entry("文化", "history"),
+            Map.entry("美国", "history"),
             Map.entry("哲学", "philosophy"), Map.entry("人生", "philosophy"), Map.entry("命运", "philosophy"),
-            Map.entry("传统文化", "philosophy"), Map.entry("易学", "philosophy"),
-            // 心理/成长
+            Map.entry("传统文化", "philosophy"), Map.entry("易学", "philosophy"), Map.entry("自我认知", "philosophy"),
+            Map.entry("宗教", "philosophy"), Map.entry("思想", "philosophy"),
             Map.entry("心理", "psychology"), Map.entry("心理学", "psychology"), Map.entry("成长", "psychology"),
             Map.entry("励志", "psychology"), Map.entry("认知", "psychology"), Map.entry("积极心态", "psychology"),
             Map.entry("自我成长", "psychology"), Map.entry("个人成长", "psychology"), Map.entry("孤独", "psychology"),
-            Map.entry("情感", "psychology"), Map.entry("爱情", "psychology"),
-            // 教育/家庭
+            Map.entry("情感", "psychology"), Map.entry("回忆", "psychology"), Map.entry("女性", "psychology"),
             Map.entry("教育", "education"), Map.entry("亲子", "education"), Map.entry("家庭", "education"),
-            Map.entry("亲情", "education"), Map.entry("青春", "education"),
-            // 健康/生活
-            Map.entry("健康", "health"), Map.entry("养生", "health"), Map.entry("饮食", "health"),
-            Map.entry("瑜伽", "health"), Map.entry("中医", "health"), Map.entry("生活", "health"),
-            Map.entry("自然", "health"),
-            // 职场/商业
+            Map.entry("亲情", "education"), Map.entry("青春", "education"), Map.entry("婚姻", "education"),
+            Map.entry("养生", "health"), Map.entry("饮食", "health"), Map.entry("瑜伽", "health"),
+            Map.entry("中医", "health"), Map.entry("生活", "health"), Map.entry("自然", "health"),
+            Map.entry("营养", "health"), Map.entry("健康", "health"),
             Map.entry("营销", "business"), Map.entry("职场", "business"), Map.entry("金融", "business"),
             Map.entry("效率", "business"), Map.entry("时间管理", "business"), Map.entry("沟通", "business"),
             Map.entry("学习", "business"), Map.entry("技巧", "business"), Map.entry("记忆", "business"),
-            Map.entry("创新", "business"), Map.entry("互联网", "business")
+            Map.entry("创新", "business"), Map.entry("互联网", "business"), Map.entry("创业", "business"),
+            Map.entry("成功", "business"), Map.entry("理财", "business"), Map.entry("时尚", "business")
     );
+
+    /**
+     * 获取图书推荐问题
+     * 流程：
+     * 1. 查库，有则随机返回 7 个。
+     * 2. 无则触发异步生成，并立即返回空列表。
+     */
+    public List<String> getSuggestedQuestions(Long bookId) {
+        List<BookSuggestedQuestion> existing = suggestedQuestionRepository.findByBookId(bookId);
+        if (!existing.isEmpty()) {
+            List<String> all = existing.stream().map(BookSuggestedQuestion::getQuestion).collect(Collectors.toList());
+            return getRandomQuestions(all, 7);
+        }
+
+        // 尝试触发异步生成（内部包含分布式锁判断）
+        questionGenService.asyncGenerateQuestions(bookId);
+
+        // 返回基于标签的兜底问题
+        return getFallbackQuestions(bookId);
+    }
+
+    /**
+     * 获取兜底预设问题（基于标签匹配）
+     */
+    private List<String> getFallbackQuestions(Long bookId) {
+        Book book = bookService.getBookById(bookId);
+        if (book == null) {
+            return SUGGESTED_QUESTIONS.get("general");
+        }
+
+        String category = detectBookCategory(book);
+        List<String> questions = new ArrayList<>(SUGGESTED_QUESTIONS.getOrDefault(category, SUGGESTED_QUESTIONS.get("general")));
+
+        if (book.getTitle() != null) {
+            questions.add(0, "《" + book.getTitle() + "》最打动你的是什么？");
+        }
+
+        return questions.stream().distinct().limit(6).collect(Collectors.toList());
+    }
+
+    /**
+     * 根据书籍标签检测最匹配的问题类别
+     */
+    private String detectBookCategory(Book book) {
+        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+            String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "");
+            Map<String, Integer> categoryHits = new HashMap<>();
+            for (String tag : tags.split("[,，]")) {
+                String t = tag.trim();
+                if (t.isBlank()) continue;
+                String cat = TAG_CATEGORY_MAP.get(t);
+                if (cat != null) {
+                    categoryHits.merge(cat, 1, Integer::sum);
+                }
+            }
+            if (!categoryHits.isEmpty()) {
+                return categoryHits.entrySet().stream()
+                        .max(Map.Entry.comparingByValue())
+                        .map(Map.Entry::getKey)
+                        .orElse("general");
+            }
+        }
+
+        if (book.getTitle() != null) {
+            String title = book.getTitle();
+            if (title.contains("传") || title.contains("记") || title.contains("录") ||
+                    title.contains("奇谭") || title.contains("物语") || title.contains("演义")) {
+                return "fiction";
+            }
+        }
+
+        return "general";
+    }
+
+    /**
+     * 解析 AI 返回的文本，提取问题列表
+     */
+    private List<String> parseQuestions(String text) {
+        return Arrays.stream(text.split("\n"))
+                .map(String::trim)
+                .filter(line -> !line.isEmpty())
+                .map(line -> line.replaceAll("^\\d+[.、)\\s]*", "").trim()) // 去除序号
+                .filter(line -> line.length() > 2) // 过滤太短的无效行
+                .distinct()
+                .limit(20)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 从列表中随机选取 count 个问题
+     */
+    private List<String> getRandomQuestions(List<String> questions, int count) {
+        if (questions.size() <= count) {
+            return new ArrayList<>(questions);
+        }
+        List<String> shuffled = new ArrayList<>(questions);
+        java.util.Collections.shuffle(shuffled);
+        return shuffled.subList(0, count);
+    }
 
     /**
      * 流式图书问答 — SSE
@@ -167,7 +262,8 @@ public class BookChatService {
         // 立即发送 thinking 事件，让前端知道请求已被接受，正在检索
         try {
             emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍内容..."));
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         sseExecutor.execute(() -> {
             try {
@@ -191,7 +287,8 @@ public class BookChatService {
                 // 检索完成，发送 thinking 更新
                 try {
                     emitter.send(SseEmitter.event().name("thinking").data("正在生成回答..."));
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
 
                 // 3. 构建完整提示词
                 String fullPrompt = buildPrompt(book, question, ragContext);
@@ -260,7 +357,8 @@ public class BookChatService {
                                 try {
                                     emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                                     emitter.complete();
-                                } catch (Exception ignored) {}
+                                } catch (Exception ignored) {
+                                }
 
                                 // 保存对话记录
                                 saveMessage(userId, finalSessionId, "user", question, bookId);
@@ -294,25 +392,6 @@ public class BookChatService {
     }
 
     /**
-     * 获取图书推荐问题
-     */
-    public List<String> getSuggestedQuestions(Long bookId) {
-        Book book = bookService.getBookById(bookId);
-        if (book == null) return SUGGESTED_QUESTIONS.get("general");
-
-        // 根据标签匹配最相关的问题类别
-        String category = detectBookCategory(book);
-        List<String> questions = new ArrayList<>(SUGGESTED_QUESTIONS.getOrDefault(category, SUGGESTED_QUESTIONS.get("general")));
-
-        // 根据书籍标题生成个性化问题
-        if (book.getTitle() != null) {
-            questions.add(0, "《" + book.getTitle() + "》最打动你的是什么？");
-        }
-
-        return questions.stream().distinct().limit(6).collect(Collectors.toList());
-    }
-
-    /**
      * 获取图书问答历史
      */
     public List<AiConversation> getBookChatHistory(Long userId, Long bookId, String sessionId) {
@@ -334,7 +413,9 @@ public class BookChatService {
 
     // ==================== 内部方法 ====================
 
-    /** 对话历史保留的最大轮数 — 使用 AiPromptConstants 统一管理 */
+    /**
+     * 对话历史保留的最大轮数 — 使用 AiPromptConstants 统一管理
+     */
     private static final int MAX_HISTORY_TURNS = AiPromptConstants.MAX_HISTORY_TURNS;
 
     /**
@@ -481,44 +562,6 @@ public class BookChatService {
         }
 
         return prompt;
-    }
-
-    /**
-     * 根据书籍标签检测最匹配的问题类别
-     * 优先匹配标签体系，匹配不到则按标题关键词推断，最后兜底 general
-     */
-    private String detectBookCategory(Book book) {
-        // 1. 优先根据 formatTags 匹配
-        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
-            String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "");
-            Map<String, Integer> categoryHits = new HashMap<>();
-            for (String tag : tags.split("[,，]")) {
-                String t = tag.trim();
-                if (t.isBlank()) continue;
-                String cat = TAG_CATEGORY_MAP.get(t);
-                if (cat != null) {
-                    categoryHits.merge(cat, 1, Integer::sum);
-                }
-            }
-            // 取命中次数最多的类别
-            if (!categoryHits.isEmpty()) {
-                return categoryHits.entrySet().stream()
-                        .max(Map.Entry.comparingByValue())
-                        .map(Map.Entry::getKey)
-                        .orElse("general");
-            }
-        }
-
-        // 2. 标题关键词推断
-        if (book.getTitle() != null) {
-            String title = book.getTitle();
-            if (title.contains("传") || title.contains("记") || title.contains("录") ||
-                    title.contains("奇谭") || title.contains("物语") || title.contains("演义")) {
-                return "fiction";
-            }
-        }
-
-        return "general";
     }
 
     private void saveMessage(Long userId, String sessionId, String role, String content, Long bookId) {

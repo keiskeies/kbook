@@ -94,10 +94,15 @@ public class Book {
     @Builder.Default
     private Long readCount = 0L;
 
-    /** 评分 (1.0-5.0) */
-    @Column(columnDefinition = "DECIMAL(2,1) DEFAULT 0.0")
+    /** 评分 (1.0-5.0，数据库存储6位小数) */
+    @Column(columnDefinition = "DECIMAL(7,6) DEFAULT 0.000000")
     @Builder.Default
     private Double rating = 0.0;
+
+    /** 实际评分人数（AI初评不计入，仅统计用户评分） */
+    @Column(name = "rating_count")
+    @Builder.Default
+    private Long ratingCount = 0L;
 
     /** 全书内容是否已存储到 Qdrant（用于 RAG 语义检索） */
     @Column(name = "content_embedded")

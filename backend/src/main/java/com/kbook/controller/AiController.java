@@ -28,10 +28,10 @@ public class AiController extends BaseController {
 
     /** 默认快捷提问（数据库中无记录时的兜底） */
     private static final List<String> DEFAULT_PROMPTS = List.of(
-            "推荐一本科幻小说",
-            "最近有什么热门书？",
-            "阅读排行榜 TOP3",
-            "评分最高的书有哪些？"
+            "推荐几本关于成长与情感的高分书籍",
+            "有哪些值得读的历史类好书？",
+            "职场新人适合读什么书来提升自己？",
+            "最近有什么精彩的悬疑或科幻小说推荐吗？"
     );
 
     /**

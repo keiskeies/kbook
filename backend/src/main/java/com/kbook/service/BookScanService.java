@@ -281,6 +281,7 @@ public class BookScanService {
         book.setDescription(null);
         book.setFormatTags(null);
         book.setRating(null);
+        book.setRatingCount(null);
         book.setRelevanceScores(null);
         stepTimer.start("数据库保存");
         bookService.updateBook(book.getId(), book);

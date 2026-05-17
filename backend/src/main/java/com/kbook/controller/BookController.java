@@ -216,7 +216,7 @@ public class BookController {
         rating = Math.round(rating * 10.0) / 10.0;
 
         // 更新书籍评分
-        Book updated = bookService.updateRating(id, rating);
+        Book updated = bookService.rateBook(id, rating);
 
         // 记录用户评分到阅读历史（用于协同过滤和推荐）
         Long userId = (Long) authentication.getPrincipal();

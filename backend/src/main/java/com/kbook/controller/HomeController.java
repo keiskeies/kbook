@@ -29,7 +29,6 @@ import java.util.Map;
 public class HomeController {
 
     private final BookService bookService;
-    private final BookshelfService bookshelfService;
     private final ReadingProgressService progressService;
     private final RecommendService recommendService;
 

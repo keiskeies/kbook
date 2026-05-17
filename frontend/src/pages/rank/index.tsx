@@ -132,6 +132,11 @@ export default function RankPage() {
       .finally(() => setLoading(false))
   }, [type])
 
+  const handleTypeChange = (key: RankType) => {
+    window.scrollTo(0, 0)
+    setType(key)
+  }
+
   const matchScores = useMatchScores(books.map(b => b.id))
 
   return (
@@ -146,7 +151,7 @@ export default function RankPage() {
             {RANK_TABS.map((tab) => (
               <button
                 key={tab.key}
-                onClick={() => setType(tab.key)}
+                onClick={() => handleTypeChange(tab.key)}
                 className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                   type === tab.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
                 }`}

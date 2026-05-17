@@ -11,7 +11,46 @@ import { formatProgress, formatFileSize, parseFormatTags } from '@/types/book'
 import CommentList from '@/components/comment/CommentList'
 import BookChatSheet from '@/components/book/BookChatSheet'
 import BookCover from '@/components/book/BookCover'
+import { useMatchScores } from '@/hooks/useMatchScores'
 import { toast } from 'sonner'
+
+/** 评分徽章 */
+function RatingBadge({ rating }: { rating: number | undefined | null }) {
+  if (rating == null || rating <= 0) return null
+  const r = Number(rating.toFixed(1))
+  let colorClass = ''
+  if (r >= 4.5) colorClass = 'text-amber-600 dark:text-amber-400'
+  else if (r >= 4.0) colorClass = 'text-amber-500 dark:text-amber-300'
+  else if (r >= 3.0) colorClass = 'text-orange-500 dark:text-orange-400'
+  else if (r >= 2.0) colorClass = 'text-sky-500 dark:text-sky-400'
+  else colorClass = 'text-slate-400 dark:text-slate-500'
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
+      <Star className="h-3 w-3" />
+      {r}
+    </span>
+  )
+}
+
+/** 匹配度徽章 */
+function MatchBadge({ score }: { score: number | undefined | null }) {
+  if (score == null || score <= 0) return null
+  const pct = Math.round(score * 100)
+  if (pct <= 0) return null
+  let colorClass = ''
+  if (pct >= 80) colorClass = 'text-emerald-600 dark:text-emerald-400'
+  else if (pct >= 60) colorClass = 'text-sky-500 dark:text-sky-400'
+  else if (pct >= 40) colorClass = 'text-amber-500 dark:text-amber-400'
+  else colorClass = 'text-orange-500 dark:text-orange-400'
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
+      <Sparkles className="h-3 w-3" />
+      {pct}%
+    </span>
+  )
+}
 
 export default function BookDetailPage() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -31,6 +70,8 @@ export default function BookDetailPage() {
   const [descExpanded, setDescExpanded] = useState(false)
 
   const id = Number(bookId)
+  const matchScores = useMatchScores(book ? [book.id] : [])
+  const ms = book ? matchScores?.[String(book.id)] : null
 
   const loadComments = useCallback(async (page: number = 1) => {
     try {
@@ -217,12 +258,13 @@ export default function BookDetailPage() {
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <button onClick={() => setShowRating(!showRating)} className="flex items-center gap-1 active:scale-95 transition-transform">
-                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                <span className="font-semibold text-foreground">{book.rating > 0 ? book.rating.toFixed(1) : '暂无'}</span>
-                <span className="text-[10px] text-primary">评</span>
+                <RatingBadge rating={book.rating} />
+                {book.rating <= 0 && <span className="text-xs text-muted-foreground">暂无评分</span>}
+                <span className="text-[10px] text-primary ml-1">评</span>
               </button>
+              <MatchBadge score={ms} />
               <span className="flex items-center gap-1"><Eye className="h-3 w-3" />{book.readCount} 阅读</span>
-              <span className="rounded-md bg-primary/8 px-1.5 py-0.5 font-medium text-primary">{book.format === 'EPUB' ? '电子书' : book.format}</span>
+              <span className="rounded-md bg-primary/8 px-1.5 py-0.5 font-medium text-primary">{book.format}</span>
               {book.fileSize && <span>{formatFileSize(book.fileSize)}</span>}
             </div>
             {progress > 0 && (

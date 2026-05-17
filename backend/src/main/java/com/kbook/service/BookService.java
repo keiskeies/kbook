@@ -80,7 +80,7 @@ public class BookService {
         if (updates.getFormatTags() != null) book.setFormatTags(updates.getFormatTags());
         if (updates.getTotalUnits() != null) book.setTotalUnits(updates.getTotalUnits());
         if (updates.getRelevanceScores() != null) book.setRelevanceScores(updates.getRelevanceScores());
-        if (updates.getRating() != null) book.setRating(updates.getRating());
+        // 注意：rating 和 ratingCount 不通过 updateBook 更新，必须使用 setAiRating 或 rateBook 方法
         if (updates.getReadCount() != null) book.setReadCount(updates.getReadCount());
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
@@ -212,17 +212,55 @@ public class BookService {
         bookSearchService.indexBook(saved);
     }
 
+    /** AI 评分基数常量 */
+    private static final long AI_RATING_BASE = 1000L;
+
     /**
-     * 更新图书评分（AI 初评或用户评分后重算）
+     * AI 初始评分（不更新实际评分人数）
      */
     @Transactional
-    public Book updateRating(Long bookId, Double rating) {
+    public Book setAiRating(Long bookId, Double rating) {
         Book book = getBookById(bookId);
         book.setRating(rating);
         Book saved = bookRepository.saveAndFlush(book);
         bookSearchService.indexBook(saved);
-        log.info("图书评分更新: bookId={}, rating={}", bookId, rating);
+        log.info("AI 初始评分: bookId={}, rating={}", bookId, rating);
         return saved;
+    }
+
+    /**
+     * 用户评分（增量平均计算，更新实际评分人数）
+     * 计算公式: new_avg = (old_avg * (AI基数 + 用户数) + new_score) / (AI基数 + 用户数 + 1)
+     */
+    @Transactional
+    public Book rateBook(Long bookId, Double rating) {
+        Book book = getBookById(bookId);
+        Long userCount = book.getRatingCount() != null ? book.getRatingCount() : 0L;
+        Double currentRating = book.getRating() != null ? book.getRating() : 0.0;
+        long totalCount = AI_RATING_BASE + userCount;
+
+        if (currentRating <= 0) {
+            // AI 未评分，用户首次评分
+            book.setRating(rating);
+        } else {
+            // 增量平均计算
+            double newRating = (currentRating * totalCount + rating) / (totalCount + 1);
+            book.setRating(newRating);
+        }
+        book.setRatingCount(userCount + 1);
+
+        Book saved = bookRepository.saveAndFlush(book);
+        bookSearchService.indexBook(saved);
+        log.info("用户评分: bookId={}, newRating={}, userCount={}", bookId, saved.getRating(), saved.getRatingCount());
+        return saved;
+    }
+
+    /**
+     * 更新图书评分（通用方法，保留兼容）
+     */
+    @Transactional
+    public Book updateRating(Long bookId, Double rating) {
+        return rateBook(bookId, rating);
     }
 
     /**
