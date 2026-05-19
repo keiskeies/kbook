@@ -10,7 +10,9 @@ import com.kbook.service.BookSearchService;
 import com.kbook.service.BookService;
 import com.kbook.service.RecommendService;
 import com.kbook.config.properties.BookStorageProperties;
-import lombok.Data;
+import com.kbook.dto.CreateBookRequest;
+import com.kbook.dto.RateRequest;
+import com.kbook.dto.UpdateTagsRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
@@ -104,15 +106,16 @@ public class BookController {
     }
 
     /**
-     * 搜索图书（ES 全文检索，带高亮）
+     * 搜索图书（关键词优先，书名/作者匹配排前）
      */
     @GetMapping("/search")
     public Result<PageResult<BookDocument>> searchBooks(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String format,
+            @RequestParam(required = false) String tag,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(bookService.searchBooksEs(keyword, format, page, size));
+        return Result.ok(bookService.searchBooksByKeyword(keyword, format, tag, page, size));
     }
 
     /**
@@ -233,26 +236,4 @@ public class BookController {
         return Result.ok(bookSearchService.rebuildIndex());
     }
 
-    @Data
-    public static class CreateBookRequest {
-        private String title;
-        private String author;
-        private String coverUrl;
-        private String description;
-        private String format;
-        private String fileUrl;
-        private Long fileSize;
-        private String formatTags;
-        private Long totalUnits;
-    }
-
-    @Data
-    public static class UpdateTagsRequest {
-        private List<String> tags;
-    }
-
-    @Data
-    public static class RateRequest {
-        private Double rating;
-    }
 }

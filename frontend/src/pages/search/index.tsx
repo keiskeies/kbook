@@ -2,20 +2,22 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Search, X, Star, Sparkles, Tag, ChevronDown, ChevronUp } from 'lucide-react'
 
-/** 评分徽章 — 5分制分等级配色（无背景） */
-function RatingBadge({ rating }: { rating: number | undefined | null }) {
+/** 评分徽章（带中文标签） — 5分制分等级配色（无背景） */
+function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating <= 0) return null
   const r = Number(rating.toFixed(1))
 
   let colorClass = ''
-  if (r >= 4.5) {
-    colorClass = 'text-amber-600 dark:text-amber-400'
+  if (r >= 5.0) {
+    colorClass = 'text-red-600 dark:text-red-400'
+  } else if (r >= 4.5) {
+    colorClass = 'text-orange-600 dark:text-orange-400'
   } else if (r >= 4.0) {
-    colorClass = 'text-amber-500 dark:text-amber-300'
+    colorClass = 'text-amber-600 dark:text-amber-400'
   } else if (r >= 3.0) {
-    colorClass = 'text-orange-500 dark:text-orange-400'
-  } else if (r >= 2.0) {
-    colorClass = 'text-sky-500 dark:text-sky-400'
+    colorClass = 'text-emerald-600 dark:text-emerald-400'
+  } else if (r >= 2.5) {
+    colorClass = 'text-teal-600 dark:text-teal-400'
   } else {
     colorClass = 'text-slate-400 dark:text-slate-500'
   }
@@ -23,38 +25,41 @@ function RatingBadge({ rating }: { rating: number | undefined | null }) {
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
-      {r}
+      评分：{r}
     </span>
   )
 }
 
-/** 匹配度徽章 — 根据匹配度分等级配色（无背景） */
-function MatchBadge({ score }: { score: number | undefined | null }) {
+/** 匹配度徽章（带中文标签） — 根据匹配度分等级配色（无背景） */
+function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   if (score == null || score <= 0) return null
   const pct = Math.round(score * 100)
   if (pct <= 0) return null
 
   let colorClass = ''
-  if (pct >= 80) {
-    colorClass = 'text-emerald-600 dark:text-emerald-400'
+  if (pct >= 100) {
+    colorClass = 'text-red-600 dark:text-red-400'
+  } else if (pct >= 80) {
+    colorClass = 'text-orange-600 dark:text-orange-400'
   } else if (pct >= 60) {
-    colorClass = 'text-sky-500 dark:text-sky-400'
+    colorClass = 'text-amber-600 dark:text-amber-400'
+  } else if (pct >= 50) {
+    colorClass = 'text-emerald-600 dark:text-emerald-400'
   } else if (pct >= 40) {
-    colorClass = 'text-amber-500 dark:text-amber-400'
+    colorClass = 'text-teal-600 dark:text-teal-400'
   } else {
-    colorClass = 'text-orange-500 dark:text-orange-400'
+    colorClass = 'text-slate-400 dark:text-slate-500'
   }
 
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
       <Sparkles className="h-2.5 w-2.5" />
-      {pct}%
+      匹配度：{pct}%
     </span>
   )
 }
-import { searchBooks, getBooksByTag } from '@/api/book'
-import type { Book } from '@/types/book'
-import { parseFormatTags, formatFileSize } from '@/types/book'
+import { searchBooks } from '@/api/book'
+import { parseFormatTags } from '@/types/book'
 import BookCover from '@/components/book/BookCover'
 import { useMatchScores } from '@/hooks/useMatchScores'
 
@@ -112,10 +117,10 @@ function TagFilterBar({
         </div>
       )}
 
-      {/* 展开模式：全部标签网格展示 */}
+      {/* 展开模式：全部标签网格展示，限制高度可滚动 */}
       {expanded && (
         <div className="px-4 py-3">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 max-h-[240px] overflow-y-auto overscroll-y-contain" style={{ scrollbarWidth: 'thin' }}>
             {allTags.map((t) => {
               const isActive = (t === '全部' && activeTag === '') || activeTag === t
               return (
@@ -202,7 +207,7 @@ export default function SearchPage() {
   const [suggests, setSuggests] = useState<string[]>([])
   const [showSuggest, setShowSuggest] = useState(false)
   const [popularTags, setPopularTags] = useState<string[]>([])
-  const suggestTimer = useRef<ReturnType<typeof setTimeout>>()
+  const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 从 URL 参数自动搜索（如从首页热门标签跳转 / AI 对话点击书名）
   useEffect(() => {
@@ -240,19 +245,14 @@ export default function SearchPage() {
     setSearched(true)
     setShowSuggest(false)
     try {
-      if (t && !kw) {
-        // 纯标签筛选
-        const res = await getBooksByTag(t, 1, 50)
-        setResults(res?.list || [])
-      } else {
-        // 关键词搜索（可选带标签）
-        const res = await searchBooks({
-          keyword: kw || undefined,
-          page: 1,
-          size: 50,
-        })
-        setResults(res?.list || [])
-      }
+      // 关键词和标签同时支持
+      const res = await searchBooks({
+        keyword: kw || undefined,
+        tag: t || undefined,
+        page: 1,
+        size: 50,
+      })
+      setResults((res as any)?.list || [])
     } catch {
       setResults([])
     } finally {
@@ -423,8 +423,8 @@ export default function SearchPage() {
 
                           {/* 评分 + 匹配度 + 阅读量 */}
                           <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                            <RatingBadge rating={book.rating} />
-                            <MatchBadge score={ms} />
+                            <RatingBadgeCN rating={book.rating} />
+                            <MatchBadgeCN score={ms} />
                             <span className="text-[11px] text-muted-foreground">
                               {fmtReadCount(book.readCount)}
                             </span>

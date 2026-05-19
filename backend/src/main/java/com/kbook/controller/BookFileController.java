@@ -4,7 +4,7 @@ import com.kbook.common.api.Result;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
-import lombok.Data;
+import com.kbook.dto.TextInfoResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -122,9 +122,4 @@ public class BookFileController {
         };
     }
 
-    @Data
-    public static class TextInfoResponse {
-        private long fileSize;
-        private String fileUrl;
-    }
 }

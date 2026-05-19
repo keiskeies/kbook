@@ -2,13 +2,13 @@ package com.kbook.controller;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
+import com.kbook.dto.CommentVO;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.UserRepository;
 import com.kbook.service.CommentService;
-import com.kbook.service.CommentService.CommentVO;
-import lombok.Data;
+import com.kbook.dto.CreateCommentRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -160,11 +160,4 @@ public class CommentController {
         }
     }
 
-    @Data
-    public static class CreateCommentRequest {
-        private Long bookId;
-        private String chapterId;
-        private Long parentId;
-        private String content;
-    }
 }

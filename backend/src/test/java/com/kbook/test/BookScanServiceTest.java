@@ -164,7 +164,7 @@ public class BookScanServiceTest {
         System.out.println("扫描前图书总数: " + initialCount);
         
         // 启动完整扫描
-        SseEmitter emitter = bookScanService.scanAllWithProgress(2130L);
+        SseEmitter emitter = bookScanService.scanAllWithProgress(8061L);
         assertNotNull(emitter, "emitter不应为null");
         
         System.out.println("已启动完整扫描（不跳过任何图书）");

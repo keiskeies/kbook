@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
 import { STORAGE_KEYS } from '@/constants'
+import { refreshAccessToken, clearAuthAndRedirect } from './token-refresh'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -65,14 +66,11 @@ service.interceptors.response.use(
       isRefreshing = true
 
       try {
-        const { data: resp } = await axios.post(`${BASE_URL}/auth/refresh`, {
-          refreshToken,
-        })
-        const newToken = resp.data.token
-        const newRefreshToken = resp.data.refreshToken
-
-        localStorage.setItem(STORAGE_KEYS.TOKEN, newToken)
-        localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken)
+        const newToken = await refreshAccessToken()
+        if (!newToken) {
+          clearAuthAndRedirect()
+          return Promise.reject(error)
+        }
 
         pendingRequests.forEach((cb) => cb(newToken))
         pendingRequests = []
@@ -91,12 +89,5 @@ service.interceptors.response.use(
     return Promise.reject(new Error(msg))
   }
 )
-
-function clearAuthAndRedirect() {
-  localStorage.removeItem(STORAGE_KEYS.TOKEN)
-  localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
-  localStorage.removeItem(STORAGE_KEYS.USER_INFO)
-  window.location.href = '/login'
-}
 
 export default service

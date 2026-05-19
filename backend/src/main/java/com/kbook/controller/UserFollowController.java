@@ -4,7 +4,7 @@ import com.kbook.common.api.Result;
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
 import com.kbook.service.UserFollowService;
-import lombok.Data;
+import com.kbook.dto.FollowUserVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -60,14 +60,6 @@ public class UserFollowController {
     }
 
     // ==================== VO ====================
-
-    @Data
-    public static class FollowUserVO {
-        private Long userId;
-        private String nickname;
-        private String avatar;
-        private String bio;
-    }
 
     private List<FollowUserVO> toFollowUserVOs(List<com.kbook.entity.UserFollow> follows) {
         // followings: followingId 是被关注的人; followers: followerId 是粉丝

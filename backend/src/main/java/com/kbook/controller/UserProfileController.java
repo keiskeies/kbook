@@ -3,16 +3,19 @@ package com.kbook.controller;
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.dto.CommentVO;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.entity.User;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.ReadingProgressRepository;
 import com.kbook.repository.UserRepository;
 import com.kbook.service.CommentService;
-import com.kbook.service.CommentService.CommentVO;
 import com.kbook.service.UserFollowService;
 import com.kbook.service.UserService;
-import lombok.Data;
+import com.kbook.dto.UpdateBioRequest;
+import com.kbook.dto.UserBookItem;
+import com.kbook.dto.UserBooksVO;
+import com.kbook.dto.UserProfileVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -115,8 +118,8 @@ public class UserProfileController {
         return Result.ok(user);
     }
 
-    private BookItem toBookItem(ReadingProgress rp) {
-        BookItem item = new BookItem();
+    private UserBookItem toBookItem(ReadingProgress rp) {
+        UserBookItem item = new UserBookItem();
         item.setBookId(rp.getBookId());
         item.setProgress(rp.getProgress());
         bookRepository.findById(rp.getBookId()).ifPresent(book -> {
@@ -152,42 +155,4 @@ public class UserProfileController {
         }
     }
 
-    // ==================== VO ====================
-
-    @Data
-    public static class UserProfileVO {
-        private Long id;
-        private String nickname;
-        private String avatar;
-        private String bio;
-        private Integer age;
-        private String gender;
-        private String mbti;
-        private Integer followerCount;
-        private Integer followingCount;
-        private Boolean isFollowing;
-        private Integer completedBooks;
-        private Integer readingBooks;
-    }
-
-    @Data
-    public static class UserBooksVO {
-        private List<BookItem> readingBooks;
-        private List<BookItem> completedBooks;
-    }
-
-    @Data
-    public static class BookItem {
-        private Long bookId;
-        private String title;
-        private String author;
-        private String coverUrl;
-        private String format;
-        private Double progress;
-    }
-
-    @Data
-    public static class UpdateBioRequest {
-        private String bio;
-    }
 }

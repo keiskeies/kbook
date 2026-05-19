@@ -2,7 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.service.ClickCaptchaService;
-import lombok.Data;
+import com.kbook.dto.ClickVerifyRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -35,11 +35,4 @@ public class ClickCaptchaController {
         return Result.ok();
     }
 
-    @Data
-    public static class ClickVerifyRequest {
-        /** 验证码ID */
-        private String captchaId;
-        /** 用户点击的位置索引列表 */
-        private List<Integer> positions;
-    }
 }

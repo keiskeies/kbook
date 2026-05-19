@@ -61,15 +61,95 @@ public class BookSearchService {
     // ==================== 混合搜索（对外主入口） ====================
 
     /**
-     * 混合搜索：Qdrant 向量语义召回 + ES/MySQL 关键词召回，加权融合排序
-     * <p>
-     * 仅格式筛选（无关键词）时走纯 ES/MySQL，不做向量搜索
+     * 关键词优先搜索（用于前端 /api/books/search）
+     * 优先返回 ES 书名/作者匹配的书籍，适合用户精确查找
      */
-    public PageResult<BookDocument> hybridSearch(String keyword, String format, int page, int size) {
-        // 无关键词 → 纯格式筛选，不做向量搜索（向量搜索需要文本 query）
+    public PageResult<BookDocument> keywordSearch(String keyword, String format, String tag, int page, int size) {
         if (keyword == null || keyword.isBlank()) {
             if (format != null && !format.isBlank()) {
                 return searchByFormat(format, page, size);
+            }
+            if (tag != null && !tag.isBlank()) {
+                return searchByTag(tag, page, size);
+            }
+            return PageResult.of(List.of(), 0L, page, size);
+        }
+
+        // 1. 尝试 ES 搜索
+        if (esAvailable) {
+            try {
+                return esKeywordSearch(keyword, format, tag, page, size);
+            } catch (Exception e) {
+                log.warn("ES 关键词搜索异常，降级到 MySQL: {}", e.getMessage());
+                esAvailable = false;
+            }
+        }
+
+        // 2. 降级 MySQL
+        return mysqlKeywordSearch(keyword, format, tag, page, size);
+    }
+
+    /**
+     * ES 关键词搜索实现
+     */
+    private PageResult<BookDocument> esKeywordSearch(String keyword, String format, String tag, int page, int size) {
+        Pageable pageable = PageRequest.of(page - 1, size);
+        Page<BookDocument> result;
+
+        if (format != null && !format.isBlank()) {
+            result = searchRepository.searchWithFormat(keyword, format, pageable);
+        } else {
+            result = searchRepository.searchWithHighlight(keyword, pageable);
+        }
+
+        List<BookDocument> docs = result.getContent();
+
+        // 标签过滤
+        if (tag != null && !tag.isBlank()) {
+            docs = docs.stream()
+                    .filter(doc -> doc.getFormatTags() != null && doc.getFormatTags().contains(tag))
+                    .toList();
+        }
+
+        esAvailable = true;
+        return PageResult.of(docs, result.getTotalElements(), page, size);
+    }
+
+    /**
+     * MySQL 关键词搜索实现
+     */
+    private PageResult<BookDocument> mysqlKeywordSearch(String keyword, String format, String tag, int page, int size) {
+        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
+        Page<Book> jpaResult = bookRepository.searchBooks(keyword, format, pageable);
+        List<Book> books = jpaResult.getContent();
+
+        // 转换为 BookDocument
+        List<BookDocument> docs = books.stream().map(this::toDocument).toList();
+
+        // 标签过滤
+        if (tag != null && !tag.isBlank()) {
+            docs = docs.stream()
+                    .filter(doc -> doc.getFormatTags() != null && doc.getFormatTags().contains(tag))
+                    .toList();
+        }
+
+        return PageResult.of(docs, jpaResult.getTotalElements(), page, size);
+    }
+
+    /**
+     * 混合搜索：Qdrant 向量语义召回 + ES/MySQL 关键词召回，加权融合排序
+     * <p>
+     * 仅格式筛选（无关键词）时走纯 ES/MySQL，不做向量搜索
+     * 适用于 AI Tool 等需要语义理解场景
+     */
+    public PageResult<BookDocument> hybridSearch(String keyword, String format, String tag, int page, int size) {
+        // 无关键词 → 纯格式/标签筛选，不做向量搜索（向量搜索需要文本 query）
+        if (keyword == null || keyword.isBlank()) {
+            if (format != null && !format.isBlank()) {
+                return searchByFormat(format, page, size);
+            }
+            if (tag != null && !tag.isBlank()) {
+                return searchByTag(tag, page, size);
             }
             return PageResult.of(List.of(), 0L, page, size);
         }
@@ -132,9 +212,17 @@ public class BookSearchService {
                 .filter(Objects::nonNull)
                 .toList();
 
+        // 6. 标签过滤（有标签时，在融合结果后过滤）
+        if (tag != null && !tag.isBlank()) {
+            docs = docs.stream()
+                    .filter(doc -> doc.getFormatTags() != null && doc.getFormatTags().contains(tag))
+                    .toList();
+        }
+
         long elapsed = System.currentTimeMillis() - startTime;
-        log.info("混合搜索完成: keyword='{}', vectorHits={}, keywordHits={}, fused={}, returned={}, elapsed={}ms",
+        log.info("混合搜索完成: keyword='{}', tag='{}', vectorHits={}, keywordHits={}, fused={}, returned={}, elapsed={}ms",
                 keyword.length() > 20 ? keyword.substring(0, 20) + "..." : keyword,
+                tag,
                 vectorScores.size(), keywordRanks.size(), scored.size(), docs.size(), elapsed);
 
         return PageResult.of(docs, (long) scored.size(), page, size);
@@ -255,6 +343,19 @@ public class BookSearchService {
         return PageResult.of(docs, jpaResult.getTotalElements(), page, size);
     }
 
+    /**
+     * 按标签筛选（无关键词时使用）
+     */
+    private PageResult<BookDocument> searchByTag(String tag, int page, int size) {
+        // MySQL 标签筛选（formatTags 存储的是 JSON 字符串，用 LIKE 匹配）
+        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
+        Page<Book> jpaResult = bookRepository.findByTag(tag, pageable);
+        List<BookDocument> docs = jpaResult.getContent().stream()
+                .map(this::toDocument)
+                .collect(Collectors.toList());
+        return PageResult.of(docs, jpaResult.getTotalElements(), page, size);
+    }
+
     // ==================== 保留：旧版 search 方法（向后兼容） ====================
 
     /**
@@ -353,14 +454,57 @@ public class BookSearchService {
      */
     @Transactional(readOnly = true)
     public long rebuildIndex() {
-        List<Book> allBooks = bookRepository.findAll();
-        List<BookDocument> docs = allBooks.stream()
-                .map(this::toDocument)
-                .collect(Collectors.toList());
-        searchRepository.saveAll(docs);
+        int pageSize = 500;
+        int page = 0;
+        long total = 0;
         esAvailable = true;
-        log.info("ES 索引重建完成，共 {} 条", docs.size());
-        return docs.size();
+
+        while (true) {
+            Pageable pageable = PageRequest.of(page++, pageSize);
+            List<Book> books = bookRepository.findAll(pageable).getContent();
+            if (books.isEmpty()) break;
+
+            List<BookDocument> docs = books.stream()
+                    .map(this::toDocument)
+                    .collect(Collectors.toList());
+            searchRepository.saveAll(docs);
+            total += docs.size();
+        }
+
+        log.info("ES 索引重建完成，共 {} 条", total);
+        return total;
+    }
+
+    /**
+     * 全量重建索引 — SSE 流式推送进度
+     */
+    @Transactional(readOnly = true)
+    public long rebuildIndexWithProgress(java.util.function.BiConsumer<Integer, Integer> onProgress) {
+        long totalBooks = bookRepository.count();
+        int pageSize = 500;
+        int page = 0;
+        int processed = 0;
+
+        esAvailable = true;
+        log.info("ES 索引重建开始，共 {} 条", totalBooks);
+
+        while (true) {
+            Pageable pageable = PageRequest.of(page++, pageSize);
+            List<Book> books = bookRepository.findAll(pageable).getContent();
+            if (books.isEmpty()) break;
+
+            List<BookDocument> docs = books.stream()
+                    .map(this::toDocument)
+                    .collect(Collectors.toList());
+            searchRepository.saveAll(docs);
+            processed += books.size();
+            if (onProgress != null) {
+                onProgress.accept(processed, (int) totalBooks);
+            }
+        }
+
+        log.info("ES 索引重建完成，共 {} 条", processed);
+        return processed;
     }
 
     // ==================== 内部类 ====================

@@ -1,5 +1,7 @@
 package com.kbook.service;
 
+import com.kbook.dto.ProgressBatchItem;
+import com.kbook.dto.ReadingStats;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.ReadingProgressRepository;
@@ -31,6 +33,7 @@ public class ReadingProgressService {
 
     private final ReadingProgressRepository progressRepository;
     private final BookRepository bookRepository;
+    private final MatchScoreCacheService matchScoreCacheService;
 
     /**
      * 上报阅读进度
@@ -55,6 +58,7 @@ public class ReadingProgressService {
         rp.setCurrentPosition(currentPosition);
 
         ReadingProgress saved = progressRepository.save(rp);
+        matchScoreCacheService.evictUser(userId); // 阅读进度变化，清除用户画像缓存
         log.debug("阅读进度保存成功: userId={}, bookId={}, progress={}, isNew={}", userId, bookId, saved.getProgress(), isNew);
         return new ProgressResult(saved, isNew);
     }
@@ -110,6 +114,9 @@ public class ReadingProgressService {
             }
         }
         log.info("批量上报进度完成: userId={}, created={}, updated={}, skipped={}", userId, created, updated, skipped);
+        if (created > 0 || updated > 0) {
+            matchScoreCacheService.evictUser(userId);
+        }
         return new BatchProgressResult(created, updated, skipped, newBookIds);
     }
 
@@ -178,27 +185,4 @@ public class ReadingProgressService {
         return Math.max(0.0, Math.min(1.0, progress));
     }
 
-    /**
-     * 批量上报项
-     */
-    @lombok.Data
-    public static class ProgressBatchItem {
-        private Long bookId;
-        private Double progress;
-        private String currentPosition;
-        private LocalDateTime clientTimestamp;
-    }
-
-    /**
-     * 阅读统计
-     */
-    @lombok.Data
-    @lombok.Builder
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
-    public static class ReadingStats {
-        private long totalBooks;
-        private long completedBooks;
-        private long readingBooks;
-    }
 }

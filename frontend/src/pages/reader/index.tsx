@@ -20,10 +20,6 @@ import EpubRenderer from '@/components/reader/EpubRenderer'
 import PdfRenderer from '@/components/reader/PdfRenderer'
 import SettingsPanel from '@/components/reader/SettingsPanel'
 import TocPanel from '@/components/reader/TocPanel'
-import TtsFloatPlayer from '@/components/reader/TtsFloatPlayer'
-
-/** 工具栏自动隐藏延迟（毫秒） */
-const TOOLBAR_AUTO_HIDE_DELAY = 5000
 
 export default function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -31,10 +27,8 @@ export default function ReaderPage() {
   const { settings, showSettings, toggleSettings, showToc, toggleToc, setCurrentBookId, isSystemDark } = useReaderStore()
   const [book, setBook] = useState<Book | null>(null)
   const [initialPosition, setInitialPosition] = useState<string | null>(null)
-  const [showToolbar, setShowToolbar] = useState(true)
   const [loading, setLoading] = useState(true)
-  const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  
+
   // 用 ref 保存最新的进度信息，确保卸载时能获取到最新值
   const progressRef = useRef({ progress: 0, currentPosition: '' })
 
@@ -361,7 +355,7 @@ export default function ReaderPage() {
         <TocPanel
           chapters={chapters}
           currentIndex={currentChapterIndex}
-          onJump={(i) => readerState.goToChapter(i)}
+          onJump={(i) => (readerState as any).goToChapter?.(i)}
           onClose={toggleToc}
         />
       )}

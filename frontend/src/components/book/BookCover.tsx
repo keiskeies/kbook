@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { formatTag } from '@/utils/time'
 
 /** 预定义渐变色，基于书名 hash 选取 */
 const GRADIENTS = [

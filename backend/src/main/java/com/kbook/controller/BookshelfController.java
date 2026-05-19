@@ -1,6 +1,7 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.dto.BookshelfItem;
 import com.kbook.service.BookshelfService;
 import com.kbook.service.RecommendCoefficientService;
 import com.kbook.service.RecommendService;
@@ -26,7 +27,7 @@ public class BookshelfController {
      * 获取书架列表（含图书详情和阅读进度）
      */
     @GetMapping
-    public Result<List<BookshelfService.BookshelfItem>> getBookshelf(Authentication authentication) {
+    public Result<List<BookshelfItem>> getBookshelf(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(bookshelfService.getBookshelf(userId));
     }

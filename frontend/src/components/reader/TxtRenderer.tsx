@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef } from 'react'
+import React, { useMemo, useEffect, useRef } from 'react'
 import { useReaderStore } from '@/store/reader'
 import { READER_THEMES } from '@/constants'
 import type { TxtChapter } from '@/types/reader'
@@ -7,14 +7,14 @@ interface TxtRendererProps {
   text: string
   chapters: TxtChapter[]
   currentChapterIndex: number
-  containerRef: React.RefObject<HTMLDivElement>
+  containerRef: React.RefObject<HTMLDivElement | null>
   onScroll: () => void
   /** TTS 当前朗读段索引，-1 表示未朗读 */
   ttsSegmentIndex?: number
 }
 
 export default function TxtRenderer({
-  text, chapters, currentChapterIndex, containerRef, onScroll, ttsSegmentIndex = -1,
+  text, containerRef, onScroll, ttsSegmentIndex = -1,
 }: TxtRendererProps) {
   const { settings, isSystemDark } = useReaderStore()
   const theme = READER_THEMES[isSystemDark ? 'DARK' : settings.themeKey]

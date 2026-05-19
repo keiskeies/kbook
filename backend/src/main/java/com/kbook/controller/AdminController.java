@@ -2,15 +2,19 @@ package com.kbook.controller;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
+import com.kbook.dto.UserInfo;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.service.AuthService;
 import com.kbook.service.BookService;
 import com.kbook.service.EmailNotificationService;
 import com.kbook.service.UserService;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import lombok.Data;
+import com.kbook.dto.AdminBatchRequest;
+import com.kbook.dto.AdminBatchResult;
+import com.kbook.dto.AdminSendCodeRequest;
+import com.kbook.dto.BindEmailRequest;
+import com.kbook.dto.InviteRequest;
+import com.kbook.dto.InviteResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -99,9 +103,9 @@ public class AdminController {
      * 批量审核通过
      */
     @PostMapping("/users/batch-approve")
-    public Result<BatchResult> batchApprove(@RequestBody BatchRequest req) {
+    public Result<AdminBatchResult> batchApprove(@RequestBody AdminBatchRequest req) {
         int count = userService.batchApprove(req.getUserIds());
-        return Result.ok(new BatchResult(count));
+        return Result.ok(new AdminBatchResult(count));
     }
 
     /**
@@ -117,9 +121,9 @@ public class AdminController {
      * 批量拒绝
      */
     @PostMapping("/users/batch-reject")
-    public Result<BatchResult> batchReject(@RequestBody BatchRequest req) {
+    public Result<AdminBatchResult> batchReject(@RequestBody AdminBatchRequest req) {
         int count = userService.batchReject(req.getUserIds());
-        return Result.ok(new BatchResult(count));
+        return Result.ok(new AdminBatchResult(count));
     }
 
     /**
@@ -147,7 +151,7 @@ public class AdminController {
      */
     @PostMapping("/bind-email/send-code")
     public Result<Void> sendBindEmailCode(Authentication authentication,
-                                           @RequestBody @jakarta.validation.Valid SendCodeRequest req) {
+                                           @RequestBody @jakarta.validation.Valid AdminSendCodeRequest req) {
         Long userId = (Long) authentication.getPrincipal();
         User user = userService.getUserById(userId);
         if (Boolean.TRUE.equals(user.getEmailBound())) {
@@ -162,7 +166,7 @@ public class AdminController {
      * 绑定后开启密码重置功能
      */
     @PostMapping("/bind-email")
-    public Result<AuthService.UserInfo> bindEmail(Authentication authentication,
+    public Result<UserInfo> bindEmail(Authentication authentication,
                                                    @RequestBody @jakarta.validation.Valid BindEmailRequest req) {
         Long userId = (Long) authentication.getPrincipal();
 
@@ -170,7 +174,7 @@ public class AdminController {
         authService.validateBindCode(req.getEmail(), req.getCode());
 
         User user = userService.bindEmail(userId, req.getEmail());
-        return Result.ok(AuthService.UserInfo.from(user));
+        return Result.ok(UserInfo.from(user));
     }
 
     // ==================== 邀请注册 ====================
@@ -201,56 +205,5 @@ public class AdminController {
         );
 
         return Result.ok(new InviteResult(req.getEmail(), inviteCode));
-    }
-
-    // ==================== 请求体 ====================
-
-    @Data
-    public static class BatchRequest {
-        private List<Long> userIds;
-    }
-
-    @Data
-    public static class BatchResult {
-        private int count;
-        public BatchResult(int count) { this.count = count; }
-    }
-
-    @Data
-    public static class SendCodeRequest {
-        @Email(message = "邮箱格式不正确")
-        @NotBlank(message = "邮箱不能为空")
-        private String email;
-    }
-
-    @Data
-    public static class BindEmailRequest {
-        @Email(message = "邮箱格式不正确")
-        @NotBlank(message = "邮箱不能为空")
-        private String email;
-
-        @NotBlank(message = "验证码不能为空")
-        private String code;
-    }
-
-    @Data
-    public static class InviteRequest {
-        @Email(message = "邮箱格式不正确")
-        @NotBlank(message = "邮箱不能为空")
-        private String email;
-
-        /** 可选：关联的图书ID，用于推荐图书 */
-        private Long bookId;
-    }
-
-    @Data
-    public static class InviteResult {
-        private String email;
-        private String inviteCode;
-
-        public InviteResult(String email, String inviteCode) {
-            this.email = email;
-            this.inviteCode = inviteCode;
-        }
     }
 }

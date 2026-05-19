@@ -74,4 +74,19 @@ public class BookChatController extends BaseController {
         return Result.ok(bookChatService.getBookChatHistory(userId, bookId, sessionId));
     }
 
+    /**
+     * 根据 AI 回答生成深入追问问题
+     * POST /api/books/{bookId}/chat/follow-up
+     * Body: { "question": "用户的问题", "answer": "AI 的回答" }
+     */
+    @PostMapping("/{bookId}/chat/follow-up")
+    public Result<List<String>> generateFollowUpQuestions(
+            @PathVariable Long bookId,
+            @RequestBody Map<String, String> body
+    ) {
+        String question = body.get("question");
+        String answer = body.get("answer");
+        return Result.ok(bookChatService.generateFollowUpQuestions(bookId, question, answer));
+    }
+
 }

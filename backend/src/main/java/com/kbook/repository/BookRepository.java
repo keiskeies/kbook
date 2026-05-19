@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,6 +21,8 @@ public interface BookRepository extends JpaRepository<Book, Long> {
     List<Book> findAllByOrderByReadCountDesc();
 
     List<Book> findAllByOrderByRatingDesc();
+
+    List<Book> findAllByCoverUrlIn(Collection<String> coverUrls);
 
     /**
      * 搜索图书（标题/作者模糊匹配）
@@ -89,4 +92,15 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      */
     @Query("SELECT b FROM Book b WHERE b.formatTags LIKE CONCAT('%', :tag, '%')")
     Page<Book> findByTag(@Param("tag") String tag, Pageable pageable);
+
+    /**
+     * 查询评分大于指定值的图书
+     */
+    @Query("SELECT b FROM Book b WHERE b.rating > :minRating")
+    List<Book> findByRatingGreaterThan(@Param("minRating") Double minRating);
+
+    /**
+     * 统计已向量化内容的图书数量
+     */
+    long countByContentEmbeddedTrue();
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useReaderStore } from '@/store/reader'
 import { READER_THEMES } from '@/constants'
 
@@ -6,7 +6,7 @@ interface PdfRendererProps {
   totalPages: number
   currentPage: number
   scale: number
-  containerRef: React.RefObject<HTMLDivElement>
+  containerRef: React.RefObject<HTMLDivElement | null>
   onScroll: () => void
   onRenderPage: (pageNum: number, canvas: HTMLCanvasElement) => Promise<{ width: number; height: number } | null>
   rendering: boolean
@@ -18,8 +18,8 @@ interface PdfRendererProps {
  * 页面尺寸由 pdfjs viewport 动态决定，自动适配容器宽度
  */
 export default function PdfRenderer({
-  totalPages, currentPage, scale, containerRef, onScroll, onRenderPage, rendering,
-}: PdfRendererProps) {
+  totalPages, currentPage, scale, containerRef, onScroll, onRenderPage,
+                                    }: PdfRendererProps) {
   const { settings, isSystemDark } = useReaderStore()
   const theme = READER_THEMES[isSystemDark ? 'DARK' : settings.themeKey]
   const [visibleRange, setVisibleRange] = useState({ start: 1, end: Math.min(5, totalPages) })
@@ -28,7 +28,7 @@ export default function PdfRenderer({
   // 存储每页渲染后的实际 CSS 尺寸
   const pageSizeMap = useRef<Map<number, { width: number; height: number }>>(new Map())
   // 触发重排
-  const [layoutVersion, setLayoutVersion] = useState(0)
+  const [, setLayoutVersion] = useState(0)
   // 是否需要恢复到初始页码
   const initialPageRef = useRef(currentPage > 1 ? currentPage : null)
 
@@ -70,7 +70,7 @@ export default function PdfRenderer({
       if (size) {
         pageSizeMap.current.set(pageNum, size)
         hasNewRender = true
-        setLayoutVersion((n) => n + 1)
+        setLayoutVersion((n: number) => n + 1)
       }
     })
     

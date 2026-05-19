@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Loader2, Bot, User, Sparkles, RefreshCw, Copy, Check } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
-import { streamBookChat, getBookSuggestedQuestions } from '@/api/bookChat'
+import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions } from '@/api/bookChat'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import type { AiMessage } from '@/types/ai'
@@ -67,7 +67,6 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     const message = (text || input).trim()
     if (!message || loading) return
 
-    // 中断之前未完成的流，防止并发
     if (abortRef.current) {
       abortRef.current.abort()
       abortRef.current = null
@@ -82,7 +81,6 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     }
     setMessages((prev) => [...prev, userMsg])
     
-    // 设置会话标题：书籍名称-第一句问题
     if (!chatTitle) {
       const questionPreview = message.length > 15 ? message.slice(0, 15) + '...' : message
       setChatTitle(`${book.title}-${questionPreview}`)
@@ -91,36 +89,77 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     setInput('')
     setLoading(true)
 
-    // AI 占位消息
+    // AI 占位消息（附带用户问题用于后续生成深入追问）
     const assistantMsg: AiMessage = {
       id: `a-${Date.now()}`,
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
       streaming: true,
+      userQuestion: message,
     }
     setMessages((prev) => [...prev, assistantMsg])
+
+    // 本地追踪完整回答内容（用于生成深入追问）
+    let fullAnswerContent = ''
 
     // 流式请求
     const controller = streamBookChat(
       book.id,
       { message, sessionId: sessionId || undefined },
       (chunk) => {
+        fullAnswerContent += chunk
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id ? { ...m, content: m.content + chunk, thinkingStatus: undefined } : m
           )
         )
       },
-      () => {
+      async () => {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, streaming: false, thinkingStatus: undefined } : m
+            m.id === assistantMsg.id ? { ...m, streaming: false, thinkingStatus: undefined, loadingFollowUps: true } : m
           )
         )
         setLoading(false)
+
+        // 异步获取深入追问问题
+        if (fullAnswerContent && assistantMsg.userQuestion) {
+          try {
+            const res = await getFollowUpQuestions(book.id, {
+              question: assistantMsg.userQuestion,
+              answer: fullAnswerContent,
+            })
+            const data = (res as any)?.data || (res as any)
+            if (Array.isArray(data) && data.length > 0) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id ? { ...m, followUpQuestions: data, loadingFollowUps: false } : m
+                )
+              )
+            } else {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id ? { ...m, loadingFollowUps: false } : m
+                )
+              )
+            }
+          } catch {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMsg.id ? { ...m, loadingFollowUps: false } : m
+              )
+            )
+          }
+        } else {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsg.id ? { ...m, loadingFollowUps: false } : m
+            )
+          )
+        }
       },
-      (error) => {
+      (_) => {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
@@ -203,7 +242,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     <Sheet open={open} onOpenChange={(v) => { if (!v) handleClose(); else onOpenChange(true) }}>
       <SheetContent side="bottom" className="h-[85vh] rounded-t-2xl border-t p-0 flex flex-col">
         {/* Header */}
-        <SheetHeader className="shrink-0 border-b px-4 py-3">
+        <SheetHeader className="shrink-0 border-b px-4 py-3 pr-12">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
               <Sparkles className="h-5 w-5 text-primary" />
@@ -219,7 +258,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
         </SheetHeader>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="flex-1 overflow-y-auto overscroll-y-contain px-4 py-4">
           {!hasMessages ? (
             /* 空状态 - 推荐问题 */
             <div className="flex h-full flex-col items-center justify-center text-center">
@@ -249,7 +288,16 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
           ) : (
             /* 消息列表 */
             <div className="space-y-4 pb-4">
-              {messages.map((msg) => (
+              {(() => {
+                // 找到最后一条 assistant 消息的 id
+                let lastAssistantId = ''
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  if (messages[i].role === 'assistant') {
+                    lastAssistantId = messages[i].id
+                    break
+                  }
+                }
+                return messages.map((msg) => (
                 <div
                   key={msg.id}
                   className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
@@ -306,19 +354,17 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
                     {/* AI 回答操作按钮 */}
                     {msg.role === 'assistant' && !msg.streaming && msg.content && (
                       <div className="mt-1.5 flex items-center gap-1 px-1">
-                        <button
-                          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-                          onClick={() => handleRegenerate()}
-                          disabled={loading}
-                          title="重新生成"
-                        >
-                          <RefreshCw className="h-3.5 w-3.5" />
-                          <span>重新生成</span>
-                        </button>
+                        {/* 复制按钮（所有回答） */}
                         <button
                           className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
                           onClick={() => {
-                            navigator.clipboard.writeText(msg.content)
+                            // 找到对应的用户问题
+                            const idx = messages.indexOf(msg)
+                            const userMsg = idx > 0 ? messages[idx - 1] : null
+                            const text = userMsg && userMsg.role === 'user'
+                              ? `问题：${userMsg.content}\n回答：${msg.content}`
+                              : `回答：${msg.content}`
+                            navigator.clipboard.writeText(text)
                             setCopiedId(msg.id)
                             setTimeout(() => setCopiedId(null), 2000)
                           }}
@@ -336,35 +382,73 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
                             </>
                           )}
                         </button>
+                        {/* 重新生成按钮（仅最后一条） */}
+                        {msg.id === lastAssistantId && (
+                          <button
+                            className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                            onClick={() => handleRegenerate()}
+                            disabled={loading}
+                            title="重新生成"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            <span>重新生成</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {/* 深入追问问题 */}
+                    {msg.role === 'assistant' && !msg.streaming && msg.followUpQuestions && msg.followUpQuestions.length > 0 && (
+                      <div className="mt-2 px-1 text-left">
+                        <p className="mb-1.5 text-[11px] text-muted-foreground">深入探索</p>
+                        <div className="flex flex-wrap justify-start gap-1.5">
+                          {msg.followUpQuestions.map((q, qi) => (
+                            <button
+                              key={qi}
+                              className="inline-flex rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-left text-xs text-primary transition-colors hover:bg-primary/10 active:scale-[0.97]"
+                              onClick={() => handleSend(q)}
+                            >
+                              {q}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* 深入追问问题加载中 */}
+                    {msg.role === 'assistant' && !msg.streaming && msg.loadingFollowUps && (
+                      <div className="mt-2 px-1">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>正在生成深入追问...</span>
+                        </div>
                       </div>
                     )}
                   </div>
                 </div>
-              ))}
+              ))
+              })()}
               <div ref={messagesEndRef} />
             </div>
           )}
         </div>
 
-        {/* 剩余推荐问题（对话进行中） */}
-        {hasMessages && suggestions.length > 0 && !loading && (
-          <div className="shrink-0 border-t px-4 py-2">
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {suggestions.slice(0, 3).map((hint, i) => (
-                <button
-                  key={i}
-                  className="shrink-0 rounded-full border border-border/50 bg-card px-3 py-1.5 text-xs transition-colors hover:border-primary/30 hover:bg-primary/5"
-                  onClick={() => handleSend(hint)}
-                >
-                  {hint}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Input Area */}
-        <div className="shrink-0 border-t bg-background px-4 py-3 pb-safe-bottom">
+        <div className="shrink-0 border-t bg-background px-4 pt-2 pb-3 pb-safe-bottom">
+          {/* 预设问题滑块 */}
+          {hasMessages && suggestions.length > 0 && !loading && (
+            <div className="mb-2">
+              <div className="flex gap-2 overflow-x-auto scrollbar-none">
+                {suggestions.slice(0, 3).map((hint, i) => (
+                  <button
+                    key={i}
+                    className="shrink-0 rounded-full border border-border/50 bg-card px-3 py-1.5 text-xs transition-colors hover:border-primary/30 hover:bg-primary/5"
+                    onClick={() => handleSend(hint)}
+                  >
+                    {hint}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <input
               type="text"

@@ -153,4 +153,4 @@ export const router = createBrowserRouter([
   },
 ], {
   scrollRestoration: false,
-})
+} as any)

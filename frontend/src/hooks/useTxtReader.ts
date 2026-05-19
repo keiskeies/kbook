@@ -52,6 +52,7 @@ export function useTxtReader({ bookId, initialPosition }: UseTxtReaderOptions) {
 
         const chaps = splitChapters(text)
         setRawText(text)
+        // @ts-ignore
         setChapters(chaps)
 
         if (initialPosition) {

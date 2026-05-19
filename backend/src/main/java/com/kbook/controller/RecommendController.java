@@ -1,6 +1,7 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.dto.RecommendedItem;
 import com.kbook.service.BookParserService;
 import com.kbook.service.EmbeddingService;
 import com.kbook.service.RecommendService;
@@ -29,11 +30,11 @@ public class RecommendController {
      * 获取个性化推荐
      */
     @GetMapping
-    public Result<List<RecommendService.RecommendedItem>> getRecommendations(
+    public Result<List<RecommendedItem>> getRecommendations(
             Authentication authentication,
             @RequestParam(defaultValue = "10") int count) {
         Long userId = (Long) authentication.getPrincipal();
-        List<RecommendService.RecommendedItem> items =
+        List<RecommendedItem> items =
                 recommendService.getPersonalizedRecommendations(userId, count);
         return Result.ok(items);
     }

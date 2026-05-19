@@ -49,14 +49,16 @@ public class BookQuestionGenService {
                             要求：
                             1. 问题多样化，涵盖主旨、人物、情节、写作风格、现实启示等角度。
                             2. 仅输出问题列表，每行一个问题，不要带序号或其他多余文字。
-                            3. 问题语言自然，具有启发性。
+                            3. 问题语言自然，具有启发性，紧密结合书籍的标签主题。
                             
                             书名：《%s》
                             作者：%s
+                            标签：%s
                             简介：%s
                             目录：%s""",
                     book.getTitle(),
                     book.getAuthor() != null ? book.getAuthor() : "未知",
+                    book.getFormatTags() != null ? book.getFormatTags() : "暂无标签",
                     book.getDescription() != null ? book.getDescription() : "暂无简介",
                     book.getToc() != null ? book.getToc() : "暂无目录"
             );

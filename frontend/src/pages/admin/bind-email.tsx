@@ -13,7 +13,7 @@ import { toast } from 'sonner'
  */
 export default function BindEmailPage() {
   const navigate = useNavigate()
-  const { userInfo, updateUserInfo } = useAuthStore()
+  const {updateUserInfo } = useAuthStore()
   const { countdown, start: startCountdown } = useCountdown(60)
 
   const [email, setEmail] = useState('')
@@ -50,7 +50,7 @@ export default function BindEmailPage() {
 
     try {
       setLoading(true)
-      const updatedUser = await bindEmail(email, code)
+      const updatedUser = await bindEmail(email, code) as any
       updateUserInfo({
         email: updatedUser.email,
         emailBound: updatedUser.emailBound,

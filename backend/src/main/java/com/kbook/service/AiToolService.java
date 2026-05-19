@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.PageResult;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.QdrantProperties;
+import com.kbook.dto.RecommendedItem;
 import com.kbook.document.BookDocument;
 import com.kbook.entity.Book;
 import com.kbook.entity.UserBookPreference;
@@ -83,7 +84,7 @@ public class AiToolService {
             String fmt = (format == null || format.isBlank()) ? null : format.toUpperCase();
             // 混合搜索：Qdrant 向量 + ES/MySQL 关键词加权融合
             PageResult<BookDocument> result =
-                    bookService.searchBooksEs(keyword, fmt, 1, 5);
+                    bookService.searchBooksEs(keyword, fmt, null,1, 5);
             if (result.getList().isEmpty()) {
                 return "没有找到相关图书。";
             }
@@ -500,13 +501,13 @@ public class AiToolService {
         log.debug("[AI Tool] personalizeRecommend: userId={}, count={}", userId, count);
         try {
             int limit = (count != null && count > 0 && count <= 20) ? count : 5;
-            List<RecommendService.RecommendedItem> items = recommendService.getPersonalizedRecommendations(userId, limit);
+            List<RecommendedItem> items = recommendService.getPersonalizedRecommendations(userId, limit);
             if (items.isEmpty()) {
                 return "暂无个性化推荐数据，可以尝试搜索或查看排行榜。";
             }
             StringBuilder sb = new StringBuilder("为你个性化推荐：\n\n");
             for (int i = 0; i < items.size(); i++) {
-                RecommendService.RecommendedItem item = items.get(i);
+                RecommendedItem item = items.get(i);
                 recordBook(item.getTitle(), item.getBookId());
                 sb.append(String.format("%d. 《%s》 作者:%s 格式:%s 评分:%.1f 匹配度:%.0f%%\n",
                         i + 1,

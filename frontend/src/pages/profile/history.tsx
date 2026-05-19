@@ -5,45 +5,47 @@ import { getUserProgresses } from '@/api/progress'
 import { getBook } from '@/api/book'
 import type { ReadingProgress } from '@/types/book'
 import type { Book } from '@/types/book'
-import { formatProgress } from '@/types/book'
 import { formatRelativeTime } from '@/utils/time'
 import BookCover from '@/components/book/BookCover'
 import { useMatchScores } from '@/hooks/useMatchScores'
 
-/** 评分徽章 */
-function RatingBadge({ rating }: { rating: number | undefined | null }) {
+/** 评分徽章（带中文标签） */
+function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating <= 0) return null
   const r = Number(rating.toFixed(1))
   let colorClass = ''
-  if (r >= 4.5) colorClass = 'text-amber-600 dark:text-amber-400'
-  else if (r >= 4.0) colorClass = 'text-amber-500 dark:text-amber-300'
-  else if (r >= 3.0) colorClass = 'text-orange-500 dark:text-orange-400'
-  else if (r >= 2.0) colorClass = 'text-sky-500 dark:text-sky-400'
+  if (r >= 5.0) colorClass = 'text-red-600 dark:text-red-400'
+  else if (r >= 4.5) colorClass = 'text-orange-600 dark:text-orange-400'
+  else if (r >= 4.0) colorClass = 'text-amber-600 dark:text-amber-400'
+  else if (r >= 3.0) colorClass = 'text-emerald-600 dark:text-emerald-400'
+  else if (r >= 2.5) colorClass = 'text-teal-600 dark:text-teal-400'
   else colorClass = 'text-slate-400 dark:text-slate-500'
 
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
-      {r}
+      评分：{r}
     </span>
   )
 }
 
-/** 匹配度徽章 */
-function MatchBadge({ score }: { score: number | undefined | null }) {
+/** 匹配度徽章（带中文标签） */
+function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   if (score == null || score <= 0) return null
   const pct = Math.round(score * 100)
   if (pct <= 0) return null
   let colorClass = ''
-  if (pct >= 80) colorClass = 'text-emerald-600 dark:text-emerald-400'
-  else if (pct >= 60) colorClass = 'text-sky-500 dark:text-sky-400'
-  else if (pct >= 40) colorClass = 'text-amber-500 dark:text-amber-400'
-  else colorClass = 'text-orange-500 dark:text-orange-400'
+  if (pct >= 100) colorClass = 'text-red-600 dark:text-red-400'
+  else if (pct >= 80) colorClass = 'text-orange-600 dark:text-orange-400'
+  else if (pct >= 60) colorClass = 'text-amber-600 dark:text-amber-400'
+  else if (pct >= 50) colorClass = 'text-emerald-600 dark:text-emerald-400'
+  else if (pct >= 40) colorClass = 'text-teal-600 dark:text-teal-400'
+  else colorClass = 'text-slate-400 dark:text-slate-500'
 
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
       <Sparkles className="h-2.5 w-2.5" />
-      {pct}%
+      匹配度：{pct}%
     </span>
   )
 }
@@ -82,16 +84,13 @@ export default function ReadingHistoryPage() {
         setLoading(false)
       }
     }
-    load()
+    load().then(() => {})
   }, [])
 
   const bookIds = items.map(i => i.book?.id).filter((id): id is number => id != null)
   const matchScores = useMatchScores(bookIds)
 
   const isCompleted = (p: ReadingProgress) => p.progress >= 1.0
-  const completedCount = items.filter((item) => isCompleted(item.progress)).length
-  const readingCount = items.length - completedCount
-
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -127,51 +126,54 @@ export default function ReadingHistoryPage() {
             return (
               <div
                 key={item.progress.id}
-                className="flex items-center gap-3.5 rounded-2xl bg-card p-3.5 shadow-sm border border-border/50 active:scale-[0.98] transition-all duration-150 cursor-pointer"
+                className="flex flex-col rounded-2xl bg-card shadow-sm border border-border/50 active:scale-[0.98] transition-all duration-150 cursor-pointer overflow-hidden"
                 onClick={() => book && navigate(`/book/${book.id}`)}
               >
-                <BookCover coverUrl={book?.coverUrl ?? null} title={book?.title ?? '未知图书'} author={book?.author} size="sm" className="flex-shrink-0 shadow-sm" />
+                {/* 上半部分：封面 + 信息 + 右侧时间 */}
+                <div className="flex items-center gap-3.5 p-3.5">
+                  <BookCover coverUrl={book?.coverUrl ?? null} title={book?.title ?? '未知图书'} author={book?.author} size="sm" className="flex-shrink-0 shadow-sm" />
 
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{book?.title || '未知图书'}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{book?.author || '未知作者'}</p>
-                  
-                  {/* 评分与推荐度 */}
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <RatingBadge rating={book?.rating} />
-                    <MatchBadge score={ms} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{book?.title || '未知图书'}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{book?.author || '未知作者'}</p>
+
+                    {/* 评分与推荐度 */}
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <RatingBadgeCN rating={book?.rating} />
+                      <MatchBadgeCN score={ms} />
+                    </div>
                   </div>
 
-                  {/* 进度条 */}
-                  <div className="mt-2 flex items-center gap-2">
-                    {completed ? (
-                      <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500">
-                        <CheckCircle2 className="h-3 w-3" />
-                        已读完
+                  <div className="flex flex-shrink-0 flex-col items-end gap-1">
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <Clock className="h-2.5 w-2.5" />
+                      {formatRelativeTime(item.progress.updatedAt)}
+                    </span>
+                    {book?.format && (
+                      <span className="rounded-md bg-primary/8 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                        {book.format}
                       </span>
-                    ) : (
-                      <>
-                        <div className="h-1.5 flex-1 rounded-full bg-primary/10">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70 transition-all"
-                            style={{ width: `${Math.round(item.progress.progress * 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] font-bold text-primary">{Math.round(item.progress.progress * 100)}%</span>
-                      </>
                     )}
                   </div>
                 </div>
 
-                <div className="flex flex-shrink-0 flex-col items-end gap-1">
-                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <Clock className="h-2.5 w-2.5" />
-                    {formatRelativeTime(item.progress.updatedAt)}
-                  </span>
-                  {book?.format && (
-                    <span className="rounded-md bg-primary/8 px-1.5 py-0.5 text-[9px] font-medium text-primary">
-                      {book.format}
+                {/* 下半部分：进度条（整行） */}
+                <div className="flex items-center gap-2 px-3.5 pb-3.5">
+                  {completed ? (
+                    <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500">
+                      <CheckCircle2 className="h-3 w-3" />
+                      已读完
                     </span>
+                  ) : (
+                    <>
+                      <div className="h-1.5 flex-1 rounded-full bg-primary/10">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70 transition-all"
+                          style={{ width: `${Math.round(item.progress.progress * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-bold text-primary">{Math.round(item.progress.progress * 100)}%</span>
+                    </>
                   )}
                 </div>
               </div>

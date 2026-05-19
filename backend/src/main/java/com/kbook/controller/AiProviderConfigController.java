@@ -102,6 +102,7 @@ public class AiProviderConfigController {
         if (config.getTemperature() != null) existing.setTemperature(config.getTemperature());
         if (config.getTimeout() != null) existing.setTimeout(config.getTimeout());
         if (config.getToolsEnabled() != null) existing.setToolsEnabled(config.getToolsEnabled());
+        if (config.getRagTopK() != null) existing.setRagTopK(config.getRagTopK());
         if (config.getEnabled() != null) existing.setEnabled(config.getEnabled());
 
         // 如果请求中设置了 isDefault=true，切换默认

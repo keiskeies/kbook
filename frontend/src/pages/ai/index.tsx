@@ -70,7 +70,7 @@ export default function AIPage() {
   const loadHistory = async (sessionId: string) => {
     try {
       const data = await getHistory(sessionId)
-      const history = (data as any[]).map((r: any) => ({
+      const history = (data as unknown as any[]).map((r: any) => ({
         id: String(r.id),
         role: r.role as 'user' | 'assistant',
         content: r.content,
@@ -183,7 +183,7 @@ export default function AIPage() {
         )
         setLoading(false)
       },
-      (error) => {
+      () => {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
@@ -297,7 +297,7 @@ export default function AIPage() {
                 关闭
               </button>
             </div>
-            <div className="overflow-y-auto p-2">
+            <div className="overflow-y-auto overscroll-y-contain p-2">
               {sessions.length === 0 ? (
                 <p className="py-4 text-center text-xs text-muted-foreground">暂无会话</p>
               ) : (
@@ -358,7 +358,16 @@ export default function AIPage() {
             </div>
           ) : (
             <div className="space-y-4 pb-4">
-              {messages.map((msg, i) => (
+              {(() => {
+                // 找到最后一条 assistant 消息的 id
+                let lastAssistantId = ''
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  if (messages[i].role === 'assistant') {
+                    lastAssistantId = messages[i].id
+                    break
+                  }
+                }
+                return messages.map((msg, i) => (
                 <div
                   key={msg.id}
                   className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
@@ -412,21 +421,19 @@ export default function AIPage() {
                         </span>
                       )}
                     </div>
-                    {/* AI 回答操作按钮 — 图标按钮，位于气泡下方 */}
+                    {/* AI 回答操作按钮 */}
                     {msg.role === 'assistant' && !msg.streaming && msg.content && (
                       <div className="mt-1.5 flex items-center gap-1 px-1">
-                        <button
-                          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-                          onClick={() => handleRegenerate(i)}
-                          disabled={loading}
-                        >
-                          <RefreshCw className="h-3 w-3" />
-                          重新生成
-                        </button>
+                        {/* 复制按钮（所有回答） */}
                         <button
                           className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
                           onClick={() => {
-                            navigator.clipboard.writeText(msg.content)
+                            const idx = messages.indexOf(msg)
+                            const userMsg = idx > 0 ? messages[idx - 1] : null
+                            const text = userMsg && userMsg.role === 'user'
+                              ? `问题：${userMsg.content}\n回答：${msg.content}`
+                              : `回答：${msg.content}`
+                            navigator.clipboard.writeText(text)
                             setCopiedId(msg.id)
                             setTimeout(() => setCopiedId(null), 2000)
                           }}
@@ -438,11 +445,23 @@ export default function AIPage() {
                           )}
                           {copiedId === msg.id ? '已复制' : '复制'}
                         </button>
+                        {/* 重新生成按钮（仅最后一条） */}
+                        {msg.id === lastAssistantId && (
+                          <button
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                            onClick={() => handleRegenerate(i)}
+                            disabled={loading}
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            重新生成
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
                 </div>
-              ))}
+              ))
+              })()}
               <div ref={messagesEndRef} />
             </div>
           )}

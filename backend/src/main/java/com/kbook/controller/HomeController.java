@@ -1,22 +1,24 @@
 package com.kbook.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.Result;
+import com.kbook.dto.*;
 import com.kbook.entity.Book;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.service.BookService;
-import com.kbook.service.BookshelfService;
 import com.kbook.service.ReadingProgressService;
 import com.kbook.service.RecommendService;
-import lombok.*;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 首页数据聚合控制器
@@ -32,12 +34,16 @@ public class HomeController {
     private final ReadingProgressService progressService;
     private final RecommendService recommendService;
 
+    private final StringRedisTemplate redisTemplate;
+    private final ObjectMapper objectMapper;
+
+
     /**
      * 获取筛选标签列表（独立接口，供搜索页使用）
      */
     @GetMapping("/tags")
     public Result<List<TagStat>> getFilterTags() {
-        return Result.ok(getTopTags());
+        return Result.ok(getTopTags(100));
     }
 
     /**
@@ -46,7 +52,7 @@ public class HomeController {
     @GetMapping("/stats")
     public Result<ReadingStatsVO> getStats(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        ReadingProgressService.ReadingStats stats = progressService.getReadingStats(userId);
+        ReadingStats stats = progressService.getReadingStats(userId);
         return Result.ok(ReadingStatsVO.from(stats));
     }
 
@@ -81,7 +87,7 @@ public class HomeController {
     public Result<List<RecommendedBook>> getPersonalized(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         try {
-            List<RecommendService.RecommendedItem> items =
+            List<RecommendedItem> items =
                     recommendService.getPersonalizedRecommendations(userId, 6);
             return Result.ok(items.stream()
                     .map(RecommendedBook::fromRecommendItem)
@@ -124,7 +130,7 @@ public class HomeController {
      */
     @GetMapping("/categories")
     public Result<List<TagStat>> getCategories() {
-        return Result.ok(getTopTags());
+        return Result.ok(getTopTags(50));
     }
 
     /**
@@ -134,7 +140,7 @@ public class HomeController {
     public Result<HomeData> getHomeData(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
 
-        ReadingProgressService.ReadingStats stats = progressService.getReadingStats(userId);
+        ReadingStats stats = progressService.getReadingStats(userId);
 
         List<ReadingProgress> recentProgress = progressService.getRecentReading(userId, 4);
         List<RecentBookVO> recentBooks = recentProgress.stream()
@@ -154,7 +160,7 @@ public class HomeController {
 
         List<RecommendedBook> personalized;
         try {
-            List<RecommendService.RecommendedItem> items =
+            List<RecommendedItem> items =
                     recommendService.getPersonalizedRecommendations(userId, 6);
             personalized = items.stream()
                     .map(RecommendedBook::fromRecommendItem)
@@ -167,7 +173,7 @@ public class HomeController {
         List<Book> topRated = bookService.getRatingRank(1, 6).getList();
         List<Book> newBooks = bookService.getNewBooksRank(1, 12).getList();
         List<Book> popular = bookService.getReadRank(1, 6).getList();
-        List<TagStat> categories = getTopTags();
+        List<TagStat> categories = getTopTags(50);
 
         return Result.ok(HomeData.builder()
                 .stats(ReadingStatsVO.from(stats))
@@ -183,184 +189,31 @@ public class HomeController {
     /**
      * 统计热门标签（从所有书籍的 formatTags 中提取）
      * formatTags 格式示例: ["小说","历史","传记"]
+     * 使用 Redis 缓存，72小时失效，分布式锁保证线程安全
      */
-    private List<TagStat> getTopTags() {
-        List<Book> all = bookService.getReadRank(1, 500).getList();
-        Map<String, Long> tagCount = new HashMap<>();
-
-        for (Book book : all) {
-            if (book.getFormatTags() == null || book.getFormatTags().isBlank()) continue;
-            // 移除 JSON 数组符号和引号: ["a","b"] -> a,b
-            String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "");
-            for (String tag : tags.split("[,，]")) {
-                String t = tag.trim();
-                if (!t.isEmpty()) {
-                    tagCount.merge(t, 1L, Long::sum);
-                }
+    public List<TagStat> getTopTags() {
+        // 1. 先查缓存（无锁，保证高并发读取性能）
+        try {
+            String cachedData = redisTemplate.opsForValue().get(BookService.TOP_TAGS_CACHE_KEY);
+            if (cachedData != null && !cachedData.isEmpty()) {
+                log.debug("从缓存获取热门标签");
+                return objectMapper.readValue(cachedData, new TypeReference<>() {
+                });
             }
+        } catch (Exception e) {
+            log.warn("读取热门标签缓存失败: {}", e.getMessage());
         }
 
-        return tagCount.entrySet().stream()
-                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
-                .limit(50)
-                .map(e -> TagStat.builder()
-                        .name(e.getKey())
-                        .count(e.getValue())
-                        .build())
+        // 2. 缓存未命中，加锁计算（防止缓存击穿）
+        return bookService.computeTopTagsWithLock();
+    }
+
+
+    private List<TagStat> getTopTags(int limit) {
+        return this.getTopTags().stream()
+                .sorted(Comparator.comparingLong(TagStat::getCount).reversed())
+                .limit(limit)
                 .toList();
     }
 
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class TagStat {
-        private String name;
-        private Long count;
-    }
-
-    // ===== VO classes =====
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class HomeData {
-        private ReadingStatsVO stats;
-        private List<RecentBookVO> recentBooks;
-        private List<RecommendedBook> personalizedBooks;
-        private List<SimpleBookVO> topRatedBooks;
-        private List<SimpleBookVO> newBooks;
-        private List<SimpleBookVO> popularBooks;
-        private List<TagStat> categories;
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ReadingStatsVO {
-        private long totalBooks;
-        private long completedBooks;
-        private long readingBooks;
-
-        public static ReadingStatsVO from(ReadingProgressService.ReadingStats stats) {
-            return ReadingStatsVO.builder()
-                    .totalBooks(stats.getTotalBooks())
-                    .completedBooks(stats.getCompletedBooks())
-                    .readingBooks(stats.getReadingBooks())
-                    .build();
-        }
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class RecentBookVO {
-        private Long bookId;
-        private String title;
-        private String author;
-        private String coverUrl;
-        private String format;
-        private Double progress;
-        private java.time.LocalDateTime lastReadAt;
-
-        public static RecentBookVO from(BookshelfService.BookshelfItem item) {
-            return RecentBookVO.builder()
-                    .bookId(item.getBookId())
-                    .title(item.getTitle())
-                    .author(item.getAuthor())
-                    .coverUrl(item.getCoverUrl())
-                    .format(item.getFormat())
-                    .progress(item.getProgress())
-                    .lastReadAt(item.getLastReadAt())
-                    .build();
-        }
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class RecommendedBook {
-        private Long id;
-        private String title;
-        private String author;
-        private String coverUrl;
-        private String format;
-        private Double rating;
-        private String description;
-        private Double matchScore;
-        private Long readCount;
-
-        public static RecommendedBook from(Book book, double matchScore) {
-            return RecommendedBook.builder()
-                    .id(book.getId())
-                    .title(book.getTitle())
-                    .author(book.getAuthor())
-                    .coverUrl(book.getCoverUrl())
-                    .format(book.getFormat())
-                    .rating(book.getRating())
-                    .readCount(book.getReadCount())
-                    .description(book.getDescription() != null && book.getDescription().length() > 80
-                            ? book.getDescription().substring(0, 80) + "..." : book.getDescription())
-                    .matchScore(Math.round(matchScore * 100.0) / 100.0)
-                    .build();
-        }
-
-        /**
-         * 从 RecommendService.RecommendedItem 转换
-         */
-        public static RecommendedBook fromRecommendItem(RecommendService.RecommendedItem item) {
-            return RecommendedBook.builder()
-                    .id(item.getBookId())
-                    .title(item.getTitle())
-                    .author(item.getAuthor())
-                    .coverUrl(item.getCoverUrl())
-                    .format(item.getFormat())
-                    .rating(item.getRating())
-                    .description(item.getDescription())
-                    .matchScore(item.getMatchScore())
-                    .readCount(item.getReadCount())
-                    .build();
-        }
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class SimpleBookVO {
-        private Long id;
-        private String title;
-        private String author;
-        private String coverUrl;
-        private String format;
-        private Double rating;
-        private Long readCount;
-
-        public static SimpleBookVO from(Book book) {
-            return SimpleBookVO.builder()
-                    .id(book.getId())
-                    .title(book.getTitle())
-                    .author(book.getAuthor())
-                    .coverUrl(book.getCoverUrl())
-                    .format(book.getFormat())
-                    .rating(book.getRating())
-                    .readCount(book.getReadCount())
-                    .build();
-        }
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class FormatCategory {
-        private String format;
-        private String label;
-        private String icon;
-        private Long count;
-    }
 }

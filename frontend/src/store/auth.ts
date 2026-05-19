@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { STORAGE_KEYS, USER_STATUS } from '@/constants'
+import { STORAGE_KEYS } from '@/constants'
 import type { UserInfo as ApiUserInfo } from '@/api/auth'
 
 export interface UserInfo {
@@ -15,6 +15,11 @@ export interface UserInfo {
   married?: boolean | null
   hasChildren?: boolean | null
   mbti?: string | null
+  occupation?: string | null
+  education?: string | null
+  entrepreneurship?: string | null
+  annualIncome?: string | null
+  mood?: string | null
   bio?: string | null
   followerCount?: number
   followingCount?: number
@@ -50,6 +55,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       married: apiUserInfo.married,
       hasChildren: apiUserInfo.hasChildren,
       mbti: apiUserInfo.mbti,
+      occupation: apiUserInfo.occupation,
+      education: apiUserInfo.education,
+      entrepreneurship: apiUserInfo.entrepreneurship,
+      annualIncome: apiUserInfo.annualIncome,
+      mood: apiUserInfo.mood,
       bio: apiUserInfo.bio,
       followerCount: apiUserInfo.followerCount,
       followingCount: apiUserInfo.followingCount,

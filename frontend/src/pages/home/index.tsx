@@ -207,20 +207,23 @@ function RatingBadge({ rating }: { rating: number | undefined | null }) {
 
   let colorClass = ''
   let bgClass = ''
-  if (r >= 4.5) {
-    colorClass = 'text-amber-700 dark:text-amber-300'
-    bgClass = 'bg-amber-400/15'
+  if (r >= 5.0) {
+    colorClass = 'text-red-600 dark:text-red-400'
+    bgClass = 'bg-red-500/15'
+  } else if (r >= 4.5) {
+    colorClass = 'text-orange-600 dark:text-orange-400'
+    bgClass = 'bg-orange-500/15'
   } else if (r >= 4.0) {
     colorClass = 'text-amber-600 dark:text-amber-400'
-    bgClass = 'bg-amber-400/10'
+    bgClass = 'bg-amber-500/10'
   } else if (r >= 3.0) {
-    colorClass = 'text-orange-600 dark:text-orange-400'
-    bgClass = 'bg-orange-400/10'
-  } else if (r >= 2.0) {
-    colorClass = 'text-sky-600 dark:text-sky-400'
-    bgClass = 'bg-sky-400/10'
+    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    bgClass = 'bg-emerald-500/10'
+  } else if (r >= 2.5) {
+    colorClass = 'text-teal-600 dark:text-teal-400'
+    bgClass = 'bg-teal-500/10'
   } else {
-    colorClass = 'text-slate-500 dark:text-slate-400'
+    colorClass = 'text-slate-400 dark:text-slate-500'
     bgClass = 'bg-slate-400/10'
   }
 
@@ -237,21 +240,26 @@ function MatchBadge({ score }: { score: number | undefined | null }) {
   const pct = Math.round(score * 100)
   if (pct <= 0) return null
 
-  // 根据匹配度分等级配色
   let colorClass = ''
   let bgClass = ''
-  if (pct >= 80) {
-    colorClass = 'text-emerald-600 dark:text-emerald-400'
-    bgClass = 'bg-emerald-500/10'
+  if (pct >= 100) {
+    colorClass = 'text-red-600 dark:text-red-400'
+    bgClass = 'bg-red-500/15'
+  } else if (pct >= 80) {
+    colorClass = 'text-orange-600 dark:text-orange-400'
+    bgClass = 'bg-orange-500/15'
   } else if (pct >= 60) {
-    colorClass = 'text-sky-600 dark:text-sky-400'
-    bgClass = 'bg-sky-500/10'
-  } else if (pct >= 40) {
     colorClass = 'text-amber-600 dark:text-amber-400'
     bgClass = 'bg-amber-500/10'
+  } else if (pct >= 50) {
+    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    bgClass = 'bg-emerald-500/10'
+  } else if (pct >= 40) {
+    colorClass = 'text-teal-600 dark:text-teal-400'
+    bgClass = 'bg-teal-500/10'
   } else {
-    colorClass = 'text-orange-600 dark:text-orange-400'
-    bgClass = 'bg-orange-500/10'
+    colorClass = 'text-slate-400 dark:text-slate-500'
+    bgClass = 'bg-slate-400/10'
   }
 
   return (
@@ -262,43 +270,76 @@ function MatchBadge({ score }: { score: number | undefined | null }) {
   )
 }
 
-/** 横向书籍滚动列表 */
-function BookScrollList({ books, onBookClick, matchScores }: {
-  books: (SimpleBookVO | RecommendedBook)[]
-  onBookClick: (id: number) => void
-  matchScores?: Record<string, number>
-}) {
+/** 评分徽章（带中文标签） — 5分制分等级配色 */
+function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
+  if (rating == null || rating <= 0) return null
+  const r = Number(rating.toFixed(1))
+
+  let colorClass = ''
+  let bgClass = ''
+  if (r >= 5.0) {
+    colorClass = 'text-red-600 dark:text-red-400'
+    bgClass = 'bg-red-500/15'
+  } else if (r >= 4.5) {
+    colorClass = 'text-orange-600 dark:text-orange-400'
+    bgClass = 'bg-orange-500/15'
+  } else if (r >= 4.0) {
+    colorClass = 'text-amber-600 dark:text-amber-400'
+    bgClass = 'bg-amber-500/10'
+  } else if (r >= 3.0) {
+    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    bgClass = 'bg-emerald-500/10'
+  } else if (r >= 2.5) {
+    colorClass = 'text-teal-600 dark:text-teal-400'
+    bgClass = 'bg-teal-500/10'
+  } else {
+    colorClass = 'text-slate-400 dark:text-slate-500'
+    bgClass = 'bg-slate-400/10'
+  }
+
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4" style={{ scrollbarWidth: 'none' }}>
-      {books.map((book) => {
-        const ms = matchScores?.[String(book.id)] ?? (book as RecommendedBook).matchScore
-        return (
-          <div
-            key={book.id}
-            className="flex w-[100px] flex-shrink-0 flex-col cursor-pointer active:scale-[0.96] transition-transform duration-150"
-            onClick={() => onBookClick(book.id)}
-          >
-            <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} format={book.format} />
-            <p className="mt-1.5 w-full truncate text-xs font-semibold">{book.title}</p>
-            {/* 第一行：评分(左) + 匹配度(右) */}
-            <div className="flex items-center justify-between px-2">
-              <RatingBadge rating={book.rating} />
-              <MatchBadge score={ms} />
-            </div>
-            {/* 第二行：阅读次数(右) */}
-            {book.readCount > 0 && (
-              <div className="flex items-center gap-0.5 mt-0.5 justify-end px-2">
-                <BookOpen className="h-2.5 w-2.5 text-muted-foreground/60" />
-                <span className="text-[10px] text-muted-foreground">{book.readCount}次阅读</span>
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass} ${bgClass}`}>
+      <Star className="h-2.5 w-2.5" />
+      评分：{r}
+    </span>
   )
 }
 
+/** 匹配度徽章（带中文标签） — 根据匹配度分等级配色 */
+function MatchBadgeCN({ score }: { score: number | undefined | null }) {
+  if (score == null || score <= 0) return null
+  const pct = Math.round(score * 100)
+  if (pct <= 0) return null
+
+  let colorClass = ''
+  let bgClass = ''
+  if (pct >= 100) {
+    colorClass = 'text-red-600 dark:text-red-400'
+    bgClass = 'bg-red-500/15'
+  } else if (pct >= 80) {
+    colorClass = 'text-orange-600 dark:text-orange-400'
+    bgClass = 'bg-orange-500/15'
+  } else if (pct >= 60) {
+    colorClass = 'text-amber-600 dark:text-amber-400'
+    bgClass = 'bg-amber-500/10'
+  } else if (pct >= 50) {
+    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    bgClass = 'bg-emerald-500/10'
+  } else if (pct >= 40) {
+    colorClass = 'text-teal-600 dark:text-teal-400'
+    bgClass = 'bg-teal-500/10'
+  } else {
+    colorClass = 'text-slate-400 dark:text-slate-500'
+    bgClass = 'bg-slate-400/10'
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass} ${bgClass}`}>
+      <Sparkles className="h-2.5 w-2.5" />
+      匹配度：{pct}%
+    </span>
+  )
+}
 /** 格式化阅读量 */
 function fmtReadCount(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万次阅读`
@@ -315,7 +356,7 @@ function VerticalBookList({ books, onBookClick, matchScores }: {
     <div className="space-y-2.5">
       {books.map((book) => {
         const ms = matchScores?.[String(book.id)] ?? (book as RecommendedBook).matchScore
-        const tags = parseFormatTags(book.formatTags)
+        const tags = parseFormatTags((book as any).formatTags)
         return (
           <div
             key={book.id}
@@ -341,8 +382,8 @@ function VerticalBookList({ books, onBookClick, matchScores }: {
                       </p>
                     </div>
                     <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                      <RatingBadge rating={book.rating} />
-                      <MatchBadge score={ms} />
+                      <RatingBadgeCN rating={book.rating} />
+                      <MatchBadgeCN score={ms} />
                       <span className="text-[11px] text-muted-foreground">
                         {fmtReadCount(book.readCount)}
                       </span>
@@ -378,7 +419,7 @@ function RankedBookList({ books, onBookClick, matchScores }: {
     <div className="space-y-2.5">
       {books.map((book, index) => {
         const ms = matchScores?.[String(book.id)] ?? (book as RecommendedBook).matchScore
-        const tags = parseFormatTags(book.formatTags)
+        const tags = parseFormatTags((book as any).formatTags)
         return (
           <div
             key={book.id}
@@ -479,9 +520,9 @@ function DualColumnBookCard({ books, onBookClick, matchScores }: {
                 <RatingBadge rating={book.rating} />
                 <MatchBadge score={ms} />
               </div>
-              {book.description && (
+              {(book as any).description && (
                 <p className="mt-1.5 text-[10px] text-white/60 leading-relaxed line-clamp-2">
-                  {book.description}
+                  {(book as any).description}
                 </p>
               )}
             </div>
@@ -580,71 +621,6 @@ function NewBooksDualRowSkeleton() {
     </div>
   )
 }
-
-/** 横向滑动榜单 Tabs */
-function ScrollableRankTabs({ onBookClick }: {
-  onBookClick: (id: number) => void
-}) {
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const [activeTab, setActiveTab] = useState<'read' | 'rating' | 'new'>('read')
-  const [books, setBooks] = useState<Book[]>([])
-  const [loading, setLoading] = useState(true)
-
-  const tabs = [
-    { key: 'read' as const, label: '热门阅读', icon: <TrendingUp className="h-4 w-4" /> },
-    { key: 'rating' as const, label: '高分推荐', icon: <Star className="h-4 w-4" /> },
-    { key: 'new' as const, label: '新书速递', icon: <Zap className="h-4 w-4" /> },
-  ]
-
-  useEffect(() => {
-    setLoading(true)
-    const fetcher = activeTab === 'read' ? getReadRank
-      : activeTab === 'rating' ? getRatingRank
-      : getNewBooksRank
-    fetcher(1, 50)
-      .then((res) => setBooks((res as any)?.list || []))
-      .catch(() => setBooks([]))
-      .finally(() => setLoading(false))
-  }, [activeTab])
-
-  const matchScores = useMatchScores(books.map(b => b.id))
-
-  return (
-    <div className="space-y-3">
-      {/* Tabs */}
-      <div className="flex gap-2 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors flex-shrink-0 ${
-              activeTab === tab.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* 内容 */}
-      {loading ? (
-        <VerticalListSkeleton />
-      ) : books.length > 0 ? (
-        <RankedBookList
-          books={books}
-          onBookClick={onBookClick}
-          matchScores={matchScores}
-        />
-      ) : (
-        <div className="flex h-32 items-center justify-center text-muted-foreground text-sm">
-          暂无数据
-        </div>
-      )}
-    </div>
-  )
-}
-
 /** 单个榜单 Tab 内容（用于横向滑动） */
 function RankTabList({ tabKey, icon, label, onBookClick }: {
   tabKey: 'read' | 'rating' | 'new'
@@ -732,7 +708,7 @@ export default function HomePage() {
   const [newBooks, setNewBooks] = useState<SimpleBookVO[]>([])
   const [newBooksLoading, setNewBooksLoading] = useState(true)
   const [popularBooks, setPopularBooks] = useState<SimpleBookVO[]>([])
-  const [popularLoading, setPopularLoading] = useState(true)
+  const [, setPopularLoading] = useState(true)
   const [categories, setCategories] = useState<TagStat[]>([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
 
@@ -773,7 +749,7 @@ export default function HomePage() {
   const matchScores = useMatchScores(matchBookIds)
 
   const goToBook = (id: number) => navigate(`/book/${id}`)
-  const goToReader = (id: number) => navigate(`/reader/${id}`)
+  const goToBookDetail = (id: number) => navigate(`/book/${id}`)
 
   return (
     <div className="page-enter pb-2">
@@ -946,7 +922,7 @@ export default function HomePage() {
                 查看更多 <ChevronRight className="h-3 w-3" />
               </button>
             </div>
-            <ContinueReadingCarousel books={recentBooks.slice(0, 3)} onReadClick={goToReader} />
+            <ContinueReadingCarousel books={recentBooks.slice(0, 3)} onReadClick={goToBookDetail} />
           </section>
         ) : null}
 

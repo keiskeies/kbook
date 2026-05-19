@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuthStore } from '@/store/auth'
 import {
   getReviewStats,
-  getPendingUsers,
   getUsersByStatus,
   searchUsers,
   approveUser,
@@ -23,7 +22,7 @@ type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'BANNED'
 
 export default function AdminReviewPage() {
   const navigate = useNavigate()
-  const { userInfo } = useAuthStore()
+  useAuthStore()
 
   const [activeTab, setActiveTab] = useState<StatusFilter>('PENDING')
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -56,7 +55,7 @@ export default function AdminReviewPage() {
   // 加载统计
   const loadStats = useCallback(async () => {
     try {
-      const data = await getReviewStats()
+      const data = await getReviewStats() as any
       setStats(data)
     } catch (err: any) {
       toast.error(err.message || '加载统计失败')
@@ -70,11 +69,11 @@ export default function AdminReviewPage() {
       let data
       if (isSearching && searchKeyword.trim()) {
         const status = activeTab === 'ALL' ? undefined : activeTab
-        data = await searchUsers(searchKeyword.trim(), status, page, pageSize)
+        data = await searchUsers(searchKeyword.trim(), status, page, pageSize) as any
       } else if (activeTab === 'ALL') {
-        data = await getUsersByStatus([], page, pageSize)
+        data = await getUsersByStatus([], page, pageSize) as any
       } else {
-        data = await getUsersByStatus([activeTab], page, pageSize)
+        data = await getUsersByStatus([activeTab], page, pageSize) as any
       }
       setUsers(data.list || [])
       setTotal(data.total)
@@ -159,7 +158,7 @@ export default function AdminReviewPage() {
   const handleBatchApprove = async () => {
     if (selectedIds.size === 0) return
     try {
-      const result = await batchApprove(Array.from(selectedIds))
+      const result = await batchApprove(Array.from(selectedIds)) as any
       toast.success(`已通过 ${result.count} 个用户`)
       setSelectedIds(new Set())
       loadUsers()
@@ -172,7 +171,7 @@ export default function AdminReviewPage() {
   const handleBatchReject = async () => {
     if (selectedIds.size === 0) return
     try {
-      const result = await batchReject(Array.from(selectedIds))
+      const result = await batchReject(Array.from(selectedIds)) as any
       toast.success(`已拒绝 ${result.count} 个用户`)
       setSelectedIds(new Set())
       loadUsers()
@@ -190,7 +189,7 @@ export default function AdminReviewPage() {
     }
     setInviteLoading(true)
     try {
-      const result = await sendInvitation(inviteEmail.trim())
+      const result = await sendInvitation(inviteEmail.trim()) as any
       setInviteResult(result)
       toast.success('邀请邮件已发送')
     } catch (err: any) {

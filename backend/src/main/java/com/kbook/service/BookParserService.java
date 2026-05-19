@@ -56,6 +56,7 @@ public class BookParserService {
     private final EmbeddingService embeddingService;
     private final ObjectMapper objectMapper;
     private final BookStorageProperties storageProps;
+    private final MatchScoreCacheService matchScoreCacheService;
 
     /**
      * 封面最大宽度（px）
@@ -95,12 +96,17 @@ public class BookParserService {
     /**
      * 解析 EPUB — 提取作者、简介、目录、核心章节摘要、封面
      */
-    private void parseEpub(Book book, Path filePath) {
+    public void parseEpub(Book book, Path filePath) {
+        nl.siegmann.epublib.domain.Book epubBook = null;
         try (InputStream is = Files.newInputStream(filePath)) {
             EpubReader epubReader = new EpubReader();
-            nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
+            epubBook = epubReader.readEpub(is);
+        } catch (Exception e) {
+            log.warn("epublib 解析 EPUB 元数据失败，尝试 ZIP 降级模式: {} - {}", book.getTitle(), e.getMessage());
+        }
 
-            // 提取作者
+        if (epubBook != null) {
+            // 正常解析流程
             if (epubBook.getMetadata() != null && !epubBook.getMetadata().getAuthors().isEmpty()) {
                 var author = epubBook.getMetadata().getAuthors().get(0);
                 String authorName = (author.getFirstname() != null ? author.getFirstname() + " " : "")
@@ -110,26 +116,22 @@ public class BookParserService {
                 }
             }
 
-            // 提取简介（优化：使用预编译正则）
-            if (epubBook.getMetadata() != null && epubBook.getMetadata().getDescriptions() != null
-                    && !epubBook.getMetadata().getDescriptions().isEmpty()) {
-                String desc = epubBook.getMetadata().getDescriptions().get(0);
-                if (desc != null && !desc.isBlank()) {
-                    book.setDescription(HTML_TAG_PATTERN.matcher(desc).replaceAll("").trim());
-                }
-            }
+//            if (epubBook.getMetadata() != null && epubBook.getMetadata().getDescriptions() != null
+//                    && !epubBook.getMetadata().getDescriptions().isEmpty()) {
+//                String desc = epubBook.getMetadata().getDescriptions().get(0);
+//                if (desc != null && !desc.isBlank()) {
+//                    book.setDescription(HTML_TAG_PATTERN.matcher(desc).replaceAll("").trim());
+//                }
+//            }
 
-            // 提取目录信息（递归提取多级目录）
             StringBuilder tocBuilder = new StringBuilder();
             if (epubBook.getTableOfContents() != null) {
                 extractEpubTocChildren(epubBook.getTableOfContents().getTocReferences(), tocBuilder, 0);
             }
-            // 持久化目录（用于增强元数据向量）
             if (!tocBuilder.isEmpty()) {
                 book.setToc(tocBuilder.toString().trim());
             }
 
-            // 提取核心章节摘要（前3章正文内容，每章取前500字）
             String chapterSummary = extractEpubChapterSummary(epubBook);
             if (chapterSummary != null && !chapterSummary.isBlank()) {
                 book.setChapterSummary(chapterSummary);
@@ -137,7 +139,6 @@ public class BookParserService {
 
             book.setParsedContent(buildContentForTags(book, tocBuilder.toString()));
 
-            // 提取正文前15000字用于 AI 评分（深度理解内容需要正文，而非仅目录）
             StringBuilder epubBodyForTags = new StringBuilder(20000);
             for (var spineRef : epubBook.getSpine().getSpineReferences()) {
                 try {
@@ -149,33 +150,58 @@ public class BookParserService {
                     }
                 } catch (Exception ignored) {
                 }
-                if (epubBodyForTags.length() >= 15000) break;
+                if (epubBodyForTags.length() >= 20000) break;
             }
-            // 合并目录+正文，让 AI 评分基于实际内容
-            String combinedForTags = (!tocBuilder.isEmpty() ? "【目录】\n" + tocBuilder + "\n\n【正文】\n" : "")
-                    + epubBodyForTags;
-            book.setParsedContent(buildContentForTags(book, combinedForTags));
+            book.setParsedContent(buildContentForTags(book, epubBodyForTags.toString()));
 
-            // 同时提取全文用于RAG（避免后续 generateContentEmbedding 二次读取文件）
             book.setRagContent(extractEpubFullTextFromEpubBook(epubBook));
 
-            // 提取封面图片
-            var coverImage = epubBook.getCoverImage();
-            if (coverImage != null && coverImage.getData() != null) {
-                saveCoverImage(book, coverImage.getData(), coverImage.getMediaType());
-                log.info("EPUB 封面保存(元数据): {}", book.getCoverUrl());
-            } else {
-                // 元数据没有封面，尝试从正文中提取第一张图片
-                log.info("EPUB 元数据无封面，尝试从正文提取第一张图片: bookId={}", book.getId());
-                byte[] firstImageData = extractFirstImageFromEpub(epubBook);
-                if (firstImageData != null) {
-                    saveCoverImage(book, firstImageData, null);
-                    log.info("EPUB 封面保存(正文第一张图): {}", book.getCoverUrl());
-                }
-            }
+            try {
+                byte[] bestCoverData = null;
+                nl.siegmann.epublib.domain.MediaType coverMediaType = null;
 
-        } catch (Exception e) {
-            log.warn("EPUB 解析失败: {} - {}", book.getTitle(), e.getMessage());
+                // 1. 优先检查元数据封面
+                var coverImage = epubBook.getCoverImage();
+                if (coverImage != null && coverImage.getData() != null) {
+                    if (!isSquareImage(coverImage.getData())) {
+                        bestCoverData = coverImage.getData();
+                        coverMediaType = coverImage.getMediaType();
+                        log.info("EPUB 使用元数据封面");
+                    } else {
+                        log.info("EPUB 元数据封面为非正常比例图片，跳过，尝试从正文提取");
+                    }
+                }
+
+                // 2. 如果没有合适的封面，从正文提取第一张非正常比例图片
+                if (bestCoverData == null) {
+                    CoverExtractionResult result = extractFirstNonSquareImageFromEpub(epubBook);
+                    if (result != null) {
+                        bestCoverData = result.data;
+                        coverMediaType = result.mediaType;
+                        log.info("EPUB 从正文提取到整行比例封面图片");
+                    }
+                }
+
+                // 3. 保存封面（如果找到了合适的图片）
+                if (bestCoverData != null) {
+                    saveCoverImage(book, bestCoverData, coverMediaType);
+                    log.info("EPUB 封面保存成功: {}", book.getCoverUrl());
+                } else {
+                    book.setCoverUrl(null);
+                    log.info("EPUB 未找到合适的封面图片（可能均为正方形）");
+                }
+            } catch (Exception e) {
+                book.setCoverUrl(null);
+                log.warn("EPUB 封面提取失败: {}", e.getMessage());
+            }
+        } else {
+            // 降级模式：仅提取文本内容，元数据可能缺失
+            log.info("EPUB 降级模式: 尝试 ZIP 提取全文: bookId={}", book.getId());
+            String fullText = extractEpubTextViaZip(filePath);
+            if (fullText != null && !fullText.isBlank()) {
+                book.setRagContent(fullText);
+                book.setParsedContent(buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), 15000))));
+            }
         }
     }
 
@@ -250,6 +276,88 @@ public class BookParserService {
     }
 
     /**
+     * 检查图片是否为正方形 (1:1)
+     */
+    private boolean isSquareImage(byte[] imageData) {
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(imageData)) {
+            BufferedImage img = ImageIO.read(bais);
+            if (img != null) {
+                return img.getWidth() < 100 || img.getWidth() > img.getHeight() * 0.8;
+            }
+        } catch (Exception e) {
+            // 读取失败不视为正方形，避免误杀
+        }
+        return false;
+    }
+
+    /**
+     * 内部类：用于返回提取的图片数据和类型
+     */
+    private static class CoverExtractionResult {
+        final byte[] data;
+        final nl.siegmann.epublib.domain.MediaType mediaType;
+        CoverExtractionResult(byte[] data, nl.siegmann.epublib.domain.MediaType mediaType) {
+            this.data = data;
+            this.mediaType = mediaType;
+        }
+    }
+
+    /**
+     * 从 EPUB 正文中提取第一张非正方形图片作为封面
+     * <p>
+     * 遍历 EPUB 的 spine（阅读顺序）中的所有 HTML 资源，
+     * 使用正则表达式提取 img 标签的图片路径，跳过正方形图片（1:1比例），
+     * 返回第一张符合条件的非正方形图片数据。
+     *
+     * @param epubBook EPUB 图书对象
+     * @return 封面提取结果（包含图片数据和媒体类型），未找到则返回 null
+     */
+    private CoverExtractionResult extractFirstNonSquareImageFromEpub(nl.siegmann.epublib.domain.Book epubBook) {
+        try {
+            // 编译图片标签正则表达式，匹配 img 标签的 src 属性
+            Pattern imgPattern = Pattern.compile("<img[^>]+src=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
+            
+            // 遍历 EPUB 的 spine（阅读顺序）中的所有章节
+            for (var spineRef : epubBook.getSpine().getSpineReferences()) {
+                try {
+                    var resource = spineRef.getResource();
+                    if (resource == null || resource.getData() == null) continue;
+
+                    // 将章节内容转换为 HTML 字符串
+                    String html = new String(resource.getData(), StandardCharsets.UTF_8);
+                    var matcher = imgPattern.matcher(html);
+
+                    // 查找所有图片标签
+                    while (matcher.find()) {
+                        String imgSrc = matcher.group(1);
+                        if (imgSrc == null || imgSrc.isBlank()) continue;
+
+                        // 解析图片的相对路径为绝对路径
+                        String imgPath = resolveEpubImagePath(imgSrc, resource);
+                        if (imgPath == null) continue;
+
+                        // 获取图片资源数据
+                        var imageResource = epubBook.getResources().getByHref(imgPath);
+                        if (imageResource != null && imageResource.getData() != null) {
+                            byte[] imgData = imageResource.getData();
+                            
+                            // 检查是否为非正常比例图片，符合条件则返回
+                            if (imgData != null && imgData.length > 0 && !isSquareImage(imgData)) {
+                                return new CoverExtractionResult(imgData, imageResource.getMediaType());
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // 单个章节解析失败不影响其他章节
+                }
+            }
+        } catch (Exception e) {
+            log.debug("从EPUB正文提取非正方形图片失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
      * 解析 EPUB 中的图片路径（处理相对路径）
      */
     private String resolveEpubImagePath(String imgSrc, nl.siegmann.epublib.domain.Resource contextResource) {
@@ -300,7 +408,7 @@ public class BookParserService {
                     String plainText = HTML_TAG_PATTERN.matcher(html).replaceAll("").trim();
 
                     // 跳过太短的章节（可能是封面页、版权页等）
-                    if (plainText.length() < 50) continue;
+                    if (plainText.length() < 100) continue;
 
                     // 每章取前500字
                     if (plainText.length() > 500) {
@@ -772,7 +880,7 @@ public class BookParserService {
     /**
      * 提取 EPUB 内容 — 正文前15000字 + 目录（用于评分和标签生成）
      */
-    private String extractEpubContent(Book book, Path filePath) throws Exception {
+    private String extractEpubContent(Book book, Path filePath) {
         try (InputStream is = Files.newInputStream(filePath)) {
             EpubReader epubReader = new EpubReader();
             nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
@@ -801,6 +909,13 @@ public class BookParserService {
             String combined = (!tocBuilder.isEmpty() ? "【目录】\n" + tocBuilder + "\n\n【正文】\n" : "")
                     + bodyBuilder;
             return buildContentForTags(book, combined);
+        } catch (Exception e) {
+            if (e.getMessage() != null && e.getMessage().contains("SAXParseException")) {
+                log.warn("EPUB XML 解析失败 (文件损坏或格式不规范): {} - {}", book.getTitle(), e.getMessage());
+            } else {
+                log.warn("提取 EPUB 内容失败: {} - {}", book.getTitle(), e.getMessage());
+            }
+            return null;
         }
     }
 
@@ -830,24 +945,14 @@ public class BookParserService {
     // ======================== 合并 AI 请求（标签 + 评分 + 相关度，一次调用） ========================
 
     /**
-     * 为图书一次性生成所有 AI 数据（标签 + 评分 + 8维度相关度得分），合并为一次 LLM 调用以减少 token 消耗
+     * 为图书一次性生成所有 AI 数据（标签 + 评分 + 8维度相关度得分 + 简介），合并为一次 LLM 调用
+     * 仅填充 book 实体字段，不做任何数据库操作
      *
-     * @param bookId 图书ID
-     * @param force  是否强制重新生成（即使已有数据）
+     * @param book 图书实体
      */
-    public void generateAllAiData(Long bookId, boolean force) {
+    public void generateAllAiData(Book book) {
+        Long bookId = book.getId();
         try {
-            Book book = bookService.getBookById(bookId);
-
-            // 如果非强制且所有数据都已存在，跳过
-            if (!force
-                    && book.getFormatTags() != null && !book.getFormatTags().isBlank()
-                    && book.getRating() != null && book.getRating() > 0
-                    && book.getRelevanceScores() != null && !book.getRelevanceScores().isBlank()) {
-                log.debug("图书已有全部AI数据，跳过合并生成: bookId={}", bookId);
-                return;
-            }
-
             String content = book.getParsedContent();
             if (content == null || content.isBlank()) {
                 content = extractContentForTags(book);
@@ -860,79 +965,46 @@ public class BookParserService {
             // 合并调用 AI
             CombinedAiResult result = callAiCombined(content);
             
-            // 打印AI返回的完整结果
-            log.info("========== AI合并调用结果 ==========");
-            log.info("bookId={}", bookId);
-            log.info("tags: {}", result != null ? result.tags : "null");
-            log.info("rating: {}", result != null ? result.rating : "null");
-            log.info("relevanceScoresJson: {}", result != null ? result.relevanceScoresJson : "null");
-            log.info("description: {}", result != null ? result.description : "null");
-            log.info("description长度: {}", result != null && result.description != null ? result.description.length() : 0);
-            log.info("force模式: {}", force);
-            log.info("====================================");
+            log.info("========== AI合并调用结果 start ==========");
+            log.info("AI合并调用结果: bookId={}", bookId);
+            log.info("AI合并调用结果: tags: {}", result != null ? result.tags : "null");
+            log.info("AI合并调用结果: rating: {}", result != null ? result.rating : "null");
+            log.info("AI合并调用结果: relevanceScoresJson: {}", result != null ? result.relevanceScoresJson : "null");
+            log.info("AI合并调用结果: description: {}", result != null ? result.description : "null");
+            log.info("AI合并调用结果: description长度: {}", result != null && result.description != null ? result.description.length() : 0);
+            log.info("========== AI合并调用结果 end ==========");
             
             if (result == null) {
                 log.warn("合并AI调用返回空结果: bookId={}", bookId);
                 return;
             }
 
-            // 保存标签（force=true 时始终覆盖）
+            // 填充标签
             if (result.tags != null && !result.tags.isEmpty()) {
-                if (force || book.getFormatTags() == null || book.getFormatTags().isBlank()) {
-                    bookService.updateFormatTags(bookId, result.tags);
-                    log.info("合并AI - 标签生成成功: bookId={}, tags={}", bookId, result.tags);
-                }
+                String tagsJson = result.tags.stream()
+                        .map(t -> "\"" + t + "\"")
+                        .collect(Collectors.joining(",", "[", "]"));
+                book.setFormatTags(tagsJson);
             }
 
-            // 保存评分（force=true 时始终覆盖）
+            // 填充评分
             if (result.rating != null) {
-                if (force || book.getRating() == null || book.getRating() <= 0) {
-                    bookService.setAiRating(bookId, result.rating);
-                    log.info("合并AI - 评分生成成功: bookId={}, rating={}", bookId, result.rating);
-                }
+                book.setRating(result.rating);
             }
 
-            // 保存8维度相关度得分（force=true 时始终覆盖）
+            // 填充8维度相关度得分
             if (result.relevanceScoresJson != null && !result.relevanceScoresJson.isBlank()) {
-                if (force || book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
-                    bookService.updateRelevanceScores(bookId, result.relevanceScoresJson);
-                    log.info("合并AI - 相关度得分生成成功: bookId={}", bookId);
-                }
+                book.setRelevanceScores(result.relevanceScoresJson);
             }
 
-            // 保存AI生成的简介（force=true 时始终覆盖，否则仅当简介为空时生成）
+            // 填充AI生成的简介
             if (result.description != null && !result.description.isBlank()) {
-                if (force) {
-                    // 强制模式：始终覆盖
-                    bookService.updateDescription(bookId, result.description);
-                    log.info("合并AI - 简介生成成功(强制覆盖): bookId={}, 字数={}", bookId, result.description.length());
-                } else if (book.getDescription() == null || book.getDescription().isBlank()) {
-                    // 非强制模式：仅当简介为空时生成
-                    bookService.updateDescription(bookId, result.description);
-                    log.info("合并AI - 简介生成成功: bookId={}, 字数={}", bookId, result.description.length());
-                }
+                book.setDescription(result.description);
             }
-
-            // 生成书籍元数据向量（异步执行，不阻塞后续流程）
-            // 标签/评分/相关度已保存完毕，元数据向量不依赖这些写入的返回值
-            CompletableFuture.runAsync(() -> {
-                try {
-                    embeddingService.generateBookEmbedding(bookId);
-                } catch (Exception ex) {
-                    log.warn("异步生成元数据向量失败: bookId={} - {}", bookId, ex.getMessage());
-                }
-            });
 
         } catch (Exception e) {
             log.warn("合并AI数据生成失败: bookId={} - {}", bookId, e.getMessage());
         }
-    }
-
-    /**
-     * 为图书一次性生成所有 AI 数据 - 非强制版本
-     */
-    public void generateAllAiData(Long bookId) {
-        generateAllAiData(bookId, false);
     }
 
     /**
@@ -974,10 +1046,34 @@ public class BookParserService {
                 log.debug("图书无内容可供生成RAG向量: bookId={}", bookId);
                 return;
             }
-            embeddingService.generateContentEmbedding(bookId, content);
+            embeddingService.generateContentEmbeddingWithCount(bookId, content);
             log.info("触发RAG内容向量生成: bookId={}, contentLen={}", bookId, content.length());
         } catch (Exception e) {
             log.warn("触发RAG内容向量生成失败: bookId={} - {}", bookId, e.getMessage());
+        }
+    }
+
+    /**
+     * 为图书全文重新向量化（返回 chunk 数量）
+     * 用于管理员手动修复或自动风控触发
+     */
+    public int generateContentEmbeddingWithCount(Long bookId) {
+        try {
+            Book book = bookService.getBookById(bookId);
+            String content = extractContentForRAG(book);
+            if (content == null || content.isBlank()) {
+                log.debug("图书无内容可供生成RAG向量: bookId={}", bookId);
+                return 0;
+            }
+            int chunkCount = embeddingService.generateContentEmbeddingWithCount(bookId, content);
+            book = bookService.getBookById(bookId);
+            book.setContentEmbedded(chunkCount > 0);
+            bookService.updateBook(bookId, book);
+            log.info("图书全文重新向量化完成: bookId={}, chunks={}", bookId, chunkCount);
+            return chunkCount;
+        } catch (Exception e) {
+            log.warn("图书全文重新向量化失败: bookId={} - {}", bookId, e.getMessage());
+            return 0;
         }
     }
 
@@ -1018,13 +1114,43 @@ public class BookParserService {
     /**
      * 提取 EPUB 全文（用于 RAG）
      * 优化版本：使用预分配 StringBuilder + 预编译正则
+     * 增强：捕获 XML 解析异常，降级为直接解压 ZIP 提取文本，防止不规范 EPUB 导致向量化跳过
      */
     private String extractEpubFullText(Book book, Path filePath) throws Exception {
         try (InputStream is = Files.newInputStream(filePath)) {
             EpubReader epubReader = new EpubReader();
             nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
             return extractEpubFullTextFromEpubBook(epubBook);
+        } catch (Exception e) {
+            log.warn("epublib 解析 EPUB 失败，尝试 ZIP 降级提取: {} - {}", book.getTitle(), e.getMessage());
+            return extractEpubTextViaZip(filePath);
         }
+    }
+
+    /**
+     * 降级方案：将 EPUB 视为 ZIP 文件，直接提取所有 HTML/XHTML 文本
+     */
+    private String extractEpubTextViaZip(Path filePath) {
+        StringBuilder text = new StringBuilder(200000);
+        try (var zip = new java.util.zip.ZipFile(filePath.toFile())) {
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                String name = entry.getName().toLowerCase();
+                if (name.endsWith(".html") || name.endsWith(".xhtml") || name.endsWith(".htm")) {
+                    try (var is = zip.getInputStream(entry)) {
+                        String html = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                        String plain = HTML_TAG_PATTERN.matcher(html).replaceAll("").trim();
+                        if (!plain.isBlank()) {
+                            text.append(plain).append("\n");
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (Exception e) {
+            log.warn("ZIP 降级提取也失败: {}", e.getMessage());
+        }
+        return text.length() > 0 ? text.toString() : null;
     }
 
     /**
@@ -1375,7 +1501,9 @@ public class BookParserService {
             String ext = oldFileName.substring(oldFileName.lastIndexOf('.'));
             String newFileName = "book_" + book.getId() + "_cover" + ext;
             Path newFile = coverDir.resolve(newFileName);
-
+            if (Files.exists(newFile)) {
+                Files.delete(newFile);
+            }
             Files.move(oldFile, newFile);
             book.setCoverUrl("/api/books/cover/" + newFileName);
             log.info("封面重命名: {} -> {}", oldFileName, newFileName);

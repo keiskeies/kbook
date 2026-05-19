@@ -1,6 +1,7 @@
 package com.kbook.service;
 
 import com.kbook.common.exception.BusinessException;
+import com.kbook.dto.BookshelfItem;
 import com.kbook.entity.Book;
 import com.kbook.entity.Bookshelf;
 import com.kbook.entity.ReadingProgress;
@@ -28,6 +29,7 @@ public class BookshelfService {
     private final BookshelfRepository bookshelfRepository;
     private final BookRepository bookRepository;
     private final ReadingProgressRepository progressRepository;
+    private final MatchScoreCacheService matchScoreCacheService;
 
     /**
      * 加入书架
@@ -45,6 +47,7 @@ public class BookshelfService {
                 .bookId(bookId)
                 .build();
         bookshelfRepository.save(item);
+        matchScoreCacheService.evictUser(userId); // 书架变化，清除用户画像缓存
         log.info("加入书架: userId={}, bookId={}", userId, bookId);
     }
 
@@ -54,6 +57,7 @@ public class BookshelfService {
     @Transactional
     public void removeFromBookshelf(Long userId, Long bookId) {
         bookshelfRepository.deleteByUserIdAndBookId(userId, bookId);
+        matchScoreCacheService.evictUser(userId); // 书架变化，清除用户画像缓存
         log.info("移出书架: userId={}, bookId={}", userId, bookId);
     }
 
@@ -107,25 +111,4 @@ public class BookshelfService {
         return bookshelfRepository.countByUserId(userId);
     }
 
-    /**
-     * 书架项 VO
-     */
-    @lombok.Data
-    @lombok.Builder
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
-    public static class BookshelfItem {
-        private Long bookshelfId;
-        private Long bookId;
-        private String title;
-        private String author;
-        private String coverUrl;
-        private String format;
-        private String formatTags;
-        private Long fileSize;
-        private Double progress;
-        private String currentPosition;
-        private java.time.LocalDateTime lastReadAt;
-        private java.time.LocalDateTime addedAt;
-    }
 }

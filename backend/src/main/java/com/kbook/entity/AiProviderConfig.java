@@ -78,6 +78,9 @@ public class AiProviderConfig {
     @Builder.Default
     private Boolean isDefault = false;
 
+    /** RAG 检索返回的最大片段数（top-k），为空则使用全局默认值 */
+    private Integer ragTopK;
+
     @Column(updatable = false)
     private LocalDateTime createdAt;
 

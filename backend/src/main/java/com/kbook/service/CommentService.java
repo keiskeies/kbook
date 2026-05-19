@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.dto.CommentVO;
 import com.kbook.entity.*;
 import com.kbook.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -321,26 +322,4 @@ public class CommentService {
         return vo;
     }
 
-    /** 评论 VO */
-    @lombok.Data
-    public static class CommentVO {
-        private Long id;
-        private Long userId;
-        private Long bookId;
-        private String chapterId;
-        private Long parentId;
-        private String content;
-        private Integer likeCount;
-        private Integer replyCount;
-        private Integer favoriteCount;
-        private Boolean liked;
-        private Boolean favorited;
-        private String createdAt;
-        // 冗余的用户信息，由 Controller 填充
-        private String userNickname;
-        private String userAvatar;
-        // 冗余的图书信息
-        private String bookTitle;
-        private String bookCoverUrl;
-    }
 }

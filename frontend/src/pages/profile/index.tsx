@@ -131,7 +131,7 @@ export default function ProfilePage() {
     if (userInfo?.hasChildren != null) parts.push(userInfo.hasChildren ? '有孩子' : '无孩子')
     if (userInfo?.mbti) parts.push(userInfo.mbti)
     if (userInfo?.occupation) {
-      const occLabels = userInfo.occupation.split(',').filter(Boolean).map(v => {
+      const occLabels = userInfo.occupation.split(',').filter(Boolean).map((v: string) => {
         const found = OCCUPATION_OPTIONS.find(o => o.value === v)
         return found ? found.label : v
       })
@@ -707,7 +707,7 @@ export default function ProfilePage() {
               <button onClick={() => setShowTraitsModal(false)} className="text-muted-foreground text-sm font-medium">关闭</button>
             </div>
             <p className="px-5 pt-1 text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</p>
-            <div className="w-full min-w-0 overflow-y-auto overflow-x-hidden px-5 py-4 space-y-4" style={{ paddingBottom: 'calc(1rem + 5rem)' }}>
+            <div className="w-full min-w-0 overflow-y-auto overscroll-y-contain overflow-x-hidden px-5 py-4 space-y-4" style={{ paddingBottom: 'calc(1rem + 5rem)' }}>
 
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">出生日期</label>
@@ -918,7 +918,7 @@ export default function ProfilePage() {
                 ) : includePrefs.length === 0 ? (
                   <div className="py-4 text-center text-xs text-muted-foreground">暂无偏好，添加喜欢的类型获取更精准推荐</div>
                 ) : (
-                  <div className="max-h-60 overflow-y-auto space-y-1.5">
+                  <div className="max-h-60 overflow-y-auto overscroll-y-contain space-y-1.5">
                     {includePrefs.map((pref) => (
                       <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-rose-50 dark:bg-rose-900/10 px-3 py-2">
                         <span className="text-rose-500 text-xs">❤️</span>
@@ -948,7 +948,7 @@ export default function ProfilePage() {
                 ) : excludePrefs.length === 0 ? (
                   <div className="py-4 text-center text-xs text-muted-foreground">暂无排除偏好</div>
                 ) : (
-                  <div className="max-h-60 overflow-y-auto space-y-1.5">
+                  <div className="max-h-60 overflow-y-auto overscroll-y-contain space-y-1.5">
                     {excludePrefs.map((pref) => (
                       <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getCategoryColor(pref.category)}`}>

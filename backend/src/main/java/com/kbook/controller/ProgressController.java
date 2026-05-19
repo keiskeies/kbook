@@ -1,12 +1,15 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.dto.ProgressBatchItem;
+import com.kbook.dto.ReadingStats;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.service.BookService;
 import com.kbook.service.ReadingProgressService;
 import com.kbook.service.RecommendCoefficientService;
 import com.kbook.service.RecommendService;
-import lombok.Data;
+import com.kbook.dto.ProgressBatchGetRequest;
+import com.kbook.dto.ProgressReportRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -32,7 +35,7 @@ public class ProgressController {
      */
     @PostMapping
     public Result<ReadingProgress> reportProgress(Authentication authentication,
-                                                   @RequestBody ReportRequest req) {
+                                                   @RequestBody ProgressReportRequest req) {
         Long userId = (Long) authentication.getPrincipal();
         ReadingProgressService.ProgressResult result = progressService.reportProgress(userId, req.getBookId(), req.getProgress(), req.getCurrentPosition());
         ReadingProgress progress = result.progress();
@@ -65,7 +68,7 @@ public class ProgressController {
      */
     @PostMapping("/batch")
     public Result<Void> batchReportProgress(Authentication authentication,
-                                              @RequestBody List<ReadingProgressService.ProgressBatchItem> items) {
+                                              @RequestBody List<ProgressBatchItem> items) {
         Long userId = (Long) authentication.getPrincipal();
         ReadingProgressService.BatchProgressResult result = progressService.batchReportProgress(userId, items);
         
@@ -92,7 +95,7 @@ public class ProgressController {
      */
     @PostMapping("/batch-get")
     public Result<Map<Long, ReadingProgress>> getProgressBatch(Authentication authentication,
-                                                                 @RequestBody BatchGetRequest req) {
+                                                                 @RequestBody ProgressBatchGetRequest req) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(progressService.getProgressBatch(userId, req.getBookIds()));
     }
@@ -120,20 +123,9 @@ public class ProgressController {
      * 获取阅读统计
      */
     @GetMapping("/stats")
-    public Result<ReadingProgressService.ReadingStats> getReadingStats(Authentication authentication) {
+    public Result<ReadingStats> getReadingStats(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(progressService.getReadingStats(userId));
     }
 
-    @Data
-    public static class ReportRequest {
-        private Long bookId;
-        private Double progress;
-        private String currentPosition;
-    }
-
-    @Data
-    public static class BatchGetRequest {
-        private List<Long> bookIds;
-    }
 }

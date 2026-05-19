@@ -47,8 +47,13 @@ public class GlobalExceptionHandler {
 
     /** Spring Security 6.x 方法级权限拒绝（@PreAuthorize 等） */
     @ExceptionHandler(AuthorizationDeniedException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
     public Result<?> handleAuthorizationDenied(AuthorizationDeniedException e, HttpServletResponse response) {
+        // SSE 流式响应已提交时，过滤器链的后续检查会触发此异常，直接忽略
+        if (response.isCommitted()) {
+            log.debug("授权被拒绝（响应已提交，忽略）: {}", e.getMessage());
+            return null;
+        }
+        response.setStatus(403);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         log.debug("授权被拒绝: {}", e.getMessage());
         return Result.fail(403, "您没有权限执行此操作");

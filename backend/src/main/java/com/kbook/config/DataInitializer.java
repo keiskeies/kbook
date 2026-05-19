@@ -3,8 +3,6 @@ package com.kbook.config;
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
 import com.kbook.service.RecommendCoefficientService;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,9 +31,6 @@ public class DataInitializer implements CommandLineRunner {
     private final PasswordEncoder passwordEncoder;
     private final RecommendCoefficientService coefficientService;
 
-    @PersistenceContext
-    private EntityManager entityManager;
-
     @Value("${kbook.admin.email:admin@kbook.com}")
     private String adminEmail;
 
@@ -47,28 +42,8 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        migrateAiProviderConfigSchema();
         initAdmin();
         initRecommendCoefficients();
-    }
-
-    /**
-     * 迁移 ai_provider_config 表：删除旧的 uk_purpose 唯一约束
-     * JPA ddl-auto=update 不会删除已有约束，需手动迁移
-     */
-    private void migrateAiProviderConfigSchema() {
-        try {
-            entityManager.createNativeQuery(
-                "ALTER TABLE ai_provider_config DROP INDEX uk_purpose"
-            ).executeUpdate();
-            log.info("已删除 ai_provider_config.uk_purpose 唯一约束（支持多配置）");
-        } catch (Exception e) {
-            if (e.getMessage() != null && e.getMessage().contains("check that column/key exists")) {
-                log.debug("ai_provider_config.uk_purpose 约束已不存在，跳过删除");
-            } else {
-                log.warn("删除 uk_purpose 约束失败（可能已删除）: {}", e.getMessage());
-            }
-        }
     }
 
     /**

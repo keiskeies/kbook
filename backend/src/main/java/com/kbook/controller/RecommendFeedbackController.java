@@ -2,7 +2,10 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.service.RecommendCoefficientService;
-import lombok.Data;
+import com.kbook.dto.FeedbackRequest;
+import com.kbook.dto.ImpressionItem;
+import com.kbook.dto.ImpressionRequest;
+import com.kbook.dto.RateFeedbackRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -67,30 +70,4 @@ public class RecommendFeedbackController {
         return Result.ok(null);
     }
 
-    // ==================== 请求 DTO ====================
-
-    @Data
-    public static class FeedbackRequest {
-        private Long bookId;
-        /** 推荐时的召回路径（来自 RecommendedItem.recallPaths） */
-        private String recallPaths;
-    }
-
-    @Data
-    public static class ImpressionRequest {
-        private java.util.List<ImpressionItem> items;
-    }
-
-    @Data
-    public static class ImpressionItem {
-        private Long bookId;
-        private String recallPaths;
-    }
-
-    @Data
-    public static class RateFeedbackRequest {
-        private Long bookId;
-        private Integer rating;
-        private String recallPaths;
-    }
 }

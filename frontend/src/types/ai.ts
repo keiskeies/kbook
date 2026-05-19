@@ -10,6 +10,12 @@ export interface AiMessage {
   thinkingStatus?: string
   /** AI 思考/推理过程内容（可折叠展示） */
   thinkingContent?: string
+  /** 对应的用户问题（用于生成深入追问） */
+  userQuestion?: string
+  /** AI 回答后的深入追问问题列表 */
+  followUpQuestions?: string[]
+  /** 是否正在加载深入追问问题 */
+  loadingFollowUps?: boolean
 }
 
 /** AI 会话 */

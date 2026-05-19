@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, UserPlus, UserMinus, CheckCircle2, MessageSquare, Heart } from 'lucide-react'
+import {ArrowLeft, UserPlus, UserMinus, CheckCircle2, MessageSquare, Heart, BookOpen} from 'lucide-react'
 import { getUserProfile, getUserBooks, getUserComments } from '@/api/userProfile'
 import { followUser, unfollowUser } from '@/api/follow'
 import type { UserProfileVO, UserBookItem } from '@/api/userProfile'

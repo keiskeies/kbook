@@ -3,13 +3,11 @@ package com.kbook.controller;
 import com.kbook.common.api.Result;
 import com.kbook.entity.User;
 import com.kbook.service.UserService;
-import lombok.Data;
+import com.kbook.dto.UpdateTraitsRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.time.LocalDate;
 
 /**
  * 用户控制器
@@ -74,16 +72,4 @@ public class UserController {
         return Result.ok(userService.uploadAvatar(userId, file));
     }
 
-    @Data
-    public static class UpdateTraitsRequest {
-        private LocalDate birthday;
-        private String gender;
-        private Boolean married;
-        private Boolean hasChildren;
-        private String mbti;
-        private String occupation;
-        private String education;
-        private String entrepreneurship;
-        private String annualIncome;
-    }
 }

@@ -1,10 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
-import {
-  Play, Pause, Square, Volume2,
-  ChevronLeft, ChevronRight, Loader2,
-} from 'lucide-react'
-import { useTtsStore } from '@/store/tts'
-import { ttsService } from '@/utils/tts'
+import {useCallback, useEffect, useRef, useState} from 'react'
+import {ChevronLeft, ChevronRight, Loader2, Pause, Play, Square, Volume2,} from 'lucide-react'
+import {useTtsStore} from '@/store/tts'
+import {ttsService} from '@/utils/tts'
 
 const STORAGE_KEY = 'tts-float-pos'
 const SNAP_DURATION = 300
@@ -33,7 +30,7 @@ export default function TtsFloatPlayer() {
   return <TtsFloatPlayerInner
     status={status}
     bookId={bookId}
-    bookTitle={bookTitle}
+    bookTitle={bookTitle || ''}
     segmentIndex={segmentIndex}
     totalSegments={totalSegments}
     segmentsLoading={segmentsLoading}
@@ -61,7 +58,7 @@ function TtsFloatPlayerInner({
         const p = JSON.parse(saved)
         if (typeof p.x === 'number' && typeof p.y === 'number') return p
       }
-    } catch {}
+    } catch { /* empty */ }
     return { x: window.innerWidth - EXPANDED_W - 8, y: Math.round(window.innerHeight * 0.33) }
   })
 
@@ -111,14 +108,13 @@ function TtsFloatPlayerInner({
   useEffect(() => {
     if (!expanded) {
       // 用 snapSide 而非位置判断方向（位置可能不可靠）
-      const side = snapSide
-      const hiddenX = side === 'left'
+      const hiddenX = snapSide === 'left'
         ? -COLLAPSED_SIZE / 2   // 左边：露出右半
         : window.innerWidth - COLLAPSED_SIZE / 2  // 右边：露出左半
       const clampedY = Math.min(Math.max(posRef.current.y, 50), window.innerHeight - COLLAPSED_SIZE - 50)
       setSnapping(true)
       setPos({ x: hiddenX, y: clampedY })
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: hiddenX, y: clampedY })) } catch {}
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: hiddenX, y: clampedY })) } catch { /* empty */ }
       setTimeout(() => setSnapping(false), SNAP_DURATION)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,10 +130,10 @@ function TtsFloatPlayerInner({
     setSnapSide(side)
     setSnapping(true)
     setPos({ x: expandedX, y: clampedY })
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: expandedX, y: clampedY })) } catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: expandedX, y: clampedY })) } catch { /* empty */ }
     setTimeout(() => setSnapping(false), SNAP_DURATION)
     setExpanded(true)
-  }, [])
+  }, [snapSide])
 
   // ---- 拖动（捕获阶段，展开状态下工作） ----
   useEffect(() => {
@@ -191,7 +187,7 @@ function TtsFloatPlayerInner({
         const snappedY = Math.min(Math.max(cur.y, 50), window.innerHeight - EXPANDED_H - 50)
         setSnapping(true)
         setPos({ x: snappedX, y: snappedY })
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: snappedX, y: snappedY })) } catch {}
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: snappedX, y: snappedY })) } catch { /* empty */ }
         setTimeout(() => setSnapping(false), SNAP_DURATION)
         setSnapSide(side)
       }
@@ -218,8 +214,7 @@ function TtsFloatPlayerInner({
     const onResize = () => {
       if (expanded) {
         const cur = posRef.current
-        const side = snapSide
-        const snappedX = side === 'left' ? 8 : window.innerWidth - EXPANDED_W - 8
+        const snappedX = snapSide === 'left' ? 8 : window.innerWidth - EXPANDED_W - 8
         const snappedY = Math.min(Math.max(cur.y, 50), window.innerHeight - EXPANDED_H - 50)
         setSnapping(true)
         setPos({ x: snappedX, y: snappedY })
@@ -231,8 +226,7 @@ function TtsFloatPlayerInner({
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, snapSide])
+  }, [expanded, handleExpandFromCollapsed, snapSide])
 
   // 用户操作时重置自动收起计时
   const touchAutoCollapse = useCallback(() => {

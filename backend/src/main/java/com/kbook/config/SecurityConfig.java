@@ -1,6 +1,8 @@
 package com.kbook.config;
 
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -19,6 +21,7 @@ import org.springframework.web.filter.CorsFilter;
 /**
  * Spring Security 配置 - JWT 无状态认证 + CORS + 接口权限
  */
+@Slf4j
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -31,6 +34,10 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+                // 只对 REQUEST 分发进行安全过滤，跳过 ASYNC/ERROR/FORWARD/INCLUDE 分发
+                // 避免 SSE 异步响应完成后 SecurityContext 已清理导致 AuthorizationDeniedException
+                .securityMatcher(request ->
+                        request.getDispatcherType() == DispatcherType.REQUEST)
                 // 禁用 CSRF（JWT 无状态不需要）
                 .csrf(AbstractHttpConfigurer::disable)
                 // 启用 CORS（使用 CorsConfig 中定义的 CorsFilter bean）
@@ -49,11 +56,13 @@ public class SecurityConfig {
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
                             // 注意：此处理在 AuthorizationFilter 中执行，
                             // 如果已提交响应则不再处理（避免 SSE 等异步场景异常）
-                            if (!response.isCommitted()) {
-                                response.setStatus(403);
-                                response.setContentType("application/json;charset=UTF-8");
-                                response.getWriter().write("{\"code\":403,\"message\":\"权限不足，无法访问此资源\",\"data\":null}");
+                            if (response.isCommitted()) {
+                                log.debug("授权被拒绝（响应已提交，忽略）: {}", accessDeniedException.getMessage());
+                                return;
                             }
+                            response.setStatus(403);
+                            response.setContentType("application/json;charset=UTF-8");
+                            response.getWriter().write("{\"code\":403,\"message\":\"权限不足，无法访问此资源\",\"data\":null}");
                         }))
                 // 接口权限配置（注意：规则按从上到下顺序匹配，第一个匹配的规则生效）
                 .authorizeHttpRequests(auth -> auth

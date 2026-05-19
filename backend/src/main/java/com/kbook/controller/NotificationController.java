@@ -6,7 +6,7 @@ import com.kbook.entity.Notification;
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
 import com.kbook.service.NotificationService;
-import lombok.Data;
+import com.kbook.dto.NotificationVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.security.core.Authentication;
@@ -64,19 +64,6 @@ public class NotificationController {
     }
 
     // ==================== VO ====================
-
-    @Data
-    public static class NotificationVO {
-        private Long id;
-        private Long triggerUserId;
-        private String triggerUserNickname;
-        private String triggerUserAvatar;
-        private String type;
-        private Long commentId;
-        private Long bookId;
-        private Boolean isRead;
-        private String createdAt;
-    }
 
     private NotificationVO toVO(Notification n) {
         NotificationVO vo = new NotificationVO();

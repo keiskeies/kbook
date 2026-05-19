@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import { createSseConnection } from '@/utils/sse-request'
 import type { Book } from '@/types/book'
 import type { PageResult } from '@/types/common'
 
@@ -40,6 +41,7 @@ export function getBook(id: number) {
 export function searchBooks(params: {
   keyword?: string
   format?: string
+  tag?: string
   page?: number
   size?: number
 }) {
@@ -103,73 +105,11 @@ export function scanBooksStream(
   onError: (error: Error) => void,
   skipBeforeId?: number,
 ): AbortController {
-  const controller = new AbortController()
-  const token = localStorage.getItem(import.meta.env.VITE_TOKEN_KEY || 'kbook_token')
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
-
-  const skipParam = skipBeforeId ? `?skipBeforeId=${skipBeforeId}` : ''
-  fetch(`${baseUrl}/books/admin/scan${skipParam}`, {
-    method: 'GET',
-    headers: {
-      'Authorization': token ? `Bearer ${token}` : '',
-      'Accept': 'text/event-stream',
-    },
-    signal: controller.signal,
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('No readable stream')
-
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      let receivedDone = false
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        let currentEvent = ''
-        for (const line of lines) {
-          if (line.startsWith('event:')) {
-            currentEvent = line.slice(6).trim()
-          } else if (line.startsWith('data:')) {
-            const data = line.slice(5).trim()
-            try {
-              const parsed = JSON.parse(data)
-              if (currentEvent === 'progress') {
-                onProgress(parsed)
-              } else if (currentEvent === 'done') {
-                receivedDone = true
-                onDone(parsed)
-              } else if (currentEvent === 'error') {
-                onError(new Error(parsed.message || parsed || '扫描出错'))
-              }
-            } catch {
-              // 非 JSON 数据忽略
-            }
-            currentEvent = ''
-          }
-        }
-      }
-      // SSE 流结束但未收到 done 事件，通知上层（轮询后备会接管）
-      if (!receivedDone) {
-        onError(new Error('SSE 流异常结束'))
-      }
-    })
-    .catch((err) => {
-      if (err.name !== 'AbortError') {
-        onError(err)
-      }
-    })
-
-  return controller
+  return createSseConnection<ScanProgress, ScanResult>(
+    '/books/admin/scan',
+    { onProgress, onDone, onError },
+    { params: { skipBeforeId } },
+  )
 }
 
 /** 查询扫描状态及进度 */
@@ -273,9 +213,67 @@ export function getEmbeddingStats() {
   return request.get<EmbeddingStats>('/books/admin/embeddings/stats')
 }
 
-/** 重新评分/重建书籍（完整覆盖所有数据） */
-export function rerateAllBooks(bookId?: number) {
-  const params: Record<string, number> = {}
-  if (bookId) params.bookId = bookId
-  return request.post<{ reratedCount: number; status: string }>('/books/admin/rerate', null, { params, timeout: 600000 })
+/** ES 索引重建进度 */
+export interface EsReindexProgress {
+  current: number
+  total: number
+  status: 'scanning' | 'completed'
+}
+
+/** ES 索引重建结果 */
+export interface EsReindexResult {
+  elapsed: number
+}
+
+/** 全量重建 ES 索引 — SSE 流式返回进度 */
+export function rebuildEsIndexStream(
+  onProgress: (data: EsReindexProgress) => void,
+  onDone: (data: EsReindexResult) => void,
+  onError: (error: Error) => void,
+): AbortController {
+  return createSseConnection<EsReindexProgress, EsReindexResult>(
+    '/books/admin/es/reindex',
+    { onProgress, onDone, onError },
+  )
+}
+
+// ==================== RAG 向量命中统计 ====================
+
+/** RAG 命中统计 */
+export interface RagStats {
+  bookId: number
+  hits: number
+  misses: number
+  totalQueries: number
+  hitRate: number
+}
+
+/** 低命中率图书 */
+export interface LowHitBook {
+  bookId: number
+  hits: number
+  misses: number
+  totalQueries: number
+  missRate: number
+  firstMissAt?: string
+}
+
+/** 获取单本书的向量命中统计 */
+export function getRagStats(bookId: number) {
+  return request.get<RagStats>(`/books/admin/rag-stats/${bookId}`)
+}
+
+/** 获取未命中率最高的书籍列表 */
+export function getLowHitBooks(topN = 20) {
+  return request.get<LowHitBook[]>('/books/admin/rag-stats/low-hit', { params: { topN } })
+}
+
+/** 清除某本书的命中统计 */
+export function clearRagStats(bookId: number) {
+  return request.post<null>(`/books/admin/rag-stats/${bookId}/clear`)
+}
+
+/** 手动触发单本图书全文重新向量化 */
+export function reEmbedBook(bookId: number) {
+  return request.post<{ bookId: number; chunks: number; status: string }>(`/books/admin/rag-stats/${bookId}/re-embed`)
 }

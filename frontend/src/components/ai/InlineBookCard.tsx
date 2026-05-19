@@ -1,9 +1,80 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Star, BookOpen } from 'lucide-react'
-import { getBook } from '@/api/book'
+import { Star, BookOpen, Sparkles, Tag } from 'lucide-react'
+import { getBook, getMatchScores } from '@/api/book'
 import type { Book } from '@/types/book'
 import { parseFormatTags } from '@/types/book'
+
+/** 评分徽章 — 与榜单页面一致 */
+function RatingBadge({ rating }: { rating: number | undefined | null }) {
+  if (rating == null || rating <= 0) return null
+  const r = Number(rating.toFixed(1))
+
+  let colorClass = ''
+  let bgClass = ''
+  if (r >= 5.0) {
+    colorClass = 'text-red-600 dark:text-red-400'
+    bgClass = 'bg-red-500/15'
+  } else if (r >= 4.5) {
+    colorClass = 'text-orange-600 dark:text-orange-400'
+    bgClass = 'bg-orange-500/15'
+  } else if (r >= 4.0) {
+    colorClass = 'text-amber-600 dark:text-amber-400'
+    bgClass = 'bg-amber-500/10'
+  } else if (r >= 3.0) {
+    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    bgClass = 'bg-emerald-500/10'
+  } else if (r >= 2.5) {
+    colorClass = 'text-teal-600 dark:text-teal-400'
+    bgClass = 'bg-teal-500/10'
+  } else {
+    colorClass = 'text-slate-400 dark:text-slate-500'
+    bgClass = 'bg-slate-400/10'
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass} ${bgClass}`}>
+      <Star className="h-2.5 w-2.5" />
+      {r}
+    </span>
+  )
+}
+
+/** 匹配度徽章 — 与榜单页面一致 */
+function MatchBadge({ score }: { score: number | undefined | null }) {
+  if (score == null || score <= 0) return null
+  const pct = Math.round(score * 100)
+  if (pct <= 0) return null
+
+  let colorClass = ''
+  let bgClass = ''
+  if (pct >= 100) {
+    colorClass = 'text-red-600 dark:text-red-400'
+    bgClass = 'bg-red-500/15'
+  } else if (pct >= 80) {
+    colorClass = 'text-orange-600 dark:text-orange-400'
+    bgClass = 'bg-orange-500/15'
+  } else if (pct >= 60) {
+    colorClass = 'text-amber-600 dark:text-amber-400'
+    bgClass = 'bg-amber-500/10'
+  } else if (pct >= 50) {
+    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    bgClass = 'bg-emerald-500/10'
+  } else if (pct >= 40) {
+    colorClass = 'text-teal-600 dark:text-teal-400'
+    bgClass = 'bg-teal-500/10'
+  } else {
+    colorClass = 'text-slate-400 dark:text-slate-500'
+    bgClass = 'bg-slate-400/10'
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass} ${bgClass}`}>
+      <Sparkles className="h-2.5 w-2.5" />
+      {pct}%
+    </span>
+  )
+}
 
 /** 预定义渐变色 */
 const GRADIENTS = [
@@ -34,6 +105,8 @@ export interface InlineBookCardData {
   rating: number
   readCount: number
   description: string | null
+  /** 匹配度百分比，如 85 */
+  matchScore?: number
 }
 
 /**
@@ -46,6 +119,7 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
   const [bookDetail, setBookDetail] = useState<Book | null>(null)
   const [loading, setLoading] = useState(false)
   const [imgError, setImgError] = useState(false)
+  const [matchScore, setMatchScore] = useState<number | undefined>(book.matchScore)
   const fetchedRef = useRef(false)
 
   // 解析标签
@@ -55,7 +129,6 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
   const reason = book.description && book.description !== '暂无'
     ? book.description
     : null
-  const isMatchScore = reason && /^匹配度/.test(reason)
 
   useEffect(() => {
     if (fetchedRef.current) return
@@ -68,7 +141,7 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
       return
     }
 
-    // 从接口获取
+    // 从接口获取图书详情
     setLoading(true)
     getBook(book.bookId)
       .then((data) => {
@@ -82,7 +155,20 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
       .finally(() => {
         setLoading(false)
       })
-  }, [book.bookId])
+
+    // 获取匹配度（如果传入的数据中没有）
+    if (book.matchScore === undefined) {
+      getMatchScores([book.bookId])
+        .then((res) => {
+          // request.ts 拦截器已 unwrap Result，res 直接是 Map<bookId, score>
+          const data = res as unknown as Record<string, number>
+          if (data && typeof data[book.bookId] === 'number') {
+            setMatchScore(Math.round(data[book.bookId] * 100))
+          }
+        })
+        .catch(() => {})
+    }
+  }, [book.bookId, book.matchScore])
 
   // 优先使用接口返回的数据，回退到传入的数据
   const displayTitle = bookDetail?.title || book.title
@@ -163,54 +249,36 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
             {displayAuthor || '未知作者'}
           </p>
 
-          {/* 评分 / 匹配度 / 阅读量 */}
+          {/* 评分 / 匹配度 / 阅读量 — 与榜单页面一致 */}
           <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-            {displayRating > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                {displayRating.toFixed(1)}
-              </span>
-            )}
-            {isMatchScore && reason && (
-              <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
-                ✨ {reason}
-              </span>
-            )}
-            {displayReadCount > 0 && (
-              <span className="text-[11px] text-muted-foreground">
+            <RatingBadge rating={displayRating} />
+            <MatchBadge score={matchScore !== undefined ? matchScore / 100 : undefined} />
+            {displayReadCount != null && displayReadCount >= 0 && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                <BookOpen className="h-2.5 w-2.5 text-muted-foreground/60" />
                 {displayReadCount >= 10000
                   ? `${(displayReadCount / 10000).toFixed(1)}万次阅读`
                   : `${displayReadCount}次阅读`}
               </span>
             )}
-            {bookDetail?.format && (
-              <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {bookDetail.format}
-              </span>
-            )}
           </div>
 
           {/* 推荐理由 */}
-          {reason && !isMatchScore && (
+          {reason && (
             <p className="mt-1.5 text-[11px] text-muted-foreground leading-relaxed">
               {reason}
             </p>
           )}
         </div>
 
-        {/* 箭头 */}
-        <div className="flex-shrink-0 self-center text-muted-foreground/40">
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </div>
       </div>
 
-      {/* 底部标签栏：全宽 */}
+      {/* 底部标签栏：全宽 — 与榜单页面一致 */}
       {tags.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2 border-t border-border/30 pt-2">
-          {tags.map((tag) => (
-            <span key={tag} className="rounded bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+        <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border/30 pt-2">
+          {tags.slice(0, 3).map((tag) => (
+            <span key={tag} className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              <Tag className="h-2.5 w-2.5" />
               {tag}
             </span>
           ))}

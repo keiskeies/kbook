@@ -129,7 +129,7 @@ export const useTtsStore = create<TtsState>((set, get) => ({
 
   /** 段落加载完成 */
   onSegmentsLoaded: (segments) => {
-    const { bookId, status } = get()
+    const {status } = get()
     // 只有还在朗读状态才更新
     if (status !== 'idle') {
       set({

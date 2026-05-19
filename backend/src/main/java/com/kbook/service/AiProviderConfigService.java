@@ -72,6 +72,15 @@ public class AiProviderConfigService {
     }
 
     /**
+     * 获取当前激活对话配置的 RAG TopK 值
+     * 如果配置中未指定，则返回 null，调用方应回退到全局默认值
+     */
+    public Integer getActiveRagTopK() {
+        AiProviderConfig config = getChatConfig();
+        return config != null ? config.getRagTopK() : null;
+    }
+
+    /**
      * 获取指定用途的所有配置列表
      */
     public List<AiProviderConfig> getConfigsByPurpose(String purpose) {
@@ -126,6 +135,21 @@ public class AiProviderConfigService {
     public StreamingChatModel buildChatStreamingModel() {
         AiProviderConfig config = getChatConfig();
         return chatModelFactory.buildStreamingChatModel(config);
+    }
+
+    /**
+     * 构建关闭思考模式的 ChatModel（用于生成追问等不需要深度推理的场景）
+     * <p>
+     * DeepSeek 等模型默认开启思考模式，生成追问问题时无需思考，关闭可节省 token 和耗时。
+     */
+    public ChatModel buildChatModelWithoutThinking() {
+        AiProviderConfig config = getChatConfig();
+        if (config != null) {
+            log.debug("使用数据库对话配置（关闭思考）: provider={}, model={}", config.getProvider(), config.getModelName());
+        } else {
+            log.debug("无数据库对话配置，回退到 yml 默认模型（关闭思考）");
+        }
+        return chatModelFactory.buildChatModelWithoutThinking(config);
     }
 
     /**

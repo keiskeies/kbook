@@ -1,13 +1,54 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { ArrowLeft, RefreshCw, Upload, Scan, BookOpen, FileText, File, CheckCircle2, XCircle, ChevronDown, ChevronUp, AlertTriangle, Bot, User, Send, Loader2, Sparkles, X, MessageCircle, Database, Star } from 'lucide-react'
+import {useCallback, useEffect, useRef, useState} from 'react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BookOpen,
+  Bot,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Database,
+  File,
+  FileText,
+  Loader2,
+  MessageCircle,
+  RefreshCw,
+  Scan,
+  Search,
+  Send,
+  Sparkles,
+  Target,
+  Upload,
+  User,
+  X,
+  XCircle,
+  Zap
+} from 'lucide-react'
 import DraggableFab from '@/components/DraggableFab'
-import { useNavigate } from 'react-router-dom'
-import { scanBooksStream, getScanStatus, resetScanStatus, uploadBook, getEmbeddingStats, rerateAllBooks } from '@/api/book'
-import type { ScanProgress, ScanResult, ScanError, EmbeddingStats } from '@/api/book'
-import { createAdminSession, streamAdminChat, getAdminHistory, getAdminSessions, deleteAdminSession } from '@/api/adminAi'
-import type { AiMessage } from '@/types/ai'
+import {useNavigate} from 'react-router-dom'
+import type {
+  EmbeddingStats,
+  EsReindexProgress,
+  EsReindexResult,
+  LowHitBook,
+  ScanError,
+  ScanProgress,
+  ScanResult
+} from '@/api/book'
+import {
+  getEmbeddingStats,
+  getLowHitBooks,
+  getScanStatus,
+  rebuildEsIndexStream,
+  reEmbedBook,
+  resetScanStatus,
+  scanBooksStream,
+  uploadBook
+} from '@/api/book'
+import {createAdminSession, streamAdminChat} from '@/api/adminAi'
+import type {AiMessage} from '@/types/ai'
 import ThinkingBlock from '@/components/ui/thinking-block'
-import { toast } from 'sonner'
+import {toast} from 'sonner'
 
 /** 管理员快捷指令 */
 const ADMIN_QUICK_PROMPTS = [
@@ -21,7 +62,7 @@ const ADMIN_QUICK_PROMPTS = [
 function renderMarkdown(text: string) {
   return text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/\[BOOK:id=(\d+)\]《(.+?)》/g, (_match, bookId, title) => {
+    .replace(/\[BOOK:id=(\d+)]《(.+?)》/g, (_match, bookId, title) => {
       return `<span class="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 align-middle">` +
         `<a href="/book/${bookId}" class="text-primary font-medium hover:underline">《${title}》</a>` +
         `</span>`
@@ -52,9 +93,18 @@ export default function AdminBooksPage() {
 
   // 内容向量管理状态
   const [embedStats, setEmbedStats] = useState<EmbeddingStats | null>(null)
-  const [embedLoading, setEmbedLoading] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
-  const [rerateBookId, setRerateBookId] = useState('')
+
+  // ES 索引刷新状态
+  const [esReindexing, setEsReindexing] = useState(false)
+  const [esProgress, setEsProgress] = useState<EsReindexProgress | null>(null)
+  const [esResult, setEsResult] = useState<EsReindexResult | null>(null)
+  const esAbortRef = useRef<AbortController | null>(null)
+
+  // RAG 向量命中统计状态
+  const [lowHitBooks, setLowHitBooks] = useState<LowHitBook[]>([])
+  const [ragLoading, setRagLoading] = useState(false)
+  const [ragReEmbedding, setRagReEmbedding] = useState<number | null>(null)
 
   // AI 管理员对话状态
   const [showChat, setShowChat] = useState(false)
@@ -76,7 +126,7 @@ export default function AdminBooksPage() {
     stopPolling()
     pollRef.current = setInterval(async () => {
       try {
-        const res = await getScanStatus()
+        const res = await getScanStatus() as any
         if (res.scanning) {
           setProgress(prev => ({
             current: res.current,
@@ -112,29 +162,31 @@ export default function AdminBooksPage() {
     let cancelled = false
     getScanStatus().then(res => {
       if (cancelled) return
-      if (res.scanning) {
+      const data = res as any
+      if (data.scanning) {
         setScanning(true)
         setProgress({
-          current: res.current || 0,
-          total: res.total || 0,
-          added: res.added || 0,
-          updated: res.updated || 0,
-          skipped: res.skipped || 0,
-          failed: res.failed || 0,
-          errors: res.errors || [],
-          currentFile: res.currentFile || '恢复扫描连接中...',
+          current: data.current || 0,
+          total: data.total || 0,
+          added: data.added || 0,
+          updated: data.updated || 0,
+          skipped: data.skipped || 0,
+          failed: data.failed || 0,
+          errors: data.errors || [],
+          currentFile: data.currentFile || '恢复扫描连接中...',
           status: 'scanning',
         })
         startScanStream()
         startPolling()
       }
     }).catch(() => {})
-    loadEmbedStats()
+    loadEmbedStats().then(() => {})
     return () => {
       cancelled = true
       stopPolling()
       abortRef.current?.abort()
       chatAbortRef.current?.abort()
+      esAbortRef.current?.abort()
     }
   }, [])
 
@@ -145,31 +197,31 @@ export default function AdminBooksPage() {
     }
   }, [chatMessages, showChat])
 
-  const startScanStream = () => {
+  const startScanStream = useCallback(() => {
     const skipId = skipBeforeId ? parseInt(skipBeforeId, 10) : undefined
     abortRef.current = scanBooksStream(
-      (data) => {
-        setProgress(data)
-        if (data.status === 'completed') {
+        (data) => {
+          setProgress(data)
+          if (data.status === 'completed') {
+            stopPolling()
+            setScanning(false)
+          }
+        },
+        (data) => {
           stopPolling()
+          setScanResult(data)
           setScanning(false)
-        }
-      },
-      (data) => {
-        stopPolling()
-        setScanResult(data)
-        setScanning(false)
-        const failMsg = data.failed > 0 ? `，${data.failed} 本未处理` : ''
-        toast.success(`扫描完成：新增 ${data.added} 本，更新 ${data.updated} 本，跳过 ${data.skipped} 本${failMsg}`)
-      },
-      (err) => {
-        console.warn('SSE 断开，切换轮询:', err.message)
-        startPolling()
-      },
-      skipId,
+          const failMsg = data.failed > 0 ? `，${data.failed} 本未处理` : ''
+          toast.success(`扫描完成：新增 ${data.added} 本，更新 ${data.updated} 本，跳过 ${data.skipped} 本${failMsg}`)
+        },
+        (err) => {
+          console.warn('SSE 断开，切换轮询:', err.message)
+          startPolling()
+        },
+        skipId,
     )
     startPolling()
-  }
+  }, [skipBeforeId])
 
   const handleScan = async () => {
     if (scanning) return
@@ -186,7 +238,7 @@ export default function AdminBooksPage() {
       abortRef.current.abort()
       abortRef.current = null
     }
-    try { await resetScanStatus() } catch {}
+    try { await resetScanStatus() } catch { /* empty */ }
     setScanning(false)
     setProgress(null)
     toast.info('已重置扫描状态')
@@ -202,7 +254,7 @@ export default function AdminBooksPage() {
     }
     setUploading(true)
     try {
-      const result = await uploadBook(file, uploadTitle || undefined)
+      const result = await uploadBook(file, uploadTitle || undefined) as any
       toast.success(`已上传：《${result.title}》`)
       setUploadTitle('')
     } catch (err: any) {
@@ -218,26 +270,71 @@ export default function AdminBooksPage() {
   const loadEmbedStats = useCallback(async () => {
     setStatsLoading(true)
     try {
-      const stats = await getEmbeddingStats()
+      const stats = await getEmbeddingStats() as any
       setEmbedStats(stats)
     } catch { /* ignore */ }
     finally { setStatsLoading(false) }
   }, [])
 
-  const handleRerateAll = async () => {
-    setEmbedLoading(true)
+  // ==================== ES 索引刷新 ====================
+
+  const handleEsReindex = () => {
+    if (esReindexing) return
+    setEsReindexing(true)
+    setEsProgress(null)
+    setEsResult(null)
+
+    esAbortRef.current = rebuildEsIndexStream(
+      (data) => {
+        setEsProgress(data)
+      },
+      (data) => {
+        setEsReindexing(false)
+        setEsResult(data)
+        toast.success(`ES 索引重建完成，耗时 ${(data.elapsed / 1000).toFixed(1)}s`)
+      },
+      (err) => {
+        setEsReindexing(false)
+        toast.error(err.message || 'ES 重建失败')
+      },
+    )
+  }
+
+  const handleCancelEsReindex = () => {
+    if (esAbortRef.current) {
+      esAbortRef.current.abort()
+      esAbortRef.current = null
+    }
+    setEsReindexing(false)
+    setEsProgress(null)
+    toast.info('已取消 ES 索引重建')
+  }
+
+  // ==================== RAG 向量命中统计 ====================
+
+  const loadLowHitBooks = async () => {
+    setRagLoading(true)
     try {
-      const bookId = rerateBookId ? parseInt(rerateBookId, 10) : undefined
-      const result = await rerateAllBooks(bookId)
-      if (bookId) {
-        toast.success(`已重建指定书籍：${result.reratedCount} 本`)
-      } else {
-        toast.success(`已重建全部书籍：${result.reratedCount} 本`)
-      }
-      loadEmbedStats()
+      const result = await getLowHitBooks(20) as any
+      setLowHitBooks(result)
     } catch (err: any) {
-      toast.error(err.message || '重建失败')
-    } finally { setEmbedLoading(false) }
+      toast.error(err.message || '加载失败')
+    } finally { setRagLoading(false) }
+  }
+
+  const handleReEmbedBook = async (bookId: number) => {
+    setRagReEmbedding(bookId)
+    try {
+      const result = await reEmbedBook(bookId) as any
+      if (result.status === 'completed') {
+        toast.success(`已重新向量化，共 ${result.chunks} chunks`)
+      } else {
+        toast.warning('未提取到内容')
+      }
+      await loadLowHitBooks()
+    } catch (err: any) {
+      toast.error(err.message || '重新向量化失败')
+    } finally { setRagReEmbedding(null) }
   }
 
   // ==================== AI 管理员对话 ====================
@@ -278,41 +375,49 @@ export default function AdminBooksPage() {
     }
     setChatMessages(prev => [...prev, assistantMsg])
 
-    const controller = streamAdminChat(
-      { sessionId, message },
-      (chunk) => {
-        setChatMessages(prev =>
-          prev.map(m => m.id === assistantMsg.id ? { ...m, content: m.content + chunk, thinkingStatus: undefined } : m)
-        )
-      },
-      () => {
-        setChatMessages(prev =>
-          prev.map(m => m.id === assistantMsg.id ? { ...m, streaming: false, thinkingStatus: undefined } : m)
-        )
-        setChatLoading(false)
-      },
-      (error) => {
-        setChatMessages(prev =>
-          prev.map(m =>
-            m.id === assistantMsg.id
-              ? { ...m, content: `抱歉，AI 助理暂时无法回复：${error.message}`, streaming: false, thinkingStatus: undefined }
-              : m
+    chatAbortRef.current = streamAdminChat(
+        {sessionId, message},
+        (chunk) => {
+          setChatMessages(prev =>
+              prev.map(m => m.id === assistantMsg.id ? {
+                ...m,
+                content: m.content + chunk,
+                thinkingStatus: undefined
+              } : m)
           )
-        )
-        setChatLoading(false)
-      },
-      (status) => {
-        setChatMessages(prev =>
-          prev.map(m => m.id === assistantMsg.id ? { ...m, thinkingStatus: status } : m)
-        )
-      },
-      (chunk) => {
-        setChatMessages(prev =>
-          prev.map(m => m.id === assistantMsg.id ? { ...m, thinkingContent: (m.thinkingContent || '') + chunk } : m)
-        )
-      },
+        },
+        () => {
+          setChatMessages(prev =>
+              prev.map(m => m.id === assistantMsg.id ? {...m, streaming: false, thinkingStatus: undefined} : m)
+          )
+          setChatLoading(false)
+        },
+        (error) => {
+          setChatMessages(prev =>
+              prev.map(m =>
+                  m.id === assistantMsg.id
+                      ? {
+                        ...m,
+                        content: `抱歉，AI 助理暂时无法回复：${error.message}`,
+                        streaming: false,
+                        thinkingStatus: undefined
+                      }
+                      : m
+              )
+          )
+          setChatLoading(false)
+        },
+        (status) => {
+          setChatMessages(prev =>
+              prev.map(m => m.id === assistantMsg.id ? {...m, thinkingStatus: status} : m)
+          )
+        },
+        (chunk) => {
+          setChatMessages(prev =>
+              prev.map(m => m.id === assistantMsg.id ? {...m, thinkingContent: (m.thinkingContent || '') + chunk} : m)
+          )
+        },
     )
-    chatAbortRef.current = controller
   }, [chatInput, chatLoading, chatSessionId])
 
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
@@ -426,7 +531,7 @@ export default function AdminBooksPage() {
 
           {/* 错误详情 */}
           {showErrors && currentErrors.length > 0 && (
-            <div className="mb-3 max-h-48 overflow-y-auto rounded-lg bg-red-50 p-3 text-xs space-y-2 dark:bg-red-950/20">
+            <div className="mb-3 max-h-48 overflow-y-auto overscroll-y-contain rounded-lg bg-red-50 p-3 text-xs space-y-2 dark:bg-red-950/20">
               {currentErrors.map((err, i) => (
                 <div key={i} className="flex gap-2">
                   <span className="shrink-0 text-red-400">{i + 1}.</span>
@@ -468,7 +573,7 @@ export default function AdminBooksPage() {
                     {showErrors ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   </button>
                   {showErrors && (
-                    <div className="mt-2 max-h-48 overflow-y-auto rounded-lg bg-red-50 p-3 text-xs space-y-2 dark:bg-red-950/20">
+                    <div className="mt-2 max-h-48 overflow-y-auto overscroll-y-contain rounded-lg bg-red-50 p-3 text-xs space-y-2 dark:bg-red-950/20">
                       {scanResult.errors.map((err, i) => (
                         <div key={i} className="flex gap-2">
                           <span className="shrink-0 text-red-400">{i + 1}.</span>
@@ -583,37 +688,142 @@ export default function AdminBooksPage() {
               <Database className={`h-4 w-4 ${statsLoading ? 'animate-pulse' : ''}`} />
               {statsLoading ? '加载中...' : '刷新统计'}
             </button>
+          </div>
 
-            {/* 指定书籍重建 */}
-            <div className="flex gap-2">
-              <input
-                type="number"
-                min="1"
-                value={rerateBookId}
-                onChange={(e) => setRerateBookId(e.target.value)}
-                placeholder="书籍 ID"
-                disabled={embedLoading}
-                className="h-9 w-28 rounded-lg border border-border bg-background px-2.5 text-xs outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-              />
-              <button
-                onClick={handleRerateAll}
-                disabled={embedLoading || !rerateBookId}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 py-2.5 text-sm font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50 dark:border-purple-800 dark:bg-purple-950/20 dark:text-purple-400 dark:hover:bg-purple-950/30"
-              >
-                <Star className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
-                重建指定书籍
-              </button>
+          {/* 分隔线 */}
+          <div className="my-4 border-t border-border/50" />
+
+          {/* RAG 向量命中统计 */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50">
+                <Target className="h-5 w-5 text-rose-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">RAG 向量命中统计</h3>
+                <p className="text-xs text-muted-foreground">未命中率高的图书可能存在向量数据缺失</p>
+              </div>
             </div>
-
-            {/* 重建全部 */}
             <button
-              onClick={handleRerateAll}
-              disabled={embedLoading || !!rerateBookId}
-              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50 py-2.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-950/30"
+              onClick={loadLowHitBooks}
+              disabled={ragLoading}
+              className="flex items-center gap-1.5 rounded-xl border border-border/50 px-3 py-1.5 text-xs font-medium hover:bg-muted"
             >
-              <RefreshCw className={`h-4 w-4 ${embedLoading ? 'animate-pulse' : ''}`} />
-              重建全部书籍（耗时较长）
+              <RefreshCw className={`h-3.5 w-3.5 ${ragLoading ? 'animate-spin' : ''}`} />
+              刷新
             </button>
+          </div>
+
+          {lowHitBooks.length > 0 ? (
+            <div className="space-y-2 max-h-80 overflow-y-auto overscroll-y-contain">
+              {lowHitBooks.map((item) => (
+                <div key={item.bookId} className="flex items-center gap-3 rounded-xl bg-muted/50 p-3">
+                  {/* 图书信息 */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold">ID {item.bookId}</span>
+                      <span className="rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">
+                        未命中 {(item.missRate * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      共 {item.totalQueries} 次 | 命中 {item.hits} | 未命中 {item.misses}
+                    </div>
+                    {item.firstMissAt && (
+                      <div className="mt-0.5 text-[10px] text-muted-foreground">首次未命中: {item.firstMissAt}</div>
+                    )}
+                  </div>
+                  {/* 操作按钮 */}
+                  <button
+                    onClick={() => handleReEmbedBook(item.bookId)}
+                    disabled={ragReEmbedding === item.bookId}
+                    className="flex items-center gap-1.5 rounded-xl bg-primary/10 px-3 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50"
+                  >
+                    <Zap className={`h-3 w-3 ${ragReEmbedding === item.bookId ? 'animate-pulse' : ''}`} />
+                    {ragReEmbedding === item.bookId ? '重新向量化中...' : '全文重向量'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl bg-muted/30 p-6 text-center">
+              <Target className="mx-auto h-8 w-8 text-muted-foreground/40" />
+              <p className="mt-2 text-xs text-muted-foreground">
+                {ragLoading ? '加载中...' : '暂无低命中率数据'}
+              </p>
+              {!ragLoading && (
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  用户进行图书 AI 问答后会开始统计
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 自动风控说明 */}
+          <div className="mt-3 rounded-lg bg-amber-50 p-2.5 text-[10px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+            <p className="font-medium">自动风控：未命中率 ≥ 70% 且总查询 ≥ 10 次时，系统自动触发全文重新向量化并清除统计</p>
+          </div>
+        </section>
+
+        {/* ES 索引管理 */}
+        <section className="rounded-xl bg-card p-4 shadow-xs">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50">
+              <Search className="h-5 w-5 text-amber-500" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold">ES 索引管理</h3>
+              <p className="text-xs text-muted-foreground">全量刷新 Elasticsearch 搜索索引</p>
+            </div>
+          </div>
+
+          {/* 进度条 */}
+          {esReindexing && esProgress && (
+            <div className="mb-3 space-y-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>正在重建索引...</span>
+                <span>{esProgress.current}/{esProgress.total} ({Math.round((esProgress.current / esProgress.total) * 100)}%)</span>
+              </div>
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-all duration-300 ease-out"
+                  style={{ width: `${esProgress.total > 0 ? (esProgress.current / esProgress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* 完成结果 */}
+          {esResult && !esReindexing && (
+            <div className="mb-3 rounded-lg bg-green-50 p-3 text-xs dark:bg-green-950/30">
+              <div className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-400">
+                <CheckCircle2 className="h-4 w-4" />
+                ES 索引重建完成
+              </div>
+              <div className="mt-1 text-green-600 dark:text-green-400">
+                耗时 {(esResult.elapsed / 1000).toFixed(1)}s
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={handleEsReindex}
+              disabled={esReindexing}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${esReindexing ? 'animate-spin' : ''}`} />
+              {esReindexing ? '重建中...' : '全量刷新 ES'}
+            </button>
+            {esReindexing && (
+              <button
+                onClick={handleCancelEsReindex}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+              >
+                <XCircle className="h-4 w-4" />
+                取消
+              </button>
+            )}
           </div>
         </section>
 
@@ -694,7 +904,7 @@ export default function AdminBooksPage() {
             </div>
 
             {/* 消息区域 */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto overscroll-y-contain p-4 space-y-3">
               {chatMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 dark:bg-purple-900/20">

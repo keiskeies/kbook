@@ -3,7 +3,8 @@ package com.kbook.controller;
 import com.kbook.common.api.Result;
 import com.kbook.entity.RecommendCoefficient;
 import com.kbook.service.RecommendCoefficientService;
-import lombok.Data;
+import com.kbook.dto.ResetCoefficientRequest;
+import com.kbook.dto.UpdateCoefficientRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -65,19 +66,4 @@ public class RecommendCoefficientAdminController {
         return Result.ok(null);
     }
 
-    // ==================== 请求 DTO ====================
-
-    @Data
-    public static class UpdateCoefficientRequest {
-        private String category;
-        private String key;
-        private Double value;
-        private Boolean locked;
-    }
-
-    @Data
-    public static class ResetCoefficientRequest {
-        private String category;
-        private String key;
-    }
 }

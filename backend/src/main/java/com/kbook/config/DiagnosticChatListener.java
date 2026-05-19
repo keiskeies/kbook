@@ -22,7 +22,7 @@ public class DiagnosticChatListener implements ChatModelListener {
         // 找 SystemMessage 打印
         for (ChatMessage msg : messages) {
             if (msg instanceof SystemMessage sm) {
-                String text = sm.text();
+                String text = sm.text().replaceAll("\\n", "");
                 log.info("📤 [AI 请求] SystemMessage ({}字符): {}",
                         text.length(),
                         text.length() > 100 ? text.substring(0, 100) + "..." : text);

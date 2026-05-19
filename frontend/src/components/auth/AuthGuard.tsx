@@ -2,7 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth'
 import { ROUTES, USER_STATUS } from '@/constants'
 import { Button } from '@/components/ui/button'
-import { LogOut, Clock, ShieldOff, MailWarning } from 'lucide-react'
+import { LogOut, Clock, ShieldOff } from 'lucide-react'
 
 interface AuthGuardProps {
   children: React.ReactNode

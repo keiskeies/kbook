@@ -154,7 +154,7 @@ export default function CommentList({
   chapterId?: string | null
   onRefresh: () => void
 }) {
-  const { userInfo } = useAuthStore()
+  useAuthStore()
   const [replyTo, setReplyTo] = useState<CommentVO | null>(null)
   const [content, setContent] = useState('')
   const [submitting, setSubmitting] = useState(false)

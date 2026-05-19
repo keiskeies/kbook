@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.dto.RecommendedItem;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.entity.UserBookPreference;
@@ -60,6 +61,7 @@ public class RecommendService {
     private final ObjectMapper objectMapper;
     private final RedisTemplate<String, Object> redisTemplate;
     private final RecommendCoefficientService coefficientService;
+    private final MatchScoreCacheService matchScoreCacheService;
 
     public RecommendService(
             BookRepository bookRepository,
@@ -70,7 +72,8 @@ public class RecommendService {
             UserBookPreferenceRepository preferenceRepository,
             ObjectMapper objectMapper,
             RedisTemplate<String, Object> redisTemplate,
-            @Lazy RecommendCoefficientService coefficientService
+            @Lazy RecommendCoefficientService coefficientService,
+            MatchScoreCacheService matchScoreCacheService
     ) {
         this.bookRepository = bookRepository;
         this.progressRepository = progressRepository;
@@ -81,6 +84,7 @@ public class RecommendService {
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
         this.coefficientService = coefficientService;
+        this.matchScoreCacheService = matchScoreCacheService;
     }
 
     // ==================== 算法参数（动态系数，由 RecommendCoefficientService 管理） ====================
@@ -109,22 +113,50 @@ public class RecommendService {
         if (bookIds == null || bookIds.isEmpty()) return Map.of();
 
         User user = userService.getUserById(userId);
-        Map<Long, Double> result = new LinkedHashMap<>();
+        boolean hasProfile = user.getBirthday() != null || user.getGender() != null
+                || user.getMarried() != null || user.getHasChildren() != null
+                || user.getMbti() != null || user.getOccupation() != null
+                || user.getEducation() != null || user.getEntrepreneurship() != null
+                || user.getAnnualIncome() != null || user.getMood() != null;
 
-        for (Long bookId : bookIds) {
+        // 无画像直接返回空，不查缓存
+        if (!hasProfile) return Map.of();
+
+        List<String> strIds = bookIds.stream().map(String::valueOf).collect(Collectors.toList());
+        
+        // 1. 查缓存
+        Map<String, Double> cachedScores = matchScoreCacheService.getScores(userId, strIds);
+        Map<Long, Double> result = new LinkedHashMap<>();
+        
+        // 将缓存结果转为 Long key
+        cachedScores.forEach((k, v) -> result.put(Long.parseLong(k), v));
+
+        // 2. 找出未命中的 bookId
+        List<Long> missingIds = bookIds.stream()
+                .filter(id -> !result.containsKey(id))
+                .collect(Collectors.toList());
+                
+        if (missingIds.isEmpty()) {
+            return result; // 全部命中
+        }
+        
+        // 3. 计算未命中的分数
+        Map<String, Double> newScores = new HashMap<>();
+        for (Long bookId : missingIds) {
             Book book = bookRepository.findById(bookId).orElse(null);
             if (book == null) continue;
 
             double score = calculateMatchScore(user, book);
-            // 只有用户至少填了1个画像维度时才返回分数（否则都是默认0.5，无意义）
-            if (user.getBirthday() != null || user.getGender() != null
-                    || user.getMarried() != null || user.getHasChildren() != null
-                    || user.getMbti() != null || user.getOccupation() != null
-                    || user.getEducation() != null || user.getEntrepreneurship() != null
-                    || user.getAnnualIncome() != null || user.getMood() != null) {
-                result.put(bookId, Math.round(score * 100.0) / 100.0);
-            }
+            double roundedScore = Math.round(score * 100.0) / 100.0;
+            newScores.put(String.valueOf(bookId), roundedScore);
+            result.put(bookId, roundedScore);
         }
+        
+        // 4. 写入缓存
+        if (!newScores.isEmpty()) {
+            matchScoreCacheService.putScores(userId, newScores);
+        }
+        
         return result;
     }
 
@@ -1394,39 +1426,5 @@ public class RecommendService {
 
     private record ScoredBook(Book book, double finalScore, double matchScore, double qualityFactor, double ruleScore,
                               double vectorScore, double collabScore, String recallPaths) {
-    }
-
-    /**
-     * 推荐结果项
-     */
-    @Data
-    @Builder
-    public static class RecommendedItem {
-        private Long bookId;
-        private String title;
-        private String author;
-        private String coverUrl;
-        private String format;
-        private Double rating;
-        private String description;
-        private Double matchScore;
-        private Long readCount;
-        /**
-         * 规则得分
-         */
-        private Double ruleScore;
-        /**
-         * 向量得分
-         */
-        private Double vectorScore;
-        /**
-         * 协同得分
-         */
-        private Double collabScore;
-        /**
-         * 命中的召回路径（逗号分隔，如 "RULE,VECTOR"），用于反馈追踪
-         */
-        private String recallPaths;
-        private LocalDateTime recommendedAt;
     }
 }

@@ -407,6 +407,8 @@ export interface AiProviderConfig {
   enabled?: boolean
   /** 是否为当前 purpose 的默认（激活）配置 */
   isDefault?: boolean
+  /** RAG 检索返回的最大片段数（top-k） */
+  ragTopK?: number
   createdAt?: string
   updatedAt?: string
 }

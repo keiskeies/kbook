@@ -53,15 +53,15 @@ function parseBookData(blockText: string): InlineBookCardData | null {
   // 提取推荐理由 / 简介 / 匹配度
   const reasonMatch = blockText.match(/推荐原因[：:]\s*(.+?)(?:\s*$)/)
   const descMatch = blockText.match(/简介[：:]\s*(.+?)(?:\s*$)/)
-  const matchReason = blockText.match(/匹配度[：:]\s*([\d.]+)%/)
+  const matchScoreMatch = blockText.match(/匹配度[：:]\s*([\d.]+)%/)
   const aiReason = blockText.match(/👉\s*(.+?)(?:\s*$)/)
   const description = aiReason ? aiReason[1].trim()
     : reasonMatch ? reasonMatch[1].trim()
     : descMatch ? descMatch[1].trim()
-    : matchReason ? `匹配度 ${matchReason[1]}%`
     : null
+  const matchScore = matchScoreMatch ? parseFloat(matchScoreMatch[1]) : undefined
 
-  return { bookId, title, author, format, rating, readCount, description }
+  return { bookId, title, author, format, rating, readCount, description, matchScore }
 }
 
 /**

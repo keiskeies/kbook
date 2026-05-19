@@ -39,6 +39,8 @@ export function usePdfReader({ bookId, initialPosition }: UsePdfReaderOptions) {
         setBook(bookRes as unknown as Book)
 
         // 动态加载 pdfjs-dist
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-expect-error
         const pdfjsLib = await import('pdfjs-dist/build/pdf.mjs')
         pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
           'pdfjs-dist/build/pdf.worker.min.mjs',

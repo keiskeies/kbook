@@ -86,7 +86,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
   const { settings, updateSettings, resetSettings, toggleSettings } = useReaderStore()
   const [tab, setTab] = useState<'style' | 'tts' | 'advanced'>('style')
 
-  const { status } = useTtsStore()
+  useTtsStore()
 
   const themeEntries = Object.entries(READER_THEMES) as [keyof typeof READER_THEMES, typeof READER_THEMES[keyof typeof READER_THEMES]][]
 
@@ -155,7 +155,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
           ))}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <div className="space-y-5 p-4">
           {/* ===== 排版 Tab ===== */}
           {tab === 'style' && (

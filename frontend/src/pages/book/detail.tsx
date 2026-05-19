@@ -14,40 +14,43 @@ import BookCover from '@/components/book/BookCover'
 import { useMatchScores } from '@/hooks/useMatchScores'
 import { toast } from 'sonner'
 
-/** 评分徽章 */
-function RatingBadge({ rating }: { rating: number | undefined | null }) {
+/** 评分徽章（带中文标签） */
+function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating <= 0) return null
   const r = Number(rating.toFixed(1))
   let colorClass = ''
-  if (r >= 4.5) colorClass = 'text-amber-600 dark:text-amber-400'
-  else if (r >= 4.0) colorClass = 'text-amber-500 dark:text-amber-300'
-  else if (r >= 3.0) colorClass = 'text-orange-500 dark:text-orange-400'
-  else if (r >= 2.0) colorClass = 'text-sky-500 dark:text-sky-400'
+  if (r >= 5.0) colorClass = 'text-red-600 dark:text-red-400'
+  else if (r >= 4.5) colorClass = 'text-orange-600 dark:text-orange-400'
+  else if (r >= 4.0) colorClass = 'text-amber-600 dark:text-amber-400'
+  else if (r >= 3.0) colorClass = 'text-emerald-600 dark:text-emerald-400'
+  else if (r >= 2.5) colorClass = 'text-teal-600 dark:text-teal-400'
   else colorClass = 'text-slate-400 dark:text-slate-500'
 
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Star className="h-3 w-3" />
-      {r}
+      评分：{r}
     </span>
   )
 }
 
-/** 匹配度徽章 */
-function MatchBadge({ score }: { score: number | undefined | null }) {
+/** 匹配度徽章（带中文标签） */
+function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   if (score == null || score <= 0) return null
   const pct = Math.round(score * 100)
   if (pct <= 0) return null
   let colorClass = ''
-  if (pct >= 80) colorClass = 'text-emerald-600 dark:text-emerald-400'
-  else if (pct >= 60) colorClass = 'text-sky-500 dark:text-sky-400'
-  else if (pct >= 40) colorClass = 'text-amber-500 dark:text-amber-400'
-  else colorClass = 'text-orange-500 dark:text-orange-400'
+  if (pct >= 100) colorClass = 'text-red-600 dark:text-red-400'
+  else if (pct >= 80) colorClass = 'text-orange-600 dark:text-orange-400'
+  else if (pct >= 60) colorClass = 'text-amber-600 dark:text-amber-400'
+  else if (pct >= 50) colorClass = 'text-emerald-600 dark:text-emerald-400'
+  else if (pct >= 40) colorClass = 'text-teal-600 dark:text-teal-400'
+  else colorClass = 'text-slate-400 dark:text-slate-500'
 
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Sparkles className="h-3 w-3" />
-      {pct}%
+      匹配度：{pct}%
     </span>
   )
 }
@@ -217,11 +220,11 @@ export default function BookDetailPage() {
         </div>
 
         {/* 底部操作栏骨架 */}
-        <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background/80 backdrop-blur-xl p-4 pb-safe-bottom">
-          <div className="flex gap-3">
+        <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background/80 backdrop-blur-xl p-3 pb-safe-bottom">
+          <div className="flex gap-2">
+            <div className="h-11 w-14 animate-pulse rounded-2xl bg-muted" />
+            <div className="h-11 w-14 animate-pulse rounded-2xl bg-muted" />
             <div className="h-11 flex-1 animate-pulse rounded-2xl bg-muted" />
-            <div className="h-11 flex-1 animate-pulse rounded-2xl bg-muted" />
-            <div className="h-11 flex-[2] animate-pulse rounded-2xl bg-muted" />
           </div>
         </div>
       </div>
@@ -258,11 +261,11 @@ export default function BookDetailPage() {
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <button onClick={() => setShowRating(!showRating)} className="flex items-center gap-1 active:scale-95 transition-transform">
-                <RatingBadge rating={book.rating} />
+                <RatingBadgeCN rating={book.rating} />
                 {book.rating <= 0 && <span className="text-xs text-muted-foreground">暂无评分</span>}
                 <span className="text-[10px] text-primary ml-1">评</span>
               </button>
-              <MatchBadge score={ms} />
+              <MatchBadgeCN score={ms} />
               <span className="flex items-center gap-1"><Eye className="h-3 w-3" />{book.readCount} 阅读</span>
               <span className="rounded-md bg-primary/8 px-1.5 py-0.5 font-medium text-primary">{book.format}</span>
               {book.fileSize && <span>{formatFileSize(book.fileSize)}</span>}
@@ -355,19 +358,31 @@ export default function BookDetailPage() {
       </div>
 
       {/* 底部操作栏 */}
-      <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background/80 backdrop-blur-xl p-4 pb-safe-bottom">
-        <div className="flex gap-3">
-          <button onClick={toggleShelf} className={`flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl text-sm font-semibold transition-all active:scale-[0.97] ${inShelf ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-muted text-foreground hover:bg-muted/80'}`}>
+      <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background/80 backdrop-blur-xl p-3 pb-safe-bottom">
+        <div className="flex gap-2">
+          {/* 书架按钮 — 固定宽度，文字简化 */}
+          <button
+            onClick={toggleShelf}
+            className={`flex h-11 w-14 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 ${inShelf ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+          >
             {inShelf ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
-            {inShelf ? '已在书架' : '加入书架'}
+            <span className="truncate">{inShelf ? '在书架' : '加书架'}</span>
           </button>
-          {book.contentEmbedded && (
-            <button onClick={() => setShowBookChat(true)} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-accent text-sm font-semibold text-accent-foreground transition-all active:scale-[0.97]">
-              <Sparkles className="h-4 w-4" />
-              AI 问答
-            </button>
-          )}
-          <button onClick={() => navigate(`/reader/${book.id}`)} className="flex h-11 flex-[2] items-center justify-center gap-2 rounded-2xl bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 active:scale-[0.97] transition-transform">
+
+          {/* AI 问答按钮 — 固定宽度 */}
+          <button
+            onClick={() => setShowBookChat(true)}
+            className="flex h-11 w-14 flex-col items-center justify-center rounded-2xl bg-accent text-[10px] font-medium text-accent-foreground transition-all active:scale-[0.97] leading-none gap-1"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span>AI 问答</span>
+          </button>
+
+          {/* 阅读按钮 — 占满剩余空间 */}
+          <button
+            onClick={() => navigate(`/reader/${book.id}`)}
+            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 active:scale-[0.97] transition-transform"
+          >
             <BookOpen className="h-4 w-4" />
             {progress > 0 ? '继续阅读' : '开始阅读'}
           </button>

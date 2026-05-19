@@ -19,7 +19,7 @@ export default function TocPanel({ chapters, currentIndex, onJump, onClose }: To
       <div className="flex-1 bg-black/40" onClick={onClose} />
 
       {/* 目录面板 */}
-      <div className="w-72 overflow-y-auto bg-card shadow-xl">
+      <div className="w-72 overflow-y-auto overscroll-y-contain bg-card shadow-xl">
         <div className="sticky top-0 border-b bg-card px-4 py-3">
           <h3 className="text-sm font-semibold">目录</h3>
         </div>

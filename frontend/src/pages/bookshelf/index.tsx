@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, MoreVertical, Trash2, ArrowUpDown, Filter, BookOpen } from 'lucide-react'
 import { getBookshelf, removeFromBookshelf } from '@/api/bookshelf'
 import type { BookshelfItem } from '@/types/book'
-import { parseFormatTags, formatProgress, formatFileSize } from '@/types/book'
-import { BOOK_FORMAT } from '@/constants'
-import { formatTag, formatRelativeTime } from '@/utils/time'
+import { parseFormatTags, formatProgress } from '@/types/book'
+import { formatTag } from '@/utils/time'
 import { toast } from 'sonner'
 import BookCover from '@/components/book/BookCover'
 
@@ -186,9 +185,9 @@ export default function BookshelfPage() {
       ) : (
         <div className="grid grid-cols-3 gap-3">
           {filteredAndSorted.map((item) => {
-          const tags = parseFormatTags(item.formatTags)
-          return (
-            <div
+            parseFormatTags(item.formatTags);
+            return (
+                <div
               key={item.bookshelfId}
               className="group relative flex flex-col w-full active:scale-[0.97] transition-transform duration-150"
               onClick={() => navigate(`/book/${item.bookId}`)}

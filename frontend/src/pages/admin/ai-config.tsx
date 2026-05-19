@@ -44,16 +44,15 @@ export default function AiConfigPage() {
     toolsEnabled: null,
     enabled: true,
     isDefault: false,
+    ragTopK: 5,
   })
 
   const filteredPresets = useMemo(() => {
     if (regionFilter === 'ALL') return AI_PROVIDER_PRESETS
     return AI_PROVIDER_PRESETS.filter((p) => p.region === regionFilter)
   }, [regionFilter])
-
-  const cnPresets = useMemo(() => AI_PROVIDER_PRESETS.filter((p) => p.region === 'CN'), [])
-  const globalPresets = useMemo(() => AI_PROVIDER_PRESETS.filter((p) => p.region === 'GLOBAL'), [])
-
+  useMemo(() => AI_PROVIDER_PRESETS.filter((p) => p.region === 'CN'), []);
+  useMemo(() => AI_PROVIDER_PRESETS.filter((p) => p.region === 'GLOBAL'), []);
   const loadConfigs = useCallback(async () => {
     try {
       setLoading(true)
@@ -83,6 +82,7 @@ export default function AiConfigPage() {
       toolsEnabled: null,
       enabled: true,
       isDefault: false,
+      ragTopK: 5,
     })
     setEditingId(null)
     setShowApiKey(false)
@@ -96,7 +96,6 @@ export default function AiConfigPage() {
   const openEditForm = (config: AiProviderConfig) => {
     setForm({
       ...config,
-      apiKey: '', // 后端返回脱敏的 key，清空让用户重新填
     })
     setEditingId(config.id ?? null)
     setShowForm(true)
@@ -129,11 +128,11 @@ export default function AiConfigPage() {
       return
     }
 
-    try {
-      const payload = {
-        ...form,
-        apiKey: form.apiKey?.trim() || undefined,
-      }
+      try {
+        const payload = {
+          ...form,
+          apiKey: form.apiKey?.trim() || undefined,
+        }
       if (editingId) {
         await updateAiConfig(editingId, payload)
         toast.success('配置已更新')
@@ -198,9 +197,7 @@ export default function AiConfigPage() {
     () => AI_PROVIDER_PRESETS.find((p) => p.baseUrl === form.baseUrl),
     [form.baseUrl]
   )
-
-  const defaultConfig = configs.find((c) => c.isDefault)
-
+  configs.find((c) => c.isDefault);
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -371,7 +368,7 @@ export default function AiConfigPage() {
                     ))}
                   </div>
 
-                  <div className="space-y-2 max-h-[480px] overflow-y-auto">
+                  <div className="space-y-2 max-h-[480px] overflow-y-auto overscroll-y-contain">
                     {filteredPresets.map((preset) => (
                       <button
                         key={preset.id}
@@ -509,6 +506,24 @@ export default function AiConfigPage() {
                 <label className="mb-1.5 block text-sm font-medium">超时(秒)</label>
                 <input type="number" value={form.timeout || 120} onChange={(e) => setForm((f) => ({ ...f, timeout: parseInt(e.target.value) || 120 }))} min={30} max={600} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />
               </div>
+            </div>
+
+            {/* RAG TopK */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">RAG 检索片段数 (TopK)</label>
+              <input 
+                type="number" 
+                value={form.ragTopK ?? ''} 
+                onChange={(e) => {
+                  const val = e.target.value
+                  setForm(f => ({ ...f, ragTopK: val === '' ? undefined : Number(val) }))
+                }} 
+                min={1} 
+                max={200} 
+                placeholder="留空使用全局默认值" 
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" 
+              />
+              <p className="mt-1 text-xs text-muted-foreground">每次问答从向量库检索的参考片段数量。大上下文模型可设为 50~100。</p>
             </div>
 
             {/* Tool Calling */}
