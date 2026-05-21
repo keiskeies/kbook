@@ -50,29 +50,24 @@ public class UserFollowController {
     /** 获取关注列表 */
     @GetMapping("/{userId}/followings")
     public Result<List<FollowUserVO>> getFollowings(@PathVariable Long userId) {
-        return Result.ok(toFollowUserVOs(userFollowService.getFollowings(userId)));
+        return Result.ok(toFollowUserVOs(userFollowService.getFollowings(userId), true));
     }
 
     /** 获取粉丝列表 */
     @GetMapping("/{userId}/followers")
     public Result<List<FollowUserVO>> getFollowers(@PathVariable Long userId) {
-        return Result.ok(toFollowUserVOs(userFollowService.getFollowers(userId)));
+        return Result.ok(toFollowUserVOs(userFollowService.getFollowers(userId), false));
     }
 
-    // ==================== VO ====================
-
-    private List<FollowUserVO> toFollowUserVOs(List<com.kbook.entity.UserFollow> follows) {
-        // followings: followingId 是被关注的人; followers: followerId 是粉丝
+    private List<FollowUserVO> toFollowUserVOs(List<com.kbook.entity.UserFollow> follows, boolean isFollowings) {
         List<Long> userIds = follows.stream()
-                .map(f -> f.getFollowingId() != null ? f.getFollowingId() : f.getFollowerId())
+                .map(f -> isFollowings ? f.getFollowingId() : f.getFollowerId())
                 .distinct().toList();
         Map<Long, User> userMap = userRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(User::getId, u -> u));
 
         return follows.stream().map(f -> {
-            // 对于 followings 列表，展示 followingId 的信息
-            // 对于 followers 列表，展示 followerId 的信息
-            Long targetUserId = f.getFollowingId();
+            Long targetUserId = isFollowings ? f.getFollowingId() : f.getFollowerId();
             FollowUserVO vo = new FollowUserVO();
             vo.setUserId(targetUserId);
             User user = userMap.get(targetUserId);

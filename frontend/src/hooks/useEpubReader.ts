@@ -13,13 +13,15 @@ interface UseEpubReaderOptions {
   isSystemDark?: boolean
   /** iframe 内容区域点击回调（用于弹出工具栏） */
   onContentClick?: (position: { x: number; y: number }) => void
+  /** iframe 内图片点击回调 */
+  onImageClick?: (src: string) => void
 }
 
 /**
  * EPUB 阅读器 Hook
  * 使用 epubjs 库解析 EPUB，支持章节导航和进度上报
  */
-export function useEpubReader({ bookId, initialPosition, isSystemDark, onContentClick }: UseEpubReaderOptions) {
+export function useEpubReader({ bookId, initialPosition, isSystemDark, onContentClick, onImageClick }: UseEpubReaderOptions) {
   const [book, setBook] = useState<Book | null>(null)
   const [chapters, setChapters] = useState<EpubChapter[]>([])
   const [currentChapterId, setCurrentChapterId] = useState('')
@@ -39,6 +41,7 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
   const initialPositionRef = useRef<string | null>(initialPosition)
   const locationsReadyRef = useRef(false)
   const onContentClickRef = useRef(onContentClick)
+  const onImageClickRef = useRef(onImageClick)
   const sandboxObserverRef = useRef<MutationObserver | null>(null)
 
   // 更新 chapters ref
@@ -47,6 +50,8 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
   useEffect(() => { initialPositionRef.current = initialPosition }, [initialPosition])
   // 保持 onContentClick ref 最新
   useEffect(() => { onContentClickRef.current = onContentClick }, [onContentClick])
+  // 保持 onImageClick ref 最新
+  useEffect(() => { onImageClickRef.current = onImageClick }, [onImageClick])
 
   // 应用主题
   const applyTheme = useCallback((rendition: any, s: any) => {
@@ -498,6 +503,21 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
 
             // 桌面端点击（移动端由 touchend 处理，避免重复）
             doc.addEventListener('click', (e: MouseEvent) => {
+              // 检查是否点击图片
+              const target = e.target as HTMLElement
+              if (target?.tagName === 'IMG') {
+                const imgSrc = (target as HTMLImageElement).src
+                if (imgSrc) {
+                  const imageClickHandler = onImageClickRef.current
+                  if (imageClickHandler) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    imageClickHandler(imgSrc)
+                    return
+                  }
+                }
+              }
+
               if (touchHandled) {
                 touchHandled = false
                 return

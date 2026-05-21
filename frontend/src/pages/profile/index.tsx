@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
 import { useNavigate } from 'react-router-dom'
@@ -10,9 +10,11 @@ import { getBookshelfCount } from '@/api/bookshelf'
 import { updateTraits, updateMood } from '@/api/auth'
 import { updateProfile, uploadAvatar } from '@/api/user'
 import { getExcludePreferences, addExcludePreference, removeExcludePreference, getIncludePreferences, addIncludePreference, removeIncludePreference } from '@/api/preference'
+import { getUnreadCount } from '@/api/chat'
 import type { UserBookPreferenceItem } from '@/api/preference'
-import { ThemeToggle } from '@/components/ThemeToggle'
 import type { ReadingStats } from '@/types/book'
+import { useChatStore } from '@/store/chat'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
 
@@ -63,7 +65,6 @@ const MOOD_OPTIONS = [
   { value: 'CURIOUS', label: '好奇', emoji: '🤔' },
 ]
 
-/** 根据 birthday 计算年龄 */
 function calcAge(birthday: string | null | undefined): number | null {
   if (!birthday) return null
   const birth = new Date(birthday)
@@ -78,12 +79,13 @@ function calcAge(birthday: string | null | undefined): number | null {
 
 export default function ProfilePage() {
   const { userInfo, updateUserInfo, logout } = useAuthStore()
+  const { setUnreadCount } = useChatStore()
   const setTabBarVisible = useUiStore((s) => s.setTabBarVisible)
   const navigate = useNavigate()
   const [stats, setStats] = useState<ReadingStats | null>(null)
   const [shelfCount, setShelfCount] = useState<number>(0)
+  const [chatUnreadCount, setChatUnreadCount] = useState<number>(0)
 
-  // 画像编辑弹窗
   const [showTraitsModal, setShowTraitsModal] = useState(false)
   const [traitBirthday, setTraitBirthday] = useState(userInfo?.birthday ?? '')
   const [traitGender, setTraitGender] = useState(userInfo?.gender ?? '')
@@ -99,7 +101,6 @@ export default function ProfilePage() {
   const [traitAnnualIncome, setTraitAnnualIncome] = useState(userInfo?.annualIncome ?? '')
   const [savingTraits, setSavingTraits] = useState(false)
 
-  // 用户信息编辑弹窗（昵称+头像+心情）
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [editNickname, setEditNickname] = useState(userInfo?.nickname ?? '')
   const [editBio, setEditBio] = useState(userInfo?.bio ?? '')
@@ -108,7 +109,6 @@ export default function ProfilePage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // 阅读偏好弹窗
   const [showPreferenceModal, setShowPreferenceModal] = useState(false)
   const [excludePrefs, setExcludePrefs] = useState<UserBookPreferenceItem[]>([])
   const [includePrefs, setIncludePrefs] = useState<UserBookPreferenceItem[]>([])
@@ -143,7 +143,6 @@ export default function ProfilePage() {
     }
     if (userInfo?.entrepreneurship) {
       const val = userInfo.entrepreneurship
-      // 兼容旧值：ENTREPRENEUR / WANT_ENTREPRENEUR → 合并为新标签
       if (val === 'ENTREPRENEUR' || val === 'WANT_ENTREPRENEUR') {
         parts.push('正在创业/想创业')
       } else {
@@ -161,16 +160,19 @@ export default function ProfilePage() {
   useEffect(() => {
     getReadingStats().then((res) => setStats((res as any) || null)).catch(() => {})
     getBookshelfCount().then((res) => setShelfCount((res as any) || 0)).catch(() => {})
-  }, [])
+    getUnreadCount().then((res) => {
+      const count = (res as any)?.data || (res as any) || 0
+      setChatUnreadCount(count)
+      setUnreadCount(count)
+    }).catch(() => {})
+  }, [setUnreadCount])
 
-  // 弹窗打开时隐藏 TabBar，关闭时恢复
   useEffect(() => {
     const anyModalOpen = showProfileModal || showTraitsModal || showPreferenceModal
     setTabBarVisible(!anyModalOpen)
     return () => setTabBarVisible(true)
   }, [showProfileModal, showTraitsModal, showPreferenceModal])
 
-  // 打开用户信息编辑弹窗时同步最新数据
   useEffect(() => {
     if (showProfileModal) {
       setEditNickname(userInfo?.nickname ?? '')
@@ -179,7 +181,6 @@ export default function ProfilePage() {
     }
   }, [showProfileModal, userInfo?.nickname, userInfo?.bio, userInfo?.mood])
 
-  // 打开画像编辑弹窗时同步最新数据
   useEffect(() => {
     if (showTraitsModal) {
       setTraitBirthday(userInfo?.birthday ?? '')
@@ -217,6 +218,7 @@ export default function ProfilePage() {
       titleIcon: Users,
       items: [
         { label: '我的关注', icon: Users, path: '', extra: `${userInfo?.followingCount || 0} 关注`, action: () => navigate(`/user/${userInfo?.id}/follow/followings`) },
+        { label: '私信', icon: MessageCircle, path: '/chat', extra: chatUnreadCount > 0 ? `${chatUnreadCount} 未读` : '' },
         { label: '通知', icon: Bell, path: '/notifications', extra: '' },
       ],
     },
@@ -245,7 +247,6 @@ export default function ProfilePage() {
     navigate(ROUTES.LOGIN, { replace: true })
   }
 
-  // 保存用户信息（昵称+心情）
   const handleSaveProfile = async () => {
     if (!editNickname.trim()) {
       toast.error('给自己取个昵称吧')
@@ -255,10 +256,8 @@ export default function ProfilePage() {
     try {
       await updateProfile({ nickname: editNickname.trim() })
       updateUserInfo({ nickname: editNickname.trim(), bio: editBio.trim() })
-      // 同步 bio 到后端
       const { updateBio } = await import('@/api/userProfile')
       await updateBio(editBio.trim())
-      // 同步心情到后端
       if (editMood !== (userInfo?.mood ?? '')) {
         await updateMood(editMood)
         updateUserInfo({ mood: editMood || null })
@@ -272,17 +271,14 @@ export default function ProfilePage() {
     }
   }
 
-  // 上传头像
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // 校验文件类型
     if (!file.type.startsWith('image/')) {
       toast.error('选择一张图片吧')
       return
     }
-    // 校验大小（2MB）
     if (file.size > 2 * 1024 * 1024) {
       toast.error('图片大小不要超过2MB哦')
       return
@@ -300,12 +296,10 @@ export default function ProfilePage() {
       toast.error(err.message || '头像暂时无法上传')
     } finally {
       setUploadingAvatar(false)
-      // 重置 file input
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
-  // 保存画像
   const handleSaveTraits = async () => {
     setSavingTraits(true)
     try {
@@ -340,10 +334,6 @@ export default function ProfilePage() {
       setSavingTraits(false)
     }
   }
-
-
-
-  // ==================== 阅读偏好 ====================
 
   const catLabel = (c: string) => c === 'TAG' ? '标签' : c === 'AUTHOR' ? '作者' : '格式'
 
@@ -412,17 +402,14 @@ export default function ProfilePage() {
     }
   }
 
-  // 头像完整 URL
   const avatarFullUrl = userInfo?.avatar
     ? (userInfo.avatar.startsWith('http') ? userInfo.avatar : userInfo.avatar)
     : null
 
   return (
     <div className="px-4 pt-safe-top pb-6 page-enter">
-      {/* 顶部间距 */}
       <div className="h-4" />
       
-      {/* 用户信息卡片 — 渐变背景 */}
       <div className="mb-5 rounded-2xl bg-gradient-to-br from-primary/8 via-card to-card p-4 shadow-sm border border-primary/10">
         <div className="flex items-center gap-4">
           <button
@@ -436,7 +423,6 @@ export default function ProfilePage() {
                 {userInfo?.nickname?.[0] || 'U'}
               </span>
             )}
-            {/* 编辑头像遮罩 */}
             <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/40 transition-colors">
               <Camera className="h-5 w-5 text-white opacity-0 hover:opacity-100 transition-opacity" />
             </div>
@@ -469,7 +455,6 @@ export default function ProfilePage() {
           </button>
         </div>
 
-        {/* 阅读统计 */}
         {stats && (
           <div className="mt-4 grid grid-cols-3 gap-3 border-t border-primary/10 pt-4">
             <div className="text-center">
@@ -488,7 +473,6 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* 管理员功能 */}
       {isAdmin && (
         <div className="mb-4 rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
           <div className="px-4 pt-3 pb-1">
@@ -524,18 +508,15 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* 功能分组 */}
       <div className="space-y-4">
         {menuGroups.map((group) => {
           const GroupIcon = group.titleIcon
           return (
             <div key={group.title} className="rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
-              {/* 分组标题 */}
               <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
                 <GroupIcon className="h-3.5 w-3.5 text-muted-foreground" />
                 <h3 className="text-xs font-bold text-muted-foreground tracking-wider">{group.title}</h3>
               </div>
-              {/* 分组菜单项 */}
               {group.items.map((item, i) => {
                 const Icon = item.icon
                 const isCustom = !!(item as any).custom
@@ -577,7 +558,6 @@ export default function ProfilePage() {
         })}
       </div>
 
-      {/* 退出登录 */}
       {userInfo && (
         <button
           onClick={handleLogout}
@@ -588,7 +568,10 @@ export default function ProfilePage() {
         </button>
       )}
 
-      {/* 用户信息编辑弹窗（昵称 + 头像） */}
+      <div className="mt-6 text-center">
+        <span className="text-[10px] text-muted-foreground/60">@VERSION - KEISKEIES 1.0.3</span>
+      </div>
+
       {showProfileModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowProfileModal(false)}>
           <div className="w-full max-w-lg rounded-t-3xl bg-card p-5 space-y-4 shadow-2xl" style={{ paddingBottom: 'calc(1.25rem + 5rem)' }} onClick={e => e.stopPropagation()}>
@@ -600,7 +583,6 @@ export default function ProfilePage() {
               <button onClick={() => setShowProfileModal(false)} className="text-muted-foreground text-sm font-medium">关闭</button>
             </div>
 
-            {/* 头像上传 */}
             <div className="flex flex-col items-center gap-2">
               <button
                 onClick={() => fileInputRef.current?.click()}
@@ -632,7 +614,6 @@ export default function ProfilePage() {
               />
             </div>
 
-            {/* 昵称编辑 */}
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">昵称</label>
               <input
@@ -645,7 +626,6 @@ export default function ProfilePage() {
               />
             </div>
 
-            {/* 简介编辑 */}
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">个人简介</label>
               <textarea
@@ -659,7 +639,6 @@ export default function ProfilePage() {
               <p className="mt-1 text-[10px] text-muted-foreground text-right">{editBio.length}/200</p>
             </div>
 
-            {/* 心情选择 */}
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1.5 block">当前心情</label>
               <div className="flex flex-wrap gap-2">
@@ -695,7 +674,6 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* 画像编辑弹窗 */}
       {showTraitsModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowTraitsModal(false)}>
           <div className="w-full max-w-lg max-h-[85vh] rounded-t-3xl bg-card shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -767,7 +745,6 @@ export default function ProfilePage() {
               ))}
             </select>
 
-            {/* 职业 - 多选 */}
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1.5 block">职业方向（可多选）</label>
               <div className="flex flex-wrap gap-2">
@@ -796,7 +773,6 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* 学历 */}
             <select
               value={traitEducation}
               onChange={(e) => setTraitEducation(e.target.value)}
@@ -808,7 +784,6 @@ export default function ProfilePage() {
               ))}
             </select>
 
-            {/* 创业意向 */}
             <select
               value={traitEntrepreneurship}
               onChange={(e) => setTraitEntrepreneurship(e.target.value)}
@@ -820,7 +795,6 @@ export default function ProfilePage() {
               ))}
             </select>
 
-            {/* 年收入范围 */}
             <select
               value={traitAnnualIncome}
               onChange={(e) => setTraitAnnualIncome(e.target.value)}
@@ -844,7 +818,6 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* 阅读偏好弹窗 */}
       {showPreferenceModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowPreferenceModal(false)}>
           <div className="w-full max-w-lg rounded-t-3xl bg-card p-5 space-y-4 shadow-2xl" style={{ paddingBottom: 'calc(1.25rem + 5rem)' }} onClick={e => e.stopPropagation()}>
@@ -858,7 +831,6 @@ export default function ProfilePage() {
               设置你的阅读偏好，让推荐更懂你。喜欢的类型会优先推荐，不想看的会自动排除。
             </p>
 
-            {/* Tab 切换 */}
             <div className="flex rounded-lg bg-muted p-1">
               <button
                 onClick={() => { setPrefTab('include'); setPrefValue('') }}
@@ -874,7 +846,6 @@ export default function ProfilePage() {
               </button>
             </div>
 
-            {/* 添加偏好 */}
             <div className="space-y-2">
               <div className="flex gap-2">
                 <select
@@ -907,7 +878,6 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* 偏好列表 */}
             {prefTab === 'include' ? (
               <div>
                 <h4 className="text-xs font-semibold text-muted-foreground mb-2">

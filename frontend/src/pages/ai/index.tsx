@@ -4,24 +4,22 @@ import { Send, Plus, Trash2, MessageSquare, Loader2, Bot, User, RefreshCw, Copy,
 import { streamChat, createSession, getHistory, getSessions, deleteSession, getHotPrompts } from '@/api/ai'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
-import type { AiMessage } from '@/types/ai'
+import type { AiMessage, AiSessionItem } from '@/types/ai'
 
 export default function AIPage() {
   const navigate = useNavigate()
-  const [sessions, setSessions] = useState<string[]>([])
+  const [sessions, setSessions] = useState<AiSessionItem[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string>('')
   const [messages, setMessages] = useState<AiMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [showSidebar, setShowSidebar] = useState(false)
-  const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({})
   const [hotPrompts, setHotPrompts] = useState<string[]>([])
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [bookMap, setBookMap] = useState<Record<string, number>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  // 加载会话列表 & 热门问题 & 事件委托处理图书链接点击
   useEffect(() => {
     loadSessions()
     loadHotPrompts()
@@ -37,7 +35,6 @@ export default function AIPage() {
     return () => document.removeEventListener('click', handleClick)
   }, [navigate])
 
-  // 滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -45,7 +42,8 @@ export default function AIPage() {
   const loadSessions = async () => {
     try {
       const data = await getSessions()
-      setSessions(data as unknown as string[])
+      const list = (data as any)?.data || data
+      if (Array.isArray(list)) setSessions(list)
     } catch { /* ignore */ }
   }
 
@@ -59,56 +57,39 @@ export default function AIPage() {
     } catch { /* ignore */ }
   }
 
-  /** 生成会话标题 */
-  const generateTitle = (content: string): string => {
-    const trimmed = content.trim()
-    // 截取前15个字符作为问题预览
-    const questionPreview = trimmed.length > 15 ? trimmed.slice(0, 15) + '...' : trimmed
-    return `阅读助手-${questionPreview || '新会话'}`
-  }
-
   const loadHistory = async (sessionId: string) => {
     try {
       const data = await getHistory(sessionId)
-      const history = (data as unknown as any[]).map((r: any) => ({
-        id: String(r.id),
-        role: r.role as 'user' | 'assistant',
-        content: r.content,
-        timestamp: new Date(r.createdAt).getTime(),
-      }))
+      const raw = (data as any)?.data || data
+      const history = (Array.isArray(raw) ? raw : [])
+        .filter((r: any) => r.role === 'user' || r.role === 'assistant')
+        .map((r: any) => ({
+          id: String(r.id),
+          role: r.role as 'user' | 'assistant',
+          content: r.content,
+          timestamp: new Date(r.createdAt).getTime(),
+          thinkingContent: r.thinkingContent || undefined,
+        }))
       setMessages(history)
       setCurrentSessionId(sessionId)
-      
-      // 提取会话标题（第一条用户消息）
-      const firstUserMsg = history.find((m: AiMessage) => m.role === 'user')
-      if (firstUserMsg) {
-        const title = generateTitle(firstUserMsg.content)
-        setSessionTitles((prev) => ({ ...prev, [sessionId]: title }))
-      }
     } catch { /* ignore */ }
   }
 
   const handleNewChat = async () => {
     try {
       const data = await createSession()
-      const sid = (data as any).sessionId
+      const sid = (data as any).sessionId || (data as any)?.data?.sessionId
       setCurrentSessionId(sid)
       setMessages([])
-      setSessions((prev) => [sid, ...prev])
       setShowSidebar(false)
+      loadSessions()
     } catch { /* ignore */ }
   }
 
   const handleDeleteSession = async (sessionId: string) => {
     try {
       await deleteSession(sessionId)
-      setSessions((prev) => prev.filter((s) => s !== sessionId))
-      // 清理标题
-      setSessionTitles((prev) => {
-        const newTitles = { ...prev }
-        delete newTitles[sessionId]
-        return newTitles
-      })
+      setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId))
       if (currentSessionId === sessionId) {
         setMessages([])
         setCurrentSessionId('')
@@ -120,27 +101,18 @@ export default function AIPage() {
     const message = (text || input).trim()
     if (!message || loading) return
 
-    // 确保有会话
     let sessionId = currentSessionId
     if (!sessionId) {
       try {
         const data = await createSession()
-        sessionId = (data as any).sessionId
+        sessionId = (data as any).sessionId || (data as any)?.data?.sessionId
         setCurrentSessionId(sessionId)
-        setSessions((prev) => [sessionId, ...prev])
-        // 为新会话设置标题
-        setSessionTitles((prev) => ({ ...prev, [sessionId]: generateTitle(message) }))
+        loadSessions()
       } catch {
         return
       }
-    } else {
-      // 如果当前会话还没有标题，设置标题
-      if (!sessionTitles[sessionId]) {
-        setSessionTitles((prev) => ({ ...prev, [sessionId]: generateTitle(message) }))
-      }
     }
 
-    // 添加用户消息
     const userMsg: AiMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
@@ -151,7 +123,6 @@ export default function AIPage() {
     setInput('')
     setLoading(true)
 
-    // 添加 AI 占位消息
     const assistantMsg: AiMessage = {
       id: `a-${Date.now()}`,
       role: 'assistant',
@@ -161,7 +132,6 @@ export default function AIPage() {
     }
     setMessages((prev) => [...prev, assistantMsg])
 
-    // 流式请求
     const controller = streamChat(
       { sessionId, message },
       (chunk) => {
@@ -182,6 +152,7 @@ export default function AIPage() {
           )
         )
         setLoading(false)
+        loadSessions()
       },
       () => {
         setMessages((prev) =>
@@ -216,9 +187,8 @@ export default function AIPage() {
       },
     )
     abortRef.current = controller as any
-  }, [input, loading, currentSessionId, sessionTitles])
+  }, [input, loading, currentSessionId])
 
-  /** 重新生成指定位置的 AI 回答 */
   const handleRegenerate = useCallback((msgIndex?: number) => {
     if (loading) return
     if (abortRef.current) {
@@ -257,9 +227,22 @@ export default function AIPage() {
     }
   }
 
+  const formatTime = (dateStr: string) => {
+    const d = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - d.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    if (diffMins < 1) return '刚刚'
+    if (diffMins < 60) return `${diffMins}分钟前`
+    const diffHours = Math.floor(diffMins / 60)
+    if (diffHours < 24) return `${diffHours}小时前`
+    const diffDays = Math.floor(diffHours / 24)
+    if (diffDays < 7) return `${diffDays}天前`
+    return `${d.getMonth() + 1}/${d.getDate()}`
+  }
+
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-background">
-      {/* 标题栏 - 固定在顶部 */}
       <header className="flex shrink-0 items-center border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
         <button
           onClick={() => setShowSidebar(!showSidebar)}
@@ -280,7 +263,6 @@ export default function AIPage() {
       </header>
 
       <div className="relative flex flex-1 overflow-hidden">
-        {/* 侧边栏遮罩 */}
         {showSidebar && (
           <div
             className="absolute inset-0 z-20 bg-black/30"
@@ -288,7 +270,6 @@ export default function AIPage() {
           />
         )}
 
-        {/* 侧边栏 - 会话列表 */}
         {showSidebar && (
           <div className="absolute inset-y-0 left-0 z-30 w-64 border-r bg-background shadow-lg">
             <div className="flex items-center justify-between border-b px-3 py-2">
@@ -301,25 +282,28 @@ export default function AIPage() {
               {sessions.length === 0 ? (
                 <p className="py-4 text-center text-xs text-muted-foreground">暂无会话</p>
               ) : (
-                sessions.map((sid) => (
+                sessions.map((session) => (
                   <div
-                    key={sid}
+                    key={session.id}
                     className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-sm cursor-pointer hover:bg-muted ${
-                      sid === currentSessionId ? 'bg-muted' : ''
+                      session.sessionId === currentSessionId ? 'bg-muted' : ''
                     }`}
                     onClick={() => {
-                      loadHistory(sid)
+                      loadHistory(session.sessionId)
                       setShowSidebar(false)
                     }}
                   >
                     <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate text-xs">
-                      {sessionTitles[sid] || sid.slice(0, 8) + '...'}
+                      {session.title || session.sessionId.slice(0, 8) + '...'}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {formatTime(session.updatedAt)}
                     </span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleDeleteSession(sid)
+                        handleDeleteSession(session.sessionId)
                       }}
                       className="hidden shrink-0 group-hover:block"
                     >
@@ -332,7 +316,6 @@ export default function AIPage() {
           </div>
         )}
 
-        {/* 消息区域 */}
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
@@ -359,7 +342,6 @@ export default function AIPage() {
           ) : (
             <div className="space-y-4 pb-4">
               {(() => {
-                // 找到最后一条 assistant 消息的 id
                 let lastAssistantId = ''
                 for (let i = messages.length - 1; i >= 0; i--) {
                   if (messages[i].role === 'assistant') {
@@ -370,23 +352,25 @@ export default function AIPage() {
                 return messages.map((msg, i) => (
                 <div
                   key={msg.id}
-                  className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+                  className={msg.role === 'user' ? 'flex flex-col items-end' : 'flex flex-col'}
                 >
-                  {/* 头像 */}
-                  <div
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                      msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
-                    }`}
-                  >
-                    {msg.role === 'user' ? (
-                      <User className="h-4 w-4" />
-                    ) : (
-                      <Bot className="h-4 w-4" />
-                    )}
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <div
+                      className={`flex h-5 w-5 items-center justify-center rounded-full ${
+                        msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                      }`}
+                    >
+                      {msg.role === 'user' ? (
+                        <User className="h-3 w-3" />
+                      ) : (
+                        <Bot className="h-3 w-3" />
+                      )}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">
+                      {msg.role === 'user' ? '你' : 'AI'}
+                    </span>
                   </div>
-
-                  {/* 消息气泡 + 操作按钮 — 与图书伴聊结构一致 */}
-                  <div className="max-w-[80%]">
+                  <div className={msg.role === 'user' ? 'max-w-[90%]' : 'w-full'}>
                     <div
                       className={`rounded-2xl px-4 py-2.5 text-sm ${
                         msg.role === 'user'
@@ -421,10 +405,8 @@ export default function AIPage() {
                         </span>
                       )}
                     </div>
-                    {/* AI 回答操作按钮 */}
                     {msg.role === 'assistant' && !msg.streaming && msg.content && (
-                      <div className="mt-1.5 flex items-center gap-1 px-1">
-                        {/* 复制按钮（所有回答） */}
+                      <div className="mt-1.5 flex items-center gap-1">
                         <button
                           className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
                           onClick={() => {
@@ -445,7 +427,6 @@ export default function AIPage() {
                           )}
                           {copiedId === msg.id ? '已复制' : '复制'}
                         </button>
-                        {/* 重新生成按钮（仅最后一条） */}
                         {msg.id === lastAssistantId && (
                           <button
                             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
@@ -468,7 +449,6 @@ export default function AIPage() {
         </div>
       </div>
 
-      {/* 输入区域 - 底部留出 TabBar + AI 凸起按钮的空间 */}
       <div className="shrink-0 border-t bg-background px-4 py-3 safe-area-bottom" style={{ paddingBottom: 'calc(0.75rem + 5rem)' }}>
         <div className="flex items-center gap-2">
           <input

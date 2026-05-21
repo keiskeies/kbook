@@ -1,7 +1,9 @@
 package com.kbook.service;
 
 import com.kbook.dto.ProgressBatchItem;
+import com.kbook.dto.ReadingHistoryVO;
 import com.kbook.dto.ReadingStats;
+import com.kbook.entity.Book;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.ReadingProgressRepository;
@@ -146,6 +148,21 @@ public class ReadingProgressService {
      */
     public List<ReadingProgress> getUserProgresses(Long userId) {
         return progressRepository.findByUserIdOrderByUpdatedAtDesc(userId);
+    }
+
+    /**
+     * 分页获取用户阅读历史（含图书信息）
+     */
+    public com.kbook.common.api.PageResult<ReadingHistoryVO> getUserReadingHistory(Long userId, int page, int size) {
+        org.springframework.data.domain.Page<ReadingProgress> pageData = progressRepository
+                .findByUserIdOrderByUpdatedAtDesc(userId, org.springframework.data.domain.PageRequest.of(page, size));
+
+        List<ReadingHistoryVO> list = pageData.getContent().stream().map(rp -> {
+            Book book = bookRepository.findById(rp.getBookId()).orElse(null);
+            return ReadingHistoryVO.from(rp, book);
+        }).collect(Collectors.toList());
+
+        return com.kbook.common.api.PageResult.of(list, pageData.getTotalElements(), page, size);
     }
 
     /**

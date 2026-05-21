@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { STORAGE_KEYS } from '@/constants'
 import type { UserInfo as ApiUserInfo } from '@/api/auth'
+import { broadcastTokenUpdate, broadcastTokenCleared } from '@/utils/token-sync'
 
 export interface UserInfo {
   id: number
@@ -67,6 +68,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.setItem(STORAGE_KEYS.TOKEN, token)
     localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken)
     localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo))
+    broadcastTokenUpdate(token, refreshToken)
     set({ token, userInfo, isAuthenticated: true })
   },
 
@@ -83,6 +85,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem(STORAGE_KEYS.TOKEN)
     localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
     localStorage.removeItem(STORAGE_KEYS.USER_INFO)
+    broadcastTokenCleared()
     set({ token: null, userInfo: null, isAuthenticated: false })
   },
 

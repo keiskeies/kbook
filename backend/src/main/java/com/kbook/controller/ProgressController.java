@@ -1,7 +1,9 @@
 package com.kbook.controller;
 
+import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
 import com.kbook.dto.ProgressBatchItem;
+import com.kbook.dto.ReadingHistoryVO;
 import com.kbook.dto.ReadingStats;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.service.BookService;
@@ -107,6 +109,18 @@ public class ProgressController {
     public Result<List<ReadingProgress>> getUserProgresses(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(progressService.getUserProgresses(userId));
+    }
+
+    /**
+     * 分页获取用户阅读历史（含图书信息）
+     */
+    @GetMapping("/history")
+    public Result<PageResult<ReadingHistoryVO>> getUserReadingHistory(
+            Authentication authentication,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(progressService.getUserReadingHistory(userId, page, size));
     }
 
     /**

@@ -30,6 +30,12 @@ public class BookInfoServiceTest {
     @Autowired
     private BookParserService bookParserService;
 
+    @Autowired
+    private com.kbook.service.BookSearchService bookSearchService;
+
+    @Autowired
+    private com.kbook.service.EmbeddingService embeddingService;
+
     @Test
     public void updateBookImages() {
         String errs = "book_new_1778875775817_cover.jpg," +
@@ -86,6 +92,56 @@ public class BookInfoServiceTest {
             bookService.setCoverUrl(book.getId(), book.getCoverUrl());
 
         }
+    }
+
+
+    @Test
+    public void updateBookDescription() {
+        // 1. 从数据库中筛选简介小于100字的图书
+        List<Book> allBooks = bookRepository.findAll();
+        List<Book> shortDescBooks = allBooks.stream()
+                .filter(book -> book.getDescription() == null || book.getDescription().length() < 50)
+                .toList();
+
+        System.out.println("找到 " + shortDescBooks.size() + " 本简介小于100字的图书");
+
+        int successCount = 0;
+        int failCount = 0;
+
+        // 2. 遍历每本书，重新生成AI数据并更新ES和向量
+        for (int i = 0; i < shortDescBooks.size(); i++) {
+            Book book = shortDescBooks.get(i);
+            try {
+                System.out.println("处理第 " + (i + 1) + "/" + shortDescBooks.size() + " 本: [" + book.getId() + "] " + book.getTitle());
+
+                // 3. 使用 BookParserService.generateAllAiData 重新生成书籍信息（包括简介）
+                bookParserService.generateAllAiData(book);
+
+                // 4. 保存更新后的书籍信息到数据库
+                bookService.updateBook(book.getId(), book);
+
+                // 5. 更新 Elasticsearch 索引
+                bookSearchService.indexBook(book);
+
+                // 6. 重建基础信息向量（参考 EmbeddingService.rebuildAllBookEmbeddingsWithProgress 中对单本书的向量操作）
+                embeddingService.removeBookEmbedding(book.getId());
+                embeddingService.upsertBookEmbedding(book);
+
+                successCount++;
+                System.out.println("  ✓ 成功更新: " + book.getTitle() + ", 简介长度: " + 
+                        (book.getDescription() != null ? book.getDescription().length() : 0));
+
+            } catch (Exception e) {
+                failCount++;
+                System.err.println("  ✗ 失败: " + book.getTitle() + " - " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        System.out.println("\n========== 处理完成 ==========");
+        System.out.println("总数: " + shortDescBooks.size());
+        System.out.println("成功: " + successCount);
+        System.out.println("失败: " + failCount);
     }
 
     @Test

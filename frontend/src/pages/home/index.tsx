@@ -202,7 +202,7 @@ function ContinueReadingCarousel({ books, onReadClick }: {
 }
 /** 评分徽章 — 5分制分等级配色 */
 function RatingBadge({ rating }: { rating: number | undefined | null }) {
-  if (rating == null || rating <= 0) return null
+  if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
 
   let colorClass = ''
@@ -236,9 +236,7 @@ function RatingBadge({ rating }: { rating: number | undefined | null }) {
 }
 
 function MatchBadge({ score }: { score: number | undefined | null }) {
-  if (score == null || score <= 0) return null
-  const pct = Math.round(score * 100)
-  if (pct <= 0) return null
+  const pct = Math.round(Math.max(0, score ?? 0) * 100)
 
   let colorClass = ''
   let bgClass = ''
@@ -272,7 +270,7 @@ function MatchBadge({ score }: { score: number | undefined | null }) {
 
 /** 评分徽章（带中文标签） — 5分制分等级配色 */
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
-  if (rating == null || rating <= 0) return null
+  if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
 
   let colorClass = ''
@@ -307,9 +305,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
 
 /** 匹配度徽章（带中文标签） — 根据匹配度分等级配色 */
 function MatchBadgeCN({ score }: { score: number | undefined | null }) {
-  if (score == null || score <= 0) return null
-  const pct = Math.round(score * 100)
-  if (pct <= 0) return null
+  const pct = Math.round(Math.max(0, score ?? 0) * 100)
 
   let colorClass = ''
   let bgClass = ''

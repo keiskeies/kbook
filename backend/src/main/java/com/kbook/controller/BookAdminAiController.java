@@ -2,6 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiSession;
 import com.kbook.service.BookAdminChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,13 +14,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 管理员 AI 对话控制器 — 图书管理员智能助手
- * <p>
- * 仅管理员可访问，提供自然语言驱动的图书管理能力。
- * 管理员在对话框中输入需求（如"删除张三的所有书"），
- * AI 自动调用对应的工具方法完成任务。
- */
 @Slf4j
 @RestController
 @RequestMapping("/api/admin/ai")
@@ -29,9 +23,6 @@ public class BookAdminAiController extends BaseController {
 
     private final BookAdminChatService adminChatService;
 
-    /**
-     * 创建新会话
-     */
     @PostMapping("/sessions")
     public Result<Map<String, String>> createSession() {
         Long userId = extractUserId();
@@ -39,9 +30,6 @@ public class BookAdminAiController extends BaseController {
         return Result.ok(Map.of("sessionId", sessionId));
     }
 
-    /**
-     * 流式对话 — SSE
-     */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(@RequestBody Map<String, String> body) {
         Long userId = extractUserId();
@@ -60,9 +48,6 @@ public class BookAdminAiController extends BaseController {
         return adminChatService.streamChat(userId, sessionId, message);
     }
 
-    /**
-     * 非流式对话
-     */
     @PostMapping("/chat")
     public Result<Map<String, String>> chat(@RequestBody Map<String, String> body) {
         Long userId = extractUserId();
@@ -80,27 +65,18 @@ public class BookAdminAiController extends BaseController {
         return Result.ok(Map.of("sessionId", sessionId, "response", response));
     }
 
-    /**
-     * 获取对话历史
-     */
     @GetMapping("/history")
     public Result<List<AiConversation>> getHistory(@RequestParam String sessionId) {
         Long userId = extractUserId();
         return Result.ok(adminChatService.getHistory(userId, sessionId));
     }
 
-    /**
-     * 获取会话列表
-     */
     @GetMapping("/sessions")
-    public Result<List<String>> getSessions() {
+    public Result<List<AiSession>> getSessions() {
         Long userId = extractUserId();
         return Result.ok(adminChatService.getSessions(userId));
     }
 
-    /**
-     * 删除会话
-     */
     @DeleteMapping("/sessions/{sessionId}")
     public Result<Void> deleteSession(@PathVariable String sessionId) {
         Long userId = extractUserId();

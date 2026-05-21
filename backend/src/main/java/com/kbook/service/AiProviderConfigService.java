@@ -152,13 +152,6 @@ public class AiProviderConfigService {
         return chatModelFactory.buildChatModelWithoutThinking(config);
     }
 
-    /**
-     * 判断对话模型是否支持 Tool Calling
-     */
-    public boolean isChatToolsSupported() {
-        AiProviderConfig config = getChatConfig();
-        return chatModelFactory.isToolsSupported(config);
-    }
 
     /**
      * 获取对话 AiAssistant（带版本缓存）
@@ -166,7 +159,7 @@ public class AiProviderConfigService {
      * 当管理员更新对话配置后，调用 invalidateChatCache() 使缓存失效，
      * 下次获取时将重新构建 Assistant。
      */
-    public AiAssistant getChatAssistant(Long userId) {
+    public AiAssistant getChatAssistant() {
         long currentVersion = chatConfigVersion;
         if (cachedChatAssistant != null && cachedChatAssistantVersion == currentVersion) {
             return cachedChatAssistant;
@@ -217,15 +210,6 @@ public class AiProviderConfigService {
         return chatModelFactory.buildVisionChatModel();
     }
 
-    // ==================== 旧版全局 Assistant（兼容保留） ====================
-
-    /**
-     * @deprecated 使用 {@link #getChatAssistant(Long)} 代替
-     */
-    @Deprecated
-    public AiAssistant getAssistant(Long userId) {
-        return assistantCache.computeIfAbsent("global", k -> buildLegacyAssistant());
-    }
 
     // ==================== 内部方法 ====================
 
@@ -278,34 +262,6 @@ public class AiProviderConfigService {
             log.info("  已注册 AI 工具: class={}", toolObj.getClass().getName());
         } else {
             log.warn("  对话模型 {} 不支持 Tool Calling，AI 助理将以纯对话模式运行（无法调用搜索/推荐等工具）", modelName);
-        }
-
-        return builder.build();
-    }
-
-    /**
-     * 构建旧版全局 Assistant（从 yml 配置，兼容保留）
-     */
-    private AiAssistant buildLegacyAssistant() {
-        String modelName = chatModelFactory.getModelName();
-        boolean toolsSupported = chatModelFactory.isToolsSupported();
-        log.info("构建旧版 AI Assistant: model={}, toolsEnabled={}", modelName, toolsSupported);
-
-        var builder = AiServices.builder(AiAssistant.class)
-                .chatModel(chatModelFactory.buildChatModel())
-                .streamingChatModel(chatModelFactory.buildStreamingChatModel())
-                .chatMemoryProvider(sessionId -> dev.langchain4j.memory.chat.MessageWindowChatMemory.builder()
-                        .id(sessionId)
-                        .maxMessages(AiPromptConstants.ADMIN_MAX_MESSAGES)
-                        .chatMemoryStore(chatMemoryStore)
-                        .build());
-
-        if (toolsSupported) {
-            Object toolObj = toolServiceProvider.getObject();
-            builder.tools(toolObj);
-            log.info("  已注册 AI 工具(legacy): class={}", toolObj.getClass().getName());
-        } else {
-            log.warn("  当前模型 {} 不支持 Tool Calling，AI 助理将以纯对话模式运行（无法调用图书搜索、推荐等工具）", modelName);
         }
 
         return builder.build();

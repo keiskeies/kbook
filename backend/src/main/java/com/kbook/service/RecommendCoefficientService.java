@@ -83,7 +83,7 @@ public class RecommendCoefficientService {
             {"MATCH", "entrepreneurship_weight", 0.6, 0.3, 1.0, "创业意向匹配权重"},
             {"MATCH", "income_weight", 0.5, 0.2, 0.8, "年收入匹配权重"},
             {"MATCH", "income_decay", 0.40, 0.10, 0.70, "相邻收入衰减系数"},
-            {"MATCH", "mood_weight", 0.7, 0.3, 1.2, "心情状态匹配权重"},
+            {"MATCH", "mood_weight", 1.2, 0.3, 1.5, "心情状态匹配权重"},
             {"MATCH", "mood_decay", 0.40, 0.10, 0.70, "相关心情衰减系数"},
             {"MATCH", "adjacent_decay", 0.40, 0.10, 0.70, "相邻年龄段/MBTI 衰减系数"},
             {"MATCH", "opposite_penalty", 0.30, 0.10, 0.50, "反面维度最大惩罚值"},
@@ -110,7 +110,7 @@ public class RecommendCoefficientService {
             {"OTHER", "max_same_author", 2.0, 1.0, 4.0, "同作者最大推荐数"},
             {"OTHER", "mmr_lambda", 0.70, 0.40, 0.90, "MMR lambda（0=最大多样性，1=最大相关性）"},
             {"OTHER", "explore_random_count", 30.0, 10.0, 60.0, "探索召回随机采样数量"},
-            {"OTHER", "rule_min_score", 0.30, 0.10, 0.50, "规则召回最低匹配分阈值"},
+            {"OTHER", "rule_min_score", -0.50, -2.00, 1.00, "规则召回最低匹配分阈值(z-score)"},
 
             // --- 调参参数 ---
             {"TUNING", "learning_rate", 0.05, 0.01, 0.15, "自动调参学习率"},

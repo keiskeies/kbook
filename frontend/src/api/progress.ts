@@ -30,6 +30,11 @@ export function getUserProgresses() {
   return request.get<ReadingProgress[]>('/progress/list')
 }
 
+/** 分页获取用户阅读历史（含图书信息） */
+export function getReadingHistory(page: number, size: number) {
+  return request.get('/progress/history', { params: { page, size } })
+}
+
 /** 获取最近阅读 */
 export function getRecentReading(limit = 10) {
   return request.get<ReadingProgress[]>('/progress/recent', { params: { limit } })

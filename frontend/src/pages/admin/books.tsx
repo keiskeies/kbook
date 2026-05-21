@@ -19,7 +19,6 @@ import {
   Sparkles,
   Target,
   Upload,
-  User,
   X,
   XCircle,
   Zap
@@ -33,12 +32,15 @@ import type {
   LowHitBook,
   ScanError,
   ScanProgress,
-  ScanResult
+  ScanResult,
+  VectorRebuildProgress,
 } from '@/api/book'
 import {
+  clearContentVectors,
   getEmbeddingStats,
   getLowHitBooks,
   getScanStatus,
+  rebuildBookEmbeddingsStream,
   rebuildEsIndexStream,
   reEmbedBook,
   resetScanStatus,
@@ -48,31 +50,18 @@ import {
 import {createAdminSession, streamAdminChat} from '@/api/adminAi'
 import type {AiMessage} from '@/types/ai'
 import ThinkingBlock from '@/components/ui/thinking-block'
+import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import {toast} from 'sonner'
 
 /** 管理员快捷指令 */
 const ADMIN_QUICK_PROMPTS = [
-  '帮我看看有什么热门书',
-  '搜索《三体》',
-  '最近有什么热门书？',
-  '帮我找找有没有重复的书',
+  '查看热门图书',
+  '搜索重复书籍',
+  '查看低分图书',
+  '统计图书数量',
+  '查看最近入库',
+  '搜索指定书籍',
 ]
-
-/** 简易 Markdown 渲染 — 支持 [BOOK:id=X]《书名》 图书链接 */
-function renderMarkdown(text: string) {
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/\[BOOK:id=(\d+)]《(.+?)》/g, (_match, bookId, title) => {
-      return `<span class="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 align-middle">` +
-        `<a href="/book/${bookId}" class="text-primary font-medium hover:underline">《${title}》</a>` +
-        `</span>`
-    })
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code class="rounded bg-muted px-1 py-0.5 text-xs">$1</code>')
-    .replace(/《(.+?)》/g, '<span class="text-primary font-medium">《$1》</span>')
-    .replace(/\n/g, '<br/>')
-}
 
 export default function AdminBooksPage() {
   const navigate = useNavigate()
@@ -94,6 +83,13 @@ export default function AdminBooksPage() {
   // 内容向量管理状态
   const [embedStats, setEmbedStats] = useState<EmbeddingStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
+
+  // 向量重建状态
+  const [bookEmbeddingsRebuilding, setBookEmbeddingsRebuilding] = useState(false)
+  const [bookEmbeddingsProgress, setBookEmbeddingsProgress] = useState<VectorRebuildProgress | null>(null)
+  const bookEmbeddingsAbortRef = useRef<AbortController | null>(null)
+
+  const [contentVectorsClearing, setContentVectorsClearing] = useState(false)
 
   // ES 索引刷新状态
   const [esReindexing, setEsReindexing] = useState(false)
@@ -275,6 +271,52 @@ export default function AdminBooksPage() {
     } catch { /* ignore */ }
     finally { setStatsLoading(false) }
   }, [])
+
+  const handleRebuildBookEmbeddings = () => {
+    if (bookEmbeddingsRebuilding) return
+    setBookEmbeddingsRebuilding(true)
+    setBookEmbeddingsProgress(null)
+
+    bookEmbeddingsAbortRef.current = rebuildBookEmbeddingsStream(
+      (data) => {
+        setBookEmbeddingsProgress(data)
+      },
+      (data) => {
+        setBookEmbeddingsRebuilding(false)
+        toast.success(`基础信息向量重建完成，耗时 ${(data.elapsed / 1000).toFixed(1)}s`)
+        loadEmbedStats()
+      },
+      (err) => {
+        setBookEmbeddingsRebuilding(false)
+        toast.error(err.message || '重建失败')
+      },
+    )
+  }
+
+  const handleCancelBookEmbeddingsRebuild = () => {
+    if (bookEmbeddingsAbortRef.current) {
+      bookEmbeddingsAbortRef.current.abort()
+      bookEmbeddingsAbortRef.current = null
+    }
+    setBookEmbeddingsRebuilding(false)
+    setBookEmbeddingsProgress(null)
+    toast.info('已取消基础信息向量重建')
+  }
+
+  const handleClearContentVectors = async () => {
+    if (contentVectorsClearing) return
+    if (!confirm('确定要清空内容向量库（kbook_content）吗？此操作不可恢复。')) {
+      return
+    }
+    setContentVectorsClearing(true)
+    try {
+      const result = await clearContentVectors() as any
+      toast.success(`内容向量库已清空，删除 ${result.deletedCount} 条向量`)
+      loadEmbedStats()
+    } catch (err: any) {
+      toast.error(err.message || '清空失败')
+    } finally { setContentVectorsClearing(false) }
+  }
 
   // ==================== ES 索引刷新 ====================
 
@@ -648,15 +690,15 @@ export default function AdminBooksPage() {
           </button>
         </section>
 
-        {/* 内容向量管理 */}
+        {/* 向量管理 */}
         <section className="rounded-xl bg-card p-4 shadow-xs">
           <div className="flex items-center gap-3 mb-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
               <Database className="h-5 w-5 text-emerald-500" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold">内容向量管理</h3>
-              <p className="text-xs text-muted-foreground">管理 Qdrant 内容向量存储</p>
+              <h3 className="text-sm font-semibold">向量管理</h3>
+              <p className="text-xs text-muted-foreground">管理 Qdrant 向量存储</p>
             </div>
           </div>
 
@@ -687,6 +729,52 @@ export default function AdminBooksPage() {
             >
               <Database className={`h-4 w-4 ${statsLoading ? 'animate-pulse' : ''}`} />
               {statsLoading ? '加载中...' : '刷新统计'}
+            </button>
+
+            {/* 重建基础信息 */}
+            {bookEmbeddingsRebuilding && bookEmbeddingsProgress && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>正在重建基础信息向量...</span>
+                  <span>{bookEmbeddingsProgress.current}/{bookEmbeddingsProgress.total} ({Math.round((bookEmbeddingsProgress.current / bookEmbeddingsProgress.total) * 100)}%)</span>
+                </div>
+                <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all duration-300 ease-out"
+                    style={{ width: `${bookEmbeddingsProgress.total > 0 ? (bookEmbeddingsProgress.current / bookEmbeddingsProgress.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleRebuildBookEmbeddings}
+                disabled={bookEmbeddingsRebuilding}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${bookEmbeddingsRebuilding ? 'animate-spin' : ''}`} />
+                {bookEmbeddingsRebuilding ? '重建中...' : '重建基础信息'}
+              </button>
+              {bookEmbeddingsRebuilding && (
+                <button
+                  onClick={handleCancelBookEmbeddingsRebuild}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                >
+                  <XCircle className="h-4 w-4" />
+                  取消
+                </button>
+              )}
+            </div>
+
+            {/* 清空内容信息 */}
+            <button
+              onClick={handleClearContentVectors}
+              disabled={contentVectorsClearing}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${contentVectorsClearing ? 'animate-spin' : ''}`} />
+              {contentVectorsClearing ? '清空中...' : '清空内容信息'}
             </button>
           </div>
 
@@ -868,18 +956,12 @@ export default function AdminBooksPage() {
 
       {/* ===== AI 对话弹窗 ===== */}
       {showChat && (
-        <div className="fixed inset-0 z-50 flex items-end justify-end p-5 sm:items-center sm:justify-center">
-          {/* 遮罩（仅移动端） */}
-          <div
-            className="absolute inset-0 bg-black/40 sm:hidden"
-            onClick={() => setShowChat(false)}
-          />
-
-          {/* 对话窗口 */}
-          <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl sm:max-h-[600px] max-h-[85vh]">
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowChat(false)} />
+          <div className="relative flex w-full flex-col overflow-hidden rounded-t-2xl border-t bg-background max-h-[85vh]">
             {/* 标题栏 */}
             <div className="flex items-center gap-3 border-b px-4 py-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 text-white">
                 <Bot className="h-5 w-5" />
               </div>
               <div className="flex-1 min-w-0">
@@ -889,7 +971,7 @@ export default function AdminBooksPage() {
               {chatSessionId && (
                 <button
                   onClick={handleNewAdminChat}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
                   title="新对话"
                 >
                   <Sparkles className="h-4 w-4" />
@@ -897,7 +979,7 @@ export default function AdminBooksPage() {
               )}
               <button
                 onClick={() => setShowChat(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -907,46 +989,21 @@ export default function AdminBooksPage() {
             <div className="flex-1 overflow-y-auto overscroll-y-contain p-4 space-y-3">
               {chatMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 dark:bg-purple-900/20">
+                  <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-purple-50 dark:bg-purple-900/20">
                     <Bot className="h-7 w-7 text-purple-500" />
                   </div>
                   <h4 className="mb-1 text-sm font-semibold">你好，我是小管</h4>
                   <p className="mb-5 text-xs text-muted-foreground">AI 图书管理员，帮你高效管理图书库</p>
-                  <div className="flex flex-col gap-2 w-full">
-                    {ADMIN_QUICK_PROMPTS.map((hint) => (
-                      <button
-                        key={hint}
-                        className="w-full rounded-xl border border-purple-200 px-4 py-2.5 text-sm text-purple-600 transition-colors hover:border-purple-400 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-400 dark:hover:bg-purple-950/30 text-left"
-                        onClick={() => handleChatSend(hint)}
-                        disabled={chatLoading}
-                      >
-                        {hint}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {chatMessages.map((msg) => (
                     <div
                       key={msg.id}
-                      className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+                      className={msg.role === 'user' ? 'flex justify-end' : ''}
                     >
                       <div
-                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs ${
-                          msg.role === 'user'
-                            ? 'bg-purple-500 text-white'
-                            : 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
-                        }`}
-                      >
-                        {msg.role === 'user' ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
-                      </div>
-                      <div
-                        className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                          msg.role === 'user'
-                            ? 'bg-purple-500 text-white'
-                            : 'bg-muted'
-                        }`}
+                        className={`${msg.role === 'user' ? 'max-w-[85%] rounded-2xl bg-purple-500 text-white px-3.5 py-2.5' : 'w-full rounded-xl border border-border/50 bg-muted/50 px-3.5 py-2.5'} text-sm leading-relaxed`}
                       >
                         {msg.role === 'user' ? (
                           <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -958,10 +1015,7 @@ export default function AdminBooksPage() {
                                 streaming={msg.streaming && !msg.content}
                               />
                             )}
-                            <div
-                              className="prose-sm text-justify"
-                              dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
-                            />
+                            <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
                           </>
                         )}
                         {msg.streaming && !msg.content && (
@@ -985,8 +1039,24 @@ export default function AdminBooksPage() {
               )}
             </div>
 
+            {/* 预设问题（输入框上方，可左右滑动） */}
+            <div className="shrink-0 px-4 pt-2">
+              <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+                {ADMIN_QUICK_PROMPTS.map((hint) => (
+                  <button
+                    key={hint}
+                    className="shrink-0 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs text-purple-600 transition-colors hover:border-purple-400 hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950/30 dark:text-purple-400 dark:hover:bg-purple-950/50 active:scale-[0.97]"
+                    onClick={() => handleChatSend(hint)}
+                    disabled={chatLoading}
+                  >
+                    {hint}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* 输入区域 */}
-            <div className="border-t px-4 py-3">
+            <div className="shrink-0 border-t px-4 py-3">
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -1008,11 +1078,6 @@ export default function AdminBooksPage() {
                     <Send className="h-4 w-4" />
                   )}
                 </button>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
-                <span className="rounded bg-muted px-1.5 py-0.5">"帮我删除张三的所有书"</span>
-                <span className="rounded bg-muted px-1.5 py-0.5">"《三体》有重复吗？"</span>
-                <span className="rounded bg-muted px-1.5 py-0.5">"搜索评分最高的书"</span>
               </div>
             </div>
           </div>

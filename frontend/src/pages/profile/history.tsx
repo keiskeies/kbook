@@ -1,17 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Clock, CheckCircle2, BookOpen, Star, Sparkles } from 'lucide-react'
-import { getUserProgresses } from '@/api/progress'
-import { getBook } from '@/api/book'
-import type { ReadingProgress } from '@/types/book'
-import type { Book } from '@/types/book'
+import { ArrowLeft, Clock, CheckCircle2, BookOpen, Star, Sparkles, Loader2 } from 'lucide-react'
+import { getReadingHistory } from '@/api/progress'
 import { formatRelativeTime } from '@/utils/time'
 import BookCover from '@/components/book/BookCover'
 import { useMatchScores } from '@/hooks/useMatchScores'
 
-/** 评分徽章（带中文标签） */
+const PAGE_SIZE = 10
+
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
-  if (rating == null || rating <= 0) return null
+  if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
   let colorClass = ''
   if (r >= 5.0) colorClass = 'text-red-600 dark:text-red-400'
@@ -29,11 +27,8 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   )
 }
 
-/** 匹配度徽章（带中文标签） */
 function MatchBadgeCN({ score }: { score: number | undefined | null }) {
-  if (score == null || score <= 0) return null
-  const pct = Math.round(score * 100)
-  if (pct <= 0) return null
+  const pct = Math.round(Math.max(0, score ?? 0) * 100)
   let colorClass = ''
   if (pct >= 100) colorClass = 'text-red-600 dark:text-red-400'
   else if (pct >= 80) colorClass = 'text-orange-600 dark:text-orange-400'
@@ -51,46 +46,94 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
 }
 
 interface HistoryItem {
-  progress: ReadingProgress
-  book: Book | null
+  progressId: number
+  bookId: number
+  progress: number
+  currentPosition: string | null
+  updatedAt: string
+  title: string | null
+  author: string | null
+  coverUrl: string | null
+  format: string | null
+  fileSize: number | null
+  rating: number | null
+  readCount: number | null
 }
 
 export default function ReadingHistoryPage() {
   const navigate = useNavigate()
   const [items, setItems] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(true)
+  const [total, setTotal] = useState(0)
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await getUserProgresses()
-        const progresses = (res as any)?.data || (res as any) || []
-        const list: ReadingProgress[] = Array.isArray(progresses) ? progresses : []
-
-        const bookPromises = list.map((p) =>
-          getBook(p.bookId).catch(() => null)
-        )
-        const bookResults = await Promise.all(bookPromises)
-
-        const historyItems: HistoryItem[] = list.map((p, i) => ({
-          progress: p,
-          book: bookResults[i] ? (bookResults[i] as any)?.data || bookResults[i] as unknown as Book : null,
-        }))
-
-        setItems(historyItems)
-      } catch {
-        // ignore
-      } finally {
-        setLoading(false)
-      }
+  const loadPage = useCallback(async (pageNum: number) => {
+    if (pageNum === 0) {
+      setLoading(true)
+    } else {
+      setLoadingMore(true)
     }
-    load().then(() => {})
+    try {
+      const res = await getReadingHistory(pageNum, PAGE_SIZE)
+      const data = (res as any)?.data || (res as any)
+      const list: any[] = Array.isArray(data?.list) ? data.list : []
+      const totalCount = data?.total ?? 0
+
+      const mapped: HistoryItem[] = list.map((r: any) => ({
+        progressId: r.progressId,
+        bookId: r.bookId,
+        progress: r.progress ?? 0,
+        currentPosition: r.currentPosition,
+        updatedAt: r.updatedAt,
+        title: r.title,
+        author: r.author,
+        coverUrl: r.coverUrl,
+        format: r.format,
+        fileSize: r.fileSize,
+        rating: r.rating,
+        readCount: r.readCount,
+      }))
+
+      setItems((prev) => pageNum === 0 ? mapped : [...prev, ...mapped])
+      setTotal(totalCount)
+      setHasMore(mapped.length === PAGE_SIZE && (pageNum + 1) * PAGE_SIZE < totalCount)
+      setPage(pageNum)
+    } catch {
+      if (pageNum === 0) setItems([])
+    } finally {
+      setLoading(false)
+      setLoadingMore(false)
+    }
   }, [])
 
-  const bookIds = items.map(i => i.book?.id).filter((id): id is number => id != null)
+  useEffect(() => {
+    loadPage(0)
+  }, [loadPage])
+
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !hasMore || loading || loadingMore) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
+          loadPage(page + 1)
+        }
+      },
+      { rootMargin: '200px' }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMore, loading, loadingMore, page, loadPage])
+
+  const bookIds = items.map((i) => i.bookId).filter(Boolean)
   const matchScores = useMatchScores(bookIds)
 
-  const isCompleted = (p: ReadingProgress) => p.progress >= 1.0
+  const isCompleted = (p: number) => p >= 1.0
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -106,7 +149,7 @@ export default function ReadingHistoryPage() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="flex-1 text-base font-bold">阅读历史</h1>
-        <span className="text-xs text-muted-foreground">{items.length} 本</span>
+        <span className="text-xs text-muted-foreground">{total} 本</span>
       </header>
 
       {items.length === 0 ? (
@@ -119,27 +162,24 @@ export default function ReadingHistoryPage() {
       ) : (
         <div className="px-4 py-3 space-y-2.5">
           {items.map((item) => {
-            const book = item.book
             const completed = isCompleted(item.progress)
-            const ms = book ? matchScores?.[String(book.id)] : null
+            const ms = item.bookId ? matchScores?.[String(item.bookId)] : null
 
             return (
               <div
-                key={item.progress.id}
+                key={item.progressId}
                 className="flex flex-col rounded-2xl bg-card shadow-sm border border-border/50 active:scale-[0.98] transition-all duration-150 cursor-pointer overflow-hidden"
-                onClick={() => book && navigate(`/book/${book.id}`)}
+                onClick={() => item.bookId && navigate(`/book/${item.bookId}`)}
               >
-                {/* 上半部分：封面 + 信息 + 右侧时间 */}
                 <div className="flex items-center gap-3.5 p-3.5">
-                  <BookCover coverUrl={book?.coverUrl ?? null} title={book?.title ?? '未知图书'} author={book?.author} size="sm" className="flex-shrink-0 shadow-sm" />
+                  <BookCover coverUrl={item.coverUrl} title={item.title ?? '未知图书'} author={item.author} size="sm" className="flex-shrink-0 shadow-sm" />
 
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{book?.title || '未知图书'}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{book?.author || '未知作者'}</p>
+                    <p className="truncate text-sm font-semibold">{item.title || '未知图书'}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{item.author || '未知作者'}</p>
 
-                    {/* 评分与推荐度 */}
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <RatingBadgeCN rating={book?.rating} />
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <RatingBadgeCN rating={item.rating} />
                       <MatchBadgeCN score={ms} />
                     </div>
                   </div>
@@ -147,17 +187,16 @@ export default function ReadingHistoryPage() {
                   <div className="flex flex-shrink-0 flex-col items-end gap-1">
                     <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                       <Clock className="h-2.5 w-2.5" />
-                      {formatRelativeTime(item.progress.updatedAt)}
+                      {formatRelativeTime(item.updatedAt)}
                     </span>
-                    {book?.format && (
+                    {item.format && (
                       <span className="rounded-md bg-primary/8 px-1.5 py-0.5 text-[9px] font-medium text-primary">
-                        {book.format}
+                        {item.format}
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* 下半部分：进度条（整行） */}
                 <div className="flex items-center gap-2 px-3.5 pb-3.5">
                   {completed ? (
                     <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500">
@@ -169,16 +208,31 @@ export default function ReadingHistoryPage() {
                       <div className="h-1.5 flex-1 rounded-full bg-primary/10">
                         <div
                           className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70 transition-all"
-                          style={{ width: `${Math.round(item.progress.progress * 100)}%` }}
+                          style={{ width: `${Math.round(item.progress * 100)}%` }}
                         />
                       </div>
-                      <span className="text-[10px] font-bold text-primary">{Math.round(item.progress.progress * 100)}%</span>
+                      <span className="text-[10px] font-bold text-primary">{Math.round(item.progress * 100)}%</span>
                     </>
                   )}
                 </div>
               </div>
             )
           })}
+
+          {loadingMore && (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-xs text-muted-foreground">加载中...</span>
+            </div>
+          )}
+
+          {!hasMore && items.length > 0 && (
+            <div className="py-4 text-center text-xs text-muted-foreground">
+              没有更多了
+            </div>
+          )}
+
+          <div ref={sentinelRef} className="h-1" />
         </div>
       )}
     </div>

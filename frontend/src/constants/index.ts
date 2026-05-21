@@ -1,4 +1,3 @@
-// 路由路径
 export const ROUTES = {
   HOME: '/home',
   RANK: '/rank',
@@ -23,23 +22,22 @@ export const ROUTES = {
   ADMIN_BOOKS: '/admin/books',
   ADMIN_AI_CONFIG: '/admin/ai-config',
   FOLLOW_LIST: '/user/:userId/follow',
+  CHAT: '/chat',
+  CHAT_ROOM: '/chat/:conversationId',
 } as const
 
-// 用户状态
 export const USER_STATUS = {
   PENDING: 'PENDING',
   APPROVED: 'APPROVED',
   BANNED: 'BANNED',
 } as const
 
-// 图书格式
 export const BOOK_FORMAT = {
   TXT: 'TXT',
   EPUB: 'EPUB',
   PDF: 'PDF',
 } as const
 
-// 存储键名
 export const STORAGE_KEYS = {
   TOKEN: import.meta.env.VITE_TOKEN_KEY || 'kbook_token',
   REFRESH_TOKEN: import.meta.env.VITE_REFRESH_TOKEN_KEY || 'kbook_refresh_token',
@@ -50,7 +48,6 @@ export const STORAGE_KEYS = {
   TTS_SETTINGS: 'kbook_tts_settings',
 } as const
 
-// 阅读主题
 export const READER_THEMES = {
   LIGHT: { name: '日间', bg: '#ffffff', fg: '#333333' },
   SEPIA: { name: '护眼', bg: '#f5efdc', fg: '#5b4636' },
@@ -58,7 +55,6 @@ export const READER_THEMES = {
   DARK: { name: '夜间', bg: '#1a1a1a', fg: '#cccccc' },
 } as const
 
-// 验证码场景
 export const CODE_SCENE = {
   REGISTER: 'register',
   LOGIN: 'login',

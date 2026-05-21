@@ -1,5 +1,6 @@
 import request from '@/utils/request'
 import { createSseConnection } from '@/utils/sse-request'
+import { getAccessToken } from '@/utils/token-refresh'
 import type { Book } from '@/types/book'
 import type { PageResult } from '@/types/common'
 
@@ -153,6 +154,16 @@ export function rateBook(id: number, rating: number) {
   return request.post<Book>(`/books/${id}/rate`, { rating })
 }
 
+/** 更新图书封面（管理员） */
+export function updateBookCover(id: number, file: File) {
+  const formData = new FormData()
+  formData.append('cover', file)
+  return request.post<Book>(`/books/admin/${id}/cover`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 60000,
+  })
+}
+
 /** 推荐结果项 */
 export interface RecommendedItem {
   bookId: number
@@ -163,15 +174,126 @@ export interface RecommendedItem {
   rating: number | null
   description: string | null
   matchScore: number
+  readCount: number | null
+  formatTags: string | null
+  fileSize: number | null
   ruleScore: number
   vectorScore: number
   collabScore: number
   recommendedAt: string
 }
 
-/** 获取个性化推荐 */
+/** 获取个性化推荐（从 Redis Sorted Set 取 top N） */
 export function getRecommendations(count = 10) {
   return request.get<RecommendedItem[]>('/recommend', { params: { count } })
+}
+
+/** 推荐分页结果 */
+export interface RecommendPageResult {
+  list: RecommendedItem[]
+  total: number
+  page: number
+  size: number
+}
+
+/** 分页查询推荐结果（从 Redis Sorted Set） */
+export function getRecommendationsPage(page = 1, size = 10) {
+  return request.get<RecommendPageResult>('/recommend/page', { params: { page, size } })
+}
+
+/** 推荐生成进度 */
+export interface RecommendProgress {
+  stage: string
+  message: string
+  progress: number
+  current?: number
+  total?: number
+}
+
+/** SSE 流式生成推荐（带进度报告） */
+export function generateRecommendationsStream(
+  onProgress: (data: RecommendProgress) => void,
+  onDone: (data: RecommendedItem[]) => void,
+  onError: (error: Error) => void,
+): AbortController {
+  const controller = new AbortController()
+  const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const url = `${BASE_URL}/recommend/generate`
+
+  async function connect() {
+    const token = getAccessToken()
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : '',
+          'Accept': 'text/event-stream',
+        },
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('No readable stream')
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let receivedDone = false
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        let currentEvent = ''
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            const data = line.slice(5).trim()
+            if (currentEvent === 'progress') {
+              try {
+                onProgress(JSON.parse(data))
+              } catch { /* ignore */ }
+            } else if (currentEvent === 'done') {
+              receivedDone = true
+              try {
+                onDone(JSON.parse(data))
+              } catch {
+                onDone([])
+              }
+            } else if (currentEvent === 'error') {
+              try {
+                const err = JSON.parse(data)
+                onError(new Error(err.message || err || '推荐生成失败'))
+              } catch {
+                onError(new Error(data || '推荐生成失败'))
+              }
+            }
+            currentEvent = ''
+          }
+        }
+      }
+
+      if (!receivedDone) {
+        onError(new Error('推荐生成异常结束'))
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        onError(err)
+      }
+    }
+  }
+
+  connect()
+  return controller
 }
 
 /** 清除推荐缓存 */
@@ -211,6 +333,35 @@ export interface EmbeddingStats {
 /** 获取内容向量统计 */
 export function getEmbeddingStats() {
   return request.get<EmbeddingStats>('/books/admin/embeddings/stats')
+}
+
+/** 向量重建进度 */
+export interface VectorRebuildProgress {
+  current: number
+  total: number
+  status: 'processing' | 'completed'
+}
+
+/** 向量重建结果 */
+export interface VectorRebuildResult {
+  elapsed: number
+}
+
+/** 重建基础信息向量（kbook_books）— SSE 流式返回进度 */
+export function rebuildBookEmbeddingsStream(
+  onProgress: (data: VectorRebuildProgress) => void,
+  onDone: (data: VectorRebuildResult) => void,
+  onError: (error: Error) => void,
+): AbortController {
+  return createSseConnection<VectorRebuildProgress, VectorRebuildResult>(
+    '/books/admin/vector/rebuild-book',
+    { onProgress, onDone, onError },
+  )
+}
+
+/** 清空内容向量库（kbook_content） */
+export function clearContentVectors() {
+  return request.post<{ deletedCount: number; message: string }>('/books/admin/vector/clear-content')
 }
 
 /** ES 索引重建进度 */

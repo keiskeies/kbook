@@ -271,14 +271,15 @@ public class ChatModelFactory {
      *
      * @param baseUrl   Ollama 服务地址
      * @param modelName 嵌入模型名称
+     * @param timeout   超时时间（优先使用 yml 配置，默认 300 秒）
      * @return EmbeddingModel 实例
      */
-    public EmbeddingModel buildOllamaEmbeddingModel(String baseUrl, String modelName) {
+    public EmbeddingModel buildOllamaEmbeddingModel(String baseUrl, String modelName, Duration timeout) {
         return OllamaEmbeddingModel.builder()
-                .baseUrl(baseUrl)                        // 设置 Ollama 服务地址
-                .modelName(modelName)                    // 设置嵌入模型名称
-                .timeout(Duration.ofSeconds(120))        // 设置超时时间 120 秒
-                .customHeaders(AiModelProperties.UTF8_HEADERS)  // 设置 UTF-8 编码头
+                .baseUrl(baseUrl)
+                .modelName(modelName)
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(300))
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .build();
     }
 
@@ -288,11 +289,8 @@ public class ChatModelFactory {
      * @return EmbeddingModel 实例
      */
     public EmbeddingModel buildDefaultEmbeddingModel() {
-        // 获取 yml 中的 embedding-model 配置
         var embedding = aiProps.getEmbeddingModel();
-        
-        // 使用配置的 baseUrl 和 modelName 构建
-        return buildOllamaEmbeddingModel(embedding.getBaseUrl(), embedding.getModelName());
+        return buildOllamaEmbeddingModel(embedding.getBaseUrl(), embedding.getModelName(), embedding.getTimeout());
     }
 
     /**

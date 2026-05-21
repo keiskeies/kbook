@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import {ArrowLeft, UserPlus, UserMinus, CheckCircle2, MessageSquare, Heart, BookOpen} from 'lucide-react'
+import {ArrowLeft, UserPlus, UserMinus, CheckCircle2, MessageSquare, Heart, BookOpen, MessageCircle} from 'lucide-react'
 import { getUserProfile, getUserBooks, getUserComments } from '@/api/userProfile'
 import { followUser, unfollowUser } from '@/api/follow'
+import { startConversation } from '@/api/chat'
 import type { UserProfileVO, UserBookItem } from '@/api/userProfile'
 import type { CommentVO } from '@/api/comment'
 import { useAuthStore } from '@/store/auth'
@@ -66,6 +67,18 @@ export default function UserProfilePage() {
     }
   }
 
+  const handleSendMessage = async () => {
+    try {
+      const res = await startConversation(id)
+      const data = (res as any)?.data || res
+      if (data) {
+        navigate(`/chat/${data.id}`)
+      }
+    } catch (err: any) {
+      toast.error(err.message || '无法发起私信')
+    }
+  }
+
   const isSelf = userInfo?.id === id
 
   if (loading || !profile) {
@@ -78,7 +91,6 @@ export default function UserProfilePage() {
 
   return (
     <div className="min-h-screen bg-background page-enter pb-20">
-      {/* 顶部 */}
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
         <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
@@ -86,7 +98,6 @@ export default function UserProfilePage() {
         <h1 className="text-base font-bold">{profile.nickname}</h1>
       </header>
 
-      {/* 用户信息卡片 */}
       <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
         <div className="flex items-center gap-4">
           <div className="h-16 w-16 shrink-0 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden ring-2 ring-primary/20">
@@ -108,7 +119,6 @@ export default function UserProfilePage() {
           </div>
         </div>
 
-        {/* 关注/粉丝 统计 */}
         <div className="mt-4 flex items-center gap-6">
           <button onClick={() => navigate(`/user/${id}/follow/followers`)} className="text-center">
             <p className="text-lg font-bold">{profile.followerCount}</p>
@@ -128,23 +138,30 @@ export default function UserProfilePage() {
           </div>
         </div>
 
-        {/* 关注按钮 */}
         {!isSelf && (
-          <button
-            onClick={handleFollowToggle}
-            className={`mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all active:scale-[0.97] ${
-              profile.isFollowing
-                ? 'bg-muted text-foreground border border-border/50'
-                : 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
-            }`}
-          >
-            {profile.isFollowing ? <UserMinus className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
-            {profile.isFollowing ? '已关注' : '关注'}
-          </button>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={handleFollowToggle}
+              className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all active:scale-[0.97] ${
+                profile.isFollowing
+                  ? 'bg-muted text-foreground border border-border/50'
+                  : 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
+              }`}
+            >
+              {profile.isFollowing ? <UserMinus className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
+              {profile.isFollowing ? '已关注' : '关注'}
+            </button>
+            <button
+              onClick={handleSendMessage}
+              className="flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold bg-card border border-border/50 text-foreground hover:bg-muted transition-all active:scale-[0.97]"
+            >
+              <MessageCircle className="h-4 w-4" />
+              私信
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Tab 切换 */}
       <div className="flex border-b border-border/50 px-4">
         {[
           { key: 'reading' as const, label: '在读', icon: BookOpen },
@@ -164,7 +181,6 @@ export default function UserProfilePage() {
         ))}
       </div>
 
-      {/* Tab 内容 */}
       <div className="px-4 pt-3">
         {tab === 'reading' && (
           readingBooks.length === 0 ? (

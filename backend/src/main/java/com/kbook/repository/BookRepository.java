@@ -25,11 +25,12 @@ public interface BookRepository extends JpaRepository<Book, Long> {
     List<Book> findAllByCoverUrlIn(Collection<String> coverUrls);
 
     /**
-     * 搜索图书（标题/作者模糊匹配）
+     * 搜索图书（标题/作者/简介模糊匹配，标题优先级最高）
      */
     @Query("SELECT b FROM Book b WHERE " +
            "(:keyword IS NULL OR LOWER(b.title) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-           "OR LOWER(b.author) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+           "OR LOWER(b.author) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+           "OR LOWER(b.description) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
            "AND (:format IS NULL OR b.format = :format)")
     Page<Book> searchBooks(@Param("keyword") String keyword,
                            @Param("format") String format,
@@ -103,4 +104,10 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      * 统计已向量化内容的图书数量
      */
     long countByContentEmbeddedTrue();
+
+    /**
+     * 随机采样书籍（MySQL）
+     */
+    @Query(value = "SELECT * FROM books ORDER BY RAND() LIMIT :limit", nativeQuery = true)
+    List<Book> findRandomBooks(@Param("limit") int limit);
 }

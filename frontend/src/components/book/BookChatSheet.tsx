@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Bot, User, Sparkles, RefreshCw, Copy, Check } from 'lucide-react'
+import { Send, Loader2, Bot, User, Sparkles, RefreshCw, Copy, Check, History, X, Volume2, Square } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
-import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions } from '@/api/bookChat'
+import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions, getBookChatHistory } from '@/api/bookChat'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
+import { ttsService } from '@/utils/tts'
 import type { AiMessage } from '@/types/ai'
+import type { AiSessionItem } from '@/types/ai'
 import type { Book } from '@/types/book'
 
 interface BookChatSheetProps {
@@ -20,11 +22,15 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [sessionId, setSessionId] = useState<string>('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [chatTitle, setChatTitle] = useState<string>('')
+  const [showHistory, setShowHistory] = useState(false)
+  const [historySessions, setHistorySessions] = useState<AiSessionItem[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const streamSessionIdRef = useRef('')
+  const followUpsFromSseRef = useRef(false)
 
-  // 加载推荐问题
   useEffect(() => {
     if (open && book.id) {
       getBookSuggestedQuestions(book.id)
@@ -33,15 +39,14 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
           if (Array.isArray(data)) setSuggestions(data)
         })
         .catch(() => {})
+      loadHistorySessions()
     }
   }, [open, book.id])
 
-  // 滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // 关闭时中断请求
   useEffect(() => {
     if (!open && abortRef.current) {
       abortRef.current.abort()
@@ -49,19 +54,85 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     }
   }, [open])
 
-  // 关闭时重置状态
+  useEffect(() => {
+    if (!open && speakingId) {
+      ttsService.cancel()
+      setSpeakingId(null)
+    }
+  }, [open, speakingId])
+
+  const loadHistorySessions = async () => {
+    try {
+      const res = await getBookChatSessions(book.id)
+      const data = (res as any)?.data || (res as any)
+      if (Array.isArray(data)) {
+        setHistorySessions(data)
+      }
+    } catch { /* ignore */ }
+  }
+
+  const loadSessionHistory = async (targetSessionId: string, title?: string) => {
+    try {
+      const res = await getBookChatHistory(book.id, targetSessionId)
+      const data = (res as any)?.data || (res as any)
+      if (Array.isArray(data)) {
+        const history: AiMessage[] = data
+          .filter((r: any) => r.role === 'user' || r.role === 'assistant')
+          .map((r: any) => {
+            let followUps: string[] | undefined
+            if (r.followUpQuestions) {
+              try { followUps = JSON.parse(r.followUpQuestions) } catch { /* ignore */ }
+            }
+            return {
+              id: String(r.id),
+              role: r.role as 'user' | 'assistant',
+              content: r.content,
+              timestamp: new Date(r.createdAt).getTime(),
+              thinkingContent: r.thinkingContent || undefined,
+              followUpQuestions: followUps,
+            }
+          })
+        setMessages(history)
+        setSessionId(targetSessionId)
+        if (title) setChatTitle(title)
+        setShowHistory(false)
+      }
+    } catch { /* ignore */ }
+  }
+
   const handleClose = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort()
       abortRef.current = null
+    }
+    if (speakingId) {
+      ttsService.cancel()
+      setSpeakingId(null)
     }
     setMessages([])
     setInput('')
     setLoading(false)
     setSessionId('')
     setChatTitle('')
+    setShowHistory(false)
     onOpenChange(false)
-  }, [onOpenChange])
+  }, [onOpenChange, speakingId])
+
+  const handleNewChat = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+    }
+    if (speakingId) {
+      ttsService.cancel()
+      setSpeakingId(null)
+    }
+    setMessages([])
+    setSessionId('')
+    setChatTitle('')
+    setLoading(false)
+    setShowHistory(false)
+  }, [speakingId])
 
   const handleSend = useCallback(async (text?: string) => {
     const message = (text || input).trim()
@@ -72,7 +143,6 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
       abortRef.current = null
     }
 
-    // 添加用户消息
     const userMsg: AiMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
@@ -80,16 +150,15 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
       timestamp: Date.now(),
     }
     setMessages((prev) => [...prev, userMsg])
-    
+
     if (!chatTitle) {
       const questionPreview = message.length > 15 ? message.slice(0, 15) + '...' : message
       setChatTitle(`${book.title}-${questionPreview}`)
     }
-    
+
     setInput('')
     setLoading(true)
 
-    // AI 占位消息（附带用户问题用于后续生成深入追问）
     const assistantMsg: AiMessage = {
       id: `a-${Date.now()}`,
       role: 'assistant',
@@ -100,10 +169,8 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     }
     setMessages((prev) => [...prev, assistantMsg])
 
-    // 本地追踪完整回答内容（用于生成深入追问）
     let fullAnswerContent = ''
 
-    // 流式请求
     const controller = streamBookChat(
       book.id,
       { message, sessionId: sessionId || undefined },
@@ -118,17 +185,22 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
       async () => {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, streaming: false, thinkingStatus: undefined, loadingFollowUps: true } : m
+            m.id === assistantMsg.id ? { ...m, streaming: false, thinkingStatus: undefined } : m
           )
         )
         setLoading(false)
 
-        // 异步获取深入追问问题
-        if (fullAnswerContent && assistantMsg.userQuestion) {
+        if (!followUpsFromSseRef.current && fullAnswerContent && assistantMsg.userQuestion) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsg.id ? { ...m, loadingFollowUps: true } : m
+            )
+          )
           try {
             const res = await getFollowUpQuestions(book.id, {
               question: assistantMsg.userQuestion,
               answer: fullAnswerContent,
+              sessionId: streamSessionIdRef.current || undefined,
             })
             const data = (res as any)?.data || (res as any)
             if (Array.isArray(data) && data.length > 0) {
@@ -158,6 +230,9 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
             )
           )
         }
+
+        followUpsFromSseRef.current = false
+        loadHistorySessions()
       },
       (_) => {
         setMessages((prev) =>
@@ -183,21 +258,62 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
           )
         )
       },
+      (newSessionId) => {
+        streamSessionIdRef.current = newSessionId
+        setSessionId(newSessionId)
+      },
+      (followUpJson) => {
+        try {
+          const questions = JSON.parse(followUpJson)
+          if (Array.isArray(questions) && questions.length > 0) {
+            followUpsFromSseRef.current = true
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMsg.id ? { ...m, followUpQuestions: questions, loadingFollowUps: false } : m
+              )
+            )
+          }
+        } catch { /* ignore */ }
+      },
     )
     abortRef.current = controller
   }, [input, loading, book.id, sessionId])
 
-  /** 重新生成最后一条 AI 回答 */
+  const handleToggleSpeak = useCallback((msgId: string, content: string) => {
+    if (speakingId === msgId) {
+      ttsService.cancel()
+      setSpeakingId(null)
+      return
+    }
+    const plainText = content
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`[^`]+`/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/#+\s/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[-*]\s/g, '')
+      .replace(/\d+\.\s/g, '')
+      .replace(/>\s/g, '')
+      .replace(/\|/g, ' ')
+      .replace(/---+/g, '')
+      .trim()
+    if (!plainText) return
+    ttsService.cancel()
+    setSpeakingId(msgId)
+    ttsService.speakSingleText(plainText, () => {
+      setSpeakingId((prev) => prev === msgId ? null : prev)
+    })
+  }, [speakingId])
+
   const handleRegenerate = useCallback(() => {
     if (loading) return
 
-    // 1. 先中断当前正在进行的流
     if (abortRef.current) {
       abortRef.current.abort()
       abortRef.current = null
     }
 
-    // 2. 找到最后一条 assistant 消息及其对应的 user 消息
     let lastAssistantIdx = -1
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'assistant' && !messages[i].streaming) {
@@ -207,22 +323,18 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     }
     if (lastAssistantIdx === -1) return
 
-    // 获取要重发的问题
     let userMsgContent = ''
     if (lastAssistantIdx > 0 && messages[lastAssistantIdx - 1].role === 'user') {
       userMsgContent = messages[lastAssistantIdx - 1].content
     }
 
-    // 截断消息（删除最后的 user + assistant 对）
     const cutIdx = lastAssistantIdx > 0 && messages[lastAssistantIdx - 1].role === 'user'
       ? lastAssistantIdx - 1
       : lastAssistantIdx
     const newMessages = messages.slice(0, cutIdx)
     setMessages(newMessages)
 
-    // 3. 在下一帧重新发送（确保 setMessages 已生效）
     if (userMsgContent) {
-      // 用 requestAnimationFrame 确保 React 完成渲染后再发送
       requestAnimationFrame(() => {
         handleSend(userMsgContent)
       })
@@ -236,13 +348,26 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     }
   }
 
+  const formatTime = (dateStr: string) => {
+    const d = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - d.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    if (diffMins < 1) return '刚刚'
+    if (diffMins < 60) return `${diffMins}分钟前`
+    const diffHours = Math.floor(diffMins / 60)
+    if (diffHours < 24) return `${diffHours}小时前`
+    const diffDays = Math.floor(diffHours / 24)
+    if (diffDays < 7) return `${diffDays}天前`
+    return `${d.getMonth() + 1}/${d.getDate()}`
+  }
+
   const hasMessages = messages.length > 0
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) handleClose(); else onOpenChange(true) }}>
-      <SheetContent side="bottom" className="h-[85vh] rounded-t-2xl border-t p-0 flex flex-col">
-        {/* Header */}
-        <SheetHeader className="shrink-0 border-b px-4 py-3 pr-12">
+      <SheetContent side="bottom" className="h-[85vh] rounded-t-2xl border-t p-0 flex flex-col [&>button]:hidden">
+        <SheetHeader className="shrink-0 border-b px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
               <Sparkles className="h-5 w-5 text-primary" />
@@ -253,188 +378,264 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
                 基于原著内容回答关于《{book.title}》的问题
               </SheetDescription>
             </div>
-
+            <div className="flex items-center gap-0.5">
+              {hasMessages && (
+                <button
+                  onClick={handleNewChat}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="新对话"
+                >
+                  <Sparkles className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (showHistory) {
+                    setShowHistory(false)
+                  } else {
+                    loadHistorySessions()
+                    setShowHistory(true)
+                  }
+                }}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted ${showHistory ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                title="历史记录"
+              >
+                <History className="h-4 w-4" />
+              </button>
+              <button
+                onClick={handleClose}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="关闭"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </SheetHeader>
 
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto overscroll-y-contain px-4 py-4">
-          {!hasMessages ? (
-            /* 空状态 - 推荐问题 */
-            <div className="flex h-full flex-col items-center justify-center text-center">
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
-                <Bot className="h-7 w-7 text-primary" />
-              </div>
-              <h3 className="mb-1 text-base font-medium">向 AI 提问关于这本书</h3>
-              <p className="mb-5 text-sm text-muted-foreground">
-                主旨、人物、情节、思想... 基于原著回答
-              </p>
-              {suggestions.length > 0 && (
-                <div className="flex flex-col gap-2 w-full max-w-xs">
-                  {suggestions.map((hint, i) => (
-                    <button
-                      key={i}
-                      className="w-full rounded-xl border border-border/50 bg-card px-4 py-3 text-left text-sm transition-colors hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98]"
-                      onClick={() => handleSend(hint)}
-                      disabled={loading}
-                    >
-                      <span className="text-primary mr-2 font-medium">{i + 1}.</span>
-                      {hint}
-                    </button>
-                  ))}
-                </div>
-              )}
+        {showHistory ? (
+          <div className="flex-1 overflow-y-auto overscroll-y-contain">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <span className="text-sm font-medium">历史问答</span>
+              <button onClick={() => setShowHistory(false)} className="text-xs text-muted-foreground">
+                关闭
+              </button>
             </div>
-          ) : (
-            /* 消息列表 */
-            <div className="space-y-4 pb-4">
-              {(() => {
-                // 找到最后一条 assistant 消息的 id
-                let lastAssistantId = ''
-                for (let i = messages.length - 1; i >= 0; i--) {
-                  if (messages[i].role === 'assistant') {
-                    lastAssistantId = messages[i].id
-                    break
-                  }
-                }
-                return messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
-                >
-                  {/* 头像 */}
-                  <div
-                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                      msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+            {historySessions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <History className="mb-2 h-8 w-8 opacity-40" />
+                <p className="text-sm">暂无历史问答记录</p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {historySessions.map((session) => (
+                  <button
+                    key={session.id}
+                    className={`w-full px-4 py-3 text-left transition-colors hover:bg-muted/50 ${
+                      session.sessionId === sessionId ? 'bg-muted' : ''
                     }`}
+                    onClick={() => loadSessionHistory(session.sessionId, session.title)}
                   >
-                    {msg.role === 'user' ? (
-                      <User className="h-3.5 w-3.5" />
-                    ) : (
-                      <Bot className="h-3.5 w-3.5" />
-                    )}
+                    <p className="truncate text-sm font-medium">{session.title || '未命名对话'}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{formatTime(session.updatedAt)}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto overscroll-y-contain px-4 py-4">
+            {!hasMessages ? (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+                  <Bot className="h-7 w-7 text-primary" />
+                </div>
+                <h3 className="mb-1 text-base font-medium">向 AI 提问关于这本书</h3>
+                <p className="mb-5 text-sm text-muted-foreground">
+                  主旨、人物、情节、思想... 基于原著回答
+                </p>
+                {suggestions.length > 0 && (
+                  <div className="flex flex-col gap-2 w-full max-w-xs">
+                    {suggestions.map((hint, i) => (
+                      <button
+                        key={i}
+                        className="w-full rounded-xl border border-border/50 bg-card px-4 py-3 text-left text-sm transition-colors hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98]"
+                        onClick={() => handleSend(hint)}
+                        disabled={loading}
+                      >
+                        <span className="text-primary mr-2 font-medium">{i + 1}.</span>
+                        {hint}
+                      </button>
+                    ))}
                   </div>
-
-                  {/* 消息气泡 */}
-                  <div className="max-w-[80%]">
-                    <div
-                      className={`rounded-2xl px-3.5 py-2.5 text-sm ${
-                        msg.role === 'user'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted'
-                      }`}
-                    >
-                      {msg.role === 'user' ? (
-                        <p className="whitespace-pre-wrap">{msg.content}</p>
-                      ) : (
-                        <>
-                          {(msg.thinkingContent || (msg.streaming && msg.thinkingStatus && !msg.content)) && (
-                            <ThinkingBlock
-                              content={msg.thinkingContent || msg.thinkingStatus || ''}
-                              streaming={msg.streaming && !msg.content}
-                            />
-                          )}
-                          <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
-                        </>
-                      )}
-                      {msg.streaming && !msg.content && (
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span className="text-xs">{msg.thinkingStatus || '思考中...'}</span>
-                        </div>
-                      )}
-                      {msg.streaming && msg.content && (
-                        <span className="ml-0.5 inline-flex gap-0.5">
-                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:0ms]" />
-                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:150ms]" />
-                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:300ms]" />
-                        </span>
-                      )}
-                    </div>
-                    {/* AI 回答操作按钮 */}
-                    {msg.role === 'assistant' && !msg.streaming && msg.content && (
-                      <div className="mt-1.5 flex items-center gap-1 px-1">
-                        {/* 复制按钮（所有回答） */}
-                        <button
-                          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-                          onClick={() => {
-                            // 找到对应的用户问题
-                            const idx = messages.indexOf(msg)
-                            const userMsg = idx > 0 ? messages[idx - 1] : null
-                            const text = userMsg && userMsg.role === 'user'
-                              ? `问题：${userMsg.content}\n回答：${msg.content}`
-                              : `回答：${msg.content}`
-                            navigator.clipboard.writeText(text)
-                            setCopiedId(msg.id)
-                            setTimeout(() => setCopiedId(null), 2000)
-                          }}
-                          title="复制"
-                        >
-                          {copiedId === msg.id ? (
-                            <>
-                              <Check className="h-3.5 w-3.5 text-green-500" />
-                              <span className="text-green-500">已复制</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3.5 w-3.5" />
-                              <span>复制</span>
-                            </>
-                          )}
-                        </button>
-                        {/* 重新生成按钮（仅最后一条） */}
-                        {msg.id === lastAssistantId && (
-                          <button
-                            className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-                            onClick={() => handleRegenerate()}
-                            disabled={loading}
-                            title="重新生成"
-                          >
-                            <RefreshCw className="h-3.5 w-3.5" />
-                            <span>重新生成</span>
-                          </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4 pb-4">
+                {(() => {
+                  let lastAssistantId = ''
+                  for (let i = messages.length - 1; i >= 0; i--) {
+                    if (messages[i].role === 'assistant') {
+                      lastAssistantId = messages[i].id
+                      break
+                    }
+                  }
+                  return messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={msg.role === 'user' ? 'flex flex-col items-end' : 'flex flex-col'}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <div
+                        className={`flex h-5 w-5 items-center justify-center rounded-full ${
+                          msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                        }`}
+                      >
+                        {msg.role === 'user' ? (
+                          <User className="h-3 w-3" />
+                        ) : (
+                          <Bot className="h-3 w-3" />
                         )}
                       </div>
-                    )}
-                    {/* 深入追问问题 */}
-                    {msg.role === 'assistant' && !msg.streaming && msg.followUpQuestions && msg.followUpQuestions.length > 0 && (
-                      <div className="mt-2 px-1 text-left">
-                        <p className="mb-1.5 text-[11px] text-muted-foreground">深入探索</p>
-                        <div className="flex flex-wrap justify-start gap-1.5">
-                          {msg.followUpQuestions.map((q, qi) => (
+                      <span className="text-[11px] text-muted-foreground">
+                        {msg.role === 'user' ? '你' : 'AI'}
+                      </span>
+                    </div>
+                    <div className={msg.role === 'user' ? 'max-w-[90%]' : 'w-full'}>
+                      <div
+                        className={`rounded-2xl px-3.5 py-2.5 text-sm ${
+                          msg.role === 'user'
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted'
+                        }`}
+                      >
+                        {msg.role === 'user' ? (
+                          <p className="whitespace-pre-wrap">{msg.content}</p>
+                        ) : (
+                          <>
+                            {(msg.thinkingContent || (msg.streaming && msg.thinkingStatus && !msg.content)) && (
+                              <ThinkingBlock
+                                content={msg.thinkingContent || msg.thinkingStatus || ''}
+                                streaming={msg.streaming && !msg.content}
+                              />
+                            )}
+                            <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
+                          </>
+                        )}
+                        {msg.streaming && !msg.content && (
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span className="text-xs">{msg.thinkingStatus || '思考中...'}</span>
+                          </div>
+                        )}
+                        {msg.streaming && msg.content && (
+                          <span className="ml-0.5 inline-flex gap-0.5">
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:0ms]" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:150ms]" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:300ms]" />
+                          </span>
+                        )}
+                      </div>
+                      {msg.role === 'assistant' && !msg.streaming && msg.content && (
+                        <div className="mt-1.5 flex items-center justify-between">
+                          <div className="flex items-center gap-1">
                             <button
-                              key={qi}
-                              className="inline-flex rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-left text-xs text-primary transition-colors hover:bg-primary/10 active:scale-[0.97]"
-                              onClick={() => handleSend(q)}
+                              className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                              onClick={() => {
+                                const idx = messages.indexOf(msg)
+                                const userMsg = idx > 0 ? messages[idx - 1] : null
+                                const text = userMsg && userMsg.role === 'user'
+                                  ? `问题：${userMsg.content}\n回答：${msg.content}`
+                                  : `回答：${msg.content}`
+                                navigator.clipboard.writeText(text)
+                                setCopiedId(msg.id)
+                                setTimeout(() => setCopiedId(null), 2000)
+                              }}
+                              title="复制"
                             >
-                              {q}
+                              {copiedId === msg.id ? (
+                                <>
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                  <span className="text-green-500">已复制</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-3.5 w-3.5" />
+                                  <span>复制</span>
+                                </>
+                              )}
                             </button>
-                          ))}
+                            {msg.id === lastAssistantId && (
+                              <button
+                                className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                                onClick={() => handleRegenerate()}
+                                disabled={loading}
+                                title="重新生成"
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                <span>重新生成</span>
+                              </button>
+                            )}
+                          </div>
+                          <button
+                            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors active:scale-95 ${
+                              speakingId === msg.id
+                                ? 'text-primary hover:bg-primary/10'
+                                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                            onClick={() => handleToggleSpeak(msg.id, msg.content)}
+                            title={speakingId === msg.id ? '停止朗读' : '朗读'}
+                          >
+                            {speakingId === msg.id ? (
+                              <>
+                                <Square className="h-3.5 w-3.5 fill-current" />
+                                <span>停止</span>
+                              </>
+                            ) : (
+                              <>
+                                <Volume2 className="h-3.5 w-3.5" />
+                                <span>朗读</span>
+                              </>
+                            )}
+                          </button>
                         </div>
-                      </div>
-                    )}
-                    {/* 深入追问问题加载中 */}
-                    {msg.role === 'assistant' && !msg.streaming && msg.loadingFollowUps && (
-                      <div className="mt-2 px-1">
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          <span>正在生成深入追问...</span>
+                      )}
+                      {msg.role === 'assistant' && !msg.streaming && msg.followUpQuestions && msg.followUpQuestions.length > 0 && (
+                        <div className="mt-2 text-left">
+                          <p className="mb-1.5 text-[11px] text-muted-foreground">深入探索</p>
+                          <div className="flex flex-wrap justify-start gap-1.5">
+                            {msg.followUpQuestions.map((q, qi) => (
+                              <button
+                                key={qi}
+                                className="inline-flex rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-left text-xs text-primary transition-colors hover:bg-primary/10 active:scale-[0.97]"
+                                onClick={() => handleSend(q)}
+                              >
+                                {q}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
+                      {msg.role === 'assistant' && !msg.streaming && msg.loadingFollowUps && (
+                        <div className="mt-2">
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span>正在生成深入追问...</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
-              })()}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </div>
+                ))
+                })()}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* Input Area */}
         <div className="shrink-0 border-t bg-background px-4 pt-2 pb-3 pb-safe-bottom">
-          {/* 预设问题滑块 */}
-          {hasMessages && suggestions.length > 0 && !loading && (
+          {hasMessages && !showHistory && suggestions.length > 0 && !loading && (
             <div className="mb-2">
               <div className="flex gap-2 overflow-x-auto scrollbar-none">
                 {suggestions.slice(0, 3).map((hint, i) => (

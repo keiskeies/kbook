@@ -7,6 +7,7 @@ import com.kbook.dto.*;
 import com.kbook.entity.Book;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.service.BookService;
+import com.kbook.service.RankService;
 import com.kbook.service.ReadingProgressService;
 import com.kbook.service.RecommendService;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class HomeController {
     private final BookService bookService;
     private final ReadingProgressService progressService;
     private final RecommendService recommendService;
+    private final RankService rankService;
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -99,20 +101,20 @@ public class HomeController {
     }
 
     /**
-     * 获取高分佳作
+     * 获取高分佳作 — 4分以上随机6本（定时刷新缓存）
      */
     @GetMapping("/top-rated")
     public Result<List<SimpleBookVO>> getTopRated() {
-        List<Book> topRated = bookService.getRatingRank(1, 6).getList();
+        List<Book> topRated = rankService.getHighRatedRandom();
         return Result.ok(topRated.stream().map(SimpleBookVO::from).toList());
     }
 
     /**
-     * 获取新书速递
+     * 获取新书速递 — 全部书籍随机12本（定时刷新缓存）
      */
     @GetMapping("/new-books")
     public Result<List<SimpleBookVO>> getNewBooks() {
-        List<Book> newBooks = bookService.getNewBooksRank(1, 12).getList();
+        List<Book> newBooks = rankService.getNewArrivalsRandom();
         return Result.ok(newBooks.stream().map(SimpleBookVO::from).toList());
     }
 
@@ -131,59 +133,6 @@ public class HomeController {
     @GetMapping("/categories")
     public Result<List<TagStat>> getCategories() {
         return Result.ok(getTopTags(50));
-    }
-
-    /**
-     * 获取首页全部数据（保留兼容）
-     */
-    @GetMapping
-    public Result<HomeData> getHomeData(Authentication authentication) {
-        Long userId = (Long) authentication.getPrincipal();
-
-        ReadingStats stats = progressService.getReadingStats(userId);
-
-        List<ReadingProgress> recentProgress = progressService.getRecentReading(userId, 4);
-        List<RecentBookVO> recentBooks = recentProgress.stream()
-                .map(rp -> {
-                    Book book = bookService.getBookById(rp.getBookId());
-                    return RecentBookVO.builder()
-                            .bookId(book.getId())
-                            .title(book.getTitle())
-                            .author(book.getAuthor())
-                            .coverUrl(book.getCoverUrl())
-                            .format(book.getFormat())
-                            .progress(rp.getProgress())
-                            .lastReadAt(rp.getUpdatedAt())
-                            .build();
-                })
-                .toList();
-
-        List<RecommendedBook> personalized;
-        try {
-            List<RecommendedItem> items =
-                    recommendService.getPersonalizedRecommendations(userId, 6);
-            personalized = items.stream()
-                    .map(RecommendedBook::fromRecommendItem)
-                    .toList();
-        } catch (Exception e) {
-            log.error("个性化推荐失败", e);
-            personalized = List.of();
-        }
-
-        List<Book> topRated = bookService.getRatingRank(1, 6).getList();
-        List<Book> newBooks = bookService.getNewBooksRank(1, 12).getList();
-        List<Book> popular = bookService.getReadRank(1, 6).getList();
-        List<TagStat> categories = getTopTags(50);
-
-        return Result.ok(HomeData.builder()
-                .stats(ReadingStatsVO.from(stats))
-                .recentBooks(recentBooks)
-                .personalizedBooks(personalized)
-                .topRatedBooks(topRated.stream().map(SimpleBookVO::from).toList())
-                .newBooks(newBooks.stream().map(SimpleBookVO::from).toList())
-                .popularBooks(popular.stream().map(SimpleBookVO::from).toList())
-                .categories(categories)
-                .build());
     }
 
     /**

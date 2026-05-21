@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { useReaderStore } from '@/store/reader'
 import { useProgressStore } from '@/store/progress'
-import { getBook } from '@/api/book'
+import { getBook, updateBookCover } from '@/api/book'
 import { getProgress } from '@/api/progress'
 import { READER_THEMES, STORAGE_KEYS } from '@/constants'
 import type { Book } from '@/types/book'
@@ -15,11 +15,14 @@ import { useEpubReader } from '@/hooks/useEpubReader'
 import { usePdfReader } from '@/hooks/usePdfReader'
 import { useTtsReader } from '@/hooks/useTtsReader'
 import { ttsService } from '@/utils/tts'
+import { useAuthStore } from '@/store/auth'
+import { toast } from 'sonner'
 import TxtRenderer from '@/components/reader/TxtRenderer'
 import EpubRenderer from '@/components/reader/EpubRenderer'
 import PdfRenderer from '@/components/reader/PdfRenderer'
 import SettingsPanel from '@/components/reader/SettingsPanel'
 import TocPanel from '@/components/reader/TocPanel'
+import ImageViewer from '@/components/common/ImageViewer'
 
 export default function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -28,6 +31,11 @@ export default function ReaderPage() {
   const [book, setBook] = useState<Book | null>(null)
   const [initialPosition, setInitialPosition] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [viewerImageSrc, setViewerImageSrc] = useState<string | null>(null)
+  const [showImageViewer, setShowImageViewer] = useState(false)
+
+  const { userInfo } = useAuthStore()
+  const isAdmin = userInfo?.role === 'ADMIN'
 
   // 用 ref 保存最新的进度信息，确保卸载时能获取到最新值
   const progressRef = useRef({ progress: 0, currentPosition: '' })
@@ -69,11 +77,32 @@ export default function ReaderPage() {
 
   const handleEpubClick = useCallback(() => {}, [])
 
+  const handleEpubImageClick = useCallback((src: string) => {
+    setViewerImageSrc(src)
+    setShowImageViewer(true)
+  }, [])
+
+  const handleSetAsCover = useCallback(async () => {
+    if (!viewerImageSrc || !book) return
+    try {
+      // 将图片 URL 转为 File 对象上传
+      const response = await fetch(viewerImageSrc)
+      const blob = await response.blob()
+      const file = new File([blob], 'cover.png', { type: blob.type || 'image/png' })
+      const updated = await updateBookCover(book.id, file)
+      setBook(updated as unknown as Book)
+      toast.success('已设为封面')
+    } catch (err: any) {
+      toast.error(err?.message || '设置封面失败')
+    }
+  }, [viewerImageSrc, book])
+
   const epubReader = useEpubReader({
     bookId: id,
     initialPosition,
     isSystemDark,
     onContentClick: handleEpubClick,
+    onImageClick: handleEpubImageClick,
   })
   epubGoPageRef.current = epubReader.goPage
   const pdfReader = usePdfReader({ bookId: id, initialPosition })
@@ -361,6 +390,17 @@ export default function ReaderPage() {
       )}
 
       {showSettings && <SettingsPanel isSystemDark={isSystemDark} />}
+
+      {/* 图片全屏查看 */}
+      <ImageViewer
+        src={viewerImageSrc}
+        alt="书籍图片"
+        isOpen={showImageViewer}
+        onClose={() => setShowImageViewer(false)}
+        showAdminActions={isAdmin}
+        adminActionLabel="设为封面"
+        onAdminAction={handleSetAsCover}
+      />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef, useEffect, useCallback, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -242,6 +242,34 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
 
 // ==================== Markdown 公共组件配置 ====================
 
+function TableScrollWrapper({ children }: { children: React.ReactNode }) {
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const [scrolledEnd, setScrolledEnd] = useState(false)
+
+  const checkScroll = useCallback(() => {
+    const el = wrapperRef.current
+    if (!el) return
+    const scrollEl = el.querySelector('.table-scroll') as HTMLElement
+    if (!scrollEl) return
+    const atEnd = scrollEl.scrollLeft + scrollEl.clientWidth >= scrollEl.scrollWidth - 2
+    setScrolledEnd(atEnd)
+  }, [])
+
+  useEffect(() => {
+    const scrollEl = wrapperRef.current?.querySelector('.table-scroll') as HTMLElement
+    if (!scrollEl) return
+    checkScroll()
+    scrollEl.addEventListener('scroll', checkScroll, { passive: true })
+    return () => scrollEl.removeEventListener('scroll', checkScroll)
+  }, [checkScroll])
+
+  return (
+    <div ref={wrapperRef} className={`table-scroll-wrapper ${scrolledEnd ? 'scrolled-end' : ''}`}>
+      {children}
+    </div>
+  )
+}
+
 const markdownComponents = {
   // 书名号高亮
   p: ({ children, ...props }: any) => (
@@ -319,11 +347,13 @@ const markdownComponents = {
   },
   // 表格
   table: ({ children, ...props }: any) => (
-    <div className="overflow-x-auto my-2">
-      <table className="text-xs border-collapse border border-border/50" {...props}>
-        {children}
-      </table>
-    </div>
+    <TableScrollWrapper>
+      <div className="table-scroll" style={{ maxWidth: 'calc(100vw - 6rem)' }}>
+        <table className="text-xs border-collapse border border-border/50 min-w-max" {...props}>
+          {children}
+        </table>
+      </div>
+    </TableScrollWrapper>
   ),
   th: ({ children, ...props }: any) => (
     <th className="border border-border/50 px-2 py-1 bg-muted font-medium" {...props}>

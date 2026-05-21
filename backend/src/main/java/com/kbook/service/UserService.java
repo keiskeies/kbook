@@ -5,8 +5,8 @@ import com.kbook.common.exception.BusinessException;
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
 import com.kbook.config.properties.BookStorageProperties;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -30,11 +30,18 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class UserService {
 
     private final UserRepository userRepository;
     private final BookStorageProperties storageProps;
+    private final RecommendService recommendService;
+
+    public UserService(UserRepository userRepository, BookStorageProperties storageProps,
+                       @Lazy RecommendService recommendService) {
+        this.userRepository = userRepository;
+        this.storageProps = storageProps;
+        this.recommendService = recommendService;
+    }
 
     public User getUserById(Long id) {
         return userRepository.findById(id)
@@ -204,7 +211,9 @@ public class UserService {
         if (education != null) user.setEducation(education);
         if (entrepreneurship != null) user.setEntrepreneurship(entrepreneurship);
         if (annualIncome != null) user.setAnnualIncome(annualIncome);
-        return userRepository.save(user);
+        user = userRepository.save(user);
+        recommendService.asyncRecompute(userId);
+        return user;
     }
 
     /**
@@ -214,7 +223,9 @@ public class UserService {
     public User updateMood(Long userId, String mood) {
         User user = getUserById(userId);
         user.setMood(mood != null && !mood.isBlank() ? mood : null);
-        return userRepository.save(user);
+        user = userRepository.save(user);
+        recommendService.asyncRecompute(userId);
+        return user;
     }
 
     /**

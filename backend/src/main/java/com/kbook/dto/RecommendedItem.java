@@ -17,6 +17,8 @@ public class RecommendedItem {
     private String description;
     private Double matchScore;
     private Long readCount;
+    private String formatTags;
+    private Long fileSize;
     private Double ruleScore;
     private Double vectorScore;
     private Double collabScore;

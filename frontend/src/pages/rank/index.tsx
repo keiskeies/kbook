@@ -62,7 +62,7 @@ function BookDescription({ description }: { description: string }) {
 
 /** 评分徽章（带中文标签） — 5分制分等级配色（无背景） */
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
-  if (rating == null || rating <= 0) return null
+  if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
 
   let colorClass = ''
@@ -90,9 +90,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
 
 /** 匹配度徽章（带中文标签） — 根据匹配度分等级配色（无背景） */
 function MatchBadgeCN({ score }: { score: number | undefined | null }) {
-  if (score == null || score <= 0) return null
-  const pct = Math.round(score * 100)
-  if (pct <= 0) return null
+  const pct = Math.round(Math.max(0, score ?? 0) * 100)
 
   let colorClass = ''
   if (pct >= 100) {

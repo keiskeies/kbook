@@ -310,11 +310,11 @@ public class BookSearchService {
     }
 
     /**
-     * 排名 → 得分：倒数排名归一化，+5 避免 rank=1 得 1.0 过于极端
+     * 排名 → 得分：指数衰减，top 排名书籍获得更高权重
      */
     private double rankToScore(Integer rank) {
         if (rank == null) return 0.0;
-        return 1.0 / (rank + 5);
+        return Math.pow(0.8, rank - 1);
     }
 
     // ==================== 纯格式筛选（无关键词，不走向量） ====================
@@ -356,45 +356,6 @@ public class BookSearchService {
         return PageResult.of(docs, jpaResult.getTotalElements(), page, size);
     }
 
-    // ==================== 保留：旧版 search 方法（向后兼容） ====================
-
-    /**
-     * ES 全文搜索（带高亮），降级到 JPA
-     * @deprecated 请使用 {@link #hybridSearch(String, String, int, int)}，混合搜索结果更优
-     */
-    @Deprecated
-    public PageResult<BookDocument> search(String keyword, String format, int page, int size) {
-        if (!esAvailable) {
-            return fallbackSearch(keyword, format, page, size);
-        }
-
-        try {
-            Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-            Page<BookDocument> result;
-
-            if (keyword != null && !keyword.isBlank()) {
-                if (format != null && !format.isBlank()) {
-                    result = searchRepository.searchWithFormat(keyword, format, pageable);
-                } else {
-                    result = searchRepository.searchWithHighlight(keyword, pageable);
-                }
-            } else if (format != null && !format.isBlank()) {
-                result = searchRepository.findByFormat(format, pageable);
-            } else {
-                return fallbackSearch(keyword, format, page, size);
-            }
-
-            List<BookDocument> docs = result.getContent();
-
-            esAvailable = true;
-            return PageResult.of(docs, result.getTotalElements(), page, size);
-        } catch (Exception e) {
-            log.warn("ES 搜索异常，降级到 JPA: {}", e.getMessage());
-            esAvailable = false;
-            return fallbackSearch(keyword, format, page, size);
-        }
-    }
-
     /**
      * 搜索建议（前缀匹配）
      */
@@ -410,18 +371,6 @@ public class BookSearchService {
             log.warn("ES 搜索建议异常: {}", e.getMessage());
             return List.of();
         }
-    }
-
-    /**
-     * JPA 降级搜索
-     */
-    private PageResult<BookDocument> fallbackSearch(String keyword, String format, int page, int size) {
-        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<Book> jpaResult = bookRepository.searchBooks(keyword, format, pageable);
-        List<BookDocument> docs = jpaResult.getContent().stream()
-                .map(this::toDocument)
-                .collect(Collectors.toList());
-        return PageResult.of(docs, jpaResult.getTotalElements(), page, size);
     }
 
     /**

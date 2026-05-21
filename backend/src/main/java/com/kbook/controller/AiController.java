@@ -2,6 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.service.AiChatService;
 import lombok.RequiredArgsConstructor;
@@ -14,9 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * AI 助理控制器 — 对话接口（SSE 流式 + 普通）
- */
 @Slf4j
 @RestController
 @RequestMapping("/api/ai")
@@ -26,7 +24,6 @@ public class AiController extends BaseController {
     private final AiChatService chatService;
     private final AiConversationRepository conversationRepository;
 
-    /** 默认快捷提问（数据库中无记录时的兜底） */
     private static final List<String> DEFAULT_PROMPTS = List.of(
             "推荐几本关于成长与情感的高分书籍",
             "有哪些值得读的历史类好书？",
@@ -34,9 +31,6 @@ public class AiController extends BaseController {
             "最近有什么精彩的悬疑或科幻小说推荐吗？"
     );
 
-    /**
-     * 创建新会话
-     */
     @PostMapping("/sessions")
     public Result<Map<String, String>> createSession() {
         Long userId = extractUserId();
@@ -44,9 +38,6 @@ public class AiController extends BaseController {
         return Result.ok(Map.of("sessionId", sessionId));
     }
 
-    /**
-     * 流式对话 — SSE
-     */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(@RequestBody Map<String, String> body) {
         Long userId = extractUserId();
@@ -66,9 +57,6 @@ public class AiController extends BaseController {
         return chatService.streamChat(userId, sessionId, message);
     }
 
-    /**
-     * 非流式对话
-     */
     @PostMapping("/chat")
     public Result<Map<String, String>> chat(@RequestBody Map<String, String> body) {
         Long userId = extractUserId();
@@ -89,27 +77,18 @@ public class AiController extends BaseController {
         ));
     }
 
-    /**
-     * 获取对话历史
-     */
     @GetMapping("/history")
     public Result<List<AiConversation>> getHistory(@RequestParam String sessionId) {
         Long userId = extractUserId();
         return Result.ok(chatService.getHistory(userId, sessionId));
     }
 
-    /**
-     * 获取会话列表
-     */
     @GetMapping("/sessions")
-    public Result<List<String>> getSessions() {
+    public Result<List<AiSession>> getSessions() {
         Long userId = extractUserId();
-        return Result.ok(chatService.getSessionIds(userId));
+        return Result.ok(chatService.getSessions(userId));
     }
 
-    /**
-     * 删除会话
-     */
     @DeleteMapping("/sessions/{sessionId}")
     public Result<Void> deleteSession(@PathVariable String sessionId) {
         Long userId = extractUserId();
@@ -117,17 +96,12 @@ public class AiController extends BaseController {
         return Result.ok();
     }
 
-    /**
-     * 获取热门提问 — 基于全站用户提问统计
-     * GET /api/ai/hot-prompts?count=4
-     */
     @GetMapping("/hot-prompts")
     public Result<List<String>> getHotPrompts(
             @RequestParam(defaultValue = "4") int count) {
         try {
             List<String> hotPrompts = conversationRepository.findHotPrompts(count);
             if (hotPrompts.isEmpty()) {
-                // 数据库中暂无记录，返回默认提示
                 return Result.ok(new ArrayList<>(DEFAULT_PROMPTS.subList(0, Math.min(count, DEFAULT_PROMPTS.size()))));
             }
             return Result.ok(hotPrompts);

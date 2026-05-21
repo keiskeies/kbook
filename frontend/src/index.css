@@ -86,6 +86,60 @@
   display: none;
 }
 
+/* 表格横向滚动 — 始终显示滚动条 + 移动端渐变提示 */
+.table-scroll {
+  overflow-x: scroll;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  position: relative;
+}
+.table-scroll::-webkit-scrollbar {
+  height: 5px;
+}
+.table-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+@media (prefers-color-scheme: dark) {
+  .table-scroll {
+    scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  }
+  .table-scroll::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .table-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.25);
+  }
+  .table-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.4);
+  }
+}
+.table-scroll-wrapper {
+  position: relative;
+}
+.table-scroll-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 5px;
+  width: 28px;
+  background: linear-gradient(to right, transparent, var(--background, #fff));
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.table-scroll-wrapper.scrolled-end::after {
+  opacity: 0;
+}
+
 /* 页面切换过渡 */
 .page-enter {
   animation: pageFadeIn 0.25s ease-out;

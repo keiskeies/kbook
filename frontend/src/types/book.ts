@@ -40,6 +40,7 @@ export interface ReadingProgress {
   progress: number
   currentPosition: string | null
   updatedAt: string
+  userRating?: number | null
 }
 
 /** 阅读统计 */

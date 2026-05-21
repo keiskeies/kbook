@@ -156,6 +156,32 @@ public class BookAdminController {
     }
 
     /**
+     * 更新图书封面（管理员）
+     * 上传新封面图片，自动压缩至最大宽度 300px
+     */
+    @PostMapping("/{id}/cover")
+    public Result<Book> updateBookCover(
+            @PathVariable Long id,
+            @RequestParam("cover") MultipartFile coverFile) {
+        if (coverFile.isEmpty()) {
+            return Result.fail("封面文件不能为空");
+        }
+
+        String contentType = coverFile.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            return Result.fail("仅支持图片文件");
+        }
+
+        try {
+            Book updated = bookService.updateBookCover(id, coverFile);
+            return Result.ok(updated);
+        } catch (Exception e) {
+            log.error("更新封面失败: bookId={}", id, e);
+            return Result.fail("更新封面失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 重新解析图书元数据
      */
     @PostMapping("/{id}/reparse")
@@ -202,6 +228,60 @@ public class BookAdminController {
                 "embeddedBooks", embeddedBooks,
                 "notEmbeddedBooks", notEmbeddedBooks,
                 "totalContentVectors", totalContentVectors
+        ));
+    }
+
+    /**
+     * 重建所有书籍的基础信息向量（kbook_books 集合）— SSE 流式推送进度
+     */
+    @GetMapping(value = "/vector/rebuild-book", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter rebuildAllBookEmbeddings() {
+        SseEmitter emitter = new SseEmitter(600_000L);
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                long startTime = System.currentTimeMillis();
+                embeddingService.rebuildAllBookEmbeddingsWithProgress((processed, total) -> {
+                    try {
+                        emitter.send(SseEmitter.event()
+                                .name("progress")
+                                .data(Map.of(
+                                        "current", processed,
+                                        "total", total,
+                                        "status", "processing"
+                                )));
+                    } catch (IOException e) {
+                        log.warn("SSE 发送失败: {}", e.getMessage());
+                    }
+                });
+                long elapsed = System.currentTimeMillis() - startTime;
+                emitter.send(SseEmitter.event()
+                        .name("done")
+                        .data(Map.of("elapsed", elapsed)));
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("重建基础信息向量失败", e);
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("error")
+                            .data(Map.of("message", e.getMessage() != null ? e.getMessage() : "重建失败")));
+                } catch (IOException ignored) {}
+                emitter.completeWithError(e);
+            }
+        });
+
+        return emitter;
+    }
+
+    /**
+     * 清空内容向量库（kbook_content 集合）
+     */
+    @PostMapping("/vector/clear-content")
+    public Result<Map<String, Object>> clearContentVectors() {
+        long deletedCount = embeddingService.clearAllContentEmbeddings();
+        return Result.ok(Map.of(
+                "deletedCount", deletedCount,
+                "message", "内容向量库已清空"
         ));
     }
 

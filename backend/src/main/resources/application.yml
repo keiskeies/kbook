@@ -23,6 +23,10 @@ server:
 # 数据源 - MySQL + HikariCP
 # ========================
 spring:
+  servlet:
+    multipart:
+      max-file-size: 200MB
+      max-request-size: 200MB
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:kbook-dev}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER:root}
@@ -149,6 +153,8 @@ kbook:
   upload:
     avatar-dir: ${AVATAR_DIR:G:/uploads/avatars}
     avatar-url-prefix: /api/uploads/avatars
+    chat-dir: ${CHAT_DIR:G:/uploads/chat}
+    chat-url-prefix: /api/uploads/chat
   # ========================
   # Qdrant 向量数据库
   # ========================

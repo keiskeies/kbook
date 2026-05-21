@@ -17,6 +17,7 @@ import io.qdrant.client.grpc.Collections.QuantizationConfig;
 import io.qdrant.client.grpc.Collections.QuantizationConfigDiff;
 import io.qdrant.client.grpc.Collections.QuantizationType;
 import io.qdrant.client.grpc.Collections.ScalarQuantization;
+import io.qdrant.client.grpc.Common;
 import io.qdrant.client.grpc.JsonWithInt;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -125,14 +126,6 @@ public class EmbeddingService {
                 log.error("Embedding 模型初始化失败: {}", e.getMessage(), e);
             }
         }
-    }
-
-    /**
-     * 获取当前 embedding 模型标识（供外部诊断调用）
-     */
-    public String getCurrentEmbeddingModelName() {
-        ensureEmbeddingModelInitialized();
-        return currentEmbeddingModelName;
     }
 
     /**
@@ -388,6 +381,17 @@ public class EmbeddingService {
         else return value(String.valueOf(val));
     }
 
+    // ==================== 通用 Qdrant 操作辅助 ====================
+
+    /**
+     * 构建按 bookId 精确匹配的 Qdrant Filter
+     */
+    private io.qdrant.client.grpc.Common.Filter buildBookIdFilter(Long bookId) {
+        return io.qdrant.client.grpc.Common.Filter.newBuilder()
+                .addMust(match("bookId", bookId))
+                .build();
+    }
+
     /**
      * 通过 qdrantClient 直接写入单条向量到 Qdrant（绕过 QdrantEmbeddingStore 的零向量 bug）
      * 使用 Qdrant 官方工厂方法构建 PointStruct，确保向量数据正确传递
@@ -433,7 +437,7 @@ public class EmbeddingService {
             for (int i = 0; i < vectorsList.size(); i++) {
                 String pointId = UUID.randomUUID().toString();
                 float[] vec = vectorsList.get(i);
-                
+
                 // 诊断：再次验证传入的向量
                 if (i == 0) {
                     double checkNorm = 0;
@@ -485,47 +489,47 @@ public class EmbeddingService {
             Book book = bookRepository.findById(bookId).orElse(null);
             if (book == null) return;
 
-            // 构建元数据文本
-            String metadataText = buildBookMetadataText(book);
-            if (metadataText.isBlank()) {
-                log.debug("书籍元数据为空，跳过向量生成: bookId={}", bookId);
-                return;
-            }
-
-            // 生成 embedding
-            Embedding embedding = embeddingModel.embed(metadataText).content();
-
-            // 验证 embedding 非零
-            float[] vector = embedding.vector();
-            double norm = vectorNorm(vector);
-            if (norm < 0.001) {
-                log.error("生成的 embedding 向量为零! bookId={}, model={}, norm={}", bookId, currentEmbeddingModelName, String.format("%.6f", norm));
-                return;
-            }
-
-            // 构建带元数据的 TextSegment
-            TextSegment segment = TextSegment.from(metadataText,
-                    new Metadata().put("bookId", bookId)
-                            .put("title", book.getTitle() != null ? book.getTitle() : "")
-                            .put("author", book.getAuthor() != null ? book.getAuthor() : "")
-                            .put("rating", book.getRating() != null ? book.getRating() : 0.0)
-                            .put("readCount", book.getReadCount() != null ? book.getReadCount() : 0L)
-                            .put("embeddingModel", currentEmbeddingModelName));
-
-            // 存入 Qdrant（先删除该书已有的旧向量，确保幂等）
-            removeBookEmbedding(bookId);
-
-            // 使用 qdrantClient 直接写入（绕过 QdrantEmbeddingStore 零向量 bug）
-            Map<String, io.qdrant.client.grpc.JsonWithInt.Value> payload = buildQdrantPayload(segment);
-            String id = directUpsertPoint(qdrantProps.getBookCollection(), vector, payload);
-
-            // 验证写入结果
-            boolean exists = hasBookEmbedding(bookId);
-            log.info("书籍元数据向量生成完成: bookId={}, textLen={}, storeId={}, qdrantVerified={}, vectorNorm={}",
-                    bookId, metadataText.length(), id, exists, String.format("%.4f", norm));
+            upsertBookEmbedding(book);
         } catch (Exception e) {
             log.error("书籍元数据向量生成失败: bookId={} - {}", bookId, e.getMessage());
         }
+    }
+
+    /**
+     * 核心方法：为单本书生成并写入元数据向量
+     * @return 是否成功写入
+     */
+    public boolean upsertBookEmbedding(Book book) {
+        Long bookId = book.getId();
+        String metadataText = buildBookMetadataText(book);
+        if (metadataText.isBlank()) {
+            log.debug("书籍元数据为空，跳过向量生成: bookId={}", bookId);
+            return false;
+        }
+
+        Embedding embedding = embeddingModel.embed(metadataText).content();
+        float[] vector = embedding.vector();
+        double norm = vectorNorm(vector);
+        if (norm < 0.001) {
+            log.error("生成的 embedding 向量为零! bookId={}, model={}, norm={}",
+                    bookId, currentEmbeddingModelName, String.format("%.6f", norm));
+            return false;
+        }
+
+        TextSegment segment = TextSegment.from(metadataText,
+                new Metadata()
+                        .put("bookId", bookId)
+                        .put("embeddingModel", currentEmbeddingModelName));
+
+        removeBookEmbedding(bookId);
+
+        Map<String, io.qdrant.client.grpc.JsonWithInt.Value> payload = buildQdrantPayload(segment);
+        String id = directUpsertPoint(qdrantProps.getBookCollection(), vector, payload);
+
+        boolean exists = hasBookEmbedding(bookId);
+        log.info("书籍元数据向量生成完成: bookId={}, textLen={}, storeId={}, qdrantVerified={}, vectorNorm={}",
+                bookId, metadataText.length(), id, exists, String.format("%.4f", norm));
+        return exists;
     }
 
     /**
@@ -748,9 +752,7 @@ public class EmbeddingService {
     private List<EmbeddingMatch<TextSegment>> searchContentWithFilter(
             Embedding queryEmbedding, int maxResults, Long bookId) {
         try {
-            var filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(match("bookId", bookId))
-                    .build();
+            var filter = buildBookIdFilter(bookId);
 
             // 先用 0.2 阈值搜索（内容检索场景短查询 vs 长段落，0.3 偏严）
             List<EmbeddingMatch<TextSegment>> matches = doFilterSearch(queryEmbedding, maxResults, bookId, filter, 0.2f);
@@ -993,8 +995,7 @@ public class EmbeddingService {
                         .setCollectionName(qdrantProps.getContentCollection())
                         .setLimit(5)
                         .setScoreThreshold(0.0f)
-                        .setFilter(io.qdrant.client.grpc.Common.Filter.newBuilder()
-                                .addMust(match("bookId", bookId)).build())
+                        .setFilter(buildBookIdFilter(bookId))
                         .addAllVector(reQueryEmbedding.vectorAsList().stream().toList())
                         .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(true).build())
                         .build();
@@ -1115,9 +1116,7 @@ public class EmbeddingService {
         // 回退：用 Qdrant 搜索获取 payload
         try {
             if (qdrantClient == null) return null;
-            var filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(match("bookId", bookId))
-                    .build();
+            var filter = buildBookIdFilter(bookId);
             // 构造一个非零向量做搜索（全零向量在某些 Qdrant 版本上可能搜不到结果）
             float[] probeVector = new float[qdrantProps.getVectorDimension()];
             probeVector[0] = 0.01f;
@@ -1143,13 +1142,18 @@ public class EmbeddingService {
     // ==================== 管理操作 ====================
 
     /**
-     * 重建所有书籍的元数据向量（管理员操作）
+     * 重建所有书籍的元数据向量（管理员操作）— 带进度回调
      */
-    public int rebuildAllBookEmbeddings() {
+    @FunctionalInterface
+    public interface RebuildProgressCallback {
+        void onProgress(int processed, int total);
+    }
+
+    public void rebuildAllBookEmbeddingsWithProgress(RebuildProgressCallback callback) {
         ensureEmbeddingModelInitialized();
         if (embeddingModel == null) {
             log.warn("Embedding 模型未初始化，无法重建向量");
-            return 0;
+            return;
         }
 
         int pageSize = 100;
@@ -1165,35 +1169,12 @@ public class EmbeddingService {
 
             for (Book book : books) {
                 try {
-                    String metadataText = buildBookMetadataText(book);
-                    if (metadataText.isBlank()) continue;
-
-                    removeBookEmbedding(book.getId());
-
-                    Embedding embedding = embeddingModel.embed(metadataText).content();
-                    float[] vector = embedding.vector();
-                    double norm = vectorNorm(vector);
-                    if (norm < 0.001) {
-                        log.warn("书籍 embedding 为零向量，跳过: bookId={}", book.getId());
-                        continue;
+                    if (upsertBookEmbedding(book)) {
+                        count++;
                     }
-
-                    TextSegment segment = TextSegment.from(metadataText,
-                            new Metadata().put("bookId", book.getId())
-                                    .put("title", book.getTitle() != null ? book.getTitle() : "")
-                                    .put("author", book.getAuthor() != null ? book.getAuthor() : "")
-                                    .put("rating", book.getRating() != null ? book.getRating() : 0.0)
-                                    .put("readCount", book.getReadCount() != null ? book.getReadCount() : 0L)
-                                    .put("embeddingModel", currentEmbeddingModelName));
-
-                    Map<String, io.qdrant.client.grpc.JsonWithInt.Value> payload = buildQdrantPayload(segment);
-                    directUpsertPoint(qdrantProps.getBookCollection(), vector, payload);
-                    count++;
-
-                    if (count % 10 == 0) {
-                        log.info("重建进度: {}/{}", count, total);
+                    if (callback != null) {
+                        callback.onProgress(count, (int) total);
                     }
-
                     Thread.sleep(100);
                 } catch (Exception e) {
                     log.warn("重建向量失败: bookId={} - {}", book.getId(), e.getMessage());
@@ -1202,7 +1183,48 @@ public class EmbeddingService {
         }
 
         log.info("重建完成: {}/{} 成功", count, total);
-        return count;
+    }
+
+    /**
+     * 重建所有书籍的元数据向量（管理员操作）
+     */
+    public int rebuildAllBookEmbeddings() {
+        final int[] countRef = {0};
+        rebuildAllBookEmbeddingsWithProgress((processed, total) -> {
+            countRef[0] = processed;
+            if (processed % 10 == 0) {
+                log.info("重建进度: {}/{}", processed, total);
+            }
+        });
+        return countRef[0];
+    }
+
+    /**
+     * 清空所有内容向量（kbook_content 集合）
+     */
+    public long clearAllContentEmbeddings() {
+        try {
+            if (qdrantClient == null) {
+                log.warn("Qdrant 客户端未初始化");
+                return 0;
+            }
+
+            // 获取当前总数
+            long totalCount = qdrantClient.countAsync(qdrantProps.getContentCollection()).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            log.info("开始清空内容向量库: totalVectors={}", totalCount);
+
+            // 使用 delete 删除整个集合的所有点
+            qdrantClient.deleteAsync(
+                    qdrantProps.getContentCollection(),
+                    Common.Filter.newBuilder().build()
+            ).get(60, java.util.concurrent.TimeUnit.SECONDS);
+
+            log.info("内容向量库已清空: deletedVectors={}", totalCount);
+            return totalCount;
+        } catch (Exception e) {
+            log.error("清空内容向量库失败: {}", e.getMessage());
+            return 0;
+        }
     }
 
     /**
@@ -1220,10 +1242,7 @@ public class EmbeddingService {
     public boolean hasBookEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return false;
-            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(match("bookId", bookId))
-                    .build();
-            Long count = qdrantClient.countAsync(qdrantProps.getBookCollection(), filter, true).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            Long count = qdrantClient.countAsync(qdrantProps.getBookCollection(), buildBookIdFilter(bookId), true).get(15, java.util.concurrent.TimeUnit.SECONDS);
             return count != null && count > 0;
         } catch (java.util.concurrent.TimeoutException e) {
             log.warn("检查书籍向量存在性超时: bookId={} - {}", bookId, e.getMessage());
@@ -1240,10 +1259,7 @@ public class EmbeddingService {
     public boolean hasContentEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return false;
-            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(match("bookId", bookId))
-                    .build();
-            Long count = qdrantClient.countAsync(qdrantProps.getContentCollection(), filter, true).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            Long count = qdrantClient.countAsync(qdrantProps.getContentCollection(), buildBookIdFilter(bookId), true).get(15, java.util.concurrent.TimeUnit.SECONDS);
             return count != null && count > 0;
         } catch (java.util.concurrent.TimeoutException e) {
             log.warn("检查内容向量存在性超时: bookId={} - {}", bookId, e.getMessage());
@@ -1260,10 +1276,7 @@ public class EmbeddingService {
     public void removeBookEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return;
-            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(match("bookId", bookId))
-                    .build();
-            qdrantClient.deleteAsync(qdrantProps.getBookCollection(), filter).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            qdrantClient.deleteAsync(qdrantProps.getBookCollection(), buildBookIdFilter(bookId)).get(30, java.util.concurrent.TimeUnit.SECONDS);
             log.debug("已删除旧书籍元数据向量: bookId={}", bookId);
         } catch (java.util.concurrent.TimeoutException e) {
             log.warn("删除旧书籍元数据向量超时，跳过: bookId={} - {}", bookId, e.getMessage());
@@ -1300,12 +1313,10 @@ public class EmbeddingService {
                         .readTree(response.body());
                 var pointsNode = jsonResp.at("/result/points");
                 if (pointsNode.isArray()) {
-                    // 情况 1：该书没有任何内容向量（空数据）
                     if (pointsNode.isEmpty()) {
                         log.error("[零向量检测] bookId={} 的内容向量为空! Qdrant 中不存在该书记录。需要重建。", bookId);
                         return true;
                     }
-                    // 情况 2：该书有记录，但向量是全 0
                     var vectorNode = pointsNode.get(0).at("/vector");
                     if (vectorNode.isArray()) {
                         boolean allZero = true;
@@ -1336,10 +1347,7 @@ public class EmbeddingService {
     public void removeContentEmbedding(Long bookId) {
         try {
             if (qdrantClient == null) return;
-            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(match("bookId", bookId))
-                    .build();
-            qdrantClient.deleteAsync(qdrantProps.getContentCollection(), filter).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            qdrantClient.deleteAsync(qdrantProps.getContentCollection(), buildBookIdFilter(bookId)).get(30, java.util.concurrent.TimeUnit.SECONDS);
             log.debug("已删除旧内容向量: bookId={}", bookId);
         } catch (java.util.concurrent.TimeoutException e) {
             log.warn("删除旧内容向量超时，跳过: bookId={} - {}", bookId, e.getMessage());
@@ -1354,10 +1362,7 @@ public class EmbeddingService {
     public long getContentEmbeddingCount(Long bookId) {
         try {
             if (qdrantClient == null) return 0;
-            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                    .addMust(match("bookId", bookId))
-                    .build();
-            Long count = qdrantClient.countAsync(qdrantProps.getContentCollection(), filter, true).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            Long count = qdrantClient.countAsync(qdrantProps.getContentCollection(), buildBookIdFilter(bookId), true).get(15, java.util.concurrent.TimeUnit.SECONDS);
             return count != null ? count : 0;
         } catch (Exception e) {
             log.debug("获取内容向量数量失败: bookId={} - {}", bookId, e.getMessage());
@@ -1427,8 +1432,6 @@ public class EmbeddingService {
             if (book.getRating() != null && book.getRating() >= minRating
                     && !Boolean.TRUE.equals(book.getContentEmbedded())) {
                 try {
-                    // 通过 BookParserService 提取内容并生成向量
-                    // 这里仅标记，实际生成由 BookParserService 处理
                     log.info("需要重建内容向量: bookId={}, title={}, rating={}",
                             book.getId(), book.getTitle(), book.getRating());
                 } catch (Exception e) {
@@ -1486,7 +1489,6 @@ public class EmbeddingService {
                 matches.add(new EmbeddingMatch<>(score, embeddingId, null, segment));
             }
 
-            // 诊断日志：当 score 极低时打印 query 向量前5维，帮助判断向量空间是否异常
             if (!matches.isEmpty() && matches.get(0).score() < 0.1) {
                 float[] qVec = queryEmbedding.vector();
                 String qVecSample = String.format("[%.4f, %.4f, %.4f, %.4f, %.4f]",
@@ -1518,7 +1520,6 @@ public class EmbeddingService {
      */
     private void diagnoseContentSearch(Long bookId, Embedding queryEmbedding) {
         try {
-            // 1. 检查内容集合总点数
             var collectionInfo = qdrantClient.getCollectionInfoAsync(qdrantProps.getContentCollection()).get();
             long totalPoints = collectionInfo.getPointsCount();
             log.warn("[诊断] contentCollection 总点数: {}, 搜索 bookId={} 返回 0", totalPoints, bookId);
@@ -1528,11 +1529,8 @@ public class EmbeddingService {
                 return;
             }
 
-            // 2. 用 searchAsync + filter + 低阈值检查该 bookId 是否有数据
             try {
-                var checkFilter = io.qdrant.client.grpc.Common.Filter.newBuilder()
-                        .addMust(match("bookId", bookId))
-                        .build();
+                var checkFilter = buildBookIdFilter(bookId);
                 var checkSearch = io.qdrant.client.grpc.Points.SearchPoints.newBuilder()
                         .setCollectionName(qdrantProps.getContentCollection())
                         .setLimit(3)
@@ -1555,7 +1553,6 @@ public class EmbeddingService {
                 log.warn("[诊断] filter 搜索检查失败: {}", e.getMessage());
             }
 
-            // 3. 不带 filter 搜索，看能否命中任何内容（同时打印采样点的 bookId 类型）
             try {
                 var noFilterSearch = io.qdrant.client.grpc.Points.SearchPoints.newBuilder()
                         .setCollectionName(qdrantProps.getContentCollection())
@@ -1592,8 +1589,6 @@ public class EmbeddingService {
                 log.warn("[诊断] 无filter搜索失败: {}", e.getMessage());
             }
 
-            // 4. 零向量检测：通过 REST API scroll 获取 bookId 的向量并检查是否全零
-            //    这是搜索返回 0 的常见原因：旧数据写入时未做零向量校验
             try {
                 var httpClient = java.net.http.HttpClient.newBuilder()
                         .connectTimeout(java.time.Duration.ofSeconds(5))
@@ -1617,7 +1612,6 @@ public class EmbeddingService {
                     if (pointsNode.isArray() && !pointsNode.isEmpty()) {
                         var vectorNode = pointsNode.get(0).at("/vector");
                         if (vectorNode.isArray()) {
-                            // 检查前 10 维是否全为 0
                             boolean allZero = true;
                             int checkDims = Math.min(10, vectorNode.size());
                             for (int i = 0; i < checkDims; i++) {
@@ -1665,28 +1659,23 @@ public class EmbeddingService {
         sb.append("书名:").append(book.getTitle() != null ? book.getTitle() : "").append(";");
         sb.append("作者:").append(book.getAuthor() != null ? book.getAuthor() : "").append(";");
         sb.append("评分:").append(book.getRating() != null ? book.getRating() : 0.0).append(";");
-        
+
         if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
             String tags = TAGS_CLEAN_PATTERN.matcher(book.getFormatTags()).replaceAll("").replace(',', '、');
             sb.append("标签:").append(tags).append(";");
         } else {
             sb.append("标签:;");
         }
-        
+
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            String desc = book.getDescription().length() > 1500 
-                    ? book.getDescription().substring(0, 1500) 
+            String desc = book.getDescription().length() > 1500
+                    ? book.getDescription().substring(0, 1500)
                     : book.getDescription();
             sb.append("简介:").append(desc).append(";");
         } else {
             sb.append("简介:;");
         }
-        
-        if (book.getToc() != null && !book.getToc().isBlank()) {
-            sb.append("目录:").append(book.getToc()).append(";");
-        } else {
-            sb.append("目录:;");
-        }
+
 
         return sb.toString();
     }
@@ -1700,21 +1689,16 @@ public class EmbeddingService {
         int contentLen = content.length();
         if (contentLen == 0) return chunks;
 
-        // 预分配容量
         int estimatedChunks = contentLen / (qdrantProps.getChunkSize() - qdrantProps.getChunkOverlap()) + 1;
         chunks.ensureCapacity(estimatedChunks);
 
-        // 一次性转换为 char[]，避免重复 charAt 调用
         char[] chars = content.toCharArray();
 
         int pos = 0;
         while (pos < contentLen) {
-            // 计算当前块的结束位置
             int chunkEnd = Math.min(pos + qdrantProps.getChunkSize(), contentLen);
 
-            // 如果不是最后一块，尝试在句子边界断开
             if (chunkEnd < contentLen) {
-                // 从后往前搜索句子结束符（最多回溯 qdrantProps.getChunkOverlap() 个字符）
                 int searchStart = Math.max(pos, chunkEnd - qdrantProps.getChunkOverlap());
                 for (int i = chunkEnd - 1; i >= searchStart; i--) {
                     char c = chars[i];
@@ -1725,17 +1709,13 @@ public class EmbeddingService {
                 }
             }
 
-            // 提取并添加分块
             String chunk = new String(chars, pos, chunkEnd - pos).trim();
             if (!chunk.isEmpty()) {
                 chunks.add(chunk);
             }
 
-            // 移动到下一块的起始位置
-            // 关键修复：确保每次都向前推进，避免死循环
             int nextPos = chunkEnd - qdrantProps.getChunkOverlap();
             if (nextPos <= pos) {
-                // 如果没有推进，直接跳到 chunkEnd
                 pos = chunkEnd;
             } else {
                 pos = nextPos;
@@ -1756,7 +1736,6 @@ public class EmbeddingService {
     public Map<String, Object> diagnose() {
         Map<String, Object> result = new java.util.LinkedHashMap<>();
 
-        // 1. Qdrant 连接测试
         try {
             List<String> collections = qdrantClient.listCollectionsAsync().get();
             result.put("qdrant.connected", true);
@@ -1767,12 +1746,10 @@ public class EmbeddingService {
             return result;
         }
 
-        // 2. 并行获取两个集合的详情（减少等待时间）
         try {
             var bookInfoFuture = qdrantClient.getCollectionInfoAsync(qdrantProps.getBookCollection());
             var contentInfoFuture = qdrantClient.getCollectionInfoAsync(qdrantProps.getContentCollection());
 
-            // 同时等待两个异步操作完成
             var bookInfo = bookInfoFuture.get();
             var contentInfo = contentInfoFuture.get();
 
@@ -1793,12 +1770,10 @@ public class EmbeddingService {
             result.put("qdrant.collectionInfo.error", e.getMessage());
         }
 
-        // 3. Embedding 模型状态
         result.put("embedding.modelInitialized", embeddingModel != null);
         result.put("embedding.bookStoreInitialized", bookEmbeddingStore != null);
         result.put("embedding.contentStoreInitialized", contentEmbeddingStore != null);
 
-        // 4. 尝试初始化模型（如果还没初始化）
         if (embeddingModel == null) {
             try {
                 ensureEmbeddingModelInitialized();
@@ -1808,7 +1783,6 @@ public class EmbeddingService {
             }
         }
 
-        // 5. 测试 embed 调用
         if (embeddingModel != null) {
             try {
                 var testEmbed = embeddingModel.embed("测试Embedding调用");

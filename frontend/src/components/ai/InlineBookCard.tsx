@@ -7,7 +7,7 @@ import { parseFormatTags } from '@/types/book'
 
 /** 评分徽章 — 与榜单页面一致 */
 function RatingBadge({ rating }: { rating: number | undefined | null }) {
-  if (rating == null || rating <= 0) return null
+  if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
 
   let colorClass = ''
@@ -42,9 +42,7 @@ function RatingBadge({ rating }: { rating: number | undefined | null }) {
 
 /** 匹配度徽章 — 与榜单页面一致 */
 function MatchBadge({ score }: { score: number | undefined | null }) {
-  if (score == null || score <= 0) return null
-  const pct = Math.round(score * 100)
-  if (pct <= 0) return null
+  const pct = Math.round(Math.max(0, score ?? 0) * 100)
 
   let colorClass = ''
   let bgClass = ''

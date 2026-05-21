@@ -4,7 +4,7 @@ import { ArrowLeft, Search, X, Star, Sparkles, Tag, ChevronDown, ChevronUp } fro
 
 /** 评分徽章（带中文标签） — 5分制分等级配色（无背景） */
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
-  if (rating == null || rating <= 0) return null
+  if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
 
   let colorClass = ''
@@ -32,9 +32,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
 
 /** 匹配度徽章（带中文标签） — 根据匹配度分等级配色（无背景） */
 function MatchBadgeCN({ score }: { score: number | undefined | null }) {
-  if (score == null || score <= 0) return null
-  const pct = Math.round(score * 100)
-  if (pct <= 0) return null
+  const pct = Math.round(Math.max(0, score ?? 0) * 100)
 
   let colorClass = ''
   if (pct >= 100) {
@@ -196,6 +194,14 @@ function fmtReadCount(n: number): string {
   return `${n}次阅读`
 }
 
+/** 格式化文件大小 */
+function fmtFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || bytes <= 0) return ''
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}
+
 export default function SearchPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -208,6 +214,8 @@ export default function SearchPage() {
   const [showSuggest, setShowSuggest] = useState(false)
   const [popularTags, setPopularTags] = useState<string[]>([])
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const [searchTriggerKey, setSearchTriggerKey] = useState(0)
 
   // 从 URL 参数自动搜索（如从首页热门标签跳转 / AI 对话点击书名）
   useEffect(() => {
@@ -241,6 +249,8 @@ export default function SearchPage() {
 
   const doSearch = useCallback(async (kw: string, t: string) => {
     if (!kw && !t) return
+    setSearchTriggerKey(prev => prev + 1)
+    searchInputRef.current?.blur()
     setLoading(true)
     setSearched(true)
     setShowSuggest(false)
@@ -316,6 +326,7 @@ export default function SearchPage() {
           <div className="relative flex flex-1 items-center gap-2 rounded-xl bg-muted px-3 py-2">
             <Search className="h-4 w-4 text-muted-foreground" />
             <input
+              ref={searchInputRef}
               type="text"
               value={keyword}
               onChange={(e) => handleInputChange(e.target.value)}
@@ -352,6 +363,7 @@ export default function SearchPage() {
         {/* 热门标签筛选 — 固定在搜索框下方 */}
         {popularTags.length > 0 && (
           <TagFilterBar
+            key={searchTriggerKey}
             tags={popularTags}
             activeTag={tag}
             onTagChange={handleTagChange}
@@ -421,22 +433,27 @@ export default function SearchPage() {
                             </p>
                           </div>
 
-                          {/* 评分 + 匹配度 + 阅读量 */}
-                          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                          {/* 评分 + 匹配度 + 阅读量 + 文件大小 */}
+                          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                             <RatingBadgeCN rating={book.rating} />
                             <MatchBadgeCN score={ms} />
                             <span className="text-[11px] text-muted-foreground">
                               {fmtReadCount(book.readCount)}
                             </span>
+                            {fmtFileSize(book.fileSize) && (
+                              <span className="text-[11px] text-muted-foreground">
+                                {fmtFileSize(book.fileSize)}
+                              </span>
+                            )}
                           </div>
 
                           {/* 标签 */}
                           {tags.length > 0 && (
-                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
                               {tags.map((t) => (
                                 <span
                                   key={t}
-                                  className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                                  className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary flex-shrink-0"
                                 >
                                   <Tag className="h-2.5 w-2.5" />
                                   {t}

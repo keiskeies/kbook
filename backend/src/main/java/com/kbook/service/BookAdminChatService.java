@@ -4,7 +4,9 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
+import com.kbook.repository.AiSessionRepository;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
@@ -22,73 +24,57 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * 管理员 AI 对话服务 — 图书管理员专属聊天
- * <p>
- * 使用 BookAdminAssistant 接口（不同于普通用户的 AiAssistant），
- * 拥有完整的图书管理工具能力和管理员视角的系统提示词。
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class BookAdminChatService {
 
+    private static final String TYPE = "admin";
+
     private final AiProviderConfigService providerConfigService;
     private final AiConversationRepository conversationRepository;
+    private final AiSessionRepository sessionRepository;
     private final ObjectProvider<AiToolService> toolServiceProvider;
     private final AiChatMemory chatMemoryStore;
 
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
-    /** BookAdminAssistant 缓存（key: "admin", 全局共用） */
     private final ConcurrentHashMap<String, BookAdminAssistant> adminAssistantCache = new ConcurrentHashMap<>();
 
-    /**
-     * 创建新会话
-     */
     public String createSession(Long userId) {
         return "admin-" + UUID.randomUUID();
     }
 
-    /**
-     * 获取管理员 AI 助理（带缓存）
-     */
     public BookAdminAssistant getAdminAssistant() {
         return adminAssistantCache.computeIfAbsent("admin", k -> buildAdminAssistant());
     }
 
-    /**
-     * 清除缓存（配置变更时由 AiProviderConfigService 调用）
-     */
     public void clearCache() {
         adminAssistantCache.clear();
         log.info("管理员 AI Assistant 缓存已清除");
     }
 
-    /**
-     * 流式对话 — SSE（真正的 Token 级流式，使用 StreamingChatModel）
-     */
     public SseEmitter streamChat(Long userId, String sessionId, String userMessage) {
         log.info("========== 管理员 AI 对话请求 ==========");
         log.info("userId={}, sessionId={}, message={}", userId, sessionId, userMessage);
 
-        SseEmitter emitter = new SseEmitter(180_000L); // 3分钟超时（管理操作可能较慢）
+        SseEmitter emitter = new SseEmitter(180_000L);
 
-        // 立即发送 thinking 事件，让前端知道请求已被接受
         try {
             emitter.send(SseEmitter.event().name("thinking").data("正在思考..."));
         } catch (Exception ignored) {}
 
+        ensureSession(userId, sessionId, userMessage);
         saveMessage(userId, sessionId, "user", userMessage);
 
         sseExecutor.execute(() -> {
             StringBuilder fullResponse = new StringBuilder();
+            StringBuilder fullThinking = new StringBuilder();
             try {
                 long startTime = System.currentTimeMillis();
                 BookAdminAssistant assistant = getAdminAssistant();
 
                 TokenStream tokenStream = assistant.chatStream(sessionId, userMessage);
-                StringBuilder fullThinking = new StringBuilder();
                 tokenStream
                         .onPartialThinking(pt -> {
                             String thinking = pt.text();
@@ -114,7 +100,6 @@ public class BookAdminChatService {
                         .onCompleteResponse(response -> {
                             long elapsed = System.currentTimeMillis() - startTime;
 
-                            // 解析 token 用量
                             int apiInputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
                                     ? response.tokenUsage().inputTokenCount() : 0;
                             int apiOutputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
@@ -133,7 +118,9 @@ public class BookAdminChatService {
                                 emitter.complete();
                             } catch (Exception ignored) {}
 
-                            saveMessage(userId, sessionId, "assistant", responseText);
+                            String thinkingText = fullThinking.length() > 0 ? fullThinking.toString() : null;
+                            saveMessage(userId, sessionId, "assistant", responseText, thinkingText);
+                            updateSessionTimestamp(sessionId);
                         })
                         .onError(error -> {
                             log.error("管理员 AI 流式对话异常: sessionId={}", sessionId, error);
@@ -148,7 +135,9 @@ public class BookAdminChatService {
                                 emitter.complete();
                             } catch (Exception ignored) {}
                             if (!fullResponse.isEmpty()) {
-                                saveMessage(userId, sessionId, "assistant", fullResponse.toString().trim());
+                                String thinkingText = fullThinking.length() > 0 ? fullThinking.toString() : null;
+                                saveMessage(userId, sessionId, "assistant", fullResponse.toString().trim(), thinkingText);
+                                updateSessionTimestamp(sessionId);
                             }
                         })
                         .start();
@@ -174,45 +163,33 @@ public class BookAdminChatService {
         return emitter;
     }
 
-    /**
-     * 获取对话历史
-     */
     public List<AiConversation> getHistory(Long userId, String sessionId) {
         return conversationRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
     }
 
-    /**
-     * 获取会话列表
-     */
-    public List<String> getSessions(Long userId) {
-        List<String> allSessions = conversationRepository.findSessionIdsByUserId(userId);
-        return allSessions.stream()
-                .filter(sid -> sid.startsWith("admin-"))
-                .toList();
+    public List<AiSession> getSessions(Long userId) {
+        return sessionRepository.findByUserIdAndTypeOrderByUpdatedAtDesc(userId, TYPE);
     }
 
-    /**
-     * 删除会话
-     */
     public void deleteSession(Long userId, String sessionId) {
         conversationRepository.deleteByUserIdAndSessionId(userId, sessionId);
+        sessionRepository.deleteByUserIdAndSessionId(userId, sessionId);
     }
 
-    /**
-     * 非流式对话
-     */
     public String chat(Long userId, String sessionId, String userMessage) {
         log.info("========== 管理员 AI 对话（非流式） ==========");
+        ensureSession(userId, sessionId, userMessage);
         saveMessage(userId, sessionId, "user", userMessage);
 
         BookAdminAssistant assistant = getAdminAssistant();
         try {
             Result<String> result = assistant.chatWithResponse(sessionId, userMessage);
             String responseText = result.content() != null ? result.content().trim() : "";
-            
+
             log.info("========== 管理员 AI 非流式完整响应 ==========");
+            String thinkingContent = null;
             if (result.finalResponse() != null && result.finalResponse().aiMessage() != null) {
-                String thinkingContent = result.finalResponse().aiMessage().thinking();
+                thinkingContent = result.finalResponse().aiMessage().thinking();
                 log.info("Thinking长度: {} 字符", thinkingContent != null ? thinkingContent.length() : 0);
             }
             if (result.tokenUsage() != null) {
@@ -220,8 +197,9 @@ public class BookAdminChatService {
                         result.tokenUsage().inputTokenCount(), result.tokenUsage().outputTokenCount());
             }
             log.info("==============================================");
-            
-            saveMessage(userId, sessionId, "assistant", responseText);
+
+            saveMessage(userId, sessionId, "assistant", responseText, thinkingContent);
+            updateSessionTimestamp(sessionId);
             return responseText;
         } catch (Exception e) {
             log.error("管理员 AI 对话异常: sessionId={}", sessionId, e);
@@ -229,8 +207,6 @@ public class BookAdminChatService {
             throw e;
         }
     }
-
-    // ==================== 内部方法 ====================
 
     private BookAdminAssistant buildAdminAssistant() {
         ChatModel chatModel = providerConfigService.buildChatChatModel();
@@ -250,12 +226,38 @@ public class BookAdminChatService {
                 .build();
     }
 
+    private void ensureSession(Long userId, String sessionId, String userMessage) {
+        sessionRepository.findBySessionId(sessionId).orElseGet(() -> {
+            String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
+            AiSession session = AiSession.builder()
+                    .userId(userId)
+                    .type(TYPE)
+                    .sessionId(sessionId)
+                    .title(title)
+                    .build();
+            return sessionRepository.save(session);
+        });
+    }
+
+    private void updateSessionTimestamp(String sessionId) {
+        sessionRepository.findBySessionId(sessionId).ifPresent(session -> {
+            session.setUpdatedAt(java.time.LocalDateTime.now());
+            sessionRepository.save(session);
+        });
+    }
+
     private void saveMessage(Long userId, String sessionId, String role, String content) {
+        saveMessage(userId, sessionId, role, content, null);
+    }
+
+    private void saveMessage(Long userId, String sessionId, String role, String content, String thinkingContent) {
         AiConversation record = AiConversation.builder()
                 .userId(userId)
                 .sessionId(sessionId)
+                .type(TYPE)
                 .role(role)
                 .content(content)
+                .thinkingContent(thinkingContent)
                 .build();
         conversationRepository.save(record);
     }

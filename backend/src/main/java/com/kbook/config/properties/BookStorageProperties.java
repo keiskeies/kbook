@@ -35,6 +35,8 @@ public class BookStorageProperties {
     public static class UploadConfig {
         private String avatarDir = "./uploads/avatars";
         private String avatarUrlPrefix = "/api/uploads/avatars";
+        private String chatDir = "./uploads/chat";
+        private String chatUrlPrefix = "/api/uploads/chat";
     }
 
     @Data

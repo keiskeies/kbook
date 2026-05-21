@@ -24,6 +24,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Value("${kbook.upload.avatar-url-prefix:/api/uploads/avatars}")
     private String avatarUrlPrefix;
 
+    @Value("${kbook.upload.chat-dir:./uploads/chat}")
+    private String chatDir;
+
+    @Value("${kbook.upload.chat-url-prefix:/api/uploads/chat}")
+    private String chatUrlPrefix;
+
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         // 头像文件静态资源映射

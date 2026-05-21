@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from '@/constants'
+import { broadcastTokenUpdate, broadcastTokenCleared } from './token-sync'
 
 /**
  * 统一的 Token 刷新协调器
@@ -53,6 +54,8 @@ export function refreshAccessToken(): Promise<string | null> {
           const newRefreshToken = result.data.refreshToken
           localStorage.setItem(STORAGE_KEYS.TOKEN, newToken)
           localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, newRefreshToken)
+          // 广播到其他标签页
+          broadcastTokenUpdate(newToken, newRefreshToken)
           isRefreshing = false
           refreshPromise = null
           resolve(newToken)
@@ -79,6 +82,7 @@ export function clearAuthAndRedirect() {
   localStorage.removeItem(STORAGE_KEYS.TOKEN)
   localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
   localStorage.removeItem(STORAGE_KEYS.USER_INFO)
+  broadcastTokenCleared()
   window.location.href = '/login'
 }
 

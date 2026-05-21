@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Bookmark, BookmarkCheck, BookOpen, Star, Eye, MessageSquare, Sparkles } from 'lucide-react'
-import { getBook, rateBook } from '@/api/book'
+import { getBook, rateBook, updateBookCover } from '@/api/book'
 import { checkInBookshelf, addToBookshelf, removeFromBookshelf } from '@/api/bookshelf'
 import { getProgress } from '@/api/progress'
 import { getBookComments, countBookComments } from '@/api/comment'
@@ -11,12 +11,14 @@ import { formatProgress, formatFileSize, parseFormatTags } from '@/types/book'
 import CommentList from '@/components/comment/CommentList'
 import BookChatSheet from '@/components/book/BookChatSheet'
 import BookCover from '@/components/book/BookCover'
+import ImageViewer from '@/components/common/ImageViewer'
 import { useMatchScores } from '@/hooks/useMatchScores'
+import { useAuthStore } from '@/store/auth'
 import { toast } from 'sonner'
 
 /** 评分徽章（带中文标签） */
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
-  if (rating == null || rating <= 0) return null
+  if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
   let colorClass = ''
   if (r >= 5.0) colorClass = 'text-red-600 dark:text-red-400'
@@ -36,9 +38,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
 
 /** 匹配度徽章（带中文标签） */
 function MatchBadgeCN({ score }: { score: number | undefined | null }) {
-  if (score == null || score <= 0) return null
-  const pct = Math.round(score * 100)
-  if (pct <= 0) return null
+  const pct = Math.round(Math.max(0, score ?? 0) * 100)
   let colorClass = ''
   if (pct >= 100) colorClass = 'text-red-600 dark:text-red-400'
   else if (pct >= 80) colorClass = 'text-orange-600 dark:text-orange-400'
@@ -71,6 +71,11 @@ export default function BookDetailPage() {
   const [hasMoreComments, setHasMoreComments] = useState(true)
   const [showBookChat, setShowBookChat] = useState(false)
   const [descExpanded, setDescExpanded] = useState(false)
+  const [showImageViewer, setShowImageViewer] = useState(false)
+  const coverInputRef = useRef<HTMLInputElement>(null)
+
+  const { userInfo } = useAuthStore()
+  const isAdmin = userInfo?.role === 'ADMIN'
 
   const id = Number(bookId)
   const matchScores = useMatchScores(book ? [book.id] : [])
@@ -96,7 +101,11 @@ export default function BookDetailPage() {
     ]).then(([bookRes, shelfRes, progressRes]) => {
       setBook(bookRes as unknown as Book)
       setInShelf((shelfRes as any) || false)
-      setProgress((progressRes as any)?.progress || 0)
+      const progressData = (progressRes as any)
+      setProgress(progressData?.progress || 0)
+      if (progressData?.userRating) {
+        setUserRating(progressData.userRating)
+      }
       setLoading(false)
     })
     loadComments(1)
@@ -121,15 +130,15 @@ export default function BookDetailPage() {
   }
 
   const handleRate = async (rating: number) => {
-    if (!book) return
+    if (!book || userRating > 0) return
     try {
-      await rateBook(book.id, rating)
-      setBook({ ...book, rating })
+      const updatedBook = await rateBook(book.id, rating) as unknown as Book
+      setBook(updatedBook)
       setUserRating(rating)
       setShowRating(false)
       toast.success(`评分 ${rating} 星已保存`)
-    } catch {
-      toast.error('评分暂时无法提交')
+    } catch (err: any) {
+      toast.error(err?.message || '评分暂时无法提交')
     }
   }
 
@@ -137,6 +146,31 @@ export default function BookDetailPage() {
     setCommentPage(1)
     loadComments(1)
     countBookComments(id).then(res => setCommentCount((res as any)?.data || (res as any) || 0)).catch(() => {})
+  }
+
+  const handleCoverClick = () => {
+    if (book?.coverUrl || isAdmin) {
+      setShowImageViewer(true)
+    }
+  }
+
+  const handleChangeCover = () => {
+    coverInputRef.current?.click()
+  }
+
+  const handleCoverFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !book) return
+
+    try {
+      const updated = await updateBookCover(book.id, file)
+      setBook(updated as unknown as Book)
+      toast.success('封面已更新')
+    } catch (err: any) {
+      toast.error(err?.message || '封面更新失败')
+    } finally {
+      e.target.value = ''
+    }
   }
 
   if (loading || !book) {
@@ -253,17 +287,23 @@ export default function BookDetailPage() {
       {/* 图书信息 — 渐变背景 */}
       <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
         <div className="flex gap-4">
-          <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} size="xl" className="flex-shrink-0 shadow-lg" />
+          <div onClick={handleCoverClick} className={book.coverUrl || isAdmin ? 'cursor-pointer' : ''}>
+            <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} size="xl" className="flex-shrink-0 shadow-lg" />
+          </div>
           <div className="flex flex-1 flex-col justify-between">
             <div>
               <h2 className="text-lg font-bold leading-tight">{book.title}</h2>
               {book.author && <p className="mt-1 text-sm text-muted-foreground">{book.author}</p>}
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-              <button onClick={() => setShowRating(!showRating)} className="flex items-center gap-1 active:scale-95 transition-transform">
+              <button
+                onClick={() => userRating > 0 ? undefined : setShowRating(!showRating)}
+                className={`flex items-center gap-1 transition-transform ${userRating > 0 ? 'cursor-default opacity-60' : 'active:scale-95'}`}
+                disabled={userRating > 0}
+              >
                 <RatingBadgeCN rating={book.rating} />
                 {book.rating <= 0 && <span className="text-xs text-muted-foreground">暂无评分</span>}
-                <span className="text-[10px] text-primary ml-1">评</span>
+                <span className="text-[10px] text-primary ml-1">{userRating > 0 ? '已评' : '评'}</span>
               </button>
               <MatchBadgeCN score={ms} />
               <span className="flex items-center gap-1"><Eye className="h-3 w-3" />{book.readCount} 阅读</span>
@@ -397,6 +437,25 @@ export default function BookDetailPage() {
           onOpenChange={setShowBookChat}
         />
       )}
+
+      {/* 封面全屏查看 */}
+      <ImageViewer
+        src={book.coverUrl}
+        alt={book.title}
+        isOpen={showImageViewer}
+        onClose={() => setShowImageViewer(false)}
+        showChangeCover={isAdmin}
+        onChangeCover={handleChangeCover}
+      />
+
+      {/* 隐藏的文件输入 */}
+      <input
+        ref={coverInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleCoverFileChange}
+      />
     </div>
   )
 }

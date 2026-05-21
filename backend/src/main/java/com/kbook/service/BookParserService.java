@@ -188,7 +188,7 @@ public class BookParserService {
                     log.info("EPUB 封面保存成功: {}", book.getCoverUrl());
                 } else {
                     book.setCoverUrl(null);
-                    log.info("EPUB 未找到合适的封面图片（可能均为正方形）");
+                    log.info("EPUB 未找到合适的封面图片（可能均为非正常比例图片）");
                 }
             } catch (Exception e) {
                 book.setCoverUrl(null);
@@ -237,46 +237,7 @@ public class BookParserService {
     }
 
     /**
-     * 从 EPUB 正文中提取第一张图片
-     */
-    private byte[] extractFirstImageFromEpub(nl.siegmann.epublib.domain.Book epubBook) {
-        try {
-            // 预编译图片标签正则
-            Pattern imgPattern = Pattern.compile("<img[^>]+src=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
-
-            for (var spineRef : epubBook.getSpine().getSpineReferences()) {
-                try {
-                    var resource = spineRef.getResource();
-                    if (resource == null || resource.getData() == null) continue;
-
-                    String html = new String(resource.getData(), StandardCharsets.UTF_8);
-                    var matcher = imgPattern.matcher(html);
-
-                    if (matcher.find()) {
-                        String imgSrc = matcher.group(1);
-                        if (imgSrc == null || imgSrc.isBlank()) continue;
-
-                        // 解析图片路径（可能是相对路径或绝对路径）
-                        String imgPath = resolveEpubImagePath(imgSrc, resource);
-                        if (imgPath == null) continue;
-
-                        // 从 EPUB 资源中获取图片数据
-                        var imageResource = epubBook.getResources().getByHref(imgPath);
-                        if (imageResource != null && imageResource.getData() != null) {
-                            return imageResource.getData();
-                        }
-                    }
-                } catch (Exception ignored) {
-                }
-            }
-        } catch (Exception e) {
-            log.debug("从EPUB正文提取第一张图片失败: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    /**
-     * 检查图片是否为正方形 (1:1)
+     * 检查图片是否为非正常比例图片
      */
     private boolean isSquareImage(byte[] imageData) {
         try (ByteArrayInputStream bais = new ByteArrayInputStream(imageData)) {
@@ -386,38 +347,50 @@ public class BookParserService {
     }
 
     /**
-     * 提取 EPUB 核心章节摘要：前3章正文，每章取前500字
-     * 优化版本：使用预编译正则 + 减少字符串操作
+     * 提取 EPUB 核心章节摘要：使用 Jsoup 解析 h 和 p 标签提取正文，最多2000字
      */
-    private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]+>");
-
     private String extractEpubChapterSummary(nl.siegmann.epublib.domain.Book epubBook) {
         try {
             var spineRefs = epubBook.getSpine().getSpineReferences();
-            StringBuilder summary = new StringBuilder(1500); // 预分配容量
-            int chapterCount = 0;
+            StringBuilder summary = new StringBuilder(2000);
 
             for (var spineRef : spineRefs) {
-                if (chapterCount >= 3) break;
+                if (summary.length() >= 2000) break;
                 try {
                     var resource = spineRef.getResource();
                     if (resource == null || resource.getData() == null) continue;
 
-                    // 直接使用预编译的正则，避免每次重新编译
                     String html = new String(resource.getData(), StandardCharsets.UTF_8);
-                    String plainText = HTML_TAG_PATTERN.matcher(html).replaceAll("").trim();
+                    org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(html);
+
+                    // 只保留 h1-h6 标题和 p 段落标签中的纯文本
+                    StringBuilder chapterText = new StringBuilder();
+
+                    // 提取标题（h1-h6）
+                    doc.select("h1, h2, h3, h4, h5, h6").forEach(el -> {
+                        String text = el.text().trim();
+                        if (!text.isBlank()) {
+                            chapterText.append(text).append("\n\n");
+                        }
+                    });
+
+                    // 提取段落（p）
+                    doc.select("p").forEach(el -> {
+                        String text = el.text().trim();
+                        if (!text.isBlank()) {
+                            chapterText.append(text).append("\n\n");
+                        }
+                    });
+
+                    String plainText = chapterText.toString().trim();
 
                     // 跳过太短的章节（可能是封面页、版权页等）
-                    if (plainText.length() < 100) continue;
+                    if (plainText.length() < 50) continue;
 
                     // 每章取前500字
-                    if (plainText.length() > 500) {
-                        summary.append(plainText, 0, 500);
-                    } else {
-                        summary.append(plainText);
-                    }
+                    int limit = Math.min(plainText.length(), 500);
+                    summary.append(plainText, 0, limit);
                     summary.append("\n\n");
-                    chapterCount++;
                 } catch (Exception ignored) {
                 }
             }
@@ -436,6 +409,7 @@ public class BookParserService {
     /**
      * 预编译正则表达式，避免重复编译
      */
+    private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]+>");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
 
     /**

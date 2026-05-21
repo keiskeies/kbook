@@ -1,10 +1,26 @@
 import path from "path"
+import fs from "fs"
 import react from "@vitejs/plugin-react"
 import { VitePWA } from "vite-plugin-pwa"
-import { defineConfig } from "vite"
+import { defineConfig, type Plugin } from "vite"
+
+function removeCrossoriginPlugin(): Plugin {
+  return {
+    name: 'remove-crossorigin',
+    enforce: 'post',
+    closeBundle() {
+      const htmlPath = path.resolve(__dirname, 'dist', 'index.html')
+      const html = fs.readFileSync(htmlPath, 'utf-8')
+      const cleaned = html.replace(/ crossorigin(?:="?(?:anonymous|use-credentials)?"?)?/gi, '')
+      if (html !== cleaned) {
+        fs.writeFileSync(htmlPath, cleaned, 'utf-8')
+      }
+    },
+  }
+}
 
 export default defineConfig({
-  base: './',
+  base: '/',
   plugins: [
     react(),
     VitePWA({
@@ -40,6 +56,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        navigateFallback: '/index.html',
+        navigationPreload: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\/api\/.*/i,
@@ -58,7 +76,11 @@ export default defineConfig({
         ],
       },
     }),
+    removeCrossoriginPlugin(),
   ],
+  define: {
+    global: 'window',
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -72,6 +94,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8181',
         changeOrigin: true,
+        ws: true,
         // 开发环境超时配置（支持 AI 流式输出）
         timeout: 3600000,  // 3600 秒
         proxyTimeout: 3600000,

@@ -1,6 +1,7 @@
 package com.kbook.repository;
 
 import com.kbook.entity.ReadingProgress;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -17,6 +18,8 @@ public interface ReadingProgressRepository extends JpaRepository<ReadingProgress
     Optional<ReadingProgress> findByUserIdAndBookId(Long userId, Long bookId);
 
     List<ReadingProgress> findByUserIdOrderByUpdatedAtDesc(Long userId);
+
+    Page<ReadingProgress> findByUserIdOrderByUpdatedAtDesc(Long userId, Pageable pageable);
 
     void deleteByUserIdAndBookId(Long userId, Long bookId);
 

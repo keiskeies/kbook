@@ -4,27 +4,24 @@ export interface AiMessage {
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   timestamp: number
-  /** 是否正在流式输出 */
   streaming?: boolean
-  /** thinking 状态文本（如"正在检索书籍内容..."） */
   thinkingStatus?: string
-  /** AI 思考/推理过程内容（可折叠展示） */
   thinkingContent?: string
-  /** 对应的用户问题（用于生成深入追问） */
   userQuestion?: string
-  /** AI 回答后的深入追问问题列表 */
   followUpQuestions?: string[]
-  /** 是否正在加载深入追问问题 */
   loadingFollowUps?: boolean
 }
 
-/** AI 会话 */
-export interface AiSession {
+/** AI 会话（后端 AiSession 实体） */
+export interface AiSessionItem {
+  id: number
+  userId: number
+  type: 'assistant' | 'book_chat' | 'admin'
+  bookId: number | null
   sessionId: string
-  /** 最后一条消息摘要 */
-  lastMessage: string
-  /** 更新时间 */
-  updatedAt: number
+  title: string
+  createdAt: string
+  updatedAt: string
 }
 
 /** AI 对话请求 */
@@ -49,12 +46,14 @@ export interface AiConversation {
   id: number
   userId: number
   sessionId: string
+  type: string | null
+  bookId: number | null
   role: string
   content: string
+  thinkingContent: string | null
+  followUpQuestions: string | null
   toolCallId: string | null
   toolName: string | null
   tokenCount: number | null
   createdAt: string
 }
-
-

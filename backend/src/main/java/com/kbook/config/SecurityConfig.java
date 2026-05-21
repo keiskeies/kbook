@@ -78,7 +78,11 @@ public class SecurityConfig {
                         .requestMatchers("/api/captcha/**").permitAll()
                         // 公共资源
                         .requestMatchers("/api/public/**").permitAll()
-                        .requestMatchers("/api/uploads/**").permitAll()
+                        // 头像公开访问
+                        .requestMatchers("/api/uploads/avatars/**").permitAll()
+                        // WebSocket
+                        .requestMatchers("/ws/**").permitAll()
+                        .requestMatchers("/api/ws/**").permitAll()
                         
                         // ===== 管理员接口（需 ADMIN 角色）=====
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

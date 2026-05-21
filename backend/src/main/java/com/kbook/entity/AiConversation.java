@@ -18,7 +18,9 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "ai_conversations", indexes = {
         @Index(name = "idx_conv_user_id", columnList = "user_id"),
-        @Index(name = "idx_conv_session_id", columnList = "session_id")
+        @Index(name = "idx_conv_session_id", columnList = "session_id"),
+        @Index(name = "idx_conv_type", columnList = "type"),
+        @Index(name = "idx_conv_book_id", columnList = "book_id")
 })
 public class AiConversation {
 
@@ -38,6 +40,12 @@ public class AiConversation {
     @Column(name = "session_id", nullable = false, length = 100)
     private String sessionId;
 
+    @Column(length = 20)
+    private String type;
+
+    @Column(name = "book_id")
+    private Long bookId;
+
     /**
      * 角色：user / assistant / system / tool
      */
@@ -49,6 +57,12 @@ public class AiConversation {
      */
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
+
+    @Column(name = "thinking_content", columnDefinition = "TEXT")
+    private String thinkingContent;
+
+    @Column(name = "follow_up_questions", columnDefinition = "TEXT")
+    private String followUpQuestions;
 
     /**
      * 工具调用 ID（当 role=tool 时记录）
