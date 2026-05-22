@@ -569,7 +569,7 @@ export default function ProfilePage() {
       )}
 
       <div className="mt-6 text-center">
-        <span className="text-[10px] text-muted-foreground/60">@VERSION - KEISKEIES 1.0.3</span>
+        <span className="text-[10px] text-muted-foreground/60">@VERSION - KEISKEIES 1.0.3.2</span>
       </div>
 
       {showProfileModal && (

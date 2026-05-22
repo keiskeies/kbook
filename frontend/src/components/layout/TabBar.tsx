@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { useUiStore } from '@/store/ui'
 
 /** 会眨眼的 AI 机器人图标 */
-function BlinkingBot({ className }: { className?: string }) {
+export function BlinkingBot({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"

@@ -53,6 +53,7 @@ public class UserProfileController {
         vo.setNickname(user.getNickname());
         vo.setAvatar(user.getAvatar());
         vo.setBio(user.getBio());
+        vo.setMood(user.getMood());
         vo.setFollowerCount(user.getFollowerCount());
         vo.setFollowingCount(user.getFollowingCount());
 

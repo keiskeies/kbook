@@ -25,6 +25,11 @@ public class UserInfo {
     private Boolean married;
     private Boolean hasChildren;
     private String mbti;
+    private String occupation;
+    private String education;
+    private String entrepreneurship;
+    private String annualIncome;
+    private String mood;
     private String bio;
     private Integer followerCount;
     private Integer followingCount;
@@ -43,6 +48,11 @@ public class UserInfo {
                 .married(user.getMarried())
                 .hasChildren(user.getHasChildren())
                 .mbti(user.getMbti())
+                .occupation(user.getOccupation())
+                .education(user.getEducation())
+                .entrepreneurship(user.getEntrepreneurship())
+                .annualIncome(user.getAnnualIncome())
+                .mood(user.getMood())
                 .bio(user.getBio())
                 .followerCount(user.getFollowerCount())
                 .followingCount(user.getFollowingCount())

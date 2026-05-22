@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useCallback, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import rehypeRaw from 'rehype-raw'
 import { useNavigate } from 'react-router-dom'
 import InlineBookCard, { type InlineBookCardData } from '@/components/ai/InlineBookCard'
 
@@ -184,6 +185,13 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
     ? injectBookIds(content, bookMap)
     : content
 
+  // AI 模型可能输出转义的 \*\*，将其还原为 **
+  const unescapedContent = enrichedContent.replace(/\\\*\*/g, '**')
+
+  // CommonMark 中 ** 前面是中文、后面紧跟标点时不会识别为粗体（如 验证**"大胆"**），
+  // 手动将 **...** 替换为 <strong>...</strong> 绕过此限制
+  const strongFixed = unescapedContent.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+
   const handleClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement
     const anchor = target.closest('a')
@@ -201,7 +209,7 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
     }
   }
 
-  const segments = segmentContent(enrichedContent)
+  const segments = segmentContent(strongFixed)
 
   // 如果没有分段或只有文本，直接渲染 markdown（带《书名》搜索链接兜底）
   if (segments.length === 1 && segments[0].type === 'text') {
@@ -209,7 +217,7 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
       <div className={`markdown-body ${className}`} onClick={handleClick}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight]}
+          rehypePlugins={[rehypeRaw, rehypeHighlight]}
           components={markdownComponents}
         >
           {segments[0].content}
@@ -229,7 +237,7 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
           <ReactMarkdown
             key={`text-${i}`}
             remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
+            rehypePlugins={[rehypeRaw, rehypeHighlight]}
             components={markdownComponents}
           >
             {seg.content}

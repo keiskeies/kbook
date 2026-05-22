@@ -30,6 +30,8 @@ export interface BookshelfItem {
   currentPosition: string | null
   lastReadAt: string | null
   addedAt: string
+  rating: number
+  matchScore: number
 }
 
 /** 阅读进度 */

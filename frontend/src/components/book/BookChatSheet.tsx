@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Bot, User, Sparkles, RefreshCw, Copy, Check, History, X, Volume2, Square } from 'lucide-react'
+import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, X, Volume2, Square, Plus } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions, getBookChatHistory } from '@/api/bookChat'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
+import { BlinkingBot } from '@/components/layout/TabBar'
 import { ttsService } from '@/utils/tts'
 import type { AiMessage } from '@/types/ai'
 import type { AiSessionItem } from '@/types/ai'
@@ -370,10 +371,10 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
         <SheetHeader className="shrink-0 border-b px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-              <Sparkles className="h-5 w-5 text-primary" />
+              <BlinkingBot className="h-5 w-5 text-primary" />
             </div>
             <div className="min-w-0 flex-1">
-              <SheetTitle className="text-base">{chatTitle || 'AI 书籍问答'}</SheetTitle>
+              <SheetTitle className="text-base truncate">{chatTitle || 'AI 书籍问答'}</SheetTitle>
               <SheetDescription className="truncate text-xs">
                 基于原著内容回答关于《{book.title}》的问题
               </SheetDescription>
@@ -385,7 +386,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
                   className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
                   title="新对话"
                 >
-                  <Sparkles className="h-4 w-4" />
+                  <Plus className="h-4 w-4" />
                 </button>
               )}
               <button
@@ -635,21 +636,6 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
         )}
 
         <div className="shrink-0 border-t bg-background px-4 pt-2 pb-3 pb-safe-bottom">
-          {hasMessages && !showHistory && suggestions.length > 0 && !loading && (
-            <div className="mb-2">
-              <div className="flex gap-2 overflow-x-auto scrollbar-none">
-                {suggestions.slice(0, 3).map((hint, i) => (
-                  <button
-                    key={i}
-                    className="shrink-0 rounded-full border border-border/50 bg-card px-3 py-1.5 text-xs transition-colors hover:border-primary/30 hover:bg-primary/5"
-                    onClick={() => handleSend(hint)}
-                  >
-                    {hint}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           <div className="flex items-center gap-2">
             <input
               type="text"

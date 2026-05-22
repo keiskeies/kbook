@@ -1,12 +1,11 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, MoreVertical, Trash2, ArrowUpDown, Filter, BookOpen } from 'lucide-react'
+import { Plus, MoreVertical, Trash2, ArrowUpDown, Filter, BookOpen, Sparkles, Star } from 'lucide-react'
 import { getBookshelf, removeFromBookshelf } from '@/api/bookshelf'
 import type { BookshelfItem } from '@/types/book'
 import { parseFormatTags, formatProgress } from '@/types/book'
 import { formatTag } from '@/utils/time'
 import { toast } from 'sonner'
-import BookCover from '@/components/book/BookCover'
 
 type SortKey = 'recent' | 'progress' | 'title' | 'addTime'
 type FilterFormat = '' | 'TXT' | 'EPUB' | 'PDF'
@@ -81,12 +80,9 @@ export default function BookshelfPage() {
         <header className="py-4">
           <h1 className="text-xl font-bold">我的书架</h1>
         </header>
-        <div className="grid grid-cols-3 gap-3">
-          {Array.from({ length: 6 }, (_, i) => (
-            <div key={i} className="flex flex-col items-center gap-2">
-              <div className="aspect-[3/4] w-full rounded-xl bg-muted animate-pulse" />
-              <div className="h-3 w-3/4 rounded bg-muted animate-pulse" />
-            </div>
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="aspect-[3/4] w-full rounded-2xl bg-muted animate-pulse" />
           ))}
         </div>
       </div>
@@ -183,67 +179,96 @@ export default function BookshelfPage() {
           <button onClick={() => setFilterFormat('')} className="mt-2 text-xs text-primary">清除筛选</button>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2">
           {filteredAndSorted.map((item) => {
             parseFormatTags(item.formatTags);
+            const pct = Math.round(Math.max(0, item.matchScore ?? 0) * 100)
             return (
-                <div
-              key={item.bookshelfId}
-              className="group relative flex flex-col w-full active:scale-[0.97] transition-transform duration-150"
-              onClick={() => navigate(`/book/${item.bookId}`)}
-            >
-              {/* 封面容器 */}
-              <div className="relative w-full">
-                <BookCover coverUrl={item.coverUrl} title={item.title} author={item.author} format={item.format} />
+              <div
+                key={item.bookshelfId}
+                className="group relative flex flex-col active:scale-[0.97] transition-transform duration-150"
+                onClick={() => navigate(`/book/${item.bookId}`)}
+              >
+                {/* 封面容器 */}
+                <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-border/50 shadow-sm">
+                  <div
+                    className="absolute inset-0 bg-cover bg-center"
+                    style={{ backgroundImage: `url(${item.coverUrl || ''})` }}
+                  />
+                  {!item.coverUrl && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
+                      <BookOpen className="h-10 w-10 text-primary/30" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
 
-                {/* 更多按钮 */}
-                <button
-                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/30 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setMenuOpen(menuOpen === item.bookId ? null : item.bookId)
-                  }}
-                >
-                  <MoreVertical className="h-3 w-3 text-white" />
-                </button>
+                  {/* 更多按钮 */}
+                  <button
+                    className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-black/30 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setMenuOpen(menuOpen === item.bookId ? null : item.bookId)
+                    }}
+                  >
+                    <MoreVertical className="h-3 w-3 text-white" />
+                  </button>
+
+                  {/* 右键菜单 */}
+                  {menuOpen === item.bookId && (
+                    <div className="absolute right-0 top-8 z-10 w-28 rounded-xl bg-popover p-1 shadow-lg ring-1 ring-border/50">
+                      <button
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-destructive hover:bg-destructive/10"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleRemove(item.bookId)
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        移出书架
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 底部评分 & 匹配度 */}
+                  <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1">
+                    {item.rating != null && item.rating >= 0 && (
+                      <span className="inline-flex items-center gap-0.5 rounded-md bg-black/40 px-1 py-0.5 text-[9px] font-semibold text-amber-400 backdrop-blur-sm">
+                        <Star className="h-2 w-2" />
+                        {Number(item.rating.toFixed(1))}
+                      </span>
+                    )}
+                    <span className="inline-flex items-center gap-0.5 rounded-md bg-black/40 px-1 py-0.5 text-[9px] font-semibold text-orange-400 backdrop-blur-sm">
+                      <Sparkles className="h-2 w-2" />
+                      {pct}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* 书名 — 固定两行 */}
+                <p className="mt-1.5 px-0.5 text-xs font-semibold leading-tight line-clamp-2">
+                  {item.title}
+                </p>
+
+                {/* 作者 & 进度 */}
+                <div className="mt-0.5 flex items-center justify-between px-0.5">
+                  {item.author ? (
+                    <p className="truncate text-[10px] text-muted-foreground">{item.author}</p>
+                  ) : <div />}
+                  <p className="shrink-0 text-[10px] text-primary font-medium">
+                    {item.progress >= 1 ? '已读完' : formatProgress(item.progress)}
+                  </p>
+                </div>
 
                 {/* 进度条 */}
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/20 rounded-b-xl overflow-hidden">
+                <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
                   <div
-                    className="h-full bg-gradient-to-r from-primary to-primary/70 transition-all"
+                    className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70 transition-all"
                     style={{ width: `${Math.round(item.progress * 100)}%` }}
                   />
                 </div>
               </div>
-
-              {/* 书名 */}
-              <p className="mt-1.5 w-full truncate text-center text-xs font-semibold leading-tight">
-                {item.title}
-              </p>
-
-              {/* 进度文字 */}
-              <p className="text-[10px] text-primary font-medium">
-                {item.progress >= 1 ? '已读完' : formatProgress(item.progress)}
-              </p>
-
-              {/* 右键菜单 */}
-              {menuOpen === item.bookId && (
-                <div className="absolute right-0 top-8 z-10 w-28 rounded-xl bg-popover p-1 shadow-lg ring-1 ring-border/50">
-                  <button
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-destructive hover:bg-destructive/10"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleRemove(item.bookId)
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    移出书架
-                  </button>
-                </div>
-              )}
-            </div>
-          )
-        })}
+            )
+          })}
         </div>
       )}
     </div>

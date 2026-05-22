@@ -11,6 +11,16 @@ import { formatRelativeTime } from '@/utils/time'
 import { toast } from 'sonner'
 import BookCover from '@/components/book/BookCover'
 
+const MOOD_EMOJI: Record<string, string> = {
+  HAPPY: '😊',
+  CALM: '😌',
+  ANXIOUS: '😰',
+  SAD: '😢',
+  MOTIVATED: '🔥',
+  TIRED: '😴',
+  CURIOUS: '🤔',
+}
+
 export default function UserProfilePage() {
   const { userId } = useParams<{ userId: string }>()
   const navigate = useNavigate()
@@ -115,6 +125,7 @@ export default function UserProfilePage() {
               {profile.gender === 'MALE' && <span>男</span>}
               {profile.gender === 'FEMALE' && <span>女</span>}
               {profile.mbti && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary font-medium">{profile.mbti}</span>}
+              {profile.mood && <span className="text-xs">{MOOD_EMOJI[profile.mood] || ''}</span>}
             </div>
           </div>
         </div>

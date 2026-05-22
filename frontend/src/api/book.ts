@@ -99,6 +99,21 @@ export function updateFormatTags(id: number, tags: string[]) {
   return request.put<Book>(`/books/${id}/tags`, { tags })
 }
 
+/** 更新图书书名（管理员） */
+export function updateBookTitle(id: number, title: string) {
+  return request.put<Book>(`/books/admin/${id}/title`, { title })
+}
+
+/** 更新图书作者（管理员） */
+export function updateBookAuthor(id: number, author: string | null) {
+  return request.put<Book>(`/books/admin/${id}/author`, { author })
+}
+
+/** 更新图书简介（管理员） */
+export function updateBookDescription(id: number, description: string | null) {
+  return request.put<Book>(`/books/admin/${id}/description`, { description })
+}
+
 /** 扫描图书（管理员）— SSE 流式返回进度 */
 export function scanBooksStream(
   onProgress: (data: ScanProgress) => void,

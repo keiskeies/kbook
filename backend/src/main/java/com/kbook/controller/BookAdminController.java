@@ -182,6 +182,43 @@ public class BookAdminController {
     }
 
     /**
+     * 更新图书书名（管理员）
+     */
+    @PutMapping("/{id}/title")
+    public Result<Book> updateBookTitle(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        String title = body.get("title");
+        if (title == null || title.isBlank()) {
+            return Result.fail("书名不能为空");
+        }
+        Book book = bookService.getBookById(id);
+        book.setTitle(title.trim());
+        bookService.updateBook(id, book);
+        return Result.ok(bookService.getBookById(id));
+    }
+
+    /**
+     * 更新图书作者（管理员）
+     */
+    @PutMapping("/{id}/author")
+    public Result<Book> updateBookAuthor(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        String author = body.get("author");
+        Book book = bookService.getBookById(id);
+        book.setAuthor(author != null ? author.trim() : null);
+        bookService.updateBook(id, book);
+        return Result.ok(bookService.getBookById(id));
+    }
+
+    /**
+     * 更新图书简介（管理员）
+     */
+    @PutMapping("/{id}/description")
+    public Result<Book> updateBookDescription(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        String description = body.get("description");
+        bookService.updateDescription(id, description != null ? description.trim() : null);
+        return Result.ok(bookService.getBookById(id));
+    }
+
+    /**
      * 重新解析图书元数据
      */
     @PostMapping("/{id}/reparse")

@@ -30,6 +30,7 @@ public class BookshelfService {
     private final BookRepository bookRepository;
     private final ReadingProgressRepository progressRepository;
     private final MatchScoreCacheService matchScoreCacheService;
+    private final RecommendService recommendService;
 
     /**
      * 加入书架
@@ -84,6 +85,9 @@ public class BookshelfService {
         Map<Long, ReadingProgress> progressMap = progresses.stream()
                 .collect(Collectors.toMap(ReadingProgress::getBookId, p -> p));
 
+        // 批量计算匹配度
+        Map<Long, Double> matchScores = recommendService.batchCalculateMatchScores(userId, bookIds);
+
         return items.stream().map(item -> {
             Book book = bookMap.get(item.getBookId());
             ReadingProgress progress = progressMap.get(item.getBookId());
@@ -100,6 +104,8 @@ public class BookshelfService {
                     .currentPosition(progress != null ? progress.getCurrentPosition() : null)
                     .lastReadAt(progress != null ? progress.getUpdatedAt() : null)
                     .addedAt(item.getAddedAt())
+                    .rating(book != null ? book.getRating() : 0.0)
+                    .matchScore(matchScores.getOrDefault(item.getBookId(), 0.0))
                     .build();
         }).collect(Collectors.toList());
     }

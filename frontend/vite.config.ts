@@ -87,7 +87,7 @@ export default defineConfig({
     },
   },
   server: {
-    host: '0.0.0.0',
+    host: '::',
     port: 15173,
     allowedHosts: true,
     proxy: {

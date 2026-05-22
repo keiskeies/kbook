@@ -8,6 +8,7 @@ export interface UserProfileVO {
   nickname: string
   avatar: string | null
   bio: string | null
+  mood: string | null
   age: number | null
   gender: string | null
   mbti: string | null

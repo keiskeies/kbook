@@ -8,6 +8,7 @@ public class UserProfileVO {
     private String nickname;
     private String avatar;
     private String bio;
+    private String mood;
     private Integer age;
     private String gender;
     private String mbti;

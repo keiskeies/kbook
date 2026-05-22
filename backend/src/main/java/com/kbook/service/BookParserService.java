@@ -203,6 +203,16 @@ public class BookParserService {
                 book.setParsedContent(buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), 15000))));
             }
         }
+
+        // epublib 返回非 null 但 spine 为空时无内容提取，再尝试 ZIP 降级
+        if (book.getRagContent() == null || book.getRagContent().isBlank()) {
+            log.info("EPUB 标准解析未提取到内容，尝试 ZIP 降级: bookId={}", book.getId());
+            String fullText = extractEpubTextViaZip(filePath);
+            if (fullText != null && !fullText.isBlank()) {
+                book.setRagContent(fullText);
+                book.setParsedContent(buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), 15000))));
+            }
+        }
     }
 
     /**
@@ -1094,11 +1104,12 @@ public class BookParserService {
         try (InputStream is = Files.newInputStream(filePath)) {
             EpubReader epubReader = new EpubReader();
             nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
-            return extractEpubFullTextFromEpubBook(epubBook);
+            String text = extractEpubFullTextFromEpubBook(epubBook);
+            if (text != null && !text.isBlank()) return text;
         } catch (Exception e) {
             log.warn("epublib 解析 EPUB 失败，尝试 ZIP 降级提取: {} - {}", book.getTitle(), e.getMessage());
-            return extractEpubTextViaZip(filePath);
         }
+        return extractEpubTextViaZip(filePath);
     }
 
     /**
@@ -1146,7 +1157,7 @@ public class BookParserService {
                 } catch (Exception ignored) {
                 }
             }
-            return text.toString();
+            return text.length() > 0 ? text.toString() : null;
         } catch (Exception e) {
             log.debug("从EPUB对象提取全文失败: {}", e.getMessage());
             return null;

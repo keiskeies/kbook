@@ -13,12 +13,6 @@ public class RecommendMatchCalculator {
 
     public static double calculateMatchScore(User user, Book book,
                                               RecommendCoefficientService coefficientService,
-                                              ObjectMapper objectMapper) {
-        return calculateMatchScore(user, book, coefficientService, objectMapper, null);
-    }
-
-    public static double calculateMatchScore(User user, Book book,
-                                              RecommendCoefficientService coefficientService,
                                               ObjectMapper objectMapper,
                                               DimensionStatsService statsService) {
         if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
@@ -39,12 +33,16 @@ public class RecommendMatchCalculator {
             double totalWeight = 0;
             int matchedDimensions = 0;
 
+            StringBuilder logDetail = new StringBuilder();
+            logDetail.append(String.format("匹配度计算: book=%s(%d) | ", book.getTitle(), book.getId()));
+
             if (user.getBirthday() != null) {
                 int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
                 String ageGroup = getAgeGroup(age);
                 double dev = getDeviation(statsService, ageGroup, scores);
                 totalDeviation += dev * ageWeight;
                 totalWeight += ageWeight;
+                logDetail.append(String.format("年龄[%s]: dev=%.4f*%.2f=%.4f", ageGroup, dev, ageWeight, dev * ageWeight));
 
                 String prevGroup = getAdjacentAgeGroup(age, -1);
                 String nextGroup = getAdjacentAgeGroup(age, 1);
@@ -52,13 +50,16 @@ public class RecommendMatchCalculator {
                     double adjDev = getDeviation(statsService, prevGroup, scores);
                     totalDeviation += adjDev * ageWeight * adjacentDecay;
                     totalWeight += ageWeight * adjacentDecay;
+                    logDetail.append(String.format(" + 邻近年龄[%s]: dev=%.4f*%.2f*%.2f=%.4f", prevGroup, adjDev, ageWeight, adjacentDecay, adjDev * ageWeight * adjacentDecay));
                 }
                 if (nextGroup != null && !nextGroup.equals(ageGroup)) {
                     double adjDev = getDeviation(statsService, nextGroup, scores);
                     totalDeviation += adjDev * ageWeight * adjacentDecay;
                     totalWeight += ageWeight * adjacentDecay;
+                    logDetail.append(String.format(" + 邻近年龄[%s]: dev=%.4f*%.2f*%.2f=%.4f", nextGroup, adjDev, ageWeight, adjacentDecay, adjDev * ageWeight * adjacentDecay));
                 }
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (user.getGender() != null) {
@@ -66,13 +67,16 @@ public class RecommendMatchCalculator {
                 double dev = getDeviation(statsService, genderKey, scores);
                 totalDeviation += dev * 1.0;
                 totalWeight += 1.0;
+                logDetail.append(String.format("性别[%s]: dev=%.4f*1.0=%.4f", genderKey, dev, dev * 1.0));
 
                 String oppositeKey = "MALE".equals(user.getGender()) ? "female" : "male";
                 double oppDev = getDeviation(statsService, oppositeKey, scores);
                 if (oppDev > 0) {
                     totalDeviation -= oppDev * 0.5;
+                    logDetail.append(String.format(" - 相反[%s]: dev=%.4f*0.5=%.4f", oppositeKey, oppDev, oppDev * 0.5));
                 }
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (user.getMarried() != null) {
@@ -80,13 +84,16 @@ public class RecommendMatchCalculator {
                 double dev = getDeviation(statsService, marryKey, scores);
                 totalDeviation += dev * 1.0;
                 totalWeight += 1.0;
+                logDetail.append(String.format("婚姻[%s]: dev=%.4f*1.0=%.4f", marryKey, dev, dev * 1.0));
 
                 String oppositeKey = user.getMarried() ? "unmarried" : "married";
                 double oppDev = getDeviation(statsService, oppositeKey, scores);
                 if (oppDev > 0) {
                     totalDeviation -= oppDev * 0.5;
+                    logDetail.append(String.format(" - 相反[%s]: dev=%.4f*0.5=%.4f", oppositeKey, oppDev, oppDev * 0.5));
                 }
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (user.getHasChildren() != null) {
@@ -94,13 +101,16 @@ public class RecommendMatchCalculator {
                 double dev = getDeviation(statsService, childKey, scores);
                 totalDeviation += dev * 1.0;
                 totalWeight += 1.0;
+                logDetail.append(String.format("子女[%s]: dev=%.4f*1.0=%.4f", childKey, dev, dev * 1.0));
 
                 String oppositeKey = user.getHasChildren() ? "noChildren" : "hasChildren";
                 double oppDev = getDeviation(statsService, oppositeKey, scores);
                 if (oppDev > 0) {
                     totalDeviation -= oppDev * 0.5;
+                    logDetail.append(String.format(" - 相反[%s]: dev=%.4f*0.5=%.4f", oppositeKey, oppDev, oppDev * 0.5));
                 }
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (user.getMbti() != null) {
@@ -108,35 +118,42 @@ public class RecommendMatchCalculator {
                 double dev = getDeviation(statsService, mbtiKey, scores);
                 totalDeviation += dev * mbtiWeight;
                 totalWeight += mbtiWeight;
+                logDetail.append(String.format("MBTI[%s]: dev=%.4f*%.2f=%.4f", mbtiKey, dev, mbtiWeight, dev * mbtiWeight));
 
                 List<String> adjacentMbti = getAdjacentMbti(mbtiKey);
                 for (String adj : adjacentMbti) {
                     double adjDev = getDeviation(statsService, adj, scores);
                     totalDeviation += adjDev * mbtiWeight * adjacentDecay;
                     totalWeight += mbtiWeight * adjacentDecay;
+                    logDetail.append(String.format(" + 邻近MBTI[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, mbtiWeight, adjacentDecay, adjDev * mbtiWeight * adjacentDecay));
                 }
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (user.getOccupation() != null && !user.getOccupation().isBlank()) {
                 String[] userOccList = user.getOccupation().split(",");
                 double occWeight = coefficientService.getCoefficient("MATCH", "occupation_weight", 1.0);
                 double occDecay = coefficientService.getCoefficient("MATCH", "occupation_decay", 0.40);
+                logDetail.append("职业");
                 for (String userOcc : userOccList) {
                     String occKey = userOcc.trim().toLowerCase();
                     if (occKey.isEmpty()) continue;
                     double dev = getDeviation(statsService, occKey, scores);
                     totalDeviation += dev * occWeight;
                     totalWeight += occWeight;
+                    logDetail.append(String.format("[%s]: dev=%.4f*%.2f=%.4f", occKey, dev, occWeight, dev * occWeight));
 
                     List<String> adjacentOcc = getAdjacentOccupations(occKey);
                     for (String adj : adjacentOcc) {
                         double adjDev = getDeviation(statsService, adj, scores);
                         totalDeviation += adjDev * occWeight * occDecay;
                         totalWeight += occWeight * occDecay;
+                        logDetail.append(String.format(" + 邻近职业[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, occWeight, occDecay, adjDev * occWeight * occDecay));
                     }
                 }
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (user.getEducation() != null) {
@@ -146,14 +163,17 @@ public class RecommendMatchCalculator {
                 double dev = getDeviation(statsService, eduKey, scores);
                 totalDeviation += dev * eduWeight;
                 totalWeight += eduWeight;
+                logDetail.append(String.format("学历[%s]: dev=%.4f*%.2f=%.4f", eduKey, dev, eduWeight, dev * eduWeight));
 
                 List<String> adjacentEdu = getAdjacentEducations(eduKey);
                 for (String adj : adjacentEdu) {
                     double adjDev = getDeviation(statsService, adj, scores);
                     totalDeviation += adjDev * eduWeight * eduDecay;
                     totalWeight += eduWeight * eduDecay;
+                    logDetail.append(String.format(" + 邻近学历[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, eduWeight, eduDecay, adjDev * eduWeight * eduDecay));
                 }
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (user.getEntrepreneurship() != null && !user.getEntrepreneurship().isBlank()) {
@@ -162,7 +182,9 @@ public class RecommendMatchCalculator {
                 double dev = getDeviation(statsService, entreKey, scores);
                 totalDeviation += dev * entreWeight;
                 totalWeight += entreWeight;
+                logDetail.append(String.format("创业[%s]: dev=%.4f*%.2f=%.4f", entreKey, dev, entreWeight, dev * entreWeight));
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (user.getAnnualIncome() != null && !user.getAnnualIncome().isBlank()
@@ -173,14 +195,17 @@ public class RecommendMatchCalculator {
                 double dev = getDeviation(statsService, incomeKey, scores);
                 totalDeviation += dev * incomeWeight;
                 totalWeight += incomeWeight;
+                logDetail.append(String.format("收入[%s]: dev=%.4f*%.2f=%.4f", incomeKey, dev, incomeWeight, dev * incomeWeight));
 
                 List<String> adjacentIncome = getAdjacentIncomes(incomeKey);
                 for (String adj : adjacentIncome) {
                     double adjDev = getDeviation(statsService, adj, scores);
                     totalDeviation += adjDev * incomeWeight * incomeDecay;
                     totalWeight += incomeWeight * incomeDecay;
+                    logDetail.append(String.format(" + 邻近收入[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, incomeWeight, incomeDecay, adjDev * incomeWeight * incomeDecay));
                 }
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (user.getMood() != null) {
@@ -190,14 +215,17 @@ public class RecommendMatchCalculator {
                 double dev = getDeviation(statsService, moodKey, scores);
                 totalDeviation += dev * moodWeight;
                 totalWeight += moodWeight;
+                logDetail.append(String.format("心情[%s]: dev=%.4f*%.2f=%.4f", moodKey, dev, moodWeight, dev * moodWeight));
 
                 List<String> relatedMoods = getRelatedMoods(moodKey);
                 for (String adj : relatedMoods) {
                     double adjDev = getDeviation(statsService, adj, scores);
                     totalDeviation += adjDev * moodWeight * moodDecay;
                     totalWeight += moodWeight * moodDecay;
+                    logDetail.append(String.format(" + 相关心情[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, moodWeight, moodDecay, adjDev * moodWeight * moodDecay));
                 }
                 matchedDimensions++;
+                logDetail.append(" | ");
             }
 
             if (totalWeight == 0) return 0.0;
@@ -218,7 +246,12 @@ public class RecommendMatchCalculator {
                 default -> 0.35;
             };
 
-            return avgDeviation * coverageFactor;
+            double finalScore = avgDeviation * coverageFactor;
+            logDetail.append(String.format("汇总: totalDev=%.4f, totalWeight=%.4f, avgDev=%.4f, coverage[%d维]=%.2f, final=%.4f",
+                    totalDeviation, totalWeight, avgDeviation, matchedDimensions, coverageFactor, finalScore));
+            log.info(logDetail.toString());
+
+            return finalScore;
         } catch (Exception e) {
             log.debug("解析相关度得分失败: bookId={} - {}", book.getId(), e.getMessage());
             return 0.0;
@@ -320,10 +353,9 @@ public class RecommendMatchCalculator {
     static List<String> getRelatedMoods(String mood) {
         return switch (mood.toLowerCase()) {
             case "happy" -> List.of("motivated", "calm");
-            case "calm" -> List.of("happy", "curious");
+            case "calm", "motivated" -> List.of("happy", "curious");
             case "anxious" -> List.of("sad", "tired");
             case "sad" -> List.of("anxious", "tired");
-            case "motivated" -> List.of("happy", "curious");
             case "tired" -> List.of("sad", "anxious");
             case "curious" -> List.of("calm", "motivated");
             default -> List.of();

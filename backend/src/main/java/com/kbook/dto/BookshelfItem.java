@@ -51,4 +51,10 @@ public class BookshelfItem {
     
     /** 加入书架时间 */
     private LocalDateTime addedAt;
+    
+    /** 评分 */
+    private Double rating;
+    
+    /** 匹配度（0-1） */
+    private Double matchScore;
 }

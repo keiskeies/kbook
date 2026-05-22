@@ -508,7 +508,7 @@ function DualColumnBookCard({ books, onBookClick, matchScores }: {
 
             {/* 底部信息 */}
             <div className="absolute bottom-0 left-0 right-0 p-3">
-              <p className="truncate text-sm font-semibold text-white">{book.title}</p>
+              <p className="text-sm font-semibold text-white line-clamp-2">{book.title}</p>
               <p className="mt-0.5 truncate text-xs text-white/70">
                 {book.author || '未知作者'}
               </p>

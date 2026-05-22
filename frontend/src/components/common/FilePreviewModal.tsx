@@ -205,7 +205,7 @@ export default function FilePreviewModal({ open, onOpenChange, fileUrl, fileName
         category === 'document' && "sm:max-w-md"
       )}>
         <DialogHeader className="flex flex-row items-center justify-between gap-4 pr-8">
-          <DialogTitle className="truncate text-base">{fileName}</DialogTitle>
+          <DialogTitle className="min-w-0 break-all text-base leading-snug">{fileName}</DialogTitle>
           <button
             onClick={handleDownload}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0"
