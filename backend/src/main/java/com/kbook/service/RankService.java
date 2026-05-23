@@ -187,6 +187,18 @@ public class RankService {
     }
 
     /**
+     * 刷新热门标签缓存 — 委托 BookService 加锁计算并写入 Redis
+     */
+    private void refreshHotTagsCache() {
+        try {
+            bookService.computeTopTagsWithLock();
+            log.debug("热门标签缓存刷新完成");
+        } catch (Exception e) {
+            log.warn("刷新热门标签缓存失败: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 定时刷新热门榜单缓存 — 每2小时
      */
     @Scheduled(fixedRate = 2 * 60 * 60 * 1000)
@@ -196,6 +208,7 @@ public class RankService {
             refreshReadRankCache();
             refreshRatingRankCache();
             refreshNewBooksRankCache();
+            refreshHotTagsCache();
             generateHighRatedRandom();
             generateNewArrivalsRandom();
 

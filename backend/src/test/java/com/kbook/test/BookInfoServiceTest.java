@@ -36,64 +36,6 @@ public class BookInfoServiceTest {
     @Autowired
     private com.kbook.service.EmbeddingService embeddingService;
 
-    @Test
-    public void updateBookImages() {
-        String errs = "book_new_1778875775817_cover.jpg," +
-                "book_196_cover.jpg," +
-                "book_1610_cover.jpg," +
-                "book_3029_cover.jpg," +
-                "book_3204_cover.jpg," +
-                "book_4335_cover.jpg," +
-                "book_new_1779094890365_cover.jpg," +
-                "book_new_1779183283137_cover.jpg," +
-                "book_new_1779183283319_cover.jpg," +
-                "book_new_1779183283486_cover.jpg," +
-                "book_new_1779183283548_cover.jpg," +
-                "book_new_1779183283726_cover.jpg," +
-                "book_4308_cover.jpg," +
-                "book_new_1779183283659_cover.jpg," +
-                "book_2442_cover.jpg," +
-                "book_4145_cover.jpg," +
-                "book_4441_cover.jpg," +
-                "book_4608_cover.jpg," +
-                "book_5064_cover.jpg," +
-                "book_5444_cover.jpg," +
-                "book_5478_cover.jpg," +
-                "book_5576_cover.jpg," +
-                "book_5986_cover.jpg," +
-                "book_6038_cover.jpg," +
-                "book_6073_cover.jpg," +
-                "book_6160_cover.jpg," +
-                "book_6252_cover.jpg," +
-                "book_6360_cover.jpg," +
-                "book_6385_cover.jpg," +
-                "book_6404_cover.jpg," +
-                "book_6429_cover.jpg," +
-                "book_6441_cover.jpg," +
-                "book_6511_cover.jpg," +
-                "book_6553_cover.jpg," +
-                "book_6569_cover.jpg," +
-                "book_6643_cover.jpg," +
-                "book_6682_cover.jpg," +
-                "book_6778_cover.jpg," +
-                "book_6791_cover.jpg," +
-                "book_6809_cover.jpg," +
-                "book_6884_cover.jpg," +
-                "book_6900_cover.jpg," +
-                "book_6913_cover.jpg," +
-                "book_6945_cover.jpg," +
-                "book_new_1778873313831_cover.jpg";
-
-        List<String> errFiles = Arrays.stream(errs.split(",")).map(e -> "/api/books/cover/" + e).toList();
-        List<Book> books = bookRepository.findAllByCoverUrlIn(errFiles);
-        for (Book book : books) {
-            bookParserService.parseEpub(book, Path.of(book.getFileUrl()));
-            bookParserService.finalizeCover(book);
-            bookService.setCoverUrl(book.getId(), book.getCoverUrl());
-
-        }
-    }
-
 
     @Test
     public void updateBookDescription() {
@@ -123,12 +65,12 @@ public class BookInfoServiceTest {
                 // 5. 更新 Elasticsearch 索引
                 bookSearchService.indexBook(book);
 
-                // 6. 重建基础信息向量（参考 EmbeddingService.rebuildAllBookEmbeddingsWithProgress 中对单本书的向量操作）
+                // 6. 重建基础信息向量
                 embeddingService.removeBookEmbedding(book.getId());
                 embeddingService.upsertBookEmbedding(book);
 
                 successCount++;
-                System.out.println("  ✓ 成功更新: " + book.getTitle() + ", 简介长度: " + 
+                System.out.println("  ✓ 成功更新: " + book.getTitle() + ", 简介长度: " +
                         (book.getDescription() != null ? book.getDescription().length() : 0));
 
             } catch (Exception e) {
@@ -163,16 +105,111 @@ public class BookInfoServiceTest {
             }
         }
 
-        List<TagStat> list = tagCount.entrySet().stream()
+        List<String> list = tagCount.entrySet().stream()
                 .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
-                .map(e -> TagStat.builder()
-                        .name(e.getKey())
-                        .count(e.getValue())
-                        .build())
+                .map(Map.Entry::getKey)
                 .limit(100)
 //                .filter(tagStat -> tagStat.getCount() > 5)
                 .toList();
 
         System.out.println(JSONArray.toJSONString(list));
+    }
+
+    @Test
+    public void updateBookBaseInfo() {
+        List<Book> allBooks = bookRepository.findAll();
+        System.out.println("共 " + allBooks.size() + " 本图书需要处理");
+
+        int successCount = 0;
+        int failCount = 0;
+
+        for (int i = 0; i < allBooks.size(); i++) {
+            Book book = allBooks.get(i);
+            try {
+                System.out.println("处理第 " + (i + 1) + "/" + allBooks.size() + " 本: [" + book.getId() + "] " + book.getTitle());
+
+                if (book.getFileUrl() == null || book.getFileUrl().isBlank()) {
+                    System.out.println("  跳过: 无文件路径");
+                    continue;
+                }
+
+                Path filePath = Path.of(book.getFileUrl());
+                if (!java.nio.file.Files.exists(filePath)) {
+                    System.out.println("  跳过: 文件不存在 - " + book.getFileUrl());
+                    continue;
+                }
+
+
+                boolean needAi = false;
+                // 检查简介是否需要AI补充
+                if (book.getDescription() == null) {
+                    System.out.println("  简介为空，需AI补充");
+                    needAi = true;
+                } else if (book.getDescription().length() < 50) {
+                    System.out.println("  简介长度不足50字，需AI补充");
+                    needAi = true;
+                } else if (book.getDescription().startsWith("基于小说内容生成的100-300字图书简介")) {
+                    System.out.println("  简介为占位符文本（小说），需AI补充");
+                    needAi = true;
+                } else if (book.getDescription().startsWith("基于正文内容生成的100-300字图书简介")) {
+                    System.out.println("  简介为占位符文本（正文），需AI补充");
+                    needAi = true;
+                } else if (!book.getDescription().matches(".*[\\u4e00-\\u9fa5].*")) {
+                    System.out.println("  简介不包含中文字符，需AI补充");
+                    needAi = true;
+                }
+                book.setDescription(null);
+                if (book.getFormatTags() == null || book.getFormatTags().isBlank()) {
+                    System.out.println("  缺少标签数据，需AI补充");
+                    needAi = true;
+                } else {
+                    int len = book.getFormatTags().split(",").length;
+                    if (len < 3) {
+                        System.out.println("  标签数量不足3个，需AI补充");
+                        needAi = true;
+                    } else if (len > 8) {
+                        System.out.println("  标签数量超过8个，需AI补充");
+                        needAi = true;
+                    }
+                }
+                if (book.getRating() == null || book.getRating() == 0) {
+                    System.out.println("  评分为空或为0，需AI补充");
+                    needAi = true;
+                }
+                if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
+                    System.out.println("  缺少维度得分，需AI补充");
+                    needAi = true;
+                }
+
+                if (!needAi && i < 4000) {
+                    System.out.println("  跳过: 合格数据");
+                    continue;
+                }
+
+                bookParserService.parseAndFill(book, filePath);
+                bookParserService.finalizeCover(book);
+
+                if (needAi) {
+                    bookParserService.generateAllAiData(book);
+                }
+
+                bookService.updateBook(book.getId(), book);
+
+                bookParserService.generateBookEmbedding(book);
+
+                successCount++;
+                System.out.println("  ✓ 处理完成: " + book.getTitle());
+
+            } catch (Exception e) {
+                failCount++;
+                System.err.println("  ✗ 失败: " + book.getTitle() + " - " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        System.out.println("\n========== 处理完成 ==========");
+        System.out.println("总数: " + allBooks.size());
+        System.out.println("成功: " + successCount);
+        System.out.println("失败: " + failCount);
     }
 }

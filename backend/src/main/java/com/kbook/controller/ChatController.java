@@ -1,6 +1,5 @@
 package com.kbook.controller;
 
-import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
 import com.kbook.dto.request.SendMessageRequest;
 import com.kbook.dto.response.ChatMessageVO;
@@ -8,7 +7,6 @@ import com.kbook.dto.response.ConversationVO;
 import com.kbook.entity.ChatMessage;
 import com.kbook.service.ChatService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -47,14 +45,14 @@ public class ChatController {
     }
 
     @GetMapping("/conversations/{conversationId}/messages")
-    public Result<PageResult<ChatMessageVO>> getMessages(
+    public Result<List<ChatMessageVO>> getMessages(
             Authentication authentication,
             @PathVariable Long conversationId,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(defaultValue = "20") int limit) {
         Long userId = (Long) authentication.getPrincipal();
-        Page<ChatMessageVO> messagePage = chatService.getMessages(userId, conversationId, page, size);
-        return Result.ok(PageResult.of(messagePage.getContent(), messagePage.getTotalElements(), page, size));
+        List<ChatMessageVO> messages = chatService.getMessages(userId, conversationId, beforeId, limit);
+        return Result.ok(messages);
     }
 
     @PostMapping("/messages")

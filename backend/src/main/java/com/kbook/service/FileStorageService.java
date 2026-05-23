@@ -4,7 +4,6 @@ import com.kbook.common.exception.BusinessException;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.entity.UploadedFile;
 import com.kbook.repository.ChatMessageRepository;
-import com.kbook.repository.ConversationRepository;
 import com.kbook.repository.UploadedFileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +12,6 @@ import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -25,7 +23,6 @@ public class FileStorageService {
 
     private final UploadedFileRepository uploadedFileRepository;
     private final ChatMessageRepository chatMessageRepository;
-    private final ConversationRepository conversationRepository;
     private final BookStorageProperties storageProps;
 
     @Transactional(readOnly = true)

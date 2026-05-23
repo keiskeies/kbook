@@ -2,11 +2,11 @@
 
 /* 安全区域适配 */
 .pt-safe-top {
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
 }
 
 .safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
 }
 
 /* 禁止移动端文字选择和输入光标 */

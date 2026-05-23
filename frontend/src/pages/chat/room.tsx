@@ -5,8 +5,9 @@ import { getMessages, sendMessage, markAsRead, uploadChatFile, getConversation }
 import type { ChatMessageVO, ConversationVO } from '@/api/chat'
 import { useChatStore } from '@/store/chat'
 import { useAuthStore } from '@/store/auth'
-import { formatRelativeTime } from '@/utils/time'
-import { getAccessToken } from '@/utils/token-refresh'
+import { formatChatTime } from '@/utils/time'
+import { getAuthBlobUrl } from '@/utils/auth-image'
+import AuthImage from '@/components/common/AuthImage'
 import { toast } from 'sonner'
 import { chatWebSocketService } from '@/services/chatWebSocket'
 import FilePreviewModal from '@/components/common/FilePreviewModal'
@@ -30,12 +31,10 @@ export default function ChatRoomPage() {
   const { markMessagesAsRead, messages: storeMessages } = useChatStore()
   
   const [inputValue, setInputValue] = useState('')
-  const [viewportHeight, setViewportHeight] = useState(window.innerHeight)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [conversation, setConversation] = useState<ConversationVO | null>(null)
   const [canSendMore, setCanSendMore] = useState(true)
-  const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -66,19 +65,18 @@ export default function ChatRoomPage() {
   const playTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const loadingMoreRef = useRef(false)
+  const beforeIdRef = useRef<number | null>(null)
 
   const id = Number(conversationId)
   const messages = storeMessages[id] || []
 
-  // 移动端视口高度适配 + 锁定 body 滚动
+  // 锁定 body 滚动
   useEffect(() => {
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const onResize = () => setViewportHeight(window.innerHeight)
-    window.addEventListener('resize', onResize)
     return () => {
       document.body.style.overflow = prevOverflow
-      window.removeEventListener('resize', onResize)
       if (preloadedStreamRef.current) {
         preloadedStreamRef.current.getTracks().forEach(t => t.stop())
         preloadedStreamRef.current = null
@@ -113,31 +111,43 @@ export default function ChatRoomPage() {
     userScrolledUp.current = false
   }, [scrollToTop])
 
-  const loadMessages = useCallback(async (pageNum: number = 1, append = false) => {
+  const loadInitialMessages = useCallback(async () => {
     try {
-      if (append) {
-        setLoadingMore(true)
-      }
-      
-      const res: any = await getMessages(id, pageNum)
-      const data = res?.list || []
-      const { setMessages, appendMessages: storeAppend } = useChatStore.getState()
-      
-      if (append) {
-        storeAppend(id, data) // 注意这里不反转，因为UI会旋转180度
-        setHasMore(data.length >= 20)
+      const data: ChatMessageVO[] = await getMessages(id, null)
+      const { setMessages } = useChatStore.getState()
+      setMessages(id, data)
+      setHasMore(data.length >= 20)
+      if (data.length > 0) {
+        beforeIdRef.current = data[data.length - 1].id
       } else {
-        setMessages(id, data)
-        setHasMore(data.length >= 20)
+        beforeIdRef.current = null
       }
     } catch (err: any) {
       toast.error(err.message || '加载消息失败')
-    } finally {
-      if (append) {
-        setLoadingMore(false)
-      }
     }
   }, [id])
+
+  const loadHistoryMessages = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore || beforeIdRef.current === null) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const data: ChatMessageVO[] = await getMessages(id, beforeIdRef.current)
+      if (data.length > 0) {
+        const { appendMessages: storeAppend } = useChatStore.getState()
+        storeAppend(id, data)
+        beforeIdRef.current = data[data.length - 1].id
+        setHasMore(data.length >= 20)
+      } else {
+        setHasMore(false)
+      }
+    } catch (err: any) {
+      toast.error(err.message || '加载历史消息失败')
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }, [id, hasMore])
 
   const loadConversationInfo = useCallback(async () => {
     try {
@@ -153,10 +163,12 @@ export default function ChatRoomPage() {
     initialScrollDone.current = false
     userScrolledUp.current = false
     setShowNewMessageBadge(false)
-    Promise.all([loadMessages(1), loadConversationInfo()]).finally(() => {
+    beforeIdRef.current = null
+    loadingMoreRef.current = false
+    Promise.all([loadInitialMessages(), loadConversationInfo()]).finally(() => {
       setLoading(false)
     })
-  }, [id, loadConversationInfo, loadMessages])
+  }, [id, loadInitialMessages, loadConversationInfo])
 
   // 记录前一个消息数量，用于判断是否有新消息
   const previousMessagesLength = useRef(0)
@@ -218,7 +230,13 @@ export default function ChatRoomPage() {
     try {
       await sendMessage(conversation.otherUserId, inputValue.trim(), 'TEXT')
       setInputValue('')
-      await loadMessages(1)
+      const data: ChatMessageVO[] = await getMessages(id, null)
+      const { setMessages } = useChatStore.getState()
+      setMessages(id, data)
+      if (data.length > 0) {
+        beforeIdRef.current = data[data.length - 1].id
+      }
+      setHasMore(data.length >= 20)
       setTimeout(scrollToTop, 100)
     } catch (err: any) {
       toast.error(err.message || '发送失败')
@@ -261,7 +279,13 @@ export default function ChatRoomPage() {
         uploadData?.url
       )
       
-      await loadMessages(1)
+      const data: ChatMessageVO[] = await getMessages(id, null)
+      const { setMessages } = useChatStore.getState()
+      setMessages(id, data)
+      if (data.length > 0) {
+        beforeIdRef.current = data[data.length - 1].id
+      }
+      setHasMore(data.length >= 20)
       setTimeout(scrollToTop, 100)
     } catch (err: any) {
       toast.error(err.message || '发送失败')
@@ -357,7 +381,13 @@ export default function ChatRoomPage() {
             uploadData?.url,
             duration
           )
-          await loadMessages(1)
+          const data: ChatMessageVO[] = await getMessages(id, null)
+          const { setMessages } = useChatStore.getState()
+          setMessages(id, data)
+          if (data.length > 0) {
+            beforeIdRef.current = data[data.length - 1].id
+          }
+          setHasMore(data.length >= 20)
           setTimeout(scrollToTop, 100)
         } catch (err: any) {
           toast.error(err.message || '发送失败')
@@ -449,7 +479,7 @@ export default function ChatRoomPage() {
     }
   }
 
-  const handlePlayVoice = (msg: ChatMessageVO) => {
+  const handlePlayVoice = async (msg: ChatMessageVO) => {
     if (playingMessageId === msg.id) {
       audioRef.current?.pause()
       setPlayingMessageId(null)
@@ -468,43 +498,52 @@ export default function ChatRoomPage() {
       playTimerRef.current = null
     }
 
-    const audio = new Audio(`${msg.fileUrl}?token=${getAccessToken() || ''}`)
-    audioRef.current = audio
-    setPlayingMessageId(msg.id)
-    setPlayingRemainingTime(msg.voiceDuration || 0)
+    if (!msg.fileUrl) {
+      toast.error('文件不存在')
+      return
+    }
 
-    // 倒计时
-    playTimerRef.current = setInterval(() => {
-      setPlayingRemainingTime(prev => {
-        if (prev <= 1) {
-          if (playTimerRef.current) {
-            clearInterval(playTimerRef.current)
-            playTimerRef.current = null
+    try {
+      const blobUrl = await getAuthBlobUrl(msg.fileUrl!)
+      const audio = new Audio(blobUrl)
+      audioRef.current = audio
+      setPlayingMessageId(msg.id)
+      setPlayingRemainingTime(msg.voiceDuration || 0)
+
+      playTimerRef.current = setInterval(() => {
+        setPlayingRemainingTime(prev => {
+          if (prev <= 1) {
+            if (playTimerRef.current) {
+              clearInterval(playTimerRef.current)
+              playTimerRef.current = null
+            }
+            return 0
           }
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
+          return prev - 1
+        })
+      }, 1000)
 
-    audio.onended = () => {
-      setPlayingMessageId(null)
-      setPlayingRemainingTime(0)
-      if (playTimerRef.current) {
-        clearInterval(playTimerRef.current)
-        playTimerRef.current = null
+      audio.onended = () => {
+        setPlayingMessageId(null)
+        setPlayingRemainingTime(0)
+        if (playTimerRef.current) {
+          clearInterval(playTimerRef.current)
+          playTimerRef.current = null
+        }
       }
-    }
-    audio.onerror = () => {
-      toast.error('播放失败')
-      setPlayingMessageId(null)
-      setPlayingRemainingTime(0)
-      if (playTimerRef.current) {
-        clearInterval(playTimerRef.current)
-        playTimerRef.current = null
+      audio.onerror = () => {
+        toast.error('播放失败')
+        setPlayingMessageId(null)
+        setPlayingRemainingTime(0)
+        if (playTimerRef.current) {
+          clearInterval(playTimerRef.current)
+          playTimerRef.current = null
+        }
       }
+      audio.play()
+    } catch {
+      toast.error('加载失败')
     }
-    audio.play()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -518,24 +557,18 @@ export default function ChatRoomPage() {
     const container = scrollContainerRef.current
     if (!container) return
     
-    // 旋转180度后，检测是否滚到底部加载历史消息（视觉上是滚到顶部）
     const { scrollTop, scrollHeight, clientHeight } = container
-    if (scrollHeight - scrollTop - clientHeight < 200 && hasMore && !loadingMore) {
-      setPage(prev => {
-        const nextPage = prev + 1
-        loadMessages(nextPage, true)
-        return nextPage
-      })
+    if (scrollHeight - scrollTop - clientHeight < 200 && hasMore && !loadingMoreRef.current) {
+      loadHistoryMessages()
     }
 
-    // 检测是否在顶部（视觉上是在底部）
     if (isAtTop()) {
       userScrolledUp.current = false
       setShowNewMessageBadge(false)
     } else {
       userScrolledUp.current = true
     }
-  }, [hasMore, loadingMore, loadMessages, page, isAtTop])
+  }, [hasMore, loadHistoryMessages, isAtTop])
 
   const isMine = (msg: ChatMessageVO) => {
     return msg.senderId === userInfo?.id
@@ -593,9 +626,9 @@ export default function ChatRoomPage() {
   }
 
   return (
-    <div ref={containerRef} className="bg-background page-enter flex flex-col overflow-hidden overscroll-none relative" style={{ height: viewportHeight }}>
+    <div ref={containerRef} className="fixed inset-0 z-40 flex flex-col overscroll-none bg-background">
       {/* Header - 固定在顶部 */}
-      <header className="flex-shrink-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
+      <header className="flex-shrink-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 pt-safe-top pb-3 backdrop-blur-xl">
         <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -682,7 +715,7 @@ export default function ChatRoomPage() {
                     {msg.messageType === 'FILE' && msg.fileUrl ? (
                       <button
                         onClick={() => setPreviewFile({ url: msg.fileUrl!, name: msg.fileName || 'file', type: 'FILE' })}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:opacity-90 transition-opacity w-full ${
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:opacity-90 transition-opacity w-[calc(85vw-56px)] ${
                           isMine(msg) ? 'bg-primary text-primary-foreground' : 'bg-card border border-border/50'
                         }`}
                       >
@@ -706,8 +739,8 @@ export default function ChatRoomPage() {
                         <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
                       )}
                       {msg.messageType === 'IMAGE' && msg.fileUrl && (
-                        <img
-                          src={`${msg.fileUrl}?token=${getAccessToken() || ''}`}
+                        <AuthImage
+                          src={msg.fileUrl}
                           alt=""
                           className="max-w-[200px] max-h-[200px] rounded-lg object-contain cursor-pointer"
                           onClick={() => setPreviewFile({ url: msg.fileUrl!, name: msg.fileName || 'image', type: 'IMAGE' })}
@@ -737,7 +770,7 @@ export default function ChatRoomPage() {
                       </div>
                     )}
                     <span className="text-[10px] text-muted-foreground mt-0.5">
-                      {formatRelativeTime(msg.createdAt)}
+                      {formatChatTime(msg.createdAt)}
                     </span>
                   </div>
                 </div>
@@ -760,7 +793,7 @@ export default function ChatRoomPage() {
       )}
 
       {/* Input Area */}
-      <div className="flex-shrink-0 border-t border-border/50 bg-background px-4 py-3 relative">
+      <div className="flex-shrink-0 border-t border-border/50 bg-background px-4 pt-3 relative safe-area-bottom">
         <div className="flex items-center gap-2">
           <button
             onClick={toggleVoiceMode}

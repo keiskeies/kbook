@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle, RotateCcw } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
 import { useNavigate } from 'react-router-dom'
@@ -196,6 +196,27 @@ export default function ProfilePage() {
     }
   }, [showTraitsModal, userInfo])
 
+  const handleClearCache = async () => {
+    try {
+      if ('caches' in window) {
+        const cacheNames = await caches.keys()
+        await Promise.all(cacheNames.map(name => caches.delete(name)))
+      }
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(registrations.map(reg => reg.unregister()))
+      }
+      toast.success('缓存已清除，正在重新加载...')
+      const url = new URL(window.location.href)
+      url.searchParams.set('_t', String(Date.now()))
+      setTimeout(() => {
+        window.location.replace(url.toString())
+      }, 500)
+    } catch {
+      toast.error('清除缓存失败，请手动清除浏览器缓存')
+    }
+  }
+
   const menuGroups = [
     {
       title: '阅读',
@@ -227,6 +248,7 @@ export default function ProfilePage() {
       titleIcon: Settings,
       items: [
         { label: '主题模式', icon: Palette, path: '', extra: '', custom: true },
+        { label: '清除缓存', icon: RotateCcw, path: '', extra: '', action: handleClearCache },
         { label: '修改密码', icon: Lock, path: ROUTES.CHANGE_PASSWORD, extra: '' },
       ],
     },
@@ -569,7 +591,7 @@ export default function ProfilePage() {
       )}
 
       <div className="mt-6 text-center">
-        <span className="text-[10px] text-muted-foreground/60">@VERSION - KEISKEIES 1.0.3.2</span>
+        <span className="text-[10px] text-muted-foreground/60">@VERSION - KEISKEIES 1.0.3.7</span>
       </div>
 
       {showProfileModal && (

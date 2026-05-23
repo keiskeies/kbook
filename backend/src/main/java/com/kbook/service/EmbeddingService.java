@@ -3,7 +3,6 @@ package com.kbook.service;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
-import com.kbook.repository.BookRepository;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -21,8 +20,6 @@ import io.qdrant.client.grpc.Common;
 import io.qdrant.client.grpc.JsonWithInt;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -47,16 +44,13 @@ import static io.qdrant.client.VectorsFactory.vectors;
 public class EmbeddingService {
 
     private final QdrantClient qdrantClient;
-    private final BookRepository bookRepository;
     private final ChatModelFactory chatModelFactory;
     private final QdrantProperties qdrantProps;
 
     public EmbeddingService(QdrantClient qdrantClient,
-                            BookRepository bookRepository,
                             ChatModelFactory chatModelFactory,
                             QdrantProperties qdrantProps) {
         this.qdrantClient = qdrantClient;
-        this.bookRepository = bookRepository;
         this.chatModelFactory = chatModelFactory;
         this.qdrantProps = qdrantProps;
     }
@@ -478,25 +472,23 @@ public class EmbeddingService {
      * 为书籍生成元数据向量并存储到 Qdrant
      * 元数据 = 标题 + 作者 + 标签 + 简介 → 1个 embedding
      */
-    public void generateBookEmbedding(Long bookId) {
+    public void generateBookEmbedding(Book book) {
+        if (book == null) return;
         try {
             ensureEmbeddingModelInitialized();
             if (embeddingModel == null) {
-                log.warn("Embedding 模型未初始化，跳过书籍向量生成: bookId={}", bookId);
+                log.warn("Embedding 模型未初始化，跳过书籍向量生成: bookId={}", book.getId());
                 return;
             }
-
-            Book book = bookRepository.findById(bookId).orElse(null);
-            if (book == null) return;
-
             upsertBookEmbedding(book);
         } catch (Exception e) {
-            log.error("书籍元数据向量生成失败: bookId={} - {}", bookId, e.getMessage());
+            log.error("书籍元数据向量生成失败: bookId={} - {}", book.getId(), e.getMessage());
         }
     }
 
     /**
      * 核心方法：为单本书生成并写入元数据向量
+     *
      * @return 是否成功写入
      */
     public boolean upsertBookEmbedding(Book book) {
@@ -707,27 +699,23 @@ public class EmbeddingService {
      *
      * @param query      查询文本
      * @param maxResults 最大返回数量
-     * @param bookId     可选，限定在某本书内搜索
+     * @param book       可选，限定在某本书内搜索
      * @return 匹配的内容片段
      */
-    public List<EmbeddingMatch<TextSegment>> searchContent(String query, int maxResults, Long bookId) {
+    public List<EmbeddingMatch<TextSegment>> searchContent(String query, int maxResults, Book book) {
         ensureEmbeddingModelInitialized();
         if (embeddingModel == null) {
             return List.of();
         }
 
         try {
-            // 查询扩展：当指定 bookId 时，拼接书名/作者信息提升检索精度
-            String expandedQuery = expandQueryWithContext(query, bookId);
+            String expandedQuery = expandQueryWithContext(query, book);
             Embedding queryEmbedding = embeddingModel.embed(expandedQuery).content();
 
-            // 当指定了 bookId 时，使用 Qdrant 原生 filter 在服务端过滤
-            // 避免先取 top-N 再在内存中过滤导致结果为空
-            if (bookId != null && qdrantClient != null) {
-                return searchContentWithFilter(queryEmbedding, maxResults, bookId);
+            if (book != null && qdrantClient != null) {
+                return searchContentWithFilter(queryEmbedding, maxResults, book.getId());
             }
 
-            // 无 bookId 时走 LangChain4j 的通用搜索
             if (contentEmbeddingStore == null) {
                 return List.of();
             }
@@ -1069,23 +1057,14 @@ public class EmbeddingService {
     }
 
     /**
-     * 根据用户画像搜索相关书籍内容片段（用于 AI 推理辅助）
-     */
-    public List<EmbeddingMatch<TextSegment>> searchContentByUserProfile(String userProfileDesc, int maxResults) {
-        return searchContent(userProfileDesc, maxResults, null);
-    }
-
-    /**
      * 查询扩展：拼接书籍标题和作者信息，提升短查询与长段落的语义匹配度
      * 原因：用户问题通常很短（如"主角的成长"），而内容分块是 800 字长段落，
      * 直接 embed 短文本 vs 长文本的余弦相似度天然偏低。
      * 拼接书名/作者后，query embedding 会更接近该书的主题向量空间。
      */
-    private String expandQueryWithContext(String query, Long bookId) {
-        if (bookId == null) return query;
+    private String expandQueryWithContext(String query, Book book) {
+        if (book == null) return query;
         try {
-            Book book = bookRepository.findById(bookId).orElse(null);
-            if (book == null) return query;
             StringBuilder expanded = new StringBuilder();
             if (book.getTitle() != null && !book.getTitle().isBlank()) {
                 expanded.append("《").append(book.getTitle()).append("》");
@@ -1140,64 +1119,6 @@ public class EmbeddingService {
     }
 
     // ==================== 管理操作 ====================
-
-    /**
-     * 重建所有书籍的元数据向量（管理员操作）— 带进度回调
-     */
-    @FunctionalInterface
-    public interface RebuildProgressCallback {
-        void onProgress(int processed, int total);
-    }
-
-    public void rebuildAllBookEmbeddingsWithProgress(RebuildProgressCallback callback) {
-        ensureEmbeddingModelInitialized();
-        if (embeddingModel == null) {
-            log.warn("Embedding 模型未初始化，无法重建向量");
-            return;
-        }
-
-        int pageSize = 100;
-        int page = 0;
-        int count = 0;
-        long total = bookRepository.count();
-        log.info("开始重建所有书籍元数据向量: totalBooks={}", total);
-
-        while (true) {
-            Pageable pageable = PageRequest.of(page++, pageSize);
-            List<Book> books = bookRepository.findAll(pageable).getContent();
-            if (books.isEmpty()) break;
-
-            for (Book book : books) {
-                try {
-                    if (upsertBookEmbedding(book)) {
-                        count++;
-                    }
-                    if (callback != null) {
-                        callback.onProgress(count, (int) total);
-                    }
-                    Thread.sleep(100);
-                } catch (Exception e) {
-                    log.warn("重建向量失败: bookId={} - {}", book.getId(), e.getMessage());
-                }
-            }
-        }
-
-        log.info("重建完成: {}/{} 成功", count, total);
-    }
-
-    /**
-     * 重建所有书籍的元数据向量（管理员操作）
-     */
-    public int rebuildAllBookEmbeddings() {
-        final int[] countRef = {0};
-        rebuildAllBookEmbeddingsWithProgress((processed, total) -> {
-            countRef[0] = processed;
-            if (processed % 10 == 0) {
-                log.info("重建进度: {}/{}", processed, total);
-            }
-        });
-        return countRef[0];
-    }
 
     /**
      * 清空所有内容向量（kbook_content 集合）
@@ -1382,64 +1303,6 @@ public class EmbeddingService {
             log.warn("获取内容向量总数失败: {}", e.getMessage());
             return 0;
         }
-    }
-
-    /**
-     * 批量清理低评分书籍的内容向量
-     *
-     * @param maxRating 评分上限（低于此值的书籍内容向量将被删除）
-     * @return 清理的书籍数量
-     */
-    public int cleanupLowRatedContentEmbeddings(double maxRating) {
-        List<Book> allBooks = bookRepository.findAll();
-        int cleaned = 0;
-        for (Book book : allBooks) {
-            if (book.getRating() != null && book.getRating() < maxRating
-                    && Boolean.TRUE.equals(book.getContentEmbedded())) {
-                try {
-                    removeContentEmbedding(book.getId());
-                    book.setContentEmbedded(false);
-                    bookRepository.save(book);
-                    cleaned++;
-                    if (cleaned % 10 == 0) {
-                        log.info("批量清理进度: 已清理 {} 本低评分书籍的内容向量", cleaned);
-                    }
-                } catch (Exception e) {
-                    log.warn("清理内容向量失败: bookId={} - {}", book.getId(), e.getMessage());
-                }
-            }
-        }
-        log.info("批量清理完成: 共清理 {} 本低评分书籍的内容向量 (rating < {})", cleaned, maxRating);
-        return cleaned;
-    }
-
-    /**
-     * 批量重建高评分书籍的内容向量（评分达标但未存储内容向量的书籍）
-     *
-     * @param minRating 评分下限（高于此值且未存内容向量的书籍将被重建）
-     * @return 重建的书籍数量
-     */
-    public int rebuildHighRatedContentEmbeddings(double minRating) {
-        ensureEmbeddingModelInitialized();
-        if (embeddingModel == null || contentEmbeddingStore == null) {
-            log.warn("Embedding 模型或 Store 未初始化，无法重建内容向量");
-            return 0;
-        }
-
-        List<Book> allBooks = bookRepository.findAll();
-        int rebuilt = 0;
-        for (Book book : allBooks) {
-            if (book.getRating() != null && book.getRating() >= minRating
-                    && !Boolean.TRUE.equals(book.getContentEmbedded())) {
-                try {
-                    log.info("需要重建内容向量: bookId={}, title={}, rating={}",
-                            book.getId(), book.getTitle(), book.getRating());
-                } catch (Exception e) {
-                    log.warn("重建内容向量失败: bookId={} - {}", book.getId(), e.getMessage());
-                }
-            }
-        }
-        return rebuilt;
     }
 
     /**

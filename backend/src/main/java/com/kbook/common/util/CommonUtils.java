@@ -178,12 +178,13 @@ public class CommonUtils {
      */
     public static void logAiCall(String operation, long elapsed, int inputTokens, int outputTokens, String result) {
         double totalTokens = inputTokens + outputTokens;
-        double tokensPerSecond = (elapsed > 0) ? (totalTokens / (elapsed / 1000.0)) : 0;
+        double tokensPerSecond = (elapsed > 0) ? (outputTokens / (elapsed / 1000.0)) : 0;
+        double tokensAllSecond = (elapsed > 0) ? (totalTokens / (elapsed / 1000.0)) : 0;
 
         log.info("========== AI {} ==========", operation);
         log.info("结果: {}", result);
-        log.info("耗时: {}ms | 输入tokens: {} | 输出tokens: {} | 总tokens: {} | 速度: {} tokens/s",
-                elapsed, inputTokens, outputTokens, (int) totalTokens, String.format("%.2f", tokensPerSecond));
+        log.info("耗时: {}ms | 输入tokens: {} | 输出tokens: {} | 总tokens: {} | 速度: {} tokens/s | 总吞吐: {} t/s",
+                elapsed, inputTokens, outputTokens, (int) totalTokens, String.format("%.2f", tokensPerSecond), tokensAllSecond);
         log.info("====================================\n");
     }
 }

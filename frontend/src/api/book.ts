@@ -159,10 +159,6 @@ export function uploadBook(file: File, title?: string) {
   })
 }
 
-/** 重新解析图书（管理员） */
-export function reparseBook(id: number) {
-  return request.post<Book>(`/books/admin/${id}/reparse`)
-}
 
 /** 用户评分 */
 export function rateBook(id: number, rating: number) {
@@ -348,30 +344,6 @@ export interface EmbeddingStats {
 /** 获取内容向量统计 */
 export function getEmbeddingStats() {
   return request.get<EmbeddingStats>('/books/admin/embeddings/stats')
-}
-
-/** 向量重建进度 */
-export interface VectorRebuildProgress {
-  current: number
-  total: number
-  status: 'processing' | 'completed'
-}
-
-/** 向量重建结果 */
-export interface VectorRebuildResult {
-  elapsed: number
-}
-
-/** 重建基础信息向量（kbook_books）— SSE 流式返回进度 */
-export function rebuildBookEmbeddingsStream(
-  onProgress: (data: VectorRebuildProgress) => void,
-  onDone: (data: VectorRebuildResult) => void,
-  onError: (error: Error) => void,
-): AbortController {
-  return createSseConnection<VectorRebuildProgress, VectorRebuildResult>(
-    '/books/admin/vector/rebuild-book',
-    { onProgress, onDone, onError },
-  )
 }
 
 /** 清空内容向量库（kbook_content） */

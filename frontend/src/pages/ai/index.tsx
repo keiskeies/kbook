@@ -21,8 +21,8 @@ export default function AIPage() {
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    loadSessions()
-    loadHotPrompts()
+    loadSessions().then(() => {})
+    loadHotPrompts().then(() => {})
     const handleClick = (e: MouseEvent) => {
       const target = (e.target as HTMLElement).closest('a[data-kbook-nav]')
       if (target) {

@@ -22,7 +22,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -70,7 +69,6 @@ public class RecommendService {
     private static final String CACHE_PREFIX = "kbook:recommend:";
     private static final String SORTED_KEY_PREFIX = "kbook:recommend:sorted:";
     private static final String SORTED_TEMP_SUFFIX = ":temp";
-    private static final int CACHE_TTL_MINUTES = 30;
 
     public Map<Long, Double> batchCalculateMatchScores(Long userId, List<Long> bookIds) {
         if (bookIds == null || bookIds.isEmpty()) return Map.of();
@@ -92,7 +90,7 @@ public class RecommendService {
 
         List<Long> missingIds = bookIds.stream()
                 .filter(id -> !result.containsKey(id))
-                .collect(Collectors.toList());
+                .toList();
 
         if (missingIds.isEmpty()) return result;
 
@@ -173,7 +171,7 @@ public class RecommendService {
     public void clearUserCache(Long userId) {
         try {
             Set<String> keys = redisTemplate.keys(CACHE_PREFIX + userId + ":*");
-            if (keys != null && !keys.isEmpty()) {
+            if (!keys.isEmpty()) {
                 redisTemplate.delete(keys);
             }
             redisTemplate.delete(SORTED_KEY_PREFIX + userId);
@@ -452,36 +450,6 @@ public class RecommendService {
         return false;
     }
 
-    public String buildUserProfileText(User user) {
-        StringBuilder sb = new StringBuilder();
-        if (user.getBirthday() != null) {
-            int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
-            sb.append(age).append("岁 ");
-        }
-        if (user.getGender() != null) {
-            sb.append(switch (user.getGender()) {
-                case "MALE" -> "男性 ";
-                case "FEMALE" -> "女性 ";
-                default -> "";
-            });
-        }
-        if (user.getMarried() != null) sb.append(user.getMarried() ? "已婚 " : "未婚 ");
-        if (user.getHasChildren() != null) sb.append(user.getHasChildren() ? "有孩子 " : "无孩子 ");
-        if (user.getMbti() != null) sb.append(user.getMbti()).append("型人格 ");
-        if (user.getOccupation() != null && !user.getOccupation().isBlank()) {
-            for (String occ : user.getOccupation().split(",")) {
-                sb.append(RecommendMatchCalculator.getOccupationLabel(occ.trim())).append(" ");
-            }
-        }
-        if (user.getEducation() != null) sb.append(RecommendMatchCalculator.getEducationLabel(user.getEducation())).append(" ");
-        if (user.getEntrepreneurship() != null && !user.getEntrepreneurship().isBlank())
-            sb.append(RecommendMatchCalculator.getEntrepreneurshipLabel(user.getEntrepreneurship())).append(" ");
-        if (user.getAnnualIncome() != null && !user.getAnnualIncome().isBlank())
-            sb.append(RecommendMatchCalculator.getAnnualIncomeLabel(user.getAnnualIncome())).append(" ");
-        if (user.getMood() != null) sb.append(RecommendMatchCalculator.getMoodLabel(user.getMood())).append(" ");
-        if (user.getBio() != null && !user.getBio().isBlank()) sb.append("兴趣：").append(user.getBio());
-        return sb.toString().trim();
-    }
 
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public void recordReadAction(Long userId, Long bookId, String action, Integer weight, String detail) {

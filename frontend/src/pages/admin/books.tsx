@@ -33,14 +33,12 @@ import type {
   ScanError,
   ScanProgress,
   ScanResult,
-  VectorRebuildProgress,
 } from '@/api/book'
 import {
   clearContentVectors,
   getEmbeddingStats,
   getLowHitBooks,
   getScanStatus,
-  rebuildBookEmbeddingsStream,
   rebuildEsIndexStream,
   reEmbedBook,
   resetScanStatus,
@@ -83,11 +81,6 @@ export default function AdminBooksPage() {
   // 内容向量管理状态
   const [embedStats, setEmbedStats] = useState<EmbeddingStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
-
-  // 向量重建状态
-  const [bookEmbeddingsRebuilding, setBookEmbeddingsRebuilding] = useState(false)
-  const [bookEmbeddingsProgress, setBookEmbeddingsProgress] = useState<VectorRebuildProgress | null>(null)
-  const bookEmbeddingsAbortRef = useRef<AbortController | null>(null)
 
   const [contentVectorsClearing, setContentVectorsClearing] = useState(false)
 
@@ -271,37 +264,6 @@ export default function AdminBooksPage() {
     } catch { /* ignore */ }
     finally { setStatsLoading(false) }
   }, [])
-
-  const handleRebuildBookEmbeddings = () => {
-    if (bookEmbeddingsRebuilding) return
-    setBookEmbeddingsRebuilding(true)
-    setBookEmbeddingsProgress(null)
-
-    bookEmbeddingsAbortRef.current = rebuildBookEmbeddingsStream(
-      (data) => {
-        setBookEmbeddingsProgress(data)
-      },
-      (data) => {
-        setBookEmbeddingsRebuilding(false)
-        toast.success(`基础信息向量重建完成，耗时 ${(data.elapsed / 1000).toFixed(1)}s`)
-        loadEmbedStats()
-      },
-      (err) => {
-        setBookEmbeddingsRebuilding(false)
-        toast.error(err.message || '重建失败')
-      },
-    )
-  }
-
-  const handleCancelBookEmbeddingsRebuild = () => {
-    if (bookEmbeddingsAbortRef.current) {
-      bookEmbeddingsAbortRef.current.abort()
-      bookEmbeddingsAbortRef.current = null
-    }
-    setBookEmbeddingsRebuilding(false)
-    setBookEmbeddingsProgress(null)
-    toast.info('已取消基础信息向量重建')
-  }
 
   const handleClearContentVectors = async () => {
     if (contentVectorsClearing) return
@@ -730,42 +692,6 @@ export default function AdminBooksPage() {
               <Database className={`h-4 w-4 ${statsLoading ? 'animate-pulse' : ''}`} />
               {statsLoading ? '加载中...' : '刷新统计'}
             </button>
-
-            {/* 重建基础信息 */}
-            {bookEmbeddingsRebuilding && bookEmbeddingsProgress && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>正在重建基础信息向量...</span>
-                  <span>{bookEmbeddingsProgress.current}/{bookEmbeddingsProgress.total} ({Math.round((bookEmbeddingsProgress.current / bookEmbeddingsProgress.total) * 100)}%)</span>
-                </div>
-                <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all duration-300 ease-out"
-                    style={{ width: `${bookEmbeddingsProgress.total > 0 ? (bookEmbeddingsProgress.current / bookEmbeddingsProgress.total) * 100 : 0}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                onClick={handleRebuildBookEmbeddings}
-                disabled={bookEmbeddingsRebuilding}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-              >
-                <RefreshCw className={`h-4 w-4 ${bookEmbeddingsRebuilding ? 'animate-spin' : ''}`} />
-                {bookEmbeddingsRebuilding ? '重建中...' : '重建基础信息'}
-              </button>
-              {bookEmbeddingsRebuilding && (
-                <button
-                  onClick={handleCancelBookEmbeddingsRebuild}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
-                >
-                  <XCircle className="h-4 w-4" />
-                  取消
-                </button>
-              )}
-            </div>
 
             {/* 清空内容信息 */}
             <button

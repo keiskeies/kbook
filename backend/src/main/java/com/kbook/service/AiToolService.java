@@ -74,7 +74,7 @@ public class AiToolService {
 
     // ==================== 图书查询工具 ====================
 
-    @Tool("搜索图书，支持按关键词和格式筛选（混合搜索：Qdrant语义向量 + ES全文检索融合排序）。返回图书列表，包含书名、作者、格式、评分、简介等。")
+    @Tool("搜索图书，支持按关键词和格式筛选（混合搜索：Qdrant语义向量 + ES全文检索融合排序）。返回图书列表，包含图书ID、书名、作者、评分等。")
     public String searchBooks(
             @P("搜索关键词，如书名或作者名，支持自然语言描述如'适合失恋看的治愈系书籍'") String keyword,
             @P("图书格式，可选值：TXT、EPUB、PDF，为空则不限格式") String format
@@ -90,12 +90,11 @@ public class AiToolService {
             }
             return result.getList().stream()
                     .peek(b -> recordBook(b.getTitle(), b.getId()))
-                    .map(b -> String.format("《%s》 作者:%s 格式:%s 评分:%.1f 阅读:%d次",
+                    .map(b -> String.format("ID: %s 《%s》 作者:%s 评分:%.1f",
+                            b.getId(),
                             b.getTitle(),
                             b.getAuthor() != null ? b.getAuthor() : "未知",
-                            b.getFormat(),
-                            b.getRating() != null ? b.getRating() : 0.0,
-                            b.getReadCount() != null ? b.getReadCount() : 0))
+                            b.getRating() != null ? b.getRating() : 0.0))
                     .collect(Collectors.joining("\n"));
         } catch (Exception e) {
             log.error("[AI Tool] searchBooks error", e);
@@ -214,7 +213,8 @@ public class AiToolService {
                 return "向量检索功能暂不可用。";
             }
 
-            List<EmbeddingMatch<TextSegment>> matches = embeddingService.searchContent(query, qdrantProperties.getRagTopK(), bookId);
+            Book book = bookService.getBookById(bookId);
+            List<EmbeddingMatch<TextSegment>> matches = embeddingService.searchContent(query, qdrantProperties.getRagTopK(), book);
             if (matches.isEmpty()) {
                 return "未在该书中找到相关内容。";
             }
@@ -228,7 +228,6 @@ public class AiToolService {
                 }
             }
 
-            Book book = bookService.getBookById(bookId);
             String bookTitle = book != null ? book.getTitle() : "未知";
             log.debug("[AI Tool] searchBookContent hit: book={}, hits={}", bookTitle, matches.size());
             return sb.toString();

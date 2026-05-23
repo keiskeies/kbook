@@ -218,35 +218,6 @@ public class BookAdminController {
         return Result.ok(bookService.getBookById(id));
     }
 
-    /**
-     * 重新解析图书元数据
-     */
-    @PostMapping("/{id}/reparse")
-    public Result<Book> reparseBook(@PathVariable Long id) {
-        Book book = bookService.getBookById(id);
-        if (book.getFileUrl() == null) {
-            return Result.fail("图书文件路径为空");
-        }
-
-        Path filePath = Paths.get(book.getFileUrl());
-        if (!Files.exists(filePath)) {
-            return Result.fail("图书文件不存在");
-        }
-
-        // 清除旧数据
-        book.setAuthor(null);
-        book.setDescription(null);
-        book.setCoverUrl(null);
-
-        bookParserService.parseAndFill(book, filePath);
-        bookParserService.finalizeCover(book);
-        bookParserService.generateAllAiData(book);
-        bookParserService.generateContentEmbedding(book.getId());
-        book.setContentEmbedded(true);
-        bookService.updateBook(book.getId(), book);
-        CompletableFuture.runAsync(() -> embeddingService.generateBookEmbedding(book.getId()));
-        return Result.ok(book);
-    }
 
     // ==================== 内容向量管理 ====================
 
@@ -266,48 +237,6 @@ public class BookAdminController {
                 "notEmbeddedBooks", notEmbeddedBooks,
                 "totalContentVectors", totalContentVectors
         ));
-    }
-
-    /**
-     * 重建所有书籍的基础信息向量（kbook_books 集合）— SSE 流式推送进度
-     */
-    @GetMapping(value = "/vector/rebuild-book", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter rebuildAllBookEmbeddings() {
-        SseEmitter emitter = new SseEmitter(600_000L);
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                long startTime = System.currentTimeMillis();
-                embeddingService.rebuildAllBookEmbeddingsWithProgress((processed, total) -> {
-                    try {
-                        emitter.send(SseEmitter.event()
-                                .name("progress")
-                                .data(Map.of(
-                                        "current", processed,
-                                        "total", total,
-                                        "status", "processing"
-                                )));
-                    } catch (IOException e) {
-                        log.warn("SSE 发送失败: {}", e.getMessage());
-                    }
-                });
-                long elapsed = System.currentTimeMillis() - startTime;
-                emitter.send(SseEmitter.event()
-                        .name("done")
-                        .data(Map.of("elapsed", elapsed)));
-                emitter.complete();
-            } catch (Exception e) {
-                log.error("重建基础信息向量失败", e);
-                try {
-                    emitter.send(SseEmitter.event()
-                            .name("error")
-                            .data(Map.of("message", e.getMessage() != null ? e.getMessage() : "重建失败")));
-                } catch (IOException ignored) {}
-                emitter.completeWithError(e);
-            }
-        });
-
-        return emitter;
     }
 
     /**

@@ -10,11 +10,16 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Repository
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
 
     Page<ChatMessage> findByConversationIdOrderByCreatedAtDesc(Long conversationId, Pageable pageable);
+
+    List<ChatMessage> findByConversationIdAndIdLessThanOrderByCreatedAtDesc(Long conversationId, Long id, Pageable pageable);
+
+    List<ChatMessage> findTop20ByConversationIdOrderByCreatedAtDesc(Long conversationId);
 
     @Modifying
     @Query("UPDATE ChatMessage m SET m.read = true WHERE m.conversationId = :conversationId AND m.recipientId = :recipientId AND m.read = false")

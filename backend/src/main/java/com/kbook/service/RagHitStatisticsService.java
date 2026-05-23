@@ -1,7 +1,6 @@
 package com.kbook.service;
 
 import com.kbook.entity.Book;
-import com.kbook.service.BookService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;

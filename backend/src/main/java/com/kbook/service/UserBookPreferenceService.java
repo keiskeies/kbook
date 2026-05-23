@@ -35,6 +35,7 @@ public class UserBookPreferenceService {
             pref.setType("EXCLUDE");
             UserBookPreference saved = preferenceRepository.save(pref);
             recommendService.clearUserCache(userId);
+            recommendService.asyncRecompute(userId);
             return saved;
         }
 
@@ -46,6 +47,7 @@ public class UserBookPreferenceService {
                 .build();
         UserBookPreference saved = preferenceRepository.save(pref);
         recommendService.clearUserCache(userId);
+        recommendService.asyncRecompute(userId);
         log.info("用户添加排除偏好: userId={}, category={}, value={}", userId, category, value);
         return saved;
     }
@@ -59,6 +61,7 @@ public class UserBookPreferenceService {
         if (existing.isPresent()) {
             preferenceRepository.delete(existing.get());
             recommendService.clearUserCache(userId);
+            recommendService.asyncRecompute(userId);
             log.info("用户取消排除偏好: userId={}, category={}, value={}", userId, category, value);
             return true;
         }
@@ -119,12 +122,14 @@ public class UserBookPreferenceService {
             pref.setType("INCLUDE");
             UserBookPreference saved = preferenceRepository.save(pref);
             recommendService.clearUserCache(userId);
+            recommendService.asyncRecompute(userId);
             return saved;
         }
         UserBookPreference pref = UserBookPreference.builder()
                 .userId(userId).category(category.toUpperCase()).value(value).type("INCLUDE").build();
         UserBookPreference saved = preferenceRepository.save(pref);
         recommendService.clearUserCache(userId);
+        recommendService.asyncRecompute(userId);
         log.info("用户添加喜欢偏好: userId={}, category={}, value={}", userId, category, value);
         return saved;
     }
@@ -135,6 +140,7 @@ public class UserBookPreferenceService {
         if (existing.isPresent()) {
             preferenceRepository.delete(existing.get());
             recommendService.clearUserCache(userId);
+            recommendService.asyncRecompute(userId);
             log.info("用户取消喜欢偏好: userId={}, category={}, value={}", userId, category, value);
             return true;
         }

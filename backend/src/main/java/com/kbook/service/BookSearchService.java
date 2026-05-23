@@ -20,13 +20,15 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 图书搜索服务 — Qdrant 向量 + ES 全文检索 + JPA 降级，加权融合排序
+ * 图书搜索服务 — Qdrant 向量 + ES 全文检索 + JPA 降级，动态加权融合排序
  * <p>
  * 搜索流程：
- * 1. 向量召回 — Qdrant kbook_books 语义相似度（理解"适合失恋看的治愈系书籍"）
- * 2. 关键词召回 — ES 全文检索 title/author/description（精确匹配"三体""金庸"）
- * 3. 融合排序 — 0.6×向量分 + 0.4×关键词分，两路互补
- * 4. 降级 — ES 不可用 → MySQL LIKE；Qdrant 不可用 → 仅关键词
+ * 1. 查询意图分析 — 根据查询文本特征（长度/语义关键词）确定初始权重
+ * 2. 向量召回 — Qdrant kbook_books 语义相似度（理解"适合失恋看的治愈系书籍"）
+ * 3. 关键词召回 — ES 全文检索 title/author/description（精确匹配"三体""金庸"）
+ * 4. 召回自适应 — 根据两路召回结果质量微调权重（置信度高的一方获得更多权重）
+ * 5. 融合排序 — vw×向量分 + kw×关键词分，两路互补
+ * 6. 降级 — ES 不可用 → MySQL LIKE；Qdrant 不可用 → 仅关键词
  * <p>
  * 双写策略：图书写入时同步更新 ES 索引
  */
@@ -45,10 +47,17 @@ public class BookSearchService {
     private static final int RECALL_SIZE = 100;
     /** 向量召回最低相似度 */
     private static final double MIN_VECTOR_SCORE = 0.3;
-    /** 融合权重：向量 */
-    private static final double VECTOR_WEIGHT = 0.6;
-    /** 融合权重：关键词 */
-    private static final double KEYWORD_WEIGHT = 0.4;
+
+    private static final List<String> SEMANTIC_KEYWORDS = List.of(
+            "推荐", "适合", "类似", "风格", "关于", "有没有", "好看", "什么",
+            "帮忙", "求", "想看", "喜欢", "感兴趣", "如何", "怎样", "比较"
+    );
+
+    private record SearchWeights(double vectorWeight, double keywordWeight) {
+        static SearchWeights of(double vw, double kw) {
+            return new SearchWeights(vw, kw);
+        }
+    }
 
     public BookSearchService(BookSearchRepository searchRepository,
                              BookRepository bookRepository,
@@ -143,7 +152,6 @@ public class BookSearchService {
      * 适用于 AI Tool 等需要语义理解场景
      */
     public PageResult<BookDocument> hybridSearch(String keyword, String format, String tag, int page, int size) {
-        // 无关键词 → 纯格式/标签筛选，不做向量搜索（向量搜索需要文本 query）
         if (keyword == null || keyword.isBlank()) {
             if (format != null && !format.isBlank()) {
                 return searchByFormat(format, page, size);
@@ -156,11 +164,13 @@ public class BookSearchService {
 
         long startTime = System.currentTimeMillis();
 
-        // 1. 并行召回
+        SearchWeights prior = analyzeQueryIntent(keyword);
+
         Map<Long, Double> vectorScores = vectorRecall(keyword);
         Map<Long, Integer> keywordRanks = keywordRecall(keyword, format);
 
-        // 2. 收集所有候选 bookId
+        SearchWeights weights = adjustWeightsByRecall(prior, vectorScores, keywordRanks);
+
         Set<Long> allIds = new LinkedHashSet<>();
         allIds.addAll(vectorScores.keySet());
         allIds.addAll(keywordRanks.keySet());
@@ -169,7 +179,9 @@ public class BookSearchService {
             return PageResult.of(List.of(), 0L, page, size);
         }
 
-        // 3. 加权融合
+        double vw = weights.vectorWeight();
+        double kw = weights.keywordWeight();
+
         List<ScoredBook> scored = new ArrayList<>();
         for (Long bookId : allIds) {
             boolean hasVector = vectorScores.containsKey(bookId);
@@ -180,29 +192,26 @@ public class BookSearchService {
 
             double fusionScore;
             if (hasVector && hasKeyword) {
-                fusionScore = VECTOR_WEIGHT * vs + KEYWORD_WEIGHT * ks;
+                fusionScore = vw * vs + kw * ks;
             } else if (hasVector) {
-                fusionScore = vs * VECTOR_WEIGHT;
+                fusionScore = vs * vw;
             } else {
-                fusionScore = ks * KEYWORD_WEIGHT;
+                fusionScore = ks * kw;
             }
 
             scored.add(new ScoredBook(bookId, fusionScore, vs, ks));
         }
 
-        // 4. 排序 + 分页
         scored.sort((a, b) -> Double.compare(b.fusionScore, a.fusionScore));
 
         int start = Math.min((page - 1) * size, scored.size());
         int end = Math.min(page * size, scored.size());
         List<ScoredBook> paged = scored.subList(start, end);
 
-        // 5. MySQL 批量补全字段 → BookDocument
         List<Long> pagedIds = paged.stream().map(s -> s.bookId).toList();
         Map<Long, Book> bookMap = bookRepository.findAllById(pagedIds).stream()
                 .collect(Collectors.toMap(Book::getId, b -> b, (a, b) -> a));
 
-        // 按融合分排序输出
         List<BookDocument> docs = paged.stream()
                 .map(sb -> {
                     Book book = bookMap.get(sb.bookId);
@@ -212,7 +221,6 @@ public class BookSearchService {
                 .filter(Objects::nonNull)
                 .toList();
 
-        // 6. 标签过滤（有标签时，在融合结果后过滤）
         if (tag != null && !tag.isBlank()) {
             docs = docs.stream()
                     .filter(doc -> doc.getFormatTags() != null && doc.getFormatTags().contains(tag))
@@ -220,9 +228,9 @@ public class BookSearchService {
         }
 
         long elapsed = System.currentTimeMillis() - startTime;
-        log.info("混合搜索完成: keyword='{}', tag='{}', vectorHits={}, keywordHits={}, fused={}, returned={}, elapsed={}ms",
+        log.info("混合搜索完成: keyword='{}', weights=({},{}), vectorHits={}, keywordHits={}, fused={}, returned={}, elapsed={}ms",
                 keyword.length() > 20 ? keyword.substring(0, 20) + "..." : keyword,
-                tag,
+                String.format("%.2f", vw), String.format("%.2f", kw),
                 vectorScores.size(), keywordRanks.size(), scored.size(), docs.size(), elapsed);
 
         return PageResult.of(docs, (long) scored.size(), page, size);
@@ -315,6 +323,71 @@ public class BookSearchService {
     private double rankToScore(Integer rank) {
         if (rank == null) return 0.0;
         return Math.pow(0.8, rank - 1);
+    }
+
+    // ==================== 动态权重 ====================
+
+    private SearchWeights analyzeQueryIntent(String keyword) {
+        String trimmed = keyword.trim();
+        int len = trimmed.length();
+
+        if (len <= 4) {
+            return SearchWeights.of(0.3, 0.7);
+        }
+
+        boolean hasSemanticIntent = SEMANTIC_KEYWORDS.stream().anyMatch(trimmed::contains);
+        if (hasSemanticIntent) {
+            return SearchWeights.of(0.8, 0.2);
+        }
+
+        if (len >= 15) {
+            return SearchWeights.of(0.7, 0.3);
+        }
+
+        return SearchWeights.of(0.5, 0.5);
+    }
+
+    private SearchWeights adjustWeightsByRecall(SearchWeights prior,
+                                                 Map<Long, Double> vectorScores,
+                                                 Map<Long, Integer> keywordRanks) {
+        double vw = prior.vectorWeight();
+        double kw = prior.keywordWeight();
+
+        boolean vectorEmpty = vectorScores.isEmpty();
+        boolean keywordEmpty = keywordRanks.isEmpty();
+
+        if (vectorEmpty && keywordEmpty) {
+            return prior;
+        }
+        if (vectorEmpty) {
+            return SearchWeights.of(0.2, 0.8);
+        }
+        if (keywordEmpty) {
+            return SearchWeights.of(0.8, 0.2);
+        }
+
+        double topVectorScore = vectorScores.values().stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
+        double vectorConfidence = topVectorScore * 0.6 + Math.min(vectorScores.size() / 20.0, 1.0) * 0.4;
+
+        int topKeywordRank = keywordRanks.values().stream().mapToInt(Integer::intValue).min().orElse(RECALL_SIZE);
+        double keywordConfidence = rankToScore(topKeywordRank) * 0.6 + Math.min(keywordRanks.size() / 20.0, 1.0) * 0.4;
+
+        Set<Long> vectorIds = vectorScores.keySet();
+        Set<Long> keywordIds = keywordRanks.keySet();
+        long overlap = vectorIds.stream().filter(keywordIds::contains).count();
+        double overlapRatio = (double) overlap / Math.min(vectorIds.size(), keywordIds.size());
+
+        double confidenceDiff = vectorConfidence - keywordConfidence;
+        double adjustment = Math.max(-0.15, Math.min(0.15, confidenceDiff * 0.2));
+
+        if (overlapRatio > 0.3) {
+            adjustment *= 0.5;
+        }
+
+        double newVw = Math.max(0.2, Math.min(0.9, vw + adjustment));
+        double newKw = 1.0 - newVw;
+
+        return SearchWeights.of(newVw, newKw);
     }
 
     // ==================== 纯格式筛选（无关键词，不走向量） ====================

@@ -25,11 +25,6 @@ export function getProgressBatch(bookIds: number[]) {
   return request.post<Record<number, ReadingProgress>>('/progress/batch-get', { bookIds })
 }
 
-/** 获取用户所有阅读进度 */
-export function getUserProgresses() {
-  return request.get<ReadingProgress[]>('/progress/list')
-}
-
 /** 分页获取用户阅读历史（含图书信息） */
 export function getReadingHistory(page: number, size: number) {
   return request.get('/progress/history', { params: { page, size } })

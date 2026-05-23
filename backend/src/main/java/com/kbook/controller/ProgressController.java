@@ -103,15 +103,6 @@ public class ProgressController {
     }
 
     /**
-     * 获取用户所有阅读进度
-     */
-    @GetMapping("/list")
-    public Result<List<ReadingProgress>> getUserProgresses(Authentication authentication) {
-        Long userId = (Long) authentication.getPrincipal();
-        return Result.ok(progressService.getUserProgresses(userId));
-    }
-
-    /**
      * 分页获取用户阅读历史（含图书信息）
      */
     @GetMapping("/history")
@@ -141,5 +132,6 @@ public class ProgressController {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(progressService.getReadingStats(userId));
     }
+
 
 }

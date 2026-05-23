@@ -47,11 +47,13 @@ export function startConversation(recipientId: number) {
   return request.post<ConversationVO>(`/chat/conversations/${recipientId}`)
 }
 
-export function getMessages(conversationId: number, page: number, size: number = 20) {
-  return request.get<{list: ChatMessageVO[], total: number, page: number, size: number}>(
+export function getMessages(conversationId: number, beforeId: number | null | undefined, limit: number = 20): Promise<ChatMessageVO[]> {
+  const params: Record<string, any> = { limit }
+  if (beforeId != null) params.beforeId = beforeId
+  return request.get<ChatMessageVO[]>(
     `/chat/conversations/${conversationId}/messages`,
-    { params: { page, size } }
-  )
+    { params }
+  ) as unknown as Promise<ChatMessageVO[]>
 }
 
 export function sendMessage(recipientId: number, content: string, messageType: string, 

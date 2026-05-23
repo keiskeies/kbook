@@ -318,7 +318,7 @@ public class BookChatService {
 
                 int ragTopK = Optional.ofNullable(aiProviderConfigService.getActiveRagTopK())
                         .orElse(qdrantProperties.getRagTopK());
-                String ragContext = retrieveRagContext(bookId, question, ragTopK);
+                String ragContext = retrieveRagContext(book, question, ragTopK);
                 log.debug("RAG 检索结果长度: {}", ragContext.length());
 
                 try {
@@ -537,7 +537,7 @@ public class BookChatService {
         return messages;
     }
 
-    private String retrieveRagContext(Long bookId, String question, int topK) {
+    private String retrieveRagContext(Book book, String question, int topK) {
         if (!embeddingService.isAvailable()) {
             log.debug("Embedding 不可用，跳过 RAG 检索");
             return "";
@@ -545,15 +545,15 @@ public class BookChatService {
 
         try {
             List<EmbeddingMatch<TextSegment>> matches =
-                    embeddingService.searchContent(question, topK, bookId);
+                    embeddingService.searchContent(question, topK, book);
 
             if (matches.isEmpty()) {
-                log.debug("RAG 检索无结果: bookId={}, question={}", bookId, question.substring(0, Math.min(30, question.length())));
-                ragHitStatisticsService.recordMiss(bookId);
+                log.debug("RAG 检索无结果: bookId={}, question={}", book.getId(), question.substring(0, Math.min(30, question.length())));
+                ragHitStatisticsService.recordMiss(book.getId());
                 return "";
             }
 
-            ragHitStatisticsService.recordHit(bookId);
+            ragHitStatisticsService.recordHit(book.getId());
 
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < matches.size(); i++) {
@@ -566,20 +566,20 @@ public class BookChatService {
             }
 
             String ragContext = sb.toString();
-            log.info("RAG 检索命中: bookId={}, hits={}, contextLen={}", bookId, matches.size(), ragContext.length());
+            log.info("RAG 检索命中: bookId={}, hits={}, contextLen={}", book.getId(), matches.size(), ragContext.length());
 
             long questionMarkCount = ragContext.chars().filter(c -> c == '?').count();
             if (questionMarkCount > ragContext.length() * 0.1) {
                 log.warn("[编码诊断] RAG 上下文疑似乱码! bookId={}, 问号占比={}/{}, 丢弃乱码上下文",
-                        bookId, questionMarkCount, ragContext.length());
-                ragHitStatisticsService.recordMiss(bookId);
+                        book.getId(), questionMarkCount, ragContext.length());
+                ragHitStatisticsService.recordMiss(book.getId());
                 return "";
             }
 
             return ragContext;
         } catch (Exception e) {
-            log.warn("RAG 检索异常: bookId={} - {}", bookId, e.getMessage());
-            ragHitStatisticsService.recordMiss(bookId);
+            log.warn("RAG 检索异常: bookId={} - {}", book.getId(), e.getMessage());
+            ragHitStatisticsService.recordMiss(book.getId());
             return "";
         }
     }

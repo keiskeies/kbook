@@ -32,9 +32,11 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // 头像文件静态资源映射
         registry.addResourceHandler(avatarUrlPrefix + "/**")
                 .addResourceLocations("file:" + avatarDir + "/");
+
+        registry.addResourceHandler(chatUrlPrefix + "/**")
+                .addResourceLocations("file:" + chatDir + "/");
     }
 
     /**

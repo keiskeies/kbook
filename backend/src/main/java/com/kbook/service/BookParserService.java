@@ -38,180 +38,308 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 /**
- * 图书解析服务 — EPUB/PDF/TXT 元数据提取与封面生成 + AI 标签生成
+ * 图书解析服务类
+ * <p>
+ * 负责解析EPUB、PDF、TXT三种格式的图书文件，提取元数据、封面、目录、正文等内容
+ * 支持AI辅助生成标签、评分、相关度得分和简介
+ * <p>
+ * 主要功能：
+ * - EPUB/PDF/TXT 元数据提取与封面生成
+ * - AI 标签生成、质量评分、8维度相关度分析
+ * - RAG内容向量化（用于智能搜索和推荐）
+ * - 扫描版PDF的OCR文字识别
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class BookParserService {
 
-    private final AiProviderConfigService aiProviderConfigService;
-    private final BookService bookService;
-    private final EmbeddingService embeddingService;
-    private final ObjectMapper objectMapper;
-    private final BookStorageProperties storageProps;
-    private final MatchScoreCacheService matchScoreCacheService;
+    private final AiProviderConfigService aiProviderConfigService; // AI提供者配置服务
+    private final BookService bookService; // 书籍服务
+    private final EmbeddingService embeddingService; // 嵌入向量服务
+    private final ObjectMapper objectMapper; // JSON对象映射器
+    private final BookStorageProperties storageProps; // 书籍存储配置属性
 
     /**
-     * 封面最大宽度（px）
+     * 封面最大宽度（像素）
+     * 用于等比例压缩封面图片，确保统一尺寸
      */
     private static final int COVER_MAX_WIDTH = 300;
 
     /**
      * AI 调用操作类型常量
+     * 用于日志记录，标识合并请求的类型（标签+评分+相关度）
      */
     private static final String AI_OP_COMBINED = "合并请求（标签+评分+相关度）";
 
 
     /**
-     * 初始化时打印封面目录的绝对路径
+     * 初始化方法，在Spring容器启动时自动执行
+     * 打印封面存储目录的绝对路径，便于调试和验证配置
      */
     @PostConstruct
     public void init() {
-        Path absolutePath = Paths.get(storageProps.getCoverPath()).toAbsolutePath();
-        log.info("封面存储目录: {}", absolutePath);
+        Path absolutePath = Paths.get(storageProps.getCoverPath()).toAbsolutePath(); // 获取封面目录的绝对路径
+        log.info("封面存储目录: {}", absolutePath); // 记录封面目录路径
     }
 
     /**
      * 解析图书元数据并填充到 Book 对象
-     * - EPUB: 提取作者 + 简介 + 封面图片
-     * - PDF:  首页渲染为封面图片
-     * - TXT:  提取开头文本
+     * 根据图书格式调用相应的解析方法
+     * - EPUB: 提取作者 + 简介 + 目录 + 核心章节摘要 + 封面图片
+     * - PDF:  提取元数据 + 目录 + 核心章节摘要 + 首页渲染为封面图片
+     * - TXT:  提取开头文本 + 章节目录 + AI推断作者和简介
+     *
+     * @param book 图书实体对象
+     * @param filePath 图书文件路径
      */
     public void parseAndFill(Book book, Path filePath) {
+        // 根据图书格式选择对应的解析方法
         switch (book.getFormat()) {
-            case "EPUB" -> parseEpub(book, filePath);
-            case "PDF" -> parsePdf(book, filePath);
-            case "TXT" -> parseTxt(book, filePath);
-            default -> log.warn("不支持的格式: {}", book.getFormat());
+            case "EPUB" -> parseEpub(book, filePath); // 解析EPUB格式
+            case "PDF" -> parsePdf(book, filePath); // 解析PDF格式
+            case "TXT" -> parseTxt(book, filePath); // 解析TXT格式
+            default -> log.warn("不支持的格式: {}", book.getFormat()); // 记录不支持的格式警告
         }
     }
 
     /**
-     * 解析 EPUB — 提取作者、简介、目录、核心章节摘要、封面
+     * 解析 EPUB 格式图书
+     * 提取作者、简介、目录、核心章节摘要、封面图片等元数据
+     * 支持标准EPUB解析和ZIP降级模式（针对不规范EPUB文件）
+     *
+     * @param book 图书实体对象
+     * @param filePath EPUB文件路径
      */
     public void parseEpub(Book book, Path filePath) {
-        nl.siegmann.epublib.domain.Book epubBook = null;
+        // 预验证：检查 EPUB 结构是否可被 epublib 解析
+        if (!isValidEpubStructure(filePath)) {
+            log.warn("EPUB 结构缺失 OPF 文件，跳过 epublib，直接使用 ZIP 降级: bookId={}", book.getId());
+            fallbackToZipExtraction(book, filePath);
+            return;
+        }
+
+        nl.siegmann.epublib.domain.Book epubBook = null; // EPUB图书对象
         try (InputStream is = Files.newInputStream(filePath)) {
-            EpubReader epubReader = new EpubReader();
-            epubBook = epubReader.readEpub(is);
+            EpubReader epubReader = new EpubReader(); // 创建EPUB阅读器
+            epubBook = epubReader.readEpub(is); // 读取EPUB文件
         } catch (Exception e) {
             log.warn("epublib 解析 EPUB 元数据失败，尝试 ZIP 降级模式: {} - {}", book.getTitle(), e.getMessage());
         }
 
-        if (epubBook != null) {
-            // 正常解析流程
-            if (epubBook.getMetadata() != null && !epubBook.getMetadata().getAuthors().isEmpty()) {
-                var author = epubBook.getMetadata().getAuthors().get(0);
-                String authorName = (author.getFirstname() != null ? author.getFirstname() + " " : "")
-                        + (author.getLastname() != null ? author.getLastname() : "");
-                if (!authorName.isBlank()) {
-                    book.setAuthor(authorName.trim());
-                }
-            }
-
-//            if (epubBook.getMetadata() != null && epubBook.getMetadata().getDescriptions() != null
-//                    && !epubBook.getMetadata().getDescriptions().isEmpty()) {
-//                String desc = epubBook.getMetadata().getDescriptions().get(0);
-//                if (desc != null && !desc.isBlank()) {
-//                    book.setDescription(HTML_TAG_PATTERN.matcher(desc).replaceAll("").trim());
-//                }
-//            }
-
-            StringBuilder tocBuilder = new StringBuilder();
-            if (epubBook.getTableOfContents() != null) {
-                extractEpubTocChildren(epubBook.getTableOfContents().getTocReferences(), tocBuilder, 0);
-            }
-            if (!tocBuilder.isEmpty()) {
-                book.setToc(tocBuilder.toString().trim());
-            }
-
-            String chapterSummary = extractEpubChapterSummary(epubBook);
-            if (chapterSummary != null && !chapterSummary.isBlank()) {
-                book.setChapterSummary(chapterSummary);
-            }
-
-            book.setParsedContent(buildContentForTags(book, tocBuilder.toString()));
-
-            StringBuilder epubBodyForTags = new StringBuilder(20000);
-            for (var spineRef : epubBook.getSpine().getSpineReferences()) {
-                try {
-                    var resource = spineRef.getResource();
-                    String html = new String(resource.getData(), java.nio.charset.StandardCharsets.UTF_8);
-                    String text = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
-                    if (!text.isBlank()) {
-                        epubBodyForTags.append(text).append("\n");
-                    }
-                } catch (Exception ignored) {
-                }
-                if (epubBodyForTags.length() >= 20000) break;
-            }
-            book.setParsedContent(buildContentForTags(book, epubBodyForTags.toString()));
-
-            book.setRagContent(extractEpubFullTextFromEpubBook(epubBook));
-
-            try {
-                byte[] bestCoverData = null;
-                nl.siegmann.epublib.domain.MediaType coverMediaType = null;
-
-                // 1. 优先检查元数据封面
-                var coverImage = epubBook.getCoverImage();
-                if (coverImage != null && coverImage.getData() != null) {
-                    if (!isSquareImage(coverImage.getData())) {
-                        bestCoverData = coverImage.getData();
-                        coverMediaType = coverImage.getMediaType();
-                        log.info("EPUB 使用元数据封面");
-                    } else {
-                        log.info("EPUB 元数据封面为非正常比例图片，跳过，尝试从正文提取");
-                    }
-                }
-
-                // 2. 如果没有合适的封面，从正文提取第一张非正常比例图片
-                if (bestCoverData == null) {
-                    CoverExtractionResult result = extractFirstNonSquareImageFromEpub(epubBook);
-                    if (result != null) {
-                        bestCoverData = result.data;
-                        coverMediaType = result.mediaType;
-                        log.info("EPUB 从正文提取到整行比例封面图片");
-                    }
-                }
-
-                // 3. 保存封面（如果找到了合适的图片）
-                if (bestCoverData != null) {
-                    saveCoverImage(book, bestCoverData, coverMediaType);
-                    log.info("EPUB 封面保存成功: {}", book.getCoverUrl());
-                } else {
-                    book.setCoverUrl(null);
-                    log.info("EPUB 未找到合适的封面图片（可能均为非正常比例图片）");
-                }
-            } catch (Exception e) {
-                book.setCoverUrl(null);
-                log.warn("EPUB 封面提取失败: {}", e.getMessage());
-            }
-        } else {
-            // 降级模式：仅提取文本内容，元数据可能缺失
-            log.info("EPUB 降级模式: 尝试 ZIP 提取全文: bookId={}", book.getId());
-            String fullText = extractEpubTextViaZip(filePath);
-            if (fullText != null && !fullText.isBlank()) {
-                book.setRagContent(fullText);
-                book.setParsedContent(buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), 15000))));
+        if (epubBook == null) {
+            // 标准解析失败，尝试修复 HTML 实体后重试
+            log.info("尝试修复 HTML 实体后重试 epublib: bookId={}", book.getId());
+            try (InputStream fixedIs = fixEpubEntities(filePath)) {
+                EpubReader epubReader = new EpubReader();
+                epubBook = epubReader.readEpub(fixedIs);
+                log.info("修复实体后 epublib 解析成功: bookId={}", book.getId());
+            } catch (Exception e2) {
+                log.warn("修复实体后 epublib 仍解析失败: {} - {}", book.getTitle(), e2.getMessage());
             }
         }
 
-        // epublib 返回非 null 但 spine 为空时无内容提取，再尝试 ZIP 降级
+        if (epubBook != null) {
+            // 标准EPUB解析成功，提取元数据、文本内容和封面
+            extractEpubMetadata(book, epubBook); // 提取作者等元数据
+            extractEpubTextContent(book, epubBook); // 提取目录、章节摘要、正文内容
+            extractEpubCover(book, epubBook); // 提取封面图片
+        } else {
+            fallbackToZipExtraction(book, filePath);
+        }
+
+        // 如果标准解析未提取到内容，再次尝试ZIP降级模式
         if (book.getRagContent() == null || book.getRagContent().isBlank()) {
             log.info("EPUB 标准解析未提取到内容，尝试 ZIP 降级: bookId={}", book.getId());
-            String fullText = extractEpubTextViaZip(filePath);
+            String fullText = extractEpubTextViaZip(filePath); // 通过ZIP方式提取文本
             if (fullText != null && !fullText.isBlank()) {
-                book.setRagContent(fullText);
-                book.setParsedContent(buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), 15000))));
+                book.setRagContent(fullText); // 设置RAG全文内容
+                // 构建用于AI标签生成的内容（截取前15000字符）
+                book.setParsedContent(buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), MAX_CONTENT_FOR_AI))));
             }
+        }
+    }
+
+    /** ZIP 降级提取全文 */
+    private void fallbackToZipExtraction(Book book, Path filePath) {
+        log.info("EPUB 降级模式: 尝试 ZIP 提取全文: bookId={}", book.getId());
+        String fullText = extractEpubTextViaZip(filePath);
+        if (fullText != null && !fullText.isBlank()) {
+            book.setRagContent(fullText);
+            book.setParsedContent(buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), 15000))));
+        }
+    }
+
+    /** 预验证 EPUB 结构：META-INF/container.xml 中引用的 OPF 文件是否存在 */
+    private boolean isValidEpubStructure(Path filePath) {
+        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(filePath))) {
+            // 收集所有条目名称
+            java.util.Set<String> entryNames = new java.util.HashSet<>();
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                entryNames.add(entry.getName());
+                entryNames.add("/" + entry.getName()); // 也匹配可能带前导斜杠的路径
+            }
+
+            // 检查 META-INF/container.xml 是否存在
+            if (!entryNames.contains("META-INF/container.xml") && !entryNames.contains("/META-INF/container.xml")) {
+                return false;
+            }
+
+            // 重新读取 container.xml 提取 OPF 路径
+            try (ZipInputStream zis2 = new ZipInputStream(Files.newInputStream(filePath))) {
+                ZipEntry containerEntry;
+                while ((containerEntry = zis2.getNextEntry()) != null) {
+                    if ("META-INF/container.xml".equals(containerEntry.getName())) {
+                        String content = new String(zis2.readAllBytes(), StandardCharsets.UTF_8);
+                        // 提取 rootfile 的 full-path 属性
+                        java.util.regex.Matcher m = java.util.regex.Pattern.compile("full-path\\s*=\\s*\"([^\"]+)\"").matcher(content);
+                        if (m.find()) {
+                            String opfPath = m.group(1);
+                            return entryNames.contains(opfPath) || entryNames.contains("/" + opfPath);
+                        }
+                        return false;
+                    }
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            log.debug("EPUB 结构预验证失败: {}", e.getMessage());
+            return true; // 验证明细失败时放行，让 epublib 自己处理
+        }
+    }
+
+    /**
+     * 从EPUB图书中提取元数据（作者信息）
+     * <p>
+     * 提取EPUB元数据中的第一个作者，将名字和姓氏组合后设置到图书对象中
+     *
+     * @param book 图书实体对象，用于存储提取的作者信息
+     * @param epubBook EPUB图书对象，包含元数据信息
+     */
+    private void extractEpubMetadata(Book book, nl.siegmann.epublib.domain.Book epubBook) {
+        // 检查元数据是否存在且包含作者信息
+        if (epubBook.getMetadata() != null && !epubBook.getMetadata().getAuthors().isEmpty()) {
+            var author = epubBook.getMetadata().getAuthors().get(0);
+            String authorName = (author.getFirstname() != null ? author.getFirstname() + " " : "")
+                    + (author.getLastname() != null ? author.getLastname() : "");
+            if (!authorName.isBlank()) {
+                book.setAuthor(authorName.trim());
+            }
+        }
+    }
+
+    /**
+     * 从EPUB图书中提取文本内容
+     * <p>
+     * 提取内容包括：
+     * 1. 目录结构（TOC）
+     * 2. 核心章节摘要（前几章的关键内容）
+     * 3. 用于AI标签生成的正文内容（最多20000字符）
+     * 4. 用于RAG的完整全文内容
+     *
+     * @param book 图书实体对象，用于存储提取的文本内容
+     * @param epubBook EPUB图书对象，包含所有章节和资源
+     */
+    private void extractEpubTextContent(Book book, nl.siegmann.epublib.domain.Book epubBook) {
+        // 提取目录结构
+        StringBuilder tocBuilder = new StringBuilder();
+        if (epubBook.getTableOfContents() != null) {
+            extractEpubTocChildren(epubBook.getTableOfContents().getTocReferences(), tocBuilder, 0);
+        }
+        if (!tocBuilder.isEmpty()) {
+            book.setToc(tocBuilder.toString().trim());
+        }
+
+        // 提取核心章节摘要
+        String chapterSummary = extractEpubChapterSummary(epubBook);
+        if (chapterSummary != null && !chapterSummary.isBlank()) {
+            book.setChapterSummary(chapterSummary);
+        }
+
+        // 提取用于AI标签生成的正文内容
+        StringBuilder epubBodyForTags = new StringBuilder(MAX_CONTENT_FOR_AI);
+        for (var spineRef : epubBook.getSpine().getSpineReferences()) {
+            try {
+                var resource = spineRef.getResource();
+                String html = new String(resource.getData(), StandardCharsets.UTF_8);
+                String text = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+                if (!text.isBlank()) {
+                    epubBodyForTags.append(text).append("\n");
+                }
+            } catch (Exception ignored) {
+            }
+            if (epubBodyForTags.length() >= MAX_CONTENT_FOR_AI) break;
+        }
+        if (epubBodyForTags.length() > MAX_CONTENT_FOR_AI) {
+            book.setParsedContent(buildContentForTags(book, epubBodyForTags.substring(0, MAX_CONTENT_FOR_AI)));
+        } else {
+            book.setParsedContent(buildContentForTags(book, epubBodyForTags.toString()));
+        }
+
+        // 提取用于RAG的完整全文内容
+        book.setRagContent(extractEpubFullTextFromEpubBook(epubBook));
+    }
+
+    /**
+     * 从EPUB图书中提取封面图片
+     * <p>
+     * 采用两级提取策略：
+     * 1. 优先使用EPUB元数据中定义的封面图片
+     * 2. 如果元数据封面不存在或比例异常，则从正文中提取第一张非正方形图片
+     * <p>
+     * 提取的封面会经过压缩处理并保存到指定目录
+     *
+     * @param book 图书实体对象，用于存储封面URL
+     * @param epubBook EPUB图书对象，包含封面图片和资源信息
+     */
+    private void extractEpubCover(Book book, nl.siegmann.epublib.domain.Book epubBook) {
+        try {
+            byte[] bestCoverData = null;
+            nl.siegmann.epublib.domain.MediaType coverMediaType = null;
+
+            // 尝试从EPUB元数据获取封面图片
+            var coverImage = epubBook.getCoverImage();
+            if (coverImage != null && coverImage.getData() != null) {
+                if (isCoverImage(coverImage.getData())) {
+                    bestCoverData = coverImage.getData();
+                    coverMediaType = coverImage.getMediaType();
+                    log.info("EPUB 使用元数据封面");
+                } else {
+                    log.info("EPUB 元数据封面为非正常比例图片，跳过，尝试从正文提取");
+                }
+            }
+
+            // 如果元数据中没有合适的封面，则从正文中提取
+            if (bestCoverData == null) {
+                CoverExtractionResult result = extractFirstNonSquareImageFromEpub(epubBook);
+                if (result != null) {
+                    bestCoverData = result.data;
+                    coverMediaType = result.mediaType;
+                    log.info("EPUB 从正文提取到正常比例封面图片");
+                }
+            }
+
+            // 保存提取到的封面图片
+            if (bestCoverData != null) {
+                saveCoverImage(book, bestCoverData, coverMediaType);
+                log.info("EPUB 封面保存成功: {}", book.getCoverUrl());
+            } else {
+                book.setCoverUrl(null);
+                log.info("EPUB 未找到合适的封面图片（可能均为非正常比例图片）");
+            }
+        } catch (Exception e) {
+            book.setCoverUrl(null);
+            log.warn("EPUB 封面提取失败: {}", e.getMessage());
         }
     }
 
@@ -249,16 +377,16 @@ public class BookParserService {
     /**
      * 检查图片是否为非正常比例图片
      */
-    private boolean isSquareImage(byte[] imageData) {
+    private boolean isCoverImage(byte[] imageData) {
         try (ByteArrayInputStream bais = new ByteArrayInputStream(imageData)) {
             BufferedImage img = ImageIO.read(bais);
             if (img != null) {
-                return img.getWidth() < 100 || img.getWidth() > img.getHeight() * 0.8;
+                return img.getWidth() >= 100 && !(img.getWidth() > img.getHeight() * 0.8);
             }
         } catch (Exception e) {
             // 读取失败不视为正方形，避免误杀
         }
-        return false;
+        return true;
     }
 
     /**
@@ -313,7 +441,7 @@ public class BookParserService {
                             byte[] imgData = imageResource.getData();
                             
                             // 检查是否为非正常比例图片，符合条件则返回
-                            if (imgData != null && imgData.length > 0 && !isSquareImage(imgData)) {
+                            if (imgData != null && imgData.length > 0 && isCoverImage(imgData)) {
                                 return new CoverExtractionResult(imgData, imageResource.getMediaType());
                             }
                         }
@@ -422,12 +550,68 @@ public class BookParserService {
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]+>");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
 
+    /** AI 标签生成时送入大模型的正文最大字符数（128k 上下文窗口内留出提示词和输出空间） */
+    private static final int MAX_CONTENT_FOR_AI = 15000;
+
+    /** HTML 实体 → 数值字符引用映射，用于修复 EPUB 中未声明的实体 */
+    private static final Map<String, String> HTML_ENTITIES = Map.ofEntries(
+            Map.entry("&nbsp;", "&#160;"),
+            Map.entry("&mdash;", "&#8212;"),
+            Map.entry("&ndash;", "&#8211;"),
+            Map.entry("&ldquo;", "&#8220;"),
+            Map.entry("&rdquo;", "&#8221;"),
+            Map.entry("&lsquo;", "&#8216;"),
+            Map.entry("&rsquo;", "&#8217;"),
+            Map.entry("&hellip;", "&#8230;"),
+            Map.entry("&bull;", "&#8226;"),
+            Map.entry("&middot;", "&#183;"),
+            Map.entry("&copy;", "&#169;"),
+            Map.entry("&reg;", "&#174;"),
+            Map.entry("&trade;", "&#8482;")
+    );
+
+    private static final Pattern BARE_AMPERSAND_PATTERN = Pattern.compile("&(?!((?:#\\d+|#x[\\da-fA-F]+|\\w+);))");
+
+    /** 修复 EPUB 中 XML/XHTML 文件内未声明的 HTML 实体及裸 & */
+    private InputStream fixEpubEntities(Path filePath) throws IOException {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(filePath));
+             ZipOutputStream zos = new ZipOutputStream(bos)) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                ZipEntry newEntry = new ZipEntry(entry.getName());
+                newEntry.setMethod(entry.getMethod());
+                newEntry.setTime(entry.getTime());
+                zos.putNextEntry(newEntry);
+                String name = entry.getName().toLowerCase();
+                if (name.endsWith(".opf") || name.endsWith(".xml") || name.endsWith(".xhtml") || name.endsWith(".html") || name.endsWith(".ncx")) {
+                    byte[] raw = zis.readAllBytes();
+                    String content = new String(raw, StandardCharsets.UTF_8);
+                    for (var e : HTML_ENTITIES.entrySet()) {
+                        content = content.replace(e.getKey(), e.getValue());
+                    }
+                    content = BARE_AMPERSAND_PATTERN.matcher(content).replaceAll("&amp;");
+                    zos.write(content.getBytes(StandardCharsets.UTF_8));
+                } else {
+                    zos.write(zis.readAllBytes());
+                }
+                zos.closeEntry();
+            }
+        }
+        return new ByteArrayInputStream(bos.toByteArray());
+    }
+
     /**
-     * 解析 PDF — 首页渲染为封面 + 提取目录 + 核心章节摘要
+     * 解析 PDF 格式图书
+     * 提取元数据、目录、核心章节摘要，并将首页渲染为封面图片
+     * 支持文字型PDF和扫描版PDF（使用OCR识别）
+     *
+     * @param book 图书实体对象
+     * @param filePath PDF文件路径
      */
     private void parsePdf(Book book, Path filePath) {
-        try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
-            // 提取页数
+        try (PDDocument document = Loader.loadPDF(filePath.toFile())) { // 加载PDF文档
+            // 提取页数并设置总单元数
             book.setTotalUnits((long) document.getNumberOfPages());
 
             // 1. 尝试从 PDF 元数据提取书名和作者
@@ -436,42 +620,43 @@ public class BookParserService {
             // 2. 提取目录（尝试从 PDF 书签/大纲获取）
             String toc = extractPdfToc(document);
             if (toc != null && !toc.isBlank()) {
-                book.setToc(toc);
+                book.setToc(toc); // 设置目录
             }
 
             // 3. 提取前20页文本（用于 AI 评分 + 标签生成 + 核心章节摘要 + 简介生成）
-            String firstPagesText = null;
-            boolean isScanned = true;
+            String firstPagesText = null; // 前几页的文本内容
+            boolean isScanned = true; // 是否为扫描版PDF的标志
             try {
-                PDFTextStripper stripper = new PDFTextStripper();
-                int pagesToRead = Math.min(20, document.getNumberOfPages());
-                stripper.setStartPage(1);
-                stripper.setEndPage(pagesToRead);
-                firstPagesText = stripper.getText(document);
+                PDFTextStripper stripper = new PDFTextStripper(); // 创建PDF文本提取器
+                int pagesToRead = Math.min(20, document.getNumberOfPages()); // 最多读取20页
+                stripper.setStartPage(1); // 设置起始页
+                stripper.setEndPage(pagesToRead); // 设置结束页
+                firstPagesText = stripper.getText(document); // 提取文本
 
-                // 判断是否为扫描版（前5页每页平均不到50字）
+                // 判断是否为扫描版（前5页每页平均不到50字则认为是扫描版）
                 String cleaned = WHITESPACE_PATTERN.matcher(firstPagesText).replaceAll("").trim();
                 isScanned = cleaned.length() < (long) pagesToRead * 50;
             } catch (Exception e) {
                 log.debug("PDF 文本提取失败: {} - {}", book.getTitle(), e.getMessage());
             }
 
-            // 4. 核心章节摘要
+            // 4. 提取核心章节摘要（仅文字型PDF）
             if (firstPagesText != null && !firstPagesText.isBlank() && !isScanned) {
-                String cleaned = WHITESPACE_PATTERN.matcher(firstPagesText).replaceAll(" ").trim();
+                String cleaned = WHITESPACE_PATTERN.matcher(firstPagesText).replaceAll(" ").trim(); // 清理空白字符
+                // 截取前2000字符作为章节摘要
                 book.setChapterSummary(cleaned.length() > 2000 ? cleaned.substring(0, 2000) : cleaned);
             }
 
             // 5. 扫描版 PDF：使用大模型 OCR 提取前几页，获取书名/作者/简介/目录
             if (isScanned) {
                 log.info("PDF 疑似扫描版，使用大模型提取元数据: bookId={}", book.getId());
-                extractPdfMetadataWithOcr(book, document);
+                extractPdfMetadataWithOcr(book, document); // 使用OCR提取元数据
             }
 
             // 6. 文字型 PDF 缺失作者时，或始终用大模型生成更完整简介
             /* 始终用AI生成更完整的简介 */
             if (!isScanned) {
-                inferMetadataFromContent(book, firstPagesText);
+                inferMetadataFromContent(book, firstPagesText); // 从内容推断元数据
             }
 
             // 7. 构建 AI 标签生成的内容
@@ -479,29 +664,29 @@ public class BookParserService {
 
             // 8. 提取全文用于RAG（在PDDocument已打开时提取，避免后续二次加载文件）
             try {
-                String fullText = extractPdfFullTextFromDocument(book, document, isScanned);
+                String fullText = extractPdfFullTextFromDocument(book, document, isScanned); // 提取全文
                 if (fullText != null && !fullText.isBlank()) {
-                    book.setRagContent(fullText);
+                    book.setRagContent(fullText); // 设置RAG全文内容
                 }
             } catch (Exception e) {
                 log.debug("PDF全文提取（RAG缓存）失败: {} - {}", book.getTitle(), e.getMessage());
             }
 
             // 9. 首页渲染为封面图片
-            PDFRenderer renderer = new PDFRenderer(document);
-            BufferedImage image = renderer.renderImageWithDPI(0, 150);
+            PDFRenderer renderer = new PDFRenderer(document); // 创建PDF渲染器
+            BufferedImage image = renderer.renderImageWithDPI(0, 150); // 渲染第一页为图片（150 DPI）
 
-            // 等比例压缩封面
+            // 等比例压缩封面图片
             BufferedImage resized = CommonUtils.compressImage(image, "png", COVER_MAX_WIDTH);
 
-            long ts = System.currentTimeMillis();
-            String tempFileName = "book_new_" + ts + "_cover.png";
-            Path coverDir = Paths.get(storageProps.getCoverPath());
-            Files.createDirectories(coverDir);
-            Path coverFilePath = coverDir.resolve(tempFileName);
-            ImageIO.write(resized, "png", coverFilePath.toFile());
+            long ts = System.currentTimeMillis(); // 获取时间戳
+            String tempFileName = "book_new_" + ts + "_cover.png"; // 生成临时文件名
+            Path coverDir = Paths.get(storageProps.getCoverPath()); // 获取封面目录
+            Files.createDirectories(coverDir); // 创建目录（如果不存在）
+            Path coverFilePath = coverDir.resolve(tempFileName); // 构建封面文件路径
+            ImageIO.write(resized, "png", coverFilePath.toFile()); // 保存封面图片
 
-            book.setCoverUrl("/api/books/cover/" + tempFileName);
+            book.setCoverUrl("/api/books/cover/" + tempFileName); // 设置封面URL
             log.info("PDF 封面生成: {}", tempFileName);
 
         } catch (Exception e) {
@@ -696,26 +881,32 @@ public class BookParserService {
     }
 
     /**
-     * 解析 TXT — 提取开头文本 + 核心章节摘要
+     * 解析 TXT 格式图书
+     * 提取开头文本、章节目录，并使用AI推断作者和简介
+     *
+     * @param book 图书实体对象
+     * @param filePath TXT文件路径
      */
     private void parseTxt(Book book, Path filePath) {
         try {
-            String content = Files.readString(filePath);
-            book.setTotalUnits((long) content.length());
+            String content = Files.readString(filePath); // 读取TXT文件全部内容
+            book.setTotalUnits((long) content.length()); // 设置总字符数
 
             // 缓存全文用于RAG（避免后续 generateContentEmbedding 二次读取文件）
             book.setRagContent(content);
 
             // 取前15000字符用于 AI 评分和标签生成
             String preview = content.length() > 15000 ? content.substring(0, 15000) : content;
-            book.setParsedContent(buildContentForTags(book, preview));
+            book.setParsedContent(buildContentForTags(book, preview)); // 构建AI标签生成内容
 
             // 核心章节摘要：取开头3000字（去掉前200字可能的书名/版权信息）
-            int summaryStart = Math.min(200, content.length());
-            int summaryEnd = Math.min(summaryStart + 3000, content.length());
+            int summaryStart = Math.min(200, content.length()); // 跳过前200字（可能是书名或版权信息）
+            int summaryEnd = Math.min(summaryStart + 3000, content.length()); // 截取接下来3000字
             if (summaryEnd > summaryStart) {
+                // 提取章节摘要并清理空白字符
                 String chapterSummary = content.substring(summaryStart, summaryEnd)
                         .replaceAll("\\s+", " ").trim();
+                // 限制摘要长度不超过2000字
                 book.setChapterSummary(chapterSummary.length() > 2000
                         ? chapterSummary.substring(0, 2000) : chapterSummary);
             }
@@ -723,12 +914,12 @@ public class BookParserService {
             // 尝试从内容中识别目录（匹配"第X章"或"Chapter X"格式）
             String toc = extractTxtToc(content);
             if (toc != null && !toc.isBlank()) {
-                book.setToc(toc);
+                book.setToc(toc); // 设置目录
             }
 
             // TXT 没有结构化元数据，用大模型从前2000字推断作者和简介
             // 简介始终生成（AI基于正文生成更完整），作者仅在缺失时推断
-            inferMetadataFromContent(book, preview);
+            inferMetadataFromContent(book, preview); // 从内容推断元数据
         } catch (Exception e) {
             log.warn("TXT 解析失败: {} - {}", book.getTitle(), e.getMessage());
         }
@@ -831,7 +1022,7 @@ public class BookParserService {
             sb.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 1500)).append("\n");
         }
         if (extraContent != null && !extraContent.isBlank()) {
-            sb.append("内容/目录：\n").append(CommonUtils.truncateText(extraContent, 15000)).append("\n");
+            sb.append("内容/目录：\n").append(CommonUtils.truncateText(extraContent, MAX_CONTENT_FOR_AI)).append("\n");
         }
         return sb.toString();
     }
@@ -862,15 +1053,15 @@ public class BookParserService {
     }
 
     /**
-     * 提取 EPUB 内容 — 正文前15000字 + 目录（用于评分和标签生成）
+     * 提取 EPUB 内容 — 正文前 MAX_CONTENT_FOR_AI 字 + 目录（用于评分和标签生成）
      */
     private String extractEpubContent(Book book, Path filePath) {
         try (InputStream is = Files.newInputStream(filePath)) {
             EpubReader epubReader = new EpubReader();
             nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
 
-            // 提取正文内容（前15000字）
-            StringBuilder bodyBuilder = new StringBuilder(20000);
+            // 提取正文内容
+            StringBuilder bodyBuilder = new StringBuilder(MAX_CONTENT_FOR_AI);
             for (var spineRef : epubBook.getSpine().getSpineReferences()) {
                 try {
                     var resource = spineRef.getResource();
@@ -881,7 +1072,7 @@ public class BookParserService {
                     }
                 } catch (Exception ignored) {
                 }
-                if (bodyBuilder.length() >= 15000) break;
+                if (bodyBuilder.length() >= MAX_CONTENT_FOR_AI) break;
             }
 
             // 提取目录
@@ -918,37 +1109,40 @@ public class BookParserService {
     }
 
     /**
-     * 提取 TXT 内容（前15000字符，用于评分和标签生成）
+     * 提取 TXT 内容（前 MAX_CONTENT_FOR_AI 字符，用于评分和标签生成）
      */
     private String extractTxtContent(Book book, Path filePath) throws Exception {
         String content = Files.readString(filePath);
-        String preview = content.length() > 15000 ? content.substring(0, 15000) : content;
+        String preview = content.length() > MAX_CONTENT_FOR_AI ? content.substring(0, MAX_CONTENT_FOR_AI) : content;
         return buildContentForTags(book, preview);
     }
 
     // ======================== 合并 AI 请求（标签 + 评分 + 相关度，一次调用） ========================
 
     /**
-     * 为图书一次性生成所有 AI 数据（标签 + 评分 + 8维度相关度得分 + 简介），合并为一次 LLM 调用
+     * 为图书一次性生成所有 AI 数据（标签 + 评分 + 8维度相关度得分 + 简介）
+     * 合并为一次 LLM 调用，提高效率和降低成本
      * 仅填充 book 实体字段，不做任何数据库操作
      *
-     * @param book 图书实体
+     * @param book 图书实体对象
      */
     public void generateAllAiData(Book book) {
-        Long bookId = book.getId();
+        Long bookId = book.getId(); // 获取图书ID
         try {
+            // 获取图书内容，优先使用已解析的内容
             String content = book.getParsedContent();
             if (content == null || content.isBlank()) {
-                content = extractContentForTags(book);
+                content = extractContentForTags(book); // 从文件中提取内容
             }
             if (content == null || content.isBlank()) {
                 log.debug("图书无内容可供生成AI数据: bookId={}", bookId);
                 return;
             }
 
-            // 合并调用 AI
+            // 合并调用 AI，一次性生成标签、评分、相关度和简介
             CombinedAiResult result = callAiCombined(content);
             
+            // 记录AI调用结果日志
             log.info("========== AI合并调用结果 start ==========");
             log.info("AI合并调用结果: bookId={}", bookId);
             log.info("AI合并调用结果: tags: {}", result != null ? result.tags : "null");
@@ -963,27 +1157,27 @@ public class BookParserService {
                 return;
             }
 
-            // 填充标签
+            // 填充标签（将标签列表转换为JSON数组字符串）
             if (result.tags != null && !result.tags.isEmpty()) {
                 String tagsJson = result.tags.stream()
-                        .map(t -> "\"" + t + "\"")
-                        .collect(Collectors.joining(",", "[", "]"));
-                book.setFormatTags(tagsJson);
+                        .map(t -> "\"" + t + "\"") // 为每个标签添加引号
+                        .collect(Collectors.joining(",", "[", "]")); // 拼接为JSON数组
+                book.setFormatTags(tagsJson); // 设置标签
             }
 
             // 填充评分
             if (result.rating != null) {
-                book.setRating(result.rating);
+                book.setRating(result.rating); // 设置评分
             }
 
-            // 填充8维度相关度得分
+            // 填充8维度相关度得分（JSON字符串）
             if (result.relevanceScoresJson != null && !result.relevanceScoresJson.isBlank()) {
-                book.setRelevanceScores(result.relevanceScoresJson);
+                book.setRelevanceScores(result.relevanceScoresJson); // 设置相关度得分
             }
 
             // 填充AI生成的简介
             if (result.description != null && !result.description.isBlank()) {
-                book.setDescription(result.description);
+                book.setDescription(result.description); // 设置简介
             }
 
         } catch (Exception e) {
@@ -1064,13 +1258,13 @@ public class BookParserService {
     /**
      * 为图书生成元数据向量（标题+作者+标签+简介 → 1个 embedding，用于推荐召回）
      *
-     * @param bookId 图书ID
+     * @param book 图书
      */
-    public void generateBookEmbedding(Long bookId) {
+    public void generateBookEmbedding(Book book) {
         try {
-            embeddingService.generateBookEmbedding(bookId);
+            embeddingService.generateBookEmbedding(book);
         } catch (Exception e) {
-            log.warn("触发元数据向量生成失败: bookId={} - {}", bookId, e.getMessage());
+            log.warn("触发元数据向量生成失败: bookId={} - {}", book.getId(), e.getMessage());
         }
     }
 
@@ -1135,7 +1329,7 @@ public class BookParserService {
         } catch (Exception e) {
             log.warn("ZIP 降级提取也失败: {}", e.getMessage());
         }
-        return text.length() > 0 ? text.toString() : null;
+        return !text.isEmpty() ? text.toString() : null;
     }
 
     /**
@@ -1157,7 +1351,7 @@ public class BookParserService {
                 } catch (Exception ignored) {
                 }
             }
-            return text.length() > 0 ? text.toString() : null;
+            return !text.isEmpty() ? text.toString() : null;
         } catch (Exception e) {
             log.debug("从EPUB对象提取全文失败: {}", e.getMessage());
             return null;
@@ -1393,6 +1587,7 @@ public class BookParserService {
                 return null;
             }
             String jsonStr = rawResult.substring(jsonStart, jsonEnd + 1);
+            log.info("AI 合并调用返回结果: {}", jsonStr);
 
             // 解析 JSON
             JsonNode root = objectMapper.readTree(jsonStr);

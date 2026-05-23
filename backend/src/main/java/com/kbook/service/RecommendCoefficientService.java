@@ -12,7 +12,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -43,10 +46,14 @@ public class RecommendCoefficientService {
     private static final String REDIS_PREFIX = "kbook:recommend:coeff:";
     private static final String REDIS_ALL_KEY = "kbook:recommend:coeff:all";
 
-    /** 学习率：每次调参的步长，0.05 表示保守调整 */
+    /**
+     * 学习率：每次调参的步长，0.05 表示保守调整
+     */
     private static final double LEARNING_RATE = 0.05;
 
-    /** 内存缓存：启动时加载，调参时刷新 */
+    /**
+     * 内存缓存：启动时加载，调参时刷新
+     */
     private final Map<String, Double> coefficientCache = new ConcurrentHashMap<>();
 
     // ==================== 默认系数定义 ====================
@@ -193,13 +200,6 @@ public class RecommendCoefficientService {
     // ==================== 读取系数 ====================
 
     /**
-     * 获取系数值（优先内存 → Redis → 数据库）
-     */
-    public double getCoefficient(String category, String key) {
-        return getCoefficient(category, key, 0.0);
-    }
-
-    /**
      * 获取系数值，带默认回退
      */
     public double getCoefficient(String category, String key, double fallback) {
@@ -245,81 +245,7 @@ public class RecommendCoefficientService {
         return fallback;
     }
 
-    /**
-     * 批量获取某分类下的所有系数
-     */
-    public Map<String, Double> getCoefficientsByCategory(String category) {
-        Map<String, Double> result = new HashMap<>();
-        String prefix = category + ":";
-        for (Map.Entry<String, Double> entry : coefficientCache.entrySet()) {
-            if (entry.getKey().startsWith(prefix)) {
-                String key = entry.getKey().substring(prefix.length());
-                result.put(key, entry.getValue());
-            }
-        }
-        return result;
-    }
 
-    /**
-     * 获取所有系数（用于管理界面展示）
-     */
-    public List<RecommendCoefficient> getAllCoefficients() {
-        return coefficientRepository.findAll();
-    }
-
-    // ==================== 管理员操作 ====================
-
-    /**
-     * 管理员手动设置系数值
-     */
-    @Transactional
-    public RecommendCoefficient setCoefficient(String category, String key, double value, boolean locked) {
-        RecommendCoefficient rc = coefficientRepository.findByCategoryAndCoeffKey(category, key)
-                .orElseThrow(() -> new IllegalArgumentException("系数不存在: " + category + "." + key));
-
-        rc.setCoeffValue(Math.max(rc.getMinValue(), Math.min(rc.getMaxValue(), value)));
-        rc.setLocked(locked);
-        RecommendCoefficient saved = coefficientRepository.save(rc);
-
-        // 更新缓存
-        coefficientCache.put(category + ":" + key, saved.getCoeffValue());
-        log.info("管理员更新推荐系数: {}.{} = {} (locked={})", category, key, value, locked);
-
-        return saved;
-    }
-
-    /**
-     * 重置所有未锁定的系数为默认值
-     */
-    @Transactional
-    public int resetToDefaults() {
-        List<RecommendCoefficient> all = coefficientRepository.findAll();
-        int resetCount = 0;
-        for (RecommendCoefficient rc : all) {
-            if (!rc.getLocked()) {
-                rc.setCoeffValue(rc.getDefaultValue());
-                coefficientRepository.save(rc);
-                resetCount++;
-            }
-        }
-        reloadCache();
-        log.info("重置推荐系数为默认值，共重置 {} 个", resetCount);
-        return resetCount;
-    }
-
-    /**
-     * 重置单个系数为默认值
-     */
-    @Transactional
-    public RecommendCoefficient resetCoefficient(String category, String key) {
-        RecommendCoefficient rc = coefficientRepository.findByCategoryAndCoeffKey(category, key)
-                .orElseThrow(() -> new IllegalArgumentException("系数不存在: " + category + "." + key));
-        rc.setCoeffValue(rc.getDefaultValue());
-        rc.setLocked(false);
-        RecommendCoefficient saved = coefficientRepository.save(rc);
-        coefficientCache.put(category + ":" + key, saved.getCoeffValue());
-        return saved;
-    }
 
     // ==================== 反馈记录 ====================
 
@@ -442,7 +368,7 @@ public class RecommendCoefficientService {
      * 原理：正反馈率高于平均的路径增加权重，低于平均的降低权重
      */
     private void tuneRecallWeights(Map<String, Double> pathPositiveRates,
-                                    double avgPositiveRate, double learningRate) {
+                                   double avgPositiveRate, double learningRate) {
         // 映射：recallPaths 中的关键词 → 系数 key
         Map<String, String> pathToCoeffKey = Map.of(
                 "RULE", "weight_rule",

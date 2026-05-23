@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 public class MatchScoreCacheService {
 
     private final StringRedisTemplate redisTemplate;
-    private static final long CACHE_TTL_MINUTES = 30;
+    private static final long CACHE_TTL_MINUTES = 120;
 
     /**
      * 批量获取缓存的匹配分

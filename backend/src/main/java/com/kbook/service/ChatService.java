@@ -28,6 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -148,9 +149,12 @@ public class ChatService {
     }
 
     public List<ConversationVO> searchConversations(Long userId, String keyword) {
-        List<Conversation> conversations = conversationRepository.findByUserIdAndKeyword(userId, keyword);
+        List<Conversation> conversations = conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
+        String lowerKeyword = keyword.toLowerCase();
         return conversations.stream()
                 .map(c -> getConversationVO(c, userId))
+                .filter(vo -> (vo.getOtherUserNickname() != null && vo.getOtherUserNickname().toLowerCase().contains(lowerKeyword))
+                        || (vo.getLastMessage() != null && vo.getLastMessage().toLowerCase().contains(lowerKeyword)))
                 .collect(Collectors.toList());
     }
 
@@ -165,7 +169,7 @@ public class ChatService {
     }
 
     @Transactional
-    public Page<ChatMessageVO> getMessages(Long userId, Long conversationId, int page, int size) {
+    public List<ChatMessageVO> getMessages(Long userId, Long conversationId, Long beforeId, int limit) {
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new BusinessException("会话不存在"));
 
@@ -173,18 +177,18 @@ public class ChatService {
             throw new BusinessException("无权访问此会话");
         }
 
-        Pageable pageable = PageRequest.of(page - 1, size);
-        Page<ChatMessage> messagePage = chatMessageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
-
-        chatMessageRepository.markAllAsRead(conversationId, userId);
-        
-        if (conversation.getUser1Id().equals(userId)) {
-            conversationRepository.clearUnreadCountUser1(conversationId);
+        List<ChatMessage> messages;
+        if (beforeId == null) {
+            messages = chatMessageRepository.findTop20ByConversationIdOrderByCreatedAtDesc(conversationId);
         } else {
-            conversationRepository.clearUnreadCountUser2(conversationId);
+            messages = chatMessageRepository.findByConversationIdAndIdLessThanOrderByCreatedAtDesc(
+                    conversationId, beforeId, PageRequest.of(0, limit));
         }
 
-        return messagePage.map(ChatMessageVO::fromEntity);
+        if (messages == null || messages.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return messages.stream().map(ChatMessageVO::fromEntity).toList();
     }
 
     @Transactional

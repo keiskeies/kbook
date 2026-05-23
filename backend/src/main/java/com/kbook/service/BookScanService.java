@@ -262,13 +262,14 @@ public class BookScanService {
      */
     private Book processExistingBook(Book book, Path filePath) throws Exception {
         book.setFileSize(Files.size(filePath));
+        book.setDescription(null);
         bookParserService.parseAndFill(book, filePath);
         bookParserService.finalizeCover(book);
         bookParserService.generateAllAiData(book);
         bookService.setAiRating(book.getId(), book.getRating());
         bookService.updateBook(book.getId(), book);
         matchScoreCacheService.evictBook(book.getId());
-        CompletableFuture.runAsync(() -> bookParserService.generateBookEmbedding(book.getId()));
+        CompletableFuture.runAsync(() -> bookParserService.generateBookEmbedding(book));
         return book;
     }
 
@@ -289,7 +290,7 @@ public class BookScanService {
         bookService.setAiRating(saved.getId(), saved.getRating());
         bookService.updateBook(saved.getId(), saved);
         matchScoreCacheService.evictBook(saved.getId());
-        CompletableFuture.runAsync(() -> bookParserService.generateBookEmbedding(saved.getId()));
+        CompletableFuture.runAsync(() -> bookParserService.generateBookEmbedding(saved));
         return saved;
     }
 
@@ -321,26 +322,6 @@ public class BookScanService {
     }
 
     /**
-     * 处理已存在的图书 — 完整覆盖更新（保留兼容，现委托给 processExistingBook）
-     * @deprecated 使用 processExistingBook
-     */
-    @Deprecated
-    private ScanResultType handleExistingBook(Book book, Path filePath, String title) throws Exception {
-        processExistingBook(book, filePath);
-        return ScanResultType.UPDATED;
-    }
-
-    /**
-     * 处理新图书 — 完整插入（保留兼容，现委托给 processNewBook）
-     * @deprecated 使用 processNewBook
-     */
-    @Deprecated
-    private ScanResultType handleNewBook(Path filePath, String format, String title) throws Exception {
-        processNewBook(filePath, format, title);
-        return ScanResultType.ADDED;
-    }
-
-    /**
      * 从文件名中提取标题
      */
     private String extractTitleFromFilename(String fileName) {
@@ -359,16 +340,12 @@ public class BookScanService {
         if (format == null) {
             return 999; // 未知格式排最后
         }
-        switch (format.toUpperCase()) {
-            case "EPUB":
-                return 0;
-            case "PDF":
-                return 1;
-            case "TXT":
-                return 2;
-            default:
-                return 999; // 其他格式排最后
-        }
+        return switch (format.toUpperCase()) {
+            case "EPUB" -> 0;
+            case "PDF" -> 1;
+            case "TXT" -> 2;
+            default -> 999; // 其他格式排最后
+        };
     }
 
     /**

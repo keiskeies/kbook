@@ -2,13 +2,16 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.common.exception.BusinessException;
-import com.kbook.entity.Book;
-import com.kbook.repository.BookRepository;
 import com.kbook.dto.TextInfoResponse;
+import com.kbook.entity.Book;
+import com.kbook.service.BookService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.http.*;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.File;
@@ -25,7 +28,7 @@ import java.nio.file.Paths;
 @RequiredArgsConstructor
 public class BookFileController {
 
-    private final BookRepository bookRepository;
+    private final BookService bookService;
 
     /**
      * 流式获取图书文件（支持 Range 请求）
@@ -36,8 +39,7 @@ public class BookFileController {
             @PathVariable Long id,
             @RequestHeader(value = "Range", required = false) String rangeHeader) {
 
-        Book book = bookRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("图书不存在"));
+        Book book = bookService.getBookById(id);
 
         if (book.getFileUrl() == null || book.getFileUrl().isEmpty()) {
             throw new BusinessException("图书文件不存在");
@@ -93,8 +95,7 @@ public class BookFileController {
      */
     @GetMapping(value = "/{id}/text-info", produces = MediaType.APPLICATION_JSON_VALUE)
     public Result<TextInfoResponse> getBookTextInfo(@PathVariable Long id) {
-        Book book = bookRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("图书不存在"));
+        Book book = bookService.getBookById(id);
 
         if (!"TXT".equals(book.getFormat())) {
             throw new BusinessException("仅支持 TXT 格式");

@@ -50,27 +50,28 @@ export default function ChatListPage() {
 
   return (
     <div className="min-h-screen bg-background page-enter pb-20">
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <h1 className="text-base font-bold">私信</h1>
+      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <h1 className="text-base font-bold">私信</h1>
+        </div>
+        <div className="px-4 pb-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              placeholder="搜索昵称或消息..."
+              className="w-full rounded-xl border bg-background pl-9 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
+            />
+          </div>
+        </div>
       </header>
 
       <div className="px-4 py-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            placeholder="搜索联系人..."
-            className="w-full rounded-xl border bg-background pl-9 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
-          />
-        </div>
-      </div>
-
-      <div className="px-4">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="h-6 w-6 animate-spin rounded-full border-3 border-primary border-t-transparent" />
@@ -84,7 +85,7 @@ export default function ChatListPage() {
             <p className="mt-1 text-xs">关注他人后即可发送私信</p>
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {conversations.map(conv => (
               <button
                 key={conv.id}

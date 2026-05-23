@@ -40,7 +40,7 @@ public interface AiConversationRepository extends JpaRepository<AiConversation, 
     @Query(value = "SELECT trimmed_content FROM (" +
             "SELECT TRIM(c.content) AS trimmed_content, COUNT(*) AS cnt " +
             "FROM ai_conversations c " +
-            "WHERE c.role = 'user' AND LENGTH(TRIM(c.content)) >= 2 " +
+            "WHERE c.role = 'user' AND c.type = 'assistant' AND LENGTH(TRIM(c.content)) >= 2 " +
             "GROUP BY TRIM(c.content) " +
             "HAVING cnt >= 1 " +
             "ORDER BY cnt DESC " +

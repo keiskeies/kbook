@@ -74,7 +74,7 @@ public class DimensionStatsService {
                 double variance = sumSquares.get(key) / n - mean * mean;
                 double stddev = Math.sqrt(Math.max(0, variance));
                 means.put(key, mean);
-                stddevs.put(key, stddev > 0.001 ? stddev : 0.001);
+                stddevs.put(key, Math.max(stddev, 0.001));
             }
 
             this.dimensionMeans = means;

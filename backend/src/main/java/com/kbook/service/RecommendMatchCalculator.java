@@ -12,9 +12,9 @@ import java.util.List;
 public class RecommendMatchCalculator {
 
     public static double calculateMatchScore(User user, Book book,
-                                              RecommendCoefficientService coefficientService,
-                                              ObjectMapper objectMapper,
-                                              DimensionStatsService statsService) {
+                                             RecommendCoefficientService coefficientService,
+                                             ObjectMapper objectMapper,
+                                             DimensionStatsService statsService) {
         if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
             return 0.0;
         }
@@ -34,7 +34,7 @@ public class RecommendMatchCalculator {
             int matchedDimensions = 0;
 
             StringBuilder logDetail = new StringBuilder();
-            logDetail.append(String.format("匹配度计算: book=%s(%d) | ", book.getTitle(), book.getId()));
+            logDetail.append(String.format("book=%s(%d) | ", book.getTitle(), book.getId()));
 
             if (user.getBirthday() != null) {
                 int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
@@ -249,7 +249,7 @@ public class RecommendMatchCalculator {
             double finalScore = avgDeviation * coverageFactor;
             logDetail.append(String.format("汇总: totalDev=%.4f, totalWeight=%.4f, avgDev=%.4f, coverage[%d维]=%.2f, final=%.4f",
                     totalDeviation, totalWeight, avgDeviation, matchedDimensions, coverageFactor, finalScore));
-            log.info(logDetail.toString());
+            log.debug("匹配度计算: {}", logDetail);
 
             return finalScore;
         } catch (Exception e) {

@@ -14,10 +14,14 @@ public class ToolResultContext {
 
     private static final ThreadLocal<ToolResultContext> CURRENT = new ThreadLocal<>();
 
-    /** 书名 → bookId（保持插入顺序） */
+    /**
+     * 书名 → bookId（保持插入顺序）
+     */
     private final Map<String, Long> bookMap = new LinkedHashMap<>();
 
-    /** 本轮对话中工具是否被调用过 */
+    /**
+     * 本轮对话中工具是否被调用过
+     */
     private boolean toolCalled = false;
 
     /**

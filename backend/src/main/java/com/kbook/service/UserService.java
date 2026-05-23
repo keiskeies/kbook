@@ -2,9 +2,9 @@ package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
-import com.kbook.config.properties.BookStorageProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
@@ -199,8 +199,8 @@ public class UserService {
      */
     @Transactional
     public User updateTraits(Long userId, LocalDate birthday, String gender,
-                              Boolean married, Boolean hasChildren, String mbti, String occupation,
-                              String education, String entrepreneurship, String annualIncome) {
+                             Boolean married, Boolean hasChildren, String mbti, String occupation,
+                             String education, String entrepreneurship, String annualIncome) {
         User user = getUserById(userId);
         if (birthday != null) user.setBirthday(birthday);
         if (gender != null) user.setGender(gender);

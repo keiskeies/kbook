@@ -88,7 +88,6 @@ public class BookService {
     }
 
 
-
     @RedisLock(key = "'kbook:lock:top_tags'", leaseTime = 30)
     public List<TagStat> computeTopTagsWithLock() {
         // 双重检查：加锁后再次确认缓存是否存在（其他线程可能已写入）
@@ -451,7 +450,7 @@ public class BookService {
         // 获取图书实体并更新封面URL
         Book book = getBookById(bookId);
         book.setCoverUrl(coverUrl);
-        
+
         // 持久化到数据库并立即刷新
         Book saved = bookRepository.saveAndFlush(book);
 
@@ -460,7 +459,7 @@ public class BookService {
             bookSearchService.indexBook(saved);
             evictBookCache(saved.getId());
         });
-        
+
         log.info("图书封面图片: bookId={}, coverUrl={}", bookId, coverUrl);
     }
 
@@ -661,7 +660,7 @@ public class BookService {
 
         // 重新生成主书籍的向量（合并后数据已变）
         embeddingService.removeBookEmbedding(savedMain.getId());
-        embeddingService.generateBookEmbedding(savedMain.getId());
+        embeddingService.generateBookEmbedding(savedMain);
 
         // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
         TransactionUtils.afterCommit(() -> {
