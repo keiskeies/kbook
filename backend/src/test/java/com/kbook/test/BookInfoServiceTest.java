@@ -123,7 +123,7 @@ public class BookInfoServiceTest {
         int successCount = 0;
         int failCount = 0;
 
-        for (int i = 0; i < allBooks.size(); i++) {
+        for (int i = 4195; i < allBooks.size(); i++) {
             Book book = allBooks.get(i);
             try {
                 System.out.println("处理第 " + (i + 1) + "/" + allBooks.size() + " 本: [" + book.getId() + "] " + book.getTitle());
@@ -167,10 +167,11 @@ public class BookInfoServiceTest {
                     if (len < 3) {
                         System.out.println("  标签数量不足3个，需AI补充");
                         needAi = true;
-                    } else if (len > 8) {
-                        System.out.println("  标签数量超过8个，需AI补充");
-                        needAi = true;
                     }
+//                    else if (len > 8) {
+//                        System.out.println("  标签数量超过8个，需AI补充");
+//                        needAi = true;
+//                    }
                 }
                 if (book.getRating() == null || book.getRating() == 0) {
                     System.out.println("  评分为空或为0，需AI补充");

@@ -6,7 +6,7 @@ import type { ChatMessageVO, ConversationVO } from '@/api/chat'
 import { useChatStore } from '@/store/chat'
 import { useAuthStore } from '@/store/auth'
 import { formatChatTime } from '@/utils/time'
-import { getAuthBlobUrl } from '@/utils/auth-image'
+import { getAuthBlobUrl, getThumbnailUrl, getVideoThumbnailUrl, isVideoFileName } from '@/utils/auth-image'
 import AuthImage from '@/components/common/AuthImage'
 import { toast } from 'sonner'
 import { chatWebSocketService } from '@/services/chatWebSocket'
@@ -265,7 +265,7 @@ export default function ChatRoomPage() {
     setSending(true)
     setShowFileMenu(false)
     try {
-      const uploadData: any = await uploadChatFile(file)
+      const uploadData: any = await uploadChatFile(file, id)
 
       const isImage = file.type.startsWith('image/')
       const msgType = isImage ? 'IMAGE' : 'FILE'
@@ -298,47 +298,6 @@ export default function ChatRoomPage() {
     }
   }
 
-  const encodeWav = (samples: Float32Array, sampleRate: number): Blob => {
-    const buffer = new ArrayBuffer(44 + samples.length * 2)
-    const view = new DataView(buffer)
-
-    const writeString = (offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
-    }
-
-    writeString(0, 'RIFF')
-    view.setUint32(4, 36 + samples.length * 2, true)
-    writeString(8, 'WAVE')
-    writeString(12, 'fmt ')
-    view.setUint32(16, 16, true)
-    view.setUint16(20, 1, true)
-    view.setUint16(22, 1, true)
-    view.setUint32(24, sampleRate, true)
-    view.setUint32(28, sampleRate * 2, true)
-    view.setUint16(32, 2, true)
-    view.setUint16(34, 16, true)
-    writeString(36, 'data')
-    view.setUint32(40, samples.length * 2, true)
-
-    let offset = 44
-    for (let i = 0; i < samples.length; i++, offset += 2) {
-      const s = Math.max(-1, Math.min(1, samples[i]))
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
-    }
-
-    return new Blob([buffer], { type: 'audio/wav' })
-  }
-
-  const convertToWav = async (audioBlob: Blob): Promise<Blob> => {
-    const arrayBuffer = await audioBlob.arrayBuffer()
-    const audioContext = new AudioContext()
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-    const samples = audioBuffer.getChannelData(0)
-    const wavBlob = encodeWav(samples, audioBuffer.sampleRate)
-    audioContext.close()
-    return wavBlob
-  }
-
   const startRecording = async () => {
     try {
       let stream = preloadedStreamRef.current
@@ -347,7 +306,11 @@ export default function ChatRoomPage() {
       } else {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       }
-      const mediaRecorder = new MediaRecorder(stream)
+      // 优先使用 Opus 编码（压缩率最高），不支持则回退浏览器默认
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm'
+      const mediaRecorder = new MediaRecorder(stream, { mimeType })
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
 
@@ -366,12 +329,11 @@ export default function ChatRoomPage() {
         }
 
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        const wavBlob = await convertToWav(audioBlob)
-        const audioFile = new File([wavBlob], 'voice.wav', { type: 'audio/wav' })
+        const audioFile = new File([audioBlob], 'voice.webm', { type: 'audio/webm' })
 
         try {
           setSending(true)
-          const uploadData: any = await uploadChatFile(audioFile)
+          const uploadData: any = await uploadChatFile(audioFile, id)
           await sendMessage(
             conversation!.otherUserId,
             '',
@@ -719,7 +681,20 @@ export default function ChatRoomPage() {
                           isMine(msg) ? 'bg-primary text-primary-foreground' : 'bg-card border border-border/50'
                         }`}
                       >
-                        <FileTypeIcon {...getFileTypeConfig(msg.fileName || '')} />
+                        <div className="relative w-11 h-14 shrink-0">
+                          <FileTypeIcon {...getFileTypeConfig(msg.fileName || '')} />
+                          {isVideoFileName(msg.fileName || '') && (
+                            <img
+                              src={getVideoThumbnailUrl(msg.fileUrl!)}
+                              alt=""
+                              className="absolute inset-0 w-full h-full rounded-lg object-cover"
+                              onError={(e) => {
+                                // 缩略图加载失败 → 隐藏，露出底层的 FileTypeIcon
+                                (e.target as HTMLImageElement).style.display = 'none'
+                              }}
+                            />
+                          )}
+                        </div>
                         <div className="flex-1 min-w-0 text-left overflow-hidden">
                           <p className="text-sm font-medium break-all line-clamp-2">{msg.fileName}</p>
                           <p className={`text-xs mt-0.5 ${isMine(msg) ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
@@ -740,7 +715,7 @@ export default function ChatRoomPage() {
                       )}
                       {msg.messageType === 'IMAGE' && msg.fileUrl && (
                         <AuthImage
-                          src={msg.fileUrl}
+                          src={getThumbnailUrl(msg.fileUrl)}
                           alt=""
                           className="max-w-[200px] max-h-[200px] rounded-lg object-contain cursor-pointer"
                           onClick={() => setPreviewFile({ url: msg.fileUrl!, name: msg.fileName || 'image', type: 'IMAGE' })}

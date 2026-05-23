@@ -111,9 +111,10 @@ public class ChatController {
     @PostMapping("/upload")
     public Result<Map<String, String>> uploadFile(
             Authentication authentication,
-            @RequestParam("file") MultipartFile file) throws IOException {
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("conversationId") Long conversationId) throws IOException {
         Long userId = (Long) authentication.getPrincipal();
-        String fileUrl = chatService.uploadChatFile(userId, file);
+        String fileUrl = chatService.uploadChatFile(userId, conversationId, file);
         return Result.ok(Map.of("url", fileUrl));
     }
 }

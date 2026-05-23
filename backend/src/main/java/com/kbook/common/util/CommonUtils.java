@@ -10,8 +10,16 @@ import org.springframework.http.ResponseEntity;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
+
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.FileImageOutputStream;
 
 /**
  * 通用工具类 - 图片处理、文件服务等
@@ -91,6 +99,59 @@ public class CommonUtils {
     @Deprecated
     public static BufferedImage compressCover(BufferedImage srcImage, String format, int maxWidth) {
         return compressImage(srcImage, format, maxWidth);
+    }
+
+    /**
+     * 生成缩略图，等比例缩放至 maxWidth×maxHeight 范围内
+     *
+     * @param originalPath  原图路径
+     * @param thumbnailPath 缩略图输出路径
+     * @param maxWidth      最大宽度（像素）
+     * @param maxHeight     最大高度（像素）
+     */
+    public static void generateThumbnail(Path originalPath, Path thumbnailPath, int maxWidth, int maxHeight) throws IOException {
+        BufferedImage srcImage = ImageIO.read(originalPath.toFile());
+        if (srcImage == null) {
+            throw new IOException("无法读取图片: " + originalPath);
+        }
+
+        int srcWidth = srcImage.getWidth();
+        int srcHeight = srcImage.getHeight();
+
+        // 计算缩放比例，保持宽高比，限制在 maxWidth×maxHeight 内
+        double scale = Math.min((double) maxWidth / srcWidth, (double) maxHeight / srcHeight);
+
+        // 如果原图已经比缩略图小，不需要放大
+        if (scale >= 1.0) {
+            Files.copy(originalPath, thumbnailPath);
+            log.debug("原图已小于缩略图尺寸，直接复制: {}x{}", srcWidth, srcHeight);
+            return;
+        }
+
+        int newWidth = (int) Math.round(srcWidth * scale);
+        int newHeight = (int) Math.round(srcHeight * scale);
+
+        // 缩略图统一使用 JPEG 格式（体积小、JDK 原生支持），文件名后缀保持不变
+        BufferedImage resized = new BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g2d = resized.createGraphics();
+        g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2d.drawImage(srcImage, 0, 0, newWidth, newHeight, null);
+        g2d.dispose();
+
+        // 使用 JPEG 编码，质量 0.65（缩略图场景下画质足够，体积更小）
+        ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
+        ImageWriteParam params = writer.getDefaultWriteParam();
+        params.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+        params.setCompressionQuality(0.65f);
+        try (FileImageOutputStream output = new FileImageOutputStream(thumbnailPath.toFile())) {
+            writer.setOutput(output);
+            writer.write(null, new IIOImage(resized, null, null), params);
+        } finally {
+            writer.dispose();
+        }
+        log.debug("缩略图生成(JPEG q=0.65): {}x{} -> {}x{} ({})", srcWidth, srcHeight, newWidth, newHeight, thumbnailPath.getFileName());
     }
 
     /**

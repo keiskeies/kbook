@@ -30,3 +30,31 @@ export function fetchWithAuth(url: string): Promise<Response> {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
 }
+
+/**
+ * 将原始文件 URL 转换为缩略图 URL（图片）
+ * 例: /api/uploads/chat/abc.png → /api/uploads/chat/abc_thumbnail.png
+ */
+export function getThumbnailUrl(url: string): string {
+  const dotIndex = url.lastIndexOf('.')
+  if (dotIndex < 0) return url
+  return url.substring(0, dotIndex) + '_thumbnail' + url.substring(dotIndex)
+}
+
+/**
+ * 将视频文件 URL 转换为缩略图 URL
+ * 例: /api/uploads/chat/abc.mp4 → /api/uploads/chat/abc_thumb.jpg
+ */
+export function getVideoThumbnailUrl(url: string): string {
+  const dotIndex = url.lastIndexOf('.')
+  if (dotIndex < 0) return ''
+  return url.substring(0, dotIndex) + '_thumb.jpg'
+}
+
+const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv']
+
+/** 判断文件名是否为视频文件 */
+export function isVideoFileName(fileName: string): boolean {
+  const ext = fileName.toLowerCase().split('.').pop() || ''
+  return VIDEO_EXTENSIONS.includes(ext)
+}

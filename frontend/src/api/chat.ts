@@ -82,10 +82,10 @@ export function getUnreadCount() {
   return request.get<{count: number}>('/chat/unread-count')
 }
 
-export function uploadChatFile(file: File) {
+export function uploadChatFile(file: File, conversationId: number) {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post<UploadResult>('/chat/upload', formData, {
+  return request.post<UploadResult>(`/chat/upload?conversationId=${conversationId}`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
 }

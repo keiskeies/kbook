@@ -155,6 +155,18 @@ kbook:
     avatar-url-prefix: /api/uploads/avatars
     chat-dir: ${CHAT_DIR:G:/uploads/chat}
     chat-url-prefix: /api/uploads/chat
+  # 视频处理（需安装 FFmpeg）
+  video:
+    ffmpeg-path: ${FFMPEG_PATH:C:/Program Files/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe}
+    thumbnail:
+      enabled: false
+      width: 320
+      quality: 3
+    transcode:
+      enabled: false
+      max-width: 1280
+      crf: 23
+      audio-codec: aac
   # ========================
   # Qdrant 向量数据库
   # ========================

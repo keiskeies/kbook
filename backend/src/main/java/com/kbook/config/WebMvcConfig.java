@@ -35,8 +35,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addResourceHandler(avatarUrlPrefix + "/**")
                 .addResourceLocations("file:" + avatarDir + "/");
 
-        registry.addResourceHandler(chatUrlPrefix + "/**")
-                .addResourceLocations("file:" + chatDir + "/");
+        // 聊天文件由 ChatFileController 处理（含缩略图自动生成），不再使用静态资源映射
+//        registry.addResourceHandler(chatUrlPrefix + "/**")
+//                .addResourceLocations("file:" + chatDir + "/");
     }
 
     /**

@@ -23,6 +23,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,6 +35,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.FileImageOutputStream;
 
 @Slf4j
 @Service
@@ -45,6 +54,7 @@ public class ChatService {
     private final UploadedFileRepository uploadedFileRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final BookStorageProperties storageProps;
+    private final VideoService videoService;
 
     private static final int MAX_STRANGER_MESSAGES = 1;
 
@@ -227,7 +237,7 @@ public class ChatService {
         return conversationRepository.sumUnreadCount(userId);
     }
 
-    public String uploadChatFile(Long userId, MultipartFile file) throws IOException {
+    public String uploadChatFile(Long userId, Long conversationId, MultipartFile file) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("请选择文件");
         }
@@ -258,26 +268,88 @@ public class ChatService {
             throw new BusinessException("文件大小不能超过" + sizeHint);
         }
 
-        String filename = UUID.randomUUID().toString().replace("-", "") + ext;
+        boolean isImage = isImageFile(contentType, ext);
+        // 图片统一转换为 JPEG（节省磁盘空间和带宽），其他文件保持原格式
+        String filename = UUID.randomUUID().toString().replace("-", "") + (isImage ? ".jpg" : ext);
 
-        Path dirPath = Paths.get(storageProps.getUpload().getChatDir());
+        Path chatDir = Paths.get(storageProps.getUpload().getChatDir());
+        Path dirPath = chatDir.resolve(conversationId.toString());
         if (!Files.exists(dirPath)) {
             Files.createDirectories(dirPath);
         }
         Path filePath = dirPath.resolve(filename);
-        file.transferTo(filePath.toFile());
+
+        long savedSize;
+        String savedContentType;
+
+        if (isImage) {
+            // 读取上传的图片 → 转 JPEG q=1.0 → 写入磁盘
+            BufferedImage image = ImageIO.read(file.getInputStream());
+            if (image == null) {
+                throw new BusinessException("无法解析图片文件");
+            }
+            // JPEG 不支持透明通道，透明背景填充白色
+            BufferedImage rgbImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
+            Graphics2D g2d = rgbImage.createGraphics();
+            g2d.setColor(java.awt.Color.WHITE);
+            g2d.fillRect(0, 0, rgbImage.getWidth(), rgbImage.getHeight());
+            g2d.drawImage(image, 0, 0, null);
+            g2d.dispose();
+
+            ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
+            ImageWriteParam params = writer.getDefaultWriteParam();
+            params.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+            params.setCompressionQuality(1.0f);
+            try (FileImageOutputStream output = new FileImageOutputStream(filePath.toFile())) {
+                writer.setOutput(output);
+                writer.write(null, new IIOImage(rgbImage, null, null), params);
+            } finally {
+                writer.dispose();
+            }
+            savedSize = Files.size(filePath);
+            savedContentType = "image/jpeg";
+        } else {
+            file.transferTo(filePath.toFile());
+            savedSize = file.getSize();
+            savedContentType = contentType;
+
+            // 视频处理（可选，通过 kbook.video.thumbnail/transcode.enabled 控制）
+            if (isVideoFile(contentType, ext)) {
+                String baseName = filename.contains(".")
+                        ? filename.substring(0, filename.lastIndexOf('.'))
+                        : filename;
+
+                // 缩略图提取
+                Path thumbPath = dirPath.resolve(baseName + "_thumb.jpg");
+                videoService.extractThumbnail(filePath, thumbPath);
+
+                // 转码（成功则替换原文件）
+                if (storageProps.getVideo().getTranscode().isEnabled()) {
+                    String transcodeExt = ".mp4"; // 统一输出 mp4
+                    Path transcodedPath = dirPath.resolve(baseName + "_transcoded" + transcodeExt);
+                    if (videoService.transcode(filePath, transcodedPath)) {
+                        // 转码成功 → 删除原始文件，用转码文件替换
+                        Files.delete(filePath);
+                        Files.move(transcodedPath, filePath);
+                        savedSize = Files.size(filePath);
+                        savedContentType = "video/mp4";
+                        log.info("视频转码完成: {} -> {} ({} bytes)", filename, filePath.getFileName(), savedSize);
+                    }
+                }
+            }
+        }
 
         UploadedFile uploadedFile = UploadedFile.builder()
                 .filename(filename)
                 .originalFilename(originalFilename)
                 .uploaderId(userId)
-                .contentType(contentType)
-                .fileSize(file.getSize())
+                .contentType(savedContentType)
+                .fileSize(savedSize)
                 .filePath(filePath.toString())
                 .build();
         uploadedFileRepository.save(uploadedFile);
 
-        return storageProps.getUpload().getChatUrlPrefix() + "/" + filename;
+        return storageProps.getUpload().getChatUrlPrefix() + "/" + conversationId + "/" + filename;
     }
 
     private boolean isAllowedFileType(String contentType, String ext) {

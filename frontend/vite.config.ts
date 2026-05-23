@@ -60,6 +60,11 @@ export default defineConfig({
         navigationPreload: true,
         runtimeCaching: [
           {
+          //   // 静态文件（头像、聊天图片、缩略图）不缓存，直连后端
+          //   urlPattern: /^https:\/\/.*\/api\/uploads\/.*/i,
+          //   handler: 'NetworkOnly',
+          // },
+          // {
             urlPattern: /^https:\/\/.*\/api\/.*/i,
             handler: 'NetworkFirst',
             options: {
