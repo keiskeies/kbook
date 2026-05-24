@@ -108,7 +108,7 @@ public class BookInfoServiceTest {
         List<String> list = tagCount.entrySet().stream()
                 .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
                 .map(Map.Entry::getKey)
-                .limit(100)
+                .limit(2000)
 //                .filter(tagStat -> tagStat.getCount() > 5)
                 .toList();
 

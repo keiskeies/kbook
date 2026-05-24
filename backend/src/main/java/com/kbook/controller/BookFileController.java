@@ -8,6 +8,7 @@ import com.kbook.service.BookService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -19,6 +20,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 图书文件服务控制器 - 提供图书文件的流式读取
@@ -71,7 +73,7 @@ public class BookFileController {
                             "bytes " + start + "-" + end + "/" + fileSize)
                     .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                     .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(contentLength))
-                    .header(HttpHeaders.CACHE_CONTROL, "max-age=86400")
+                    .cacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic())
                     .body(resource);
         }
 
@@ -86,7 +88,7 @@ public class BookFileController {
                 .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(fileSize))
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "inline; filename*=UTF-8''" + filename)
-                .header(HttpHeaders.CACHE_CONTROL, "max-age=86400")
+                .cacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic())
                 .body(resource);
     }
 

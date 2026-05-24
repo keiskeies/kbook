@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -24,7 +24,7 @@ import {
   Zap
 } from 'lucide-react'
 import DraggableFab from '@/components/DraggableFab'
-import {useNavigate} from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import type {
   EmbeddingStats,
   EsReindexProgress,
@@ -45,11 +45,11 @@ import {
   scanBooksStream,
   uploadBook
 } from '@/api/book'
-import {createAdminSession, streamAdminChat} from '@/api/adminAi'
-import type {AiMessage} from '@/types/ai'
+import { createAdminSession, streamAdminChat } from '@/api/adminAi'
+import type { AiMessage } from '@/types/ai'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
-import {toast} from 'sonner'
+import { toast } from 'sonner'
 
 /** 管理员快捷指令 */
 const ADMIN_QUICK_PROMPTS = [

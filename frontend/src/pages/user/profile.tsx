@@ -260,8 +260,7 @@ export default function UserProfilePage() {
                 </div>
               ))}
             </div>
-          )
-        )}
+          ))}
       </div>
     </div>
   )

@@ -191,7 +191,7 @@ public class CommonUtils {
         FileSystemResource resource = new FileSystemResource(imagePath);
         return ResponseEntity.ok()
                 .contentType(contentType)
-                .cacheControl(CacheControl.maxAge(7, TimeUnit.DAYS))
+                .cacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic())
                 .body(resource);
     }
 

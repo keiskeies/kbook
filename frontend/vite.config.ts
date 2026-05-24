@@ -59,24 +59,20 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigationPreload: true,
         runtimeCaching: [
+          // 所有后端接口均不通过 SW 缓存，保证数据实时性
+          // 接口分为以下几类，全部走 NetworkOnly：
+          // 1. 认证接口 /api/auth/* —— 含 Token/密码，不能缓存
+          // 2. 用户私密数据 /api/user/*, /api/bookshelf/*, /api/progress/*, /api/preferences/* —— 用户私有，不能缓存
+          // 3. 私信聊天 /api/chat/* —— 私密数据，不能缓存
+          // 4. 通知 /api/notifications/* —— 用户私有，不能缓存
+          // 5. AI 对话 /api/ai/* —— 含 SSE 流式和用户历史，不能缓存
+          // 6. 推荐 /api/recommend/* —— 用户个性化数据，不能缓存
+          // 7. 图书文件 /api/books/{id}/file, /api/books/{id}/text-info —— Range 请求，后端已处理
+          // 8. 验证码 /api/captcha/* —— 一次性数据，不能缓存
+          // 9. 公开图书数据（封面、详情、排行榜等）—— 浏览器原生缓存足矣，SW 不重复缓存
           {
-          //   // 静态文件（头像、聊天图片、缩略图）不缓存，直连后端
-          //   urlPattern: /^https:\/\/.*\/api\/uploads\/.*/i,
-          //   handler: 'NetworkOnly',
-          // },
-          // {
-            urlPattern: /^https:\/\/.*\/api\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 5,
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
+            urlPattern: /^https?:\/\/.*\/api\/.*/i,
+            handler: 'NetworkOnly',
           },
         ],
       },

@@ -579,7 +579,7 @@ export default function AiConfigPage() {
           <p>· 修改配置后立即生效，无需重启服务</p>
           <p>· 删除配置不会影响其他配置</p>
           <p>· 所有配置均未激活时自动回退到 yml 默认模型</p>
-        </section>
+   </section>
       </main>
     </div>
   )

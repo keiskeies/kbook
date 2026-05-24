@@ -15,6 +15,7 @@ import type { UserBookPreferenceItem } from '@/api/preference'
 import type { ReadingStats } from '@/types/book'
 import { useChatStore } from '@/store/chat'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import FooterVersion from '@/components/common/FooterVersion'
 
 const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
 
@@ -590,9 +591,7 @@ export default function ProfilePage() {
         </button>
       )}
 
-      <div className="mt-6 text-center">
-        <span className="text-[10px] text-muted-foreground/60">@VERSION - KEISKEIES 1.0.3.10</span>
-      </div>
+      <FooterVersion />
 
       {showProfileModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowProfileModal(false)}>

@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react'
-import { X, ZoomIn, ZoomOut, ImagePlus } from 'lucide-react'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { X, ZoomIn, ZoomOut, ImagePlus, RotateCcw } from 'lucide-react'
 
 interface ImageViewerProps {
   src: string | null
@@ -29,76 +29,126 @@ export default function ImageViewer({
   onChangeCover,
 }: ImageViewerProps) {
   const [scale, setScale] = useState(1)
-  const [isDragging, setIsDragging] = useState(false)
   const [position, setPosition] = useState({ x: 0, y: 0 })
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const lastTouchRef = useRef<{ distance: number; x: number; y: number; scale: number; tx: number; ty: number } | null>(null)
+  const isDraggingRef = useRef(false)
+  const lastSingleTouchRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null)
 
   const handleZoomIn = useCallback(() => {
-    setScale(prev => Math.min(prev + 0.25, 4))
+    setScale(prev => Math.min(prev + 0.25, 5))
   }, [])
 
   const handleZoomOut = useCallback(() => {
     setScale(prev => {
-      const next = Math.max(prev - 0.25, 0.5)
+      const next = Math.max(prev - 0.25, 1)
       if (next === 1) setPosition({ x: 0, y: 0 })
       return next
     })
   }, [])
 
+  const handleReset = useCallback(() => {
+    setScale(1)
+    setPosition({ x: 0, y: 0 })
+  }, [])
+
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
-    if (e.deltaY < 0) {
-      setScale(prev => Math.min(prev + 0.1, 4))
-    } else {
-      setScale(prev => {
-        const next = Math.max(prev - 0.1, 0.5)
-        if (next <= 1) setPosition({ x: 0, y: 0 })
-        return next
-      })
-    }
+    const delta = e.deltaY > 0 ? 0.9 : 1.1
+    setScale(prev => {
+      const next = Math.max(1, Math.min(5, prev * delta))
+      if (next <= 1) setPosition({ x: 0, y: 0 })
+      return next
+    })
   }, [])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (scale > 1) {
-      setIsDragging(true)
-      setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y })
+      isDraggingRef.current = true
+      lastSingleTouchRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        tx: position.x,
+        ty: position.y,
+      }
     }
   }, [scale, position])
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isDragging && scale > 1) {
+    if (isDraggingRef.current && scale > 1 && lastSingleTouchRef.current) {
+      const dx = e.clientX - lastSingleTouchRef.current.x
+      const dy = e.clientY - lastSingleTouchRef.current.y
       setPosition({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
+        x: lastSingleTouchRef.current.tx + dx,
+        y: lastSingleTouchRef.current.ty + dy,
       })
     }
-  }, [isDragging, dragStart, scale])
+  }, [scale])
 
   const handleMouseUp = useCallback(() => {
-    setIsDragging(false)
+    isDraggingRef.current = false
+    lastSingleTouchRef.current = null
   }, [])
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (scale > 1 && e.touches.length === 1) {
-      setIsDragging(true)
-      setDragStart({
-        x: e.touches[0].clientX - position.x,
-        y: e.touches[0].clientY - position.y,
-      })
+    if (e.touches.length === 2) {
+      e.preventDefault()
+      const dx = e.touches[0].clientX - e.touches[1].clientX
+      const dy = e.touches[0].clientY - e.touches[1].clientY
+      lastTouchRef.current = {
+        distance: Math.hypot(dx, dy),
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+        scale: scale,
+        tx: position.x,
+        ty: position.y,
+      }
+      isDraggingRef.current = false
+      lastSingleTouchRef.current = null
+    } else if (e.touches.length === 1) {
+      if (scale > 1) {
+        lastSingleTouchRef.current = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+          tx: position.x,
+          ty: position.y,
+        }
+        isDraggingRef.current = true
+      }
     }
   }, [scale, position])
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (isDragging && scale > 1 && e.touches.length === 1) {
+    if (e.touches.length === 2 && lastTouchRef.current) {
+      e.preventDefault()
+      const dx = e.touches[0].clientX - e.touches[1].clientX
+      const dy = e.touches[0].clientY - e.touches[1].clientY
+      const distance = Math.hypot(dx, dy)
+      const scaleRatio = distance / lastTouchRef.current.distance
+      const newScale = Math.max(1, Math.min(5, lastTouchRef.current.scale * scaleRatio))
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2
+      const panX = cx - lastTouchRef.current.x
+      const panY = cy - lastTouchRef.current.y
+      setScale(newScale)
       setPosition({
-        x: e.touches[0].clientX - dragStart.x,
-        y: e.touches[0].clientY - dragStart.y,
+        x: lastTouchRef.current.tx + panX,
+        y: lastTouchRef.current.ty + panY,
+      })
+    } else if (e.touches.length === 1 && isDraggingRef.current && lastSingleTouchRef.current) {
+      e.preventDefault()
+      const dx = e.touches[0].clientX - lastSingleTouchRef.current.x
+      const dy = e.touches[0].clientY - lastSingleTouchRef.current.y
+      setPosition({
+        x: lastSingleTouchRef.current.tx + dx,
+        y: lastSingleTouchRef.current.ty + dy,
       })
     }
-  }, [isDragging, dragStart, scale])
+  }, [])
 
   const handleTouchEnd = useCallback(() => {
-    setIsDragging(false)
+    lastTouchRef.current = null
+    isDraggingRef.current = false
+    lastSingleTouchRef.current = null
   }, [])
 
   // 重置状态当打开/关闭时
@@ -187,7 +237,7 @@ export default function ImageViewer({
 
       {/* 图片区域 */}
       <div
-        className="flex-1 flex items-center justify-center w-full overflow-hidden"
+        className="flex-1 flex items-center justify-center w-full overflow-hidden relative"
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -196,20 +246,31 @@ export default function ImageViewer({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'zoom-in' }}
+        style={{ cursor: scale > 1 ? (isDraggingRef.current ? 'grabbing' : 'grab') : 'zoom-in' }}
       >
         {src ? (
-          <img
-            src={src}
-            alt={alt}
-            className="max-h-[85vh] max-w-[90vw] object-contain transition-transform duration-100 select-none"
-            style={{
-              transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-              pointerEvents: 'none',
-            }}
-            draggable={false}
-            onClick={(e) => e.stopPropagation()}
-          />
+          <>
+            <img
+              src={src}
+              alt={alt}
+              className="max-h-[85vh] max-w-[90vw] object-contain select-none pointer-events-none"
+              style={{
+                transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                transition: lastTouchRef.current ? 'none' : 'transform 0.15s ease-out',
+              }}
+              draggable={false}
+              onClick={(e) => e.stopPropagation()}
+            />
+            {scale > 1 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleReset() }}
+                className="absolute bottom-4 left-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+                title="重置"
+              >
+                <RotateCcw className="h-5 w-5" />
+              </button>
+            )}
+          </>
         ) : (
           <div className="flex flex-col items-center gap-4 text-white/50">
             <ImagePlus className="h-20 w-20 opacity-40" />
@@ -223,7 +284,7 @@ export default function ImageViewer({
 
       {/* 底部提示 */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/50">
-        滚轮缩放 · 拖拽移动 · 点击背景关闭
+        双指缩放 · 拖拽移动 · 点击背景关闭
       </div>
     </div>
   )

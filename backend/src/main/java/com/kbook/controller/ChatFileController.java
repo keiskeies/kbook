@@ -87,7 +87,7 @@ public class ChatFileController {
     private ResponseEntity<Resource> buildJpegResponse(Path filePath) {
         return ResponseEntity.ok()
                 .contentType(MediaType.IMAGE_JPEG)
-                .cacheControl(CacheControl.maxAge(7, TimeUnit.DAYS))
+                .cacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic())
                 .body(new FileSystemResource(filePath));
     }
 
