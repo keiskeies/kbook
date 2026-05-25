@@ -272,7 +272,7 @@ export default function RecommendPage() {
                             {tags.map((t) => (
                               <span
                                 key={t}
-                                className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary flex-shrink-0"
+                                className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
                               >
                                 <Tag className="h-2.5 w-2.5" />
                                 {t}

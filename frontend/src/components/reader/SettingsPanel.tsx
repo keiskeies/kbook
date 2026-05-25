@@ -121,7 +121,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
             }`}
           >
             {iconFn(opt)}
-            <span className="text-[10px] leading-tight font-medium">{opt.label}</span>
+            <span className="whitespace-nowrap text-[10px] leading-tight font-medium">{opt.label}</span>
           </button>
         )
       })}
@@ -146,7 +146,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors ${
+              className={`flex-1 whitespace-nowrap py-2.5 text-center text-sm font-medium transition-colors ${
                 tab === t ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground'
               }`}
             >
@@ -215,7 +215,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
                     <button
                       key={opt.value}
                       onClick={() => updateSettings({ fontFamily: opt.value })}
-                      className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
+                      className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs transition-colors ${
                         settings.fontFamily === opt.value
                           ? 'bg-primary text-primary-foreground'
                           : 'bg-muted text-foreground hover:bg-muted/80'
@@ -300,7 +300,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
                     <button
                       key={opt.value}
                       onClick={() => updateSettings({ pageAnimation: opt.value })}
-                      className={`rounded-lg px-4 py-2 text-xs transition-colors ${
+                      className={`shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-xs transition-colors ${
                         settings.pageAnimation === opt.value
                           ? 'bg-primary text-primary-foreground'
                           : 'bg-muted text-foreground'

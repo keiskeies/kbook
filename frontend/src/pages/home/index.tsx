@@ -1065,7 +1065,7 @@ export default function HomePage() {
                 <button
                   key={cat.name}
                   onClick={() => navigate(`/search?tag=${encodeURIComponent(cat.name)}`)}
-                  className="flex items-center gap-1.5 rounded-xl bg-muted/50 px-3 py-2 active:scale-[0.96] transition-all duration-150"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-muted/50 px-3 py-2 active:scale-[0.96] transition-all duration-150"
                 >
                   <Tag className="h-3.5 w-3.5 text-primary" />
                   <span className="text-xs font-medium">{cat.name}</span>

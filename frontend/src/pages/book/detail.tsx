@@ -554,12 +554,12 @@ export default function BookDetailPage() {
         {(tags.length > 0 || isAdmin) && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {tags.map((tag) => (
-              <span key={tag} className="rounded-full bg-primary/8 px-3 py-1 text-xs font-semibold text-primary border border-primary/10">{tag}</span>
+              <span key={tag} className="shrink-0 whitespace-nowrap rounded-full bg-primary/8 px-3 py-1 text-xs font-semibold text-primary border border-primary/10">{tag}</span>
             ))}
             {isAdmin && (
               <button
                 onClick={() => setEditTagsOpen(true)}
-                className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/30 px-3 py-1 text-xs font-medium text-primary/60 hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-dashed border-primary/30 px-3 py-1 text-xs font-medium text-primary/60 hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-colors"
               >
                 <Pencil className="h-3 w-3" />
                 编辑标签

@@ -156,7 +156,7 @@ export default function RankPage() {
               <button
                 key={tab.key}
                 onClick={() => handleTypeChange(tab.key)}
-                className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                   type === tab.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
                 }`}
               >

@@ -126,7 +126,7 @@ export default function BookshelfPage() {
             <div className="relative">
               <button
                 onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false) }}
-                className={`flex h-8 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors ${filterFormat ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}
+                className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-colors ${filterFormat ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}
               >
                 <Filter className="h-3.5 w-3.5" />
                 {filterFormat ? formatTag(filterFormat) : '筛选'}
@@ -149,7 +149,7 @@ export default function BookshelfPage() {
             <div className="relative">
               <button
                 onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterMenu(false) }}
-                className="flex h-8 items-center gap-1 rounded-full bg-muted px-3 text-xs font-medium text-muted-foreground"
+                    className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-muted px-3 text-xs font-medium text-muted-foreground"
               >
                 <ArrowUpDown className="h-3.5 w-3.5" />
                 {SORT_LABELS[sortKey]}

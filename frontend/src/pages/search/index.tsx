@@ -92,7 +92,7 @@ function TagFilterBar({
                 <button
                   key={t}
                   onClick={() => handleTagClick(t)}
-                  className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 flex-shrink-0 ${
+                  className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 ${
                     isActive
                       ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
                       : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -102,7 +102,7 @@ function TagFilterBar({
                 </button>
               )
             })}
-          </div>
+            </div>
           {needExpand && (
             <button
               onClick={() => setExpanded(true)}
@@ -125,7 +125,7 @@ function TagFilterBar({
                 <button
                   key={t}
                   onClick={() => handleTagClick(t)}
-                  className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 ${
+                  className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 ${
                     isActive
                       ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
                       : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -135,7 +135,7 @@ function TagFilterBar({
                 </button>
               )
             })}
-          </div>
+            </div>
           <button
             onClick={() => setExpanded(false)}
             className="mt-2 flex items-center gap-0.5 text-xs text-muted-foreground hover:text-primary transition-colors mx-auto"

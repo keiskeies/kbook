@@ -330,7 +330,7 @@ export default function AIPage() {
                 {hotPrompts.map((hint) => (
                   <button
                     key={hint}
-                    className="rounded-full border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                    className="shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
                     onClick={() => handleSend(hint)}
                     disabled={loading}
                   >

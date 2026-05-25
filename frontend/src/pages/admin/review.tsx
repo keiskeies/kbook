@@ -289,7 +289,7 @@ export default function AdminReviewPage() {
           <button
             key={tab}
             onClick={() => { setActiveTab(tab); setPage(1); if (isSearching) loadUsers() }}
-            className={`flex-shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
               activeTab === tab
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground'

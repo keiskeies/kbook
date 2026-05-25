@@ -608,7 +608,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
                             {msg.followUpQuestions.map((q, qi) => (
                               <button
                                 key={qi}
-                                className="inline-flex rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-left text-xs text-primary transition-colors hover:bg-primary/10 active:scale-[0.97]"
+                                className="inline-flex shrink-0 items-center whitespace-nowrap rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-left text-xs text-primary transition-colors hover:bg-primary/10 active:scale-[0.97]"
                                 onClick={() => handleSend(q)}
                               >
                                 {q}

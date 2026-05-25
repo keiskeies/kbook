@@ -862,13 +862,13 @@ export default function ProfilePage() {
             <div className="flex rounded-lg bg-muted p-1">
               <button
                 onClick={() => { setPrefTab('include'); setPrefValue('') }}
-                className={`flex-1 rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'include' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+                className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'include' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
               >
                 ❤️ 想看
               </button>
               <button
                 onClick={() => { setPrefTab('exclude'); setPrefValue('') }}
-                className={`flex-1 rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'exclude' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+                className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'exclude' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
               >
                 🚫 不想看
               </button>
@@ -899,7 +899,7 @@ export default function ProfilePage() {
                 <button
                   onClick={handleAddPreference}
                   disabled={prefSaving || !prefValue.trim()}
-                  className={`rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${prefTab === 'include' ? 'bg-rose-500 hover:bg-rose-600' : 'bg-primary hover:bg-primary/90'}`}
+                  className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${prefTab === 'include' ? 'bg-rose-500 hover:bg-rose-600' : 'bg-primary hover:bg-primary/90'}`}
                 >
                   {prefSaving ? '...' : '添加'}
                 </button>

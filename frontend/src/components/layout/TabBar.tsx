@@ -105,7 +105,7 @@ export function TabBar() {
                 </div>
                 <span
                   className={cn(
-                    'mt-1 text-[10px] font-semibold transition-colors',
+                    'mt-1 whitespace-nowrap text-[10px] font-semibold transition-colors',
                     active ? 'text-primary' : 'text-muted-foreground'
                   )}
                 >
@@ -134,13 +134,13 @@ export function TabBar() {
                 />
               </div>
               <span
-                className={cn(
-                  'text-[10px] transition-colors duration-200',
-                  active ? 'font-semibold text-primary' : 'text-muted-foreground'
-                )}
-              >
-                {tab.label}
-              </span>
+                  className={cn(
+                    'whitespace-nowrap text-[10px] transition-colors duration-200',
+                    active ? 'font-semibold text-primary' : 'text-muted-foreground'
+                  )}
+                >
+                  {tab.label}
+                </span>
             </button>
           )
         })}

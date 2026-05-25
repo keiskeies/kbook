@@ -971,7 +971,7 @@ export default function AdminBooksPage() {
                 {ADMIN_QUICK_PROMPTS.map((hint) => (
                   <button
                     key={hint}
-                    className="shrink-0 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs text-purple-600 transition-colors hover:border-purple-400 hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950/30 dark:text-purple-400 dark:hover:bg-purple-950/50 active:scale-[0.97]"
+                    className="shrink-0 whitespace-nowrap rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs text-purple-600 transition-colors hover:border-purple-400 hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950/30 dark:text-purple-400 dark:hover:bg-purple-950/50 active:scale-[0.97]"
                     onClick={() => handleChatSend(hint)}
                     disabled={chatLoading}
                   >
