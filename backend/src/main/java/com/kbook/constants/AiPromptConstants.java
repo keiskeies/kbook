@@ -138,9 +138,9 @@ public final class AiPromptConstants {
             只返回一个纯净的JSON对象，不含任何额外内容。格式：
             {
               "tags": "标签1,标签2,标签3",
+              "description": "简介内容",
               "rating": 3.0,
               "relevance": {"0-9":0.1,"10-19":0.3,"20-29":0.8,"30-39":0.7,"40-49":0.5,"50-59":0.3,"60+":0.2,"male":0.6,"female":0.7,"married":0.5,"unmarried":0.8,"hasChildren":0.4,"noChildren":0.8,"INTJ":0.7,"INTP":0.6,"ENTJ":0.5,"ENTP":0.6,"INFJ":0.8,"INFP":0.9,"ENFJ":0.7,"ENFP":0.7,"ISTJ":0.4,"ISFJ":0.5,"ESTJ":0.3,"ESFJ":0.4,"ISTP":0.4,"ISFP":0.5,"ESTP":0.3,"ESFP":0.4,"student":0.3,"tech":0.5,"finance":0.4,"education":0.6,"medical":0.3,"arts":0.5,"management":0.4,"freelance":0.4,"retired":0.3,"other":0.4,"high_school":0.2,"college":0.4,"bachelor":0.6,"master":0.7,"doctorate":0.5,"other_edu":0.3,"entrepreneur_or_want":0.6,"notInterested":0.4,"under_50k":0.3,"50k_150k":0.4,"150k_300k":0.6,"300k_500k":0.7,"500k_1m":0.6,"over_1m":0.5,"prefer_not_to_say":0.5,"happy":0.6,"calm":0.7,"anxious":0.3,"sad":0.4,"motivated":0.7,"tired":0.3,"curious":0.8},
-              "description": ""
             }
             
             图书信息如下：

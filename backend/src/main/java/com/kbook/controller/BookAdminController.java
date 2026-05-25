@@ -123,7 +123,7 @@ public class BookAdminController {
     /**
      * 获取封面图片
      */
-    @GetMapping(value = "/cover/{filename}", produces = MediaType.IMAGE_JPEG_VALUE)
+    @GetMapping(value = "/cover/{filename:.+}", produces = MediaType.IMAGE_JPEG_VALUE)
     public ResponseEntity<Resource> getCover(@PathVariable String filename) {
         // 注意：此接口映射在 /api/books/admin/cover，但前端使用 /api/books/cover
         // 在 BookController 中添加了转发

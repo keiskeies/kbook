@@ -20,6 +20,9 @@ interface ChatStore {
   addMessage: (conversationId: number, message: ChatMessageVO) => void
   prependMessages: (conversationId: number, messages: ChatMessageVO[]) => void
   appendMessages: (conversationId: number, messages: ChatMessageVO[]) => void
+  addTempMessage: (conversationId: number, message: ChatMessageVO) => void
+  replaceTempMessage: (conversationId: number, tempId: string, message: ChatMessageVO) => void
+  markTempMessageFailed: (conversationId: number, tempId: string) => void
   markMessagesAsRead: (conversationId: number) => void
   setUnreadCount: (count: number) => void
   incrementUnread: (conversationId: number) => void
@@ -79,6 +82,31 @@ export const useChatStore = create<ChatStore>((set) => ({
     messages: {
       ...state.messages,
       [conversationId]: [...(state.messages[conversationId] || []), ...messages]
+    }
+  })),
+
+  addTempMessage: (conversationId, message) => set((state) => ({
+    messages: {
+      ...state.messages,
+      [conversationId]: [message, ...(state.messages[conversationId] || [])]
+    }
+  })),
+
+  replaceTempMessage: (conversationId, tempId, message) => set((state) => ({
+    messages: {
+      ...state.messages,
+      [conversationId]: (state.messages[conversationId] || []).map(m =>
+        m.tempId === tempId ? { ...message, isPending: false } : m
+      )
+    }
+  })),
+
+  markTempMessageFailed: (conversationId, tempId) => set((state) => ({
+    messages: {
+      ...state.messages,
+      [conversationId]: (state.messages[conversationId] || []).map(m =>
+        m.tempId === tempId ? { ...m, isPending: false, isFailed: true } : m
+      )
     }
   })),
 

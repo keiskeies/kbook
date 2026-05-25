@@ -13,6 +13,9 @@ export interface ChatMessageVO {
   voiceDuration: number | null
   read: boolean
   createdAt: string
+  isPending?: boolean
+  isFailed?: boolean
+  tempId?: string
 }
 
 export interface ConversationVO {
@@ -86,6 +89,7 @@ export function uploadChatFile(file: File, conversationId: number) {
   const formData = new FormData()
   formData.append('file', file)
   return request.post<UploadResult>(`/chat/upload?conversationId=${conversationId}`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
   })
 }

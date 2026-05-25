@@ -16,6 +16,7 @@ import type { ReadingStats } from '@/types/book'
 import { useChatStore } from '@/store/chat'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import FooterVersion from '@/components/common/FooterVersion'
+import AvatarCropModal from '@/components/common/AvatarCropModal'
 
 const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
 
@@ -107,7 +108,10 @@ export default function ProfilePage() {
   const [editBio, setEditBio] = useState(userInfo?.bio ?? '')
   const [editMood, setEditMood] = useState(userInfo?.mood ?? '')
   const [savingProfile, setSavingProfile] = useState(false)
-  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [cropModalOpen, setCropModalOpen] = useState(false)
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [croppedAvatarUrl, setCroppedAvatarUrl] = useState<string | null>(null)
+  const [croppedAvatarBlob, setCroppedAvatarBlob] = useState<Blob | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [showPreferenceModal, setShowPreferenceModal] = useState(false)
@@ -179,6 +183,8 @@ export default function ProfilePage() {
       setEditNickname(userInfo?.nickname ?? '')
       setEditBio(userInfo?.bio ?? '')
       setEditMood(userInfo?.mood ?? '')
+      setCroppedAvatarUrl(null)
+      setCroppedAvatarBlob(null)
     }
   }, [showProfileModal, userInfo?.nickname, userInfo?.bio, userInfo?.mood])
 
@@ -277,6 +283,15 @@ export default function ProfilePage() {
     }
     setSavingProfile(true)
     try {
+      if (croppedAvatarBlob) {
+        const croppedFile = new File([croppedAvatarBlob], 'avatar.jpg', { type: 'image/jpeg' })
+        const res = await uploadAvatar(croppedFile)
+        const avatarUrl = (res as any)?.avatar
+        if (avatarUrl) {
+          updateUserInfo({ avatar: avatarUrl })
+        }
+      }
+
       await updateProfile({ nickname: editNickname.trim() })
       updateUserInfo({ nickname: editNickname.trim(), bio: editBio.trim() })
       const { updateBio } = await import('@/api/userProfile')
@@ -294,7 +309,7 @@ export default function ProfilePage() {
     }
   }
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -302,25 +317,20 @@ export default function ProfilePage() {
       toast.error('选择一张图片吧')
       return
     }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('图片大小不要超过2MB哦')
-      return
-    }
 
-    setUploadingAvatar(true)
-    try {
-      const res = await uploadAvatar(file)
-      const avatarUrl = (res as any)?.avatar
-      if (avatarUrl) {
-        updateUserInfo({ avatar: avatarUrl })
-        toast.success('头像已更新')
-      }
-    } catch (err: any) {
-      toast.error(err.message || '头像暂时无法上传')
-    } finally {
-      setUploadingAvatar(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+    setAvatarFile(file)
+    setCropModalOpen(true)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleCropComplete = (croppedBlob: Blob) => {
+    if (croppedAvatarUrl) {
+      URL.revokeObjectURL(croppedAvatarUrl)
     }
+    setCroppedAvatarBlob(croppedBlob)
+    setCroppedAvatarUrl(URL.createObjectURL(croppedBlob))
+    setCropModalOpen(false)
+    setAvatarFile(null)
   }
 
   const handleSaveTraits = async () => {
@@ -437,7 +447,7 @@ export default function ProfilePage() {
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate(`/user/${userInfo?.id}`)}
-            className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20 overflow-hidden"
+            className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/20 overflow-hidden"
           >
             {avatarFullUrl ? (
               <img src={avatarFullUrl} alt={userInfo?.nickname} className="h-full w-full object-cover" />
@@ -607,31 +617,28 @@ export default function ProfilePage() {
             <div className="flex flex-col items-center gap-2">
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingAvatar}
-                className="relative flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 ring-2 ring-primary/20 overflow-hidden disabled:opacity-50"
+                className="relative flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 ring-2 ring-primary/20 overflow-hidden"
               >
-                {avatarFullUrl ? (
+                {croppedAvatarUrl ? (
+                  <img src={croppedAvatarUrl} alt="预览" className="h-full w-full object-cover" />
+                ) : avatarFullUrl ? (
                   <img src={avatarFullUrl} alt={userInfo?.nickname} className="h-full w-full object-cover" />
                 ) : (
                   <span className="text-2xl font-bold text-primary">
                     {userInfo?.nickname?.[0] || 'U'}
                   </span>
                 )}
-                <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                  {uploadingAvatar ? (
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  ) : (
-                    <Camera className="h-5 w-5 text-white" />
-                  )}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/40 transition-colors">
+                  <Camera className="h-5 w-5 text-white opacity-0 hover:opacity-100 transition-opacity" />
                 </div>
               </button>
-              <span className="text-xs text-muted-foreground">点击更换头像</span>
+              <span className="text-xs text-muted-foreground">{croppedAvatarUrl ? '已裁剪，点击可重新选择' : '点击更换头像'}</span>
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={handleAvatarUpload}
+                onChange={handleAvatarSelect}
               />
             </div>
 
@@ -689,7 +696,7 @@ export default function ProfilePage() {
               disabled={savingProfile || !editNickname.trim()}
               className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
             >
-              {savingProfile ? '保存中...' : '保存'}
+              {savingProfile ? '保存中...' : (croppedAvatarBlob ? '保存（含新头像）' : '保存')}
             </button>
           </div>
         </div>
@@ -966,6 +973,13 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
+      <AvatarCropModal
+        open={cropModalOpen}
+        onOpenChange={setCropModalOpen}
+        imageFile={avatarFile}
+        onCropComplete={handleCropComplete}
+      />
 
     </div>
   )

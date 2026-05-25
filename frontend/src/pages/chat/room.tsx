@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
-import { ArrowLeft, Send, Plus, Image, Paperclip, Mic, Smile, User, Loader2, ChevronDown, Keyboard, Delete, Video } from 'lucide-react'
+import { ArrowLeft, Send, Plus, Image, Paperclip, Mic, Smile, User, Loader2, ChevronDown, Keyboard, Delete, Video, RotateCcw } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getMessages, sendMessage, markAsRead, uploadChatFile, getConversation } from '@/api/chat'
 import type { ChatMessageVO, ConversationVO } from '@/api/chat'
@@ -7,6 +7,7 @@ import { useChatStore } from '@/store/chat'
 import { useAuthStore } from '@/store/auth'
 import { formatChatTime } from '@/utils/time'
 import { getAuthBlobUrl, getThumbnailUrl, getVideoThumbnailUrl, isVideoFileName } from '@/utils/auth-image'
+import { compressImage } from '@/utils/image-compress'
 import AuthImage from '@/components/common/AuthImage'
 import { toast } from 'sonner'
 import { chatWebSocketService } from '@/services/chatWebSocket'
@@ -262,23 +263,125 @@ export default function ChatRoomPage() {
       return
     }
 
-    setSending(true)
     setShowFileMenu(false)
-    try {
-      const uploadData: any = await uploadChatFile(file, id)
+    setSending(true)
 
-      const isImage = file.type.startsWith('image/')
-      const msgType = isImage ? 'IMAGE' : 'FILE'
-      
+    const isImage = file.type.startsWith('image/')
+    const msgType = isImage ? 'IMAGE' : 'FILE'
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+    let fileToSend = file
+    let previewUrl: string | undefined
+
+    if (isImage) {
+      try {
+        const compressResult = await compressImage(file)
+        fileToSend = compressResult.file
+        previewUrl = URL.createObjectURL(fileToSend)
+      } catch {
+        fileToSend = file
+        previewUrl = URL.createObjectURL(file)
+      }
+    } else {
+      previewUrl = URL.createObjectURL(file)
+    }
+
+    const tempMessage: ChatMessageVO = {
+      id: 0,
+      conversationId: id,
+      senderId: userInfo!.id,
+      recipientId: conversation.otherUserId,
+      messageType: msgType,
+      content: '',
+      fileName: file.name,
+      fileSize: fileToSend.size,
+      fileUrl: previewUrl || null,
+      voiceDuration: null,
+      read: true,
+      createdAt: new Date().toISOString(),
+      isPending: true,
+      isFailed: false,
+      tempId,
+    }
+
+    const { addTempMessage, markTempMessageFailed } = useChatStore.getState()
+    addTempMessage(id, tempMessage)
+    setTimeout(scrollToTop, 50)
+
+    try {
+      const uploadData: any = await uploadChatFile(fileToSend, id)
+
       await sendMessage(
         conversation.otherUserId,
         '',
         msgType,
         file.name,
-        file.size,
+        fileToSend.size,
         uploadData?.url
       )
-      
+
+      const data: ChatMessageVO[] = await getMessages(id, null)
+      const { setMessages } = useChatStore.getState()
+      setMessages(id, data)
+      if (data.length > 0) {
+        beforeIdRef.current = data[data.length - 1].id
+      }
+      setHasMore(data.length >= 20)
+      setTimeout(scrollToTop, 100)
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    } catch (err: any) {
+      markTempMessageFailed(id, tempId)
+      toast.error(err.message || '发送失败')
+      if (err.message?.includes('只能发送一条消息')) {
+        setCanSendMore(false)
+      }
+    } finally {
+      setSending(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleRetryFileSend = async (msg: ChatMessageVO) => {
+    if (!conversation) return
+
+    if (msg.isPending) return
+
+    const { replaceTempMessage, markTempMessageFailed } = useChatStore.getState()
+
+    if (msg.isFailed) {
+      replaceTempMessage(id, msg.tempId!, {
+        ...msg,
+        isPending: true,
+        isFailed: false,
+      })
+    }
+
+    try {
+      let fileToSend: File
+
+      if (msg.messageType === 'IMAGE' && msg.fileUrl) {
+        const response = await fetch(msg.fileUrl)
+        const blob = await response.blob()
+        const originalFile = new File([blob], msg.fileName || 'image.jpg', { type: 'image/jpeg' })
+        const compressResult = await compressImage(originalFile)
+        fileToSend = compressResult.file
+      } else {
+        const response = await fetch(msg.fileUrl!)
+        const blob = await response.blob()
+        fileToSend = new File([blob], msg.fileName || 'file', { type: 'application/octet-stream' })
+      }
+
+      const uploadData: any = await uploadChatFile(fileToSend, id)
+
+      await sendMessage(
+        conversation.otherUserId,
+        '',
+        msg.messageType,
+        msg.fileName ?? undefined,
+        fileToSend.size,
+        uploadData?.url
+      )
+
       const data: ChatMessageVO[] = await getMessages(id, null)
       const { setMessages } = useChatStore.getState()
       setMessages(id, data)
@@ -288,13 +391,11 @@ export default function ChatRoomPage() {
       setHasMore(data.length >= 20)
       setTimeout(scrollToTop, 100)
     } catch (err: any) {
+      markTempMessageFailed(id, msg.tempId!)
       toast.error(err.message || '发送失败')
       if (err.message?.includes('只能发送一条消息')) {
         setCanSendMore(false)
       }
-    } finally {
-      setSending(false)
-      e.target.value = ''
     }
   }
 
@@ -647,7 +748,7 @@ export default function ChatRoomPage() {
             {/* 消息列表 */}
             {messages.map(msg => (
               <div
-                key={msg.id}
+                key={msg.tempId || msg.id}
                 className={`flex ${isMine(msg) ? 'justify-end' : 'justify-start'}`}
                 style={{ transform: 'rotate(180deg)' }}
               >
@@ -674,52 +775,114 @@ export default function ChatRoomPage() {
                     </div>
                   )}
                   <div className={`flex flex-col flex-1 min-w-0 ${isMine(msg) ? 'items-end' : 'items-start'}`}>
-                    {msg.messageType === 'FILE' && msg.fileUrl ? (
-                      <button
-                        onClick={() => setPreviewFile({ url: msg.fileUrl!, name: msg.fileName || 'file', type: 'FILE' })}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:opacity-90 transition-opacity w-[calc(85vw-56px)] ${
-                          isMine(msg) ? 'bg-primary text-primary-foreground' : 'bg-card border border-border/50'
-                        }`}
-                      >
-                        <div className="relative w-11 h-14 shrink-0">
-                          <FileTypeIcon {...getFileTypeConfig(msg.fileName || '')} />
-                          {isVideoFileName(msg.fileName || '') && (
+                    {msg.messageType === 'FILE' && msg.fileUrl && (
+                      <div className="relative">
+                        {isMine(msg) && (msg.isPending || msg.isFailed) && (
+                          <div
+                            className="absolute -left-7 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center cursor-pointer"
+                            onClick={() => {
+                              if (msg.isFailed) {
+                                handleRetryFileSend(msg)
+                              }
+                            }}
+                          >
+                            {msg.isPending ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-5 w-5 text-red-500" />
+                            )}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => setPreviewFile({ url: msg.fileUrl!, name: msg.fileName || 'file', type: 'FILE' })}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:opacity-90 transition-opacity w-[calc(85vw-56px)] ${
+                            isMine(msg) ? 'bg-primary text-primary-foreground' : 'bg-card border border-border/50'
+                          }`}
+                        >
+                          <div className="relative w-11 h-14 shrink-0">
+                            <FileTypeIcon {...getFileTypeConfig(msg.fileName || '')} />
+                            {isVideoFileName(msg.fileName || '') && msg.fileUrl && !msg.fileUrl.startsWith('blob:') && (
+                              <img
+                                src={getVideoThumbnailUrl(msg.fileUrl!)}
+                                alt=""
+                                className="absolute inset-0 w-full h-full rounded-lg object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none'
+                                }}
+                              />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0 text-left overflow-hidden">
+                            <p className="text-sm font-medium break-all line-clamp-2">{msg.fileName}</p>
+                            <p className={`text-xs mt-0.5 ${isMine(msg) ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
+                              {formatFileSize(msg.fileSize)}
+                            </p>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+                    {msg.messageType === 'IMAGE' && msg.fileUrl && (
+                      <div className="relative inline-block">
+                        {isMine(msg) && (msg.isPending || msg.isFailed) && (
+                          <div
+                            className="absolute -left-7 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center cursor-pointer z-10"
+                            onClick={() => {
+                              if (msg.isFailed) {
+                                handleRetryFileSend(msg)
+                              }
+                            }}
+                          >
+                            {msg.isPending ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-5 w-5 text-red-500" />
+                            )}
+                          </div>
+                        )}
+                        {msg.isPending && !msg.isFailed && msg.fileUrl?.startsWith('blob:') ? (
+                          <div className="max-w-[200px] max-h-[200px] rounded-lg overflow-hidden relative">
                             <img
-                              src={getVideoThumbnailUrl(msg.fileUrl!)}
+                              src={msg.fileUrl}
                               alt=""
-                              className="absolute inset-0 w-full h-full rounded-lg object-cover"
-                              onError={(e) => {
-                                // 缩略图加载失败 → 隐藏，露出底层的 FileTypeIcon
-                                (e.target as HTMLImageElement).style.display = 'none'
-                              }}
+                              className="w-full h-full object-cover opacity-50"
                             />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0 text-left overflow-hidden">
-                          <p className="text-sm font-medium break-all line-clamp-2">{msg.fileName}</p>
-                          <p className={`text-xs mt-0.5 ${isMine(msg) ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
-                            {formatFileSize(msg.fileSize)}
-                          </p>
-                        </div>
-                      </button>
-                    ) : (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <Loader2 className="h-8 w-8 animate-spin text-white" />
+                            </div>
+                          </div>
+                        ) : msg.isFailed && msg.fileUrl?.startsWith('blob:') ? (
+                          <div className="max-w-[200px] max-h-[200px] rounded-lg overflow-hidden relative cursor-pointer"
+                            onClick={() => handleRetryFileSend(msg)}
+                          >
+                            <img
+                              src={msg.fileUrl}
+                              alt=""
+                              className="w-full h-full object-cover opacity-50"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <RotateCcw className="h-8 w-8 text-red-500" />
+                            </div>
+                          </div>
+                        ) : (
+                          <AuthImage
+                            src={getThumbnailUrl(msg.fileUrl)}
+                            alt=""
+                            className="max-w-[200px] max-h-[200px] rounded-lg object-contain cursor-pointer"
+                            onClick={() => setPreviewFile({ url: msg.fileUrl!, name: msg.fileName || 'image', type: 'IMAGE' })}
+                          />
+                        )}
+                      </div>
+                    )}
+                    {msg.messageType !== 'FILE' && msg.messageType !== 'IMAGE' && (
                       <div className={`rounded-2xl ${
-                        msg.messageType === 'IMAGE' && msg.fileUrl
-                          ? 'overflow-hidden'
+                        msg.messageType === 'VOICE'
+                          ? ''
                           : `px-3 py-2 ${isMine(msg)
                               ? 'bg-primary text-primary-foreground rounded-br-md'
                               : 'bg-card border border-border/50 rounded-bl-md'}`
                       }`}>
                       {msg.messageType === 'TEXT' && (
                         <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
-                      )}
-                      {msg.messageType === 'IMAGE' && msg.fileUrl && (
-                        <AuthImage
-                          src={getThumbnailUrl(msg.fileUrl)}
-                          alt=""
-                          className="max-w-[200px] max-h-[200px] rounded-lg object-contain cursor-pointer"
-                          onClick={() => setPreviewFile({ url: msg.fileUrl!, name: msg.fileName || 'image', type: 'IMAGE' })}
-                        />
                       )}
                       {msg.messageType === 'VOICE' && (
                         <button

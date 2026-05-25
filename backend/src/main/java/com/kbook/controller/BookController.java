@@ -2,18 +2,18 @@ package com.kbook.controller;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
-import com.kbook.common.util.CommonUtils;
 import com.kbook.document.BookDocument;
 import com.kbook.entity.Book;
-import com.kbook.repository.BookRepository;
 import com.kbook.service.BookSearchService;
 import com.kbook.service.BookService;
 import com.kbook.service.RecommendService;
+import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.CreateBookRequest;
 import com.kbook.dto.RateRequest;
 import com.kbook.dto.UpdateTagsRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -23,7 +23,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * 图书控制器
@@ -35,66 +34,21 @@ public class BookController {
 
     private final BookService bookService;
     private final BookSearchService bookSearchService;
-    private final BookRepository bookRepository;
     private final RecommendService recommendService;
-    private final BookStorageProperties storageProps;
 
-    /**
-     * 获取封面图片
-     * 支持回退：当请求的临时文件名（book_new_*）不存在时，自动查找正式文件名（book_{id}_*）
-     */
-    @GetMapping(value = "/cover/{filename}")
+    @Value("${kbook.cover-path:./covers}")
+    private String coverPath;
+
+    @GetMapping(value = "/cover/{filename:.+}")
     public ResponseEntity<Resource> getCover(@PathVariable String filename) {
-        Path coverDir = Paths.get(storageProps.getCoverPath());
-        
-        // 安全检查并解析路径
+        Path coverDir = Paths.get(coverPath);
         Path imagePath = CommonUtils.safeResolvePath(coverDir, filename);
+
         if (imagePath == null || !Files.exists(imagePath)) {
-            // 回退逻辑：如果是临时文件名，尝试查找正式文件
-            if (filename.startsWith("book_new_")) {
-                return tryFallbackCover(coverDir, filename);
-            }
             return ResponseEntity.notFound().build();
         }
 
         return CommonUtils.buildImageResponse(imagePath, filename);
-    }
-
-    /**
-     * 尝试回退查找封面文件
-     */
-    private ResponseEntity<Resource> tryFallbackCover(Path coverDir, String filename) {
-        String tempCoverUrl = "/api/books/cover/" + filename;
-        Optional<Book> bookOpt = bookRepository.findByCoverUrl(tempCoverUrl);
-        
-        if (bookOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        Book book = bookOpt.get();
-        
-        // 尝试用正式文件名查找
-        if (book.getCoverUrl() != null && !book.getCoverUrl().equals(tempCoverUrl)) {
-            String realFilename = book.getCoverUrl().substring(book.getCoverUrl().lastIndexOf('/') + 1);
-            Path realPath = CommonUtils.safeResolvePath(coverDir, realFilename);
-            if (realPath != null && Files.exists(realPath)) {
-                return CommonUtils.buildImageResponse(realPath, realFilename);
-            }
-        }
-        
-        // 尝试按 bookId 构建文件名查找
-        String ext = filename.substring(filename.lastIndexOf('.'));
-        String idFilename = "book_" + book.getId() + "_cover" + ext;
-        Path idPath = CommonUtils.safeResolvePath(coverDir, idFilename);
-        
-        if (idPath != null && Files.exists(idPath)) {
-            // 同时修复数据库中的封面URL
-            book.setCoverUrl("/api/books/cover/" + idFilename);
-            bookService.updateBook(book.getId(), book);
-            return CommonUtils.buildImageResponse(idPath, idFilename);
-        }
-
-        return ResponseEntity.notFound().build();
     }
 
     /**

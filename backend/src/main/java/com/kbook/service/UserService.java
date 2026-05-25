@@ -15,6 +15,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,6 +28,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.FileImageOutputStream;
 
 /**
  * 用户服务
@@ -230,7 +240,7 @@ public class UserService {
 
     /**
      * 上传头像
-     * 保存文件到本地，将 URL 写入 User.avatar
+     * 裁剪后的图片在前端已转为 JPEG，后端统一缩放为 300x300 正方形
      */
     @Transactional
     public User uploadAvatar(Long userId, MultipartFile file) {
@@ -238,38 +248,47 @@ public class UserService {
             throw new BusinessException("请选择头像文件");
         }
 
-        // 校验文件类型
         String contentType = file.getContentType();
         if (contentType == null || !contentType.startsWith("image/")) {
             throw new BusinessException("只支持上传图片文件");
         }
 
-        // 校验文件大小（最大 2MB）
-        if (file.getSize() > 2 * 1024 * 1024) {
-            throw new BusinessException("头像文件不能超过2MB");
-        }
+        String filename = UUID.randomUUID().toString().replace("-", "") + ".jpg";
 
-        // 生成文件名
-        String originalFilename = file.getOriginalFilename();
-        String ext = "";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            ext = originalFilename.substring(originalFilename.lastIndexOf("."));
-        }
-        String filename = UUID.randomUUID().toString().replace("-", "") + ext;
-
-        // 保存文件
         try {
             Path dirPath = Paths.get(storageProps.getUpload().getAvatarDir());
             if (!Files.exists(dirPath)) {
                 Files.createDirectories(dirPath);
             }
             Path filePath = dirPath.resolve(filename);
-            file.transferTo(filePath.toFile());
 
-            // 生成 URL
+            BufferedImage image = ImageIO.read(file.getInputStream());
+            if (image == null) {
+                throw new BusinessException("无法解析图片文件");
+            }
+
+            BufferedImage resized = new BufferedImage(300, 300, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g2d = resized.createGraphics();
+            g2d.setColor(java.awt.Color.WHITE);
+            g2d.fillRect(0, 0, 300, 300);
+            g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g2d.drawImage(image, 0, 0, 300, 300, null);
+            g2d.dispose();
+
+            ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
+            ImageWriteParam params = writer.getDefaultWriteParam();
+            params.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+            params.setCompressionQuality(0.85f);
+            try (FileImageOutputStream output = new FileImageOutputStream(filePath.toFile())) {
+                writer.setOutput(output);
+                writer.write(null, new IIOImage(resized, null, null), params);
+            } finally {
+                writer.dispose();
+            }
+
             String avatarUrl = storageProps.getUpload().getAvatarUrlPrefix() + "/" + filename;
 
-            // 更新用户头像
             User user = getUserById(userId);
             user.setAvatar(avatarUrl);
             userRepository.save(user);

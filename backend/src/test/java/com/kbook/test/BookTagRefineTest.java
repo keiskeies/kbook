@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.service.AiProviderConfigService;
+import com.kbook.service.BookParserService;
 import com.kbook.service.BookService;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -39,6 +40,8 @@ public class BookTagRefineTest {
 
     @Autowired
     private AiProviderConfigService aiProviderConfigService;
+    @Autowired
+    private BookParserService bookParserService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -122,6 +125,7 @@ public class BookTagRefineTest {
                 }
 
                 bookService.updateFormatTags(book.getId(), refinedTags);
+                bookParserService.generateBookEmbedding(book);
                 successCount++;
                 System.out.println("  ✓ 更新标签: " + refinedTags);
 

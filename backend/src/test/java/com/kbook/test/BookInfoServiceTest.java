@@ -116,14 +116,23 @@ public class BookInfoServiceTest {
     }
 
     @Test
+    public void deleteBookById() {
+        bookService.deleteBook(1901L);
+
+    }
+    @Test
     public void updateBookBaseInfo() {
         List<Book> allBooks = bookRepository.findAll();
         System.out.println("共 " + allBooks.size() + " 本图书需要处理");
 
+
+
+
+
         int successCount = 0;
         int failCount = 0;
 
-        for (int i = 4195; i < allBooks.size(); i++) {
+        for (int i = 1900; i < allBooks.size(); i++) {
             Book book = allBooks.get(i);
             try {
                 System.out.println("处理第 " + (i + 1) + "/" + allBooks.size() + " 本: [" + book.getId() + "] " + book.getTitle());
@@ -180,11 +189,6 @@ public class BookInfoServiceTest {
                 if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
                     System.out.println("  缺少维度得分，需AI补充");
                     needAi = true;
-                }
-
-                if (!needAi && i < 4000) {
-                    System.out.println("  跳过: 合格数据");
-                    continue;
                 }
 
                 bookParserService.parseAndFill(book, filePath);

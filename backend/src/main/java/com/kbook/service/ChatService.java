@@ -238,6 +238,13 @@ public class ChatService {
     }
 
     public String uploadChatFile(Long userId, Long conversationId, MultipartFile file) throws IOException {
+        Conversation conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new BusinessException("会话不存在"));
+
+        if (!conversation.getUser1Id().equals(userId) && !conversation.getUser2Id().equals(userId)) {
+            throw new BusinessException("无权访问此会话");
+        }
+
         if (file == null || file.isEmpty()) {
             throw new BusinessException("请选择文件");
         }
@@ -283,26 +290,45 @@ public class ChatService {
         String savedContentType;
 
         if (isImage) {
-            // 读取上传的图片 → 转 JPEG q=1.0 → 写入磁盘
+            long originalSize = file.getSize();
+            
+            // 读取上传的图片
             BufferedImage image = ImageIO.read(file.getInputStream());
             if (image == null) {
                 throw new BusinessException("无法解析图片文件");
             }
-            // JPEG 不支持透明通道，透明背景填充白色
-            BufferedImage rgbImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
-            Graphics2D g2d = rgbImage.createGraphics();
-            g2d.setColor(java.awt.Color.WHITE);
-            g2d.fillRect(0, 0, rgbImage.getWidth(), rgbImage.getHeight());
-            g2d.drawImage(image, 0, 0, null);
-            g2d.dispose();
+            
+            // 如果文件大小超过 200KB，长宽压缩到原图的 1/2
+            BufferedImage processedImage = image;
+            if (originalSize > 200 * 1024L) {
+                int newWidth = image.getWidth() / 2;
+                int newHeight = image.getHeight() / 2;
+                processedImage = new BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_RGB);
+                Graphics2D g2d = processedImage.createGraphics();
+                g2d.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2d.drawImage(image, 0, 0, newWidth, newHeight, null);
+                g2d.dispose();
+            } else {
+                // JPEG 不支持透明通道，透明背景填充白色
+                BufferedImage rgbImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
+                Graphics2D g2d = rgbImage.createGraphics();
+                g2d.setColor(Color.WHITE);
+                g2d.fillRect(0, 0, rgbImage.getWidth(), rgbImage.getHeight());
+                g2d.drawImage(image, 0, 0, null);
+                g2d.dispose();
+                processedImage = rgbImage;
+            }
+
+            // 根据原始文件大小决定压缩质量
+            float compressionQuality = originalSize > 500 * 1024L ? 0.65f : 0.8f;
 
             ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
             ImageWriteParam params = writer.getDefaultWriteParam();
             params.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-            params.setCompressionQuality(1.0f);
+            params.setCompressionQuality(compressionQuality);
             try (FileImageOutputStream output = new FileImageOutputStream(filePath.toFile())) {
                 writer.setOutput(output);
-                writer.write(null, new IIOImage(rgbImage, null, null), params);
+                writer.write(null, new IIOImage(processedImage, null, null), params);
             } finally {
                 writer.dispose();
             }

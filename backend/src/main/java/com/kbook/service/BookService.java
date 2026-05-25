@@ -30,10 +30,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -522,11 +519,11 @@ public class BookService {
      */
     @Transactional
     public void deleteBook(Long id) {
-        Book book = bookRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("图书不存在"));
-
-        // 1. 删除封面图片文件
-        deleteCoverFile(book.getCoverUrl());
+        Book book = bookRepository.findById(id).orElse(null);
+        if (null != book) {
+            // 1. 删除封面图片文件
+            deleteCoverFile(book.getCoverUrl());
+        }
 
         // 2. 删除 Qdrant 向量数据（元数据向量 + 内容向量）
         embeddingService.removeBookEmbedding(id);
@@ -539,14 +536,13 @@ public class BookService {
         bookSearchService.deleteIndex(id);
 
         // 5. 事务提交后清除相关 Redis 缓存（推荐/榜单/详情/匹配度）
-        final Long finalId = id;
         TransactionUtils.afterCommit(() -> {
             clearBookRelatedCache();
-            matchScoreCacheService.evictBook(finalId);
-            evictBookCache(finalId);
+            matchScoreCacheService.evictBook(id);
+            evictBookCache(id);
         });
 
-        log.info("图书删除成功(全链路): id={}, title={}", id, book.getTitle());
+        log.info("图书删除成功(全链路): id={}, title={}", id, null == book ? "" : book.getTitle());
     }
 
     /**

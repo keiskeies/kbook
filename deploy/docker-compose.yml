@@ -98,6 +98,13 @@ services:
       AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6334
+      BOOK_COVER_PATH: ${BOOK_COVER_PATH:-/data/covers}
+      AVATAR_DIR: ${AVATAR_DIR:-/data/avatars}
+      CHAT_DIR: ${CHAT_DIR:-/data/chat}
+    volumes:
+      - ${BOOK_DATA_DIR:-./data/covers}:/data/covers
+      - ${AVATAR_DATA_DIR:-./data/avatars}:/data/avatars
+      - ${CHAT_DATA_DIR:-./data/chat}:/data/chat
     ports:
       - "8080:8080"
     depends_on:

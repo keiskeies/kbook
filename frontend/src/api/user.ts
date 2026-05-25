@@ -26,5 +26,6 @@ export function uploadAvatar(file: File) {
   formData.append('file', file)
   return request.post<UserProfile>('/user/avatar', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
   })
 }
