@@ -65,7 +65,7 @@ export function BlinkingBot({ className }: { className?: string }) {
 const tabs = [
   { path: ROUTES.HOME, label: '首页', icon: Home },
   { path: ROUTES.RANK, label: '榜单', icon: Trophy },
-  { path: ROUTES.AI, label: 'AI', icon: BlinkingBot, center: true },
+  { path: ROUTES.AI, label: '', icon: BlinkingBot, center: true },
   { path: ROUTES.BOOKSHELF, label: '书架', icon: BookOpen },
   { path: ROUTES.PROFILE, label: '我的', icon: User },
 ]
@@ -91,11 +91,11 @@ export function TabBar() {
               <button
                 key={tab.path}
                 onClick={() => navigate(tab.path)}
-                className="relative -mt-6 flex flex-col items-center"
+                className="relative -mt-4 flex flex-col items-center"
               >
                 <div
                   className={cn(
-                    'flex h-14 w-14 items-center justify-center rounded-full shadow-lg shadow-primary/30 transition-all duration-300',
+                    'flex h-[52px] w-[52px] items-center justify-center rounded-full shadow-lg shadow-primary/30 transition-all duration-300',
                     active
                       ? 'bg-gradient-to-br from-primary to-primary/80 text-primary-foreground scale-110'
                       : 'bg-gradient-to-br from-primary to-primary/85 text-primary-foreground hover:scale-105'
@@ -103,14 +103,6 @@ export function TabBar() {
                 >
                   <Icon className="h-7 w-7" strokeWidth={2.2} />
                 </div>
-                <span
-                  className={cn(
-                    'mt-1 whitespace-nowrap text-[10px] font-semibold transition-colors',
-                    active ? 'text-primary' : 'text-muted-foreground'
-                  )}
-                >
-                  {tab.label}
-                </span>
               </button>
             )
           }

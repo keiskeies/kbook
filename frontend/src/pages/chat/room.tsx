@@ -621,7 +621,7 @@ export default function ChatRoomPage() {
     if (!container) return
     
     const { scrollTop, scrollHeight, clientHeight } = container
-    if (scrollHeight - scrollTop - clientHeight < 200 && hasMore && !loadingMoreRef.current) {
+    if (scrollHeight - scrollTop - clientHeight < 1000 && hasMore && !loadingMoreRef.current) {
       loadHistoryMessages()
     }
 
@@ -739,12 +739,6 @@ export default function ChatRoomPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {/* 加载更多指示器 */}
-            {loadingMore && (
-              <div className="flex justify-center py-3" style={{ transform: 'rotate(180deg)' }}>
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            )}
             {/* 消息列表 */}
             {messages.map(msg => (
               <div
@@ -914,6 +908,19 @@ export default function ChatRoomPage() {
                 </div>
               </div>
             ))}
+            {/* 加载更多指示器 */}
+            {loadingMore && (
+              <div className="flex items-center justify-center py-3" style={{ transform: 'rotate(180deg)' }}>
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-xs text-muted-foreground">加载中...</span>
+              </div>
+            )}
+            {/* 没有更多历史消息 */}
+            {!hasMore && messages.length > 0 && (
+              <div className="flex justify-center py-3" style={{ transform: 'rotate(180deg)' }}>
+                <span className="text-xs text-muted-foreground/60">没有更多历史消息</span>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
         )}

@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
+import axios, { type AxiosInstance, type AxiosResponse, type AxiosRequestConfig } from 'axios'
 import { STORAGE_KEYS } from '@/constants'
 import { refreshAccessToken, clearAuthAndRedirect } from './token-refresh'
 
@@ -90,4 +90,11 @@ service.interceptors.response.use(
   }
 )
 
-export default service
+interface HttpClient {
+  get<T = any>(url: string, config?: AxiosRequestConfig): Promise<T>
+  post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T>
+  put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T>
+  delete<T = any>(url: string, config?: AxiosRequestConfig): Promise<T>
+}
+
+export default service as unknown as HttpClient

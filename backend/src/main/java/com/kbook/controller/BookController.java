@@ -6,6 +6,7 @@ import com.kbook.document.BookDocument;
 import com.kbook.entity.Book;
 import com.kbook.service.BookSearchService;
 import com.kbook.service.BookService;
+import com.kbook.service.RankService;
 import com.kbook.service.RecommendService;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.BookStorageProperties;
@@ -34,6 +35,7 @@ public class BookController {
 
     private final BookService bookService;
     private final BookSearchService bookSearchService;
+    private final RankService rankService;
     private final RecommendService recommendService;
 
     @Value("${kbook.cover-path:./covers}")
@@ -88,7 +90,7 @@ public class BookController {
     public Result<PageResult<Book>> getReadRank(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(bookService.getReadRank(page, size));
+        return Result.ok(rankService.getReadRank(page, size));
     }
 
     /**
@@ -98,7 +100,7 @@ public class BookController {
     public Result<PageResult<Book>> getRatingRank(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(bookService.getRatingRank(page, size));
+        return Result.ok(rankService.getRatingRank(page, size));
     }
 
     /**
@@ -108,7 +110,7 @@ public class BookController {
     public Result<PageResult<Book>> getNewBooksRank(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(bookService.getNewBooksRank(page, size));
+        return Result.ok(rankService.getNewBooksRank(page, size));
     }
 
     /**

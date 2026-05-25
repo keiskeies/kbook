@@ -123,7 +123,7 @@ public class HomeController {
      */
     @GetMapping("/popular")
     public Result<List<SimpleBookVO>> getPopular() {
-        List<Book> popular = bookService.getReadRank(1, 6).getList();
+        List<Book> popular = rankService.getReadRank(1, 6).getList();
         return Result.ok(popular.stream().map(SimpleBookVO::from).toList());
     }
 

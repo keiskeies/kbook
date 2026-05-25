@@ -748,7 +748,7 @@ export default function HomePage() {
   const goToBookDetail = (id: number) => navigate(`/book/${id}`)
 
   return (
-    <div className="page-enter pb-2">
+    <div className="page-enter" style={{ paddingBottom: 'calc(0.5rem + 6rem)' }}>
       {/* 顶部品牌栏 + 搜索框 - fixed 固定在顶部 */}
       <div className="fixed inset-x-0 top-0 z-50 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top pb-2 backdrop-blur-xl">
         <header className="flex items-center justify-between py-3 px-4">

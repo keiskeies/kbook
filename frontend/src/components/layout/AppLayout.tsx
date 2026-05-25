@@ -15,7 +15,7 @@ export function AppLayout() {
       <main className={tabBarVisible ? 'pb-20' : ''}>
         <Outlet />
       </main>
-      <TabBar />
+      {tabBarVisible && <TabBar />}
     </div>
   )
 }

@@ -5,9 +5,12 @@ import { streamChat, createSession, getHistory, getSessions, deleteSession, getH
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import type { AiMessage, AiSessionItem } from '@/types/ai'
+import { useUiStore } from '@/store/ui'
 
 export default function AIPage() {
   const navigate = useNavigate()
+  const tabBarVisible = useUiStore((s) => s.tabBarVisible)
+  const setTabBarVisible = useUiStore((s) => s.setTabBarVisible)
   const [sessions, setSessions] = useState<AiSessionItem[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string>('')
   const [messages, setMessages] = useState<AiMessage[]>([])
@@ -19,6 +22,33 @@ export default function AIPage() {
   const [bookMap, setBookMap] = useState<Record<string, number>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // 页面卸载时确保TabBar恢复显示
+  useEffect(() => {
+    return () => {
+      setTabBarVisible(true)
+    }
+  }, [setTabBarVisible])
+
+  // 监听视觉视口变化（键盘弹起/收起）
+  useEffect(() => {
+    const visualViewport = window.visualViewport
+    if (!visualViewport) return
+
+    const handleResize = () => {
+      // 如果视口高度明显变小，认为键盘弹起了，隐藏TabBar
+      const windowHeight = window.innerHeight
+      const viewportHeight = visualViewport.height
+      if (windowHeight - viewportHeight > 100) {
+        setTabBarVisible(false)
+      } else {
+        setTabBarVisible(true)
+      }
+    }
+
+    visualViewport.addEventListener('resize', handleResize)
+    return () => visualViewport.removeEventListener('resize', handleResize)
+  }, [setTabBarVisible])
 
   useEffect(() => {
     loadSessions().then(() => {})
@@ -226,6 +256,26 @@ export default function AIPage() {
       handleSend()
     }
   }
+
+  const handleFocus = useCallback(() => {
+    setTabBarVisible(false)
+  }, [setTabBarVisible])
+
+  const handleBlur = useCallback(() => {
+    // 等待键盘收起动画完成后再检测，避免 TabBar 在键盘收起过程中闪现
+    setTimeout(() => {
+      const vv = window.visualViewport
+      if (vv) {
+        const diff = window.innerHeight - vv.height
+        // 键盘已确认收起才恢复 TabBar
+        if (diff <= 50) {
+          setTabBarVisible(true)
+        }
+      } else {
+        setTabBarVisible(true)
+      }
+    }, 300)
+  }, [setTabBarVisible])
 
   const formatTime = (dateStr: string) => {
     const d = new Date(dateStr)
@@ -449,13 +499,15 @@ export default function AIPage() {
         </div>
       </div>
 
-      <div className="shrink-0 border-t bg-background px-4 py-3 safe-area-bottom" style={{ paddingBottom: 'calc(0.75rem + 5rem)' }}>
+      <div className="shrink-0 border-t bg-background px-4 py-3 safe-area-bottom" style={{ paddingBottom: tabBarVisible ? 'calc(0.75rem + 5rem)' : undefined }}>
         <div className="flex items-center gap-2">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
             placeholder="输入你的问题..."
             disabled={loading}
             className="flex-1 rounded-full bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"

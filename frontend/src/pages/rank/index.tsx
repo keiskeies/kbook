@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import {Flame, Award, Sparkles, Tag, Clock, Star, ChevronDown, ChevronUp, TrendingUp} from 'lucide-react'
+import {Flame, Award, Sparkles, Tag, Clock, Star, ChevronDown, ChevronUp, TrendingUp, Loader2} from 'lucide-react'
+import { useInView } from 'react-intersection-observer'
 import { getReadRank, getRatingRank, getNewBooksRank } from '@/api/book'
 import type { Book } from '@/types/book'
 import { parseFormatTags } from '@/types/book'
@@ -115,6 +116,8 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   )
 }
 
+const PAGE_SIZE = 10
+
 export default function RankPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -123,21 +126,60 @@ export default function RankPage() {
     urlType && ['read', 'rating', 'new'].includes(urlType) ? urlType : 'read'
   )
   const [books, setBooks] = useState<Book[]>([])
+  const [hasMore, setHasMore] = useState(true)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const fetchingRef = useRef(false)
+  const hasMoreRef = useRef(true)
+  const pageRef = useRef(0)
+
+  const { ref: sentinelRef, inView } = useInView({
+    root: document.body,
+    rootMargin: '1000px',
+  })
+
+  const fetcher = type === 'read' ? getReadRank
+    : type === 'rating' ? getRatingRank
+    : getNewBooksRank
+
+  useEffect(() => {
+    document.body.scrollTop = 0
+  }, [type])
+
+  const loadPage = useCallback(async (pageNum: number) => {
+    if (fetchingRef.current) return
+    fetchingRef.current = true
+    if (pageNum > 0) setLoadingMore(true)
+    try {
+      const res = await fetcher(pageNum + 1, PAGE_SIZE)
+      const list = res.list ?? []
+      setBooks((prev) => pageNum === 0 ? list : [...prev, ...list])
+      const hasNext = list.length === PAGE_SIZE
+      hasMoreRef.current = hasNext
+      setHasMore(hasNext)
+      pageRef.current = pageNum
+    } catch {
+      if (pageNum === 0) setBooks([])
+    } finally {
+      fetchingRef.current = false
+      if (pageNum === 0) setLoading(false)
+      else setLoadingMore(false)
+    }
+  }, [fetcher])
 
   useEffect(() => {
     setLoading(true)
-    const fetcher = type === 'read' ? getReadRank
-      : type === 'rating' ? getRatingRank
-      : getNewBooksRank
-    fetcher(1, 50)
-      .then((res) => setBooks((res as any)?.list || []))
-      .catch(() => setBooks([]))
-      .finally(() => setLoading(false))
-  }, [type])
+    fetchingRef.current = false
+    loadPage(0)
+  }, [loadPage])
+
+  useEffect(() => {
+    if (inView && hasMoreRef.current && !fetchingRef.current && !loading) {
+      loadPage(pageRef.current + 1)
+    }
+  }, [inView, books.length, loadPage, loading])
 
   const handleTypeChange = (key: RankType) => {
-    window.scrollTo(0, 0)
     setType(key)
   }
 
@@ -205,7 +247,6 @@ export default function RankPage() {
                   onClick={() => navigate(`/book/${book.id}`)}
                 >
                   <div className="flex gap-3">
-                    {/* 排名 */}
                     <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl text-xs font-bold shadow-sm ${
                       index === 0 ? 'bg-amber-400 text-white' :
                       index === 1 ? 'bg-zinc-400 text-white' :
@@ -214,11 +255,8 @@ export default function RankPage() {
                     }`}>
                       {index + 1}
                     </span>
-
-                    {/* 封面 + 信息 + 简介 */}
                     <div className="flex-1 min-w-0">
                       <div className="flex gap-3">
-                        {/* 封面 */}
                         <BookCover
                           coverUrl={book.coverUrl}
                           title={book.title}
@@ -227,8 +265,6 @@ export default function RankPage() {
                           size="md"
                           className="flex-shrink-0"
                         />
-
-                        {/* 信息区 */}
                         <div className="flex-1 min-w-0 flex flex-col justify-between">
                           <div>
                             <p className="truncate text-sm font-semibold">{book.title}</p>
@@ -236,8 +272,6 @@ export default function RankPage() {
                               {book.author || '未知作者'}
                             </p>
                           </div>
-
-                          {/* 评分 + 匹配度 + 阅读量 */}
                           <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                             <RatingBadgeCN rating={book.rating} />
                             <MatchBadgeCN score={ms} />
@@ -245,8 +279,6 @@ export default function RankPage() {
                               {fmtReadCount(book.readCount)}
                             </span>
                           </div>
-
-                          {/* 标签 — 另起一行 */}
                           {tags.length > 0 && (
                             <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                               {tags.slice(0, 3).map((tag) => (
@@ -259,8 +291,6 @@ export default function RankPage() {
                           )}
                         </div>
                       </div>
-
-                      {/* 简介 — 点击展开/收起 */}
                       {book.description && (
                         <BookDescription description={book.description} />
                       )}
@@ -269,6 +299,18 @@ export default function RankPage() {
                 </div>
               )
             })}
+            {loadingMore && (
+              <div className="flex items-center justify-center py-4 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="ml-2 text-xs">加载中...</span>
+              </div>
+            )}
+            {!hasMore && books.length > 0 && (
+              <div className="py-4 text-center text-xs text-muted-foreground/60">
+                没有更多了
+              </div>
+            )}
+            {hasMore && <div ref={sentinelRef} className="h-px" />}
           </div>
         ) : (
           <div className="flex h-[50vh] flex-col items-center justify-center">

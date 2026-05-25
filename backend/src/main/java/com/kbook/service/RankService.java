@@ -1,5 +1,6 @@
 package com.kbook.service;
 
+import com.kbook.common.api.PageResult;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+
 
 /**
  * 榜单聚合服务 — Redis 缓存 + 定时刷新
@@ -184,6 +186,68 @@ public class RankService {
         Page<Book> newBooks = bookRepository.findAllByOrderByCreatedAtDesc(top50);
         cacheBookIds(NEW_BOOKS_RANK_KEY, newBooks.getContent());
         log.debug("新书榜缓存刷新完成: {}本", newBooks.getContent().size());
+    }
+
+    /**
+     * 从缓存读取指定页码的阅读榜
+     */
+    public PageResult<Book> getReadRank(int page, int size) {
+        return getCachedPage(READ_RANK_KEY, page, size);
+    }
+
+    /**
+     * 从缓存读取指定页码的评分榜
+     */
+    public PageResult<Book> getRatingRank(int page, int size) {
+        return getCachedPage(RATING_RANK_KEY, page, size);
+    }
+
+    /**
+     * 从缓存读取指定页码的新书榜
+     */
+    public PageResult<Book> getNewBooksRank(int page, int size) {
+        return getCachedPage(NEW_BOOKS_RANK_KEY, page, size);
+    }
+
+    /**
+     * 从缓存的 top 50 ID 列表中截取分页。
+     * 缓存不存在时降级到数据库查询；缓存存在但超出范围则返回空列表，不再查数据库。
+     */
+    private PageResult<Book> getCachedPage(String cacheKey, int page, int size) {
+        String cachedIds = redisTemplate.opsForValue().get(cacheKey);
+        if (cachedIds == null || cachedIds.isEmpty()) {
+            return loadFromDb(cacheKey, page, size);
+        }
+        try {
+            List<Long> ids = parseIdList(cachedIds);
+            int totalCached = ids.size();
+            int fromIndex = (page - 1) * size;
+            if (fromIndex >= totalCached) {
+                return PageResult.of(List.of(), totalCached, page, size);
+            }
+            int toIndex = Math.min(fromIndex + size, totalCached);
+            List<Long> pageIds = ids.subList(fromIndex, toIndex);
+            List<Book> books = fetchBooksByIds(pageIds);
+            return PageResult.of(books, totalCached, page, size);
+        } catch (Exception e) {
+            log.warn("缓存读取失败，降级到数据库: key={}", cacheKey, e);
+            return loadFromDb(cacheKey, page, size);
+        }
+    }
+
+    private PageResult<Book> loadFromDb(String cacheKey, int page, int size) {
+        Pageable pb = PageRequest.of(page - 1, size);
+        if (READ_RANK_KEY.equals(cacheKey)) {
+            Page<Book> pg = bookRepository.findAllByOrderByReadCountDesc(pb);
+            return PageResult.of(pg.getContent(), pg.getTotalElements(), page, size);
+        }
+        if (RATING_RANK_KEY.equals(cacheKey)) {
+            Page<Book> pg = bookRepository.findAllByOrderByRatingDesc(pb);
+            return PageResult.of(pg.getContent(), pg.getTotalElements(), page, size);
+        }
+        // NEW_BOOKS_RANK_KEY
+        Page<Book> pg = bookRepository.findAllByOrderByCreatedAtDesc(pb);
+        return PageResult.of(pg.getContent(), pg.getTotalElements(), page, size);
     }
 
     /**

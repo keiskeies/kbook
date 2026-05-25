@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Clock, CheckCircle2, BookOpen, Star, Sparkles, Loader2 } from 'lucide-react'
+import { useInView } from 'react-intersection-observer'
 import { getReadingHistory } from '@/api/progress'
 import { formatRelativeTime } from '@/utils/time'
 import BookCover from '@/components/book/BookCover'
@@ -65,12 +66,20 @@ export default function ReadingHistoryPage() {
   const [items, setItems] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(true)
   const [total, setTotal] = useState(0)
-  const sentinelRef = useRef<HTMLDivElement>(null)
+  const fetchingRef = useRef(false)
+  const hasMoreRef = useRef(true)
+  const pageRef = useRef(0)
+
+  const { ref: sentinelRef, inView } = useInView({
+    root: document.body,
+    rootMargin: '1000px',
+  })
 
   const loadPage = useCallback(async (pageNum: number) => {
+    if (fetchingRef.current) return
+    fetchingRef.current = true
     if (pageNum === 0) {
       setLoading(true)
     } else {
@@ -99,11 +108,14 @@ export default function ReadingHistoryPage() {
 
       setItems((prev) => pageNum === 0 ? mapped : [...prev, ...mapped])
       setTotal(totalCount)
-      setHasMore(mapped.length === PAGE_SIZE && (pageNum + 1) * PAGE_SIZE < totalCount)
-      setPage(pageNum)
+      const hasNext = mapped.length === PAGE_SIZE && (pageNum + 1) * PAGE_SIZE < totalCount
+      hasMoreRef.current = hasNext
+      setHasMore(hasNext)
+      pageRef.current = pageNum
     } catch {
       if (pageNum === 0) setItems([])
     } finally {
+      fetchingRef.current = false
       setLoading(false)
       setLoadingMore(false)
     }
@@ -114,20 +126,10 @@ export default function ReadingHistoryPage() {
   }, [loadPage])
 
   useEffect(() => {
-    const el = sentinelRef.current
-    if (!el || !hasMore || loading || loadingMore) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
-          loadPage(page + 1)
-        }
-      },
-      { rootMargin: '200px' }
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [hasMore, loading, loadingMore, page, loadPage])
+    if (inView && hasMoreRef.current && !fetchingRef.current && !loading) {
+      loadPage(pageRef.current + 1)
+    }
+  }, [inView, items.length, loadPage, loading])
 
   const bookIds = items.map((i) => i.bookId).filter(Boolean)
   const matchScores = useMatchScores(bookIds)
@@ -232,7 +234,7 @@ export default function ReadingHistoryPage() {
             </div>
           )}
 
-          <div ref={sentinelRef} className="h-1" />
+          {hasMore && <div ref={sentinelRef} className="h-1" />}
         </div>
       )}
     </div>
