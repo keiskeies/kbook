@@ -21,6 +21,7 @@ export default function AIPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [bookMap, setBookMap] = useState<Record<string, number>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   // 页面卸载时确保TabBar恢复显示
@@ -68,6 +69,12 @@ export default function AIPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    if (!input && textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+  }, [input])
 
   const loadSessions = async () => {
     try {
@@ -249,13 +256,6 @@ export default function AIPage() {
       })
     }
   }, [loading, messages, handleSend])
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
 
   const handleFocus = useCallback(() => {
     setTabBarVisible(false)
@@ -500,22 +500,29 @@ export default function AIPage() {
       </div>
 
       <div className="shrink-0 border-t bg-background px-4 py-3 safe-area-bottom" style={{ paddingBottom: tabBarVisible ? 'calc(0.75rem + 5rem)' : undefined }}>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onInput={() => {
+              const el = textareaRef.current
+              if (!el) return
+              el.style.height = 'auto'
+              el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+            }}
+            enterKeyHint="enter"
             onFocus={handleFocus}
             onBlur={handleBlur}
             placeholder="输入你的问题..."
             disabled={loading}
-            className="flex-1 rounded-full bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
+            className="flex-1 resize-none rounded-xl bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50 overflow-y-auto"
           />
           <button
             onClick={() => handleSend()}
             disabled={loading || !input.trim()}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
           >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />

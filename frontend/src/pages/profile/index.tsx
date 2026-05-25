@@ -443,7 +443,7 @@ export default function ProfilePage() {
     <div className="px-4 pt-safe-top pb-6 page-enter">
       <div className="h-4" />
       
-      <div className="mb-5 rounded-2xl bg-gradient-to-br from-primary/8 via-card to-card p-4 shadow-sm border border-primary/10">
+      <div className="mb-5 rounded-2xl bg-card p-4 shadow-sm border border-border/50">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate(`/user/${userInfo?.id}`)}

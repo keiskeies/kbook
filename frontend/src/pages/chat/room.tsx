@@ -609,13 +609,6 @@ export default function ChatRoomPage() {
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
-
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current
     if (!container) return
@@ -939,7 +932,7 @@ export default function ChatRoomPage() {
 
       {/* Input Area */}
       <div className="flex-shrink-0 border-t border-border/50 bg-background px-4 pt-3 relative safe-area-bottom">
-        <div className="flex items-center gap-2">
+        <div className="flex items-end gap-2">
           <button
             onClick={toggleVoiceMode}
             className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors"
@@ -977,7 +970,7 @@ export default function ChatRoomPage() {
                 e.target.style.height = 'auto'
                 e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
               }}
-              onKeyDown={handleKeyDown}
+              enterKeyHint="enter"
               onFocus={() => {
                 setShowEmojiPicker(false)
                 setShowFileMenu(false)

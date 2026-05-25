@@ -28,6 +28,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
   const [showHistory, setShowHistory] = useState(false)
   const [historySessions, setHistorySessions] = useState<AiSessionItem[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const streamSessionIdRef = useRef('')
   const followUpsFromSseRef = useRef(false)
@@ -61,6 +62,12 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
       setSpeakingId(null)
     }
   }, [open, speakingId])
+
+  useEffect(() => {
+    if (!input && textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+  }, [input])
 
   const loadHistorySessions = async () => {
     try {
@@ -341,13 +348,6 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
       })
     }
   }, [messages, loading, handleSend])
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
 
   const formatTime = (dateStr: string) => {
     const d = new Date(dateStr)
@@ -636,20 +636,27 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
         )}
 
         <div className="shrink-0 border-t bg-background px-4 pt-2 pb-3 pb-safe-bottom">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
+              rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+              enterKeyHint="enter"
+              onInput={() => {
+                const el = textareaRef.current
+                if (!el) return
+                el.style.height = 'auto'
+                el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+              }}
               placeholder={`问关于《${book.title.length > 10 ? book.title.slice(0, 10) + '...' : book.title}》的问题...`}
               disabled={loading}
-              className="flex-1 rounded-full bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
+              className="flex-1 resize-none rounded-xl bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50 overflow-y-auto"
             />
             <button
               onClick={() => handleSend()}
               disabled={loading || !input.trim()}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50 transition-transform active:scale-95"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50 transition-transform active:scale-95"
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
