@@ -17,6 +17,8 @@ public interface BookSuggestedQuestionRepository extends JpaRepository<BookSugge
      */
     List<BookSuggestedQuestion> findByBookId(Long bookId);
 
+    Long countByBookId(Long bookId);
+
     /**
      * 删除指定图书的所有预设问题
      */

@@ -46,7 +46,10 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
   }, [open, book.id])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const streaming = messages.some((m) => m.streaming)
+    if (streaming) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
 
   useEffect(() => {
@@ -142,7 +145,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     setShowHistory(false)
   }, [speakingId])
 
-  const handleSend = useCallback(async (text?: string) => {
+  const handleSend = useCallback(async (text?: string, isRegenerate?: boolean) => {
     const message = (text || input).trim()
     if (!message || loading) return
 
@@ -181,7 +184,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
 
     const controller = streamBookChat(
       book.id,
-      { message, sessionId: sessionId || undefined },
+      { message, sessionId: sessionId || undefined, regenerate: isRegenerate || undefined },
       (chunk) => {
         fullAnswerContent += chunk
         setMessages((prev) =>
@@ -344,7 +347,7 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
 
     if (userMsgContent) {
       requestAnimationFrame(() => {
-        handleSend(userMsgContent)
+        handleSend(userMsgContent, true)
       })
     }
   }, [messages, loading, handleSend])

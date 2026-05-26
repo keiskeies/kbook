@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bookmark, BookmarkCheck, BookOpen, Star, Eye, MessageSquare, Sparkles, Pencil, X, Plus } from 'lucide-react'
+import { ArrowLeft, Bookmark, BookmarkCheck, BookOpen, Star, Eye, MessageSquare, Sparkles, Pencil, X, Plus, Trash2 } from 'lucide-react'
 import { getBook, rateBook, updateBookCover, updateBookTitle, updateBookAuthor, updateBookDescription, updateFormatTags } from '@/api/book'
 import { checkInBookshelf, addToBookshelf, removeFromBookshelf } from '@/api/bookshelf'
+import { moveToTrash, checkInTrash } from '@/api/bookTrash'
 import { getProgress } from '@/api/progress'
 import { getBookComments, countBookComments } from '@/api/comment'
 import type { Book } from '@/types/book'
@@ -261,6 +262,9 @@ export default function BookDetailPage() {
   const [editAuthorOpen, setEditAuthorOpen] = useState(false)
   const [editTagsOpen, setEditTagsOpen] = useState(false)
   const [editDescOpen, setEditDescOpen] = useState(false)
+  const [inTrash, setInTrash] = useState(false)
+  const [trashDialogOpen, setTrashDialogOpen] = useState(false)
+  const [trashing, setTrashing] = useState(false)
 
   const { userInfo } = useAuthStore()
   const isAdmin = userInfo?.role === 'ADMIN'
@@ -286,9 +290,11 @@ export default function BookDetailPage() {
       getBook(id),
       checkInBookshelf(id).catch(() => ({ data: false })),
       getProgress(id).catch(() => ({ data: null })),
-    ]).then(([bookRes, shelfRes, progressRes]) => {
+      checkInTrash(id).catch(() => ({ data: false })),
+    ]).then(([bookRes, shelfRes, progressRes, trashRes]) => {
       setBook(bookRes as unknown as Book)
       setInShelf((shelfRes as any) || false)
+      setInTrash((trashRes as any) || false)
       const progressData = (progressRes as any)
       setProgress(progressData?.progress || 0)
       if (progressData?.userRating) {
@@ -314,6 +320,25 @@ export default function BookDetailPage() {
       }
     } catch {
       toast.error('操作未完成')
+    }
+  }
+
+  const handleTrash = () => {
+    setTrashDialogOpen(true)
+  }
+
+  const handleConfirmTrash = async () => {
+    if (!book) return
+    setTrashing(true)
+    try {
+      await moveToTrash(book.id)
+      setInTrash(true)
+      toast.success('已丢入垃圾桶')
+    } catch (err: any) {
+      toast.error(err?.message || '操作失败')
+    } finally {
+      setTrashing(false)
+      setTrashDialogOpen(false)
     }
   }
 
@@ -483,6 +508,11 @@ export default function BookDetailPage() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="flex-1 truncate text-base font-bold">{book.title}</h1>
+        {!inTrash && (
+          <button onClick={handleTrash} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
+            <Trash2 className="h-5 w-5 text-muted-foreground" />
+          </button>
+        )}
         <button onClick={toggleShelf} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           {inShelf ? (
             <BookmarkCheck className="h-5 w-5 text-primary" />
@@ -706,6 +736,33 @@ export default function BookDetailPage() {
         className="hidden"
         onChange={handleCoverFileChange}
       />
+
+      {/* 垃圾桶确认弹窗 */}
+      <Dialog open={trashDialogOpen} onOpenChange={setTrashDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>丢入垃圾桶</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            确定将「{book?.title}」丢入垃圾桶吗？丢入垃圾桶后，该图书将不再出现在推荐列表中。你可以前往「我的 → 推荐 → 垃圾桶」中恢复。
+          </p>
+          <DialogFooter>
+            <button
+              onClick={() => setTrashDialogOpen(false)}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleConfirmTrash}
+              disabled={trashing}
+              className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+            >
+              {trashing ? '处理中...' : '丢入垃圾桶'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 管理员编辑对话框 */}
       <EditFieldDialog

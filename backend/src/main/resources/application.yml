@@ -152,9 +152,9 @@ kbook:
   # 上传文件配置
   upload:
     avatar-dir: ${AVATAR_DIR:G:/uploads/avatars}
-    avatar-url-prefix: /api/uploads/avatars
+    avatar-url-prefix: /api/user/avatar
     chat-dir: ${CHAT_DIR:G:/uploads/chat}
-    chat-url-prefix: /api/uploads/chat
+    chat-url-prefix: /api/chat/files
   # 视频处理（需安装 FFmpeg）
   video:
     ffmpeg-path: ${FFMPEG_PATH:C:/Program Files/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe}

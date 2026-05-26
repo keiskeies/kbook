@@ -24,6 +24,7 @@ const BookDetailPage = lazy(() => import('@/pages/book/detail'))
 const SearchPage = lazy(() => import('@/pages/search'))
 const ReaderPage = lazy(() => import('@/pages/reader'))
 const ReadingHistoryPage = lazy(() => import('@/pages/profile/history'))
+const BookTrashPage = lazy(() => import('@/pages/profile/trash'))
 const ReviewsPage = lazy(() => import('@/pages/reviews'))
 const RecommendPage = lazy(() => import('@/pages/home/recommend'))
 const NotificationsPage = lazy(() => import('@/pages/notifications'))
@@ -95,6 +96,10 @@ export const router = createBrowserRouter([
           {
             path: ROUTES.HISTORY,
             element: <AuthGuard><LazyLoad><ReadingHistoryPage /></LazyLoad></AuthGuard>,
+          },
+          {
+            path: ROUTES.TRASH,
+            element: <AuthGuard><LazyLoad><BookTrashPage /></LazyLoad></AuthGuard>,
           },
           {
             path: ROUTES.REVIEWS,

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle, RotateCcw } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle, RotateCcw, Trash2 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
 import { useNavigate } from 'react-router-dom'
@@ -7,6 +7,7 @@ import { ROUTES } from '@/constants'
 import { toast } from 'sonner'
 import { getReadingStats } from '@/api/progress'
 import { getBookshelfCount } from '@/api/bookshelf'
+import { getTrashCount } from '@/api/bookTrash'
 import { updateTraits, updateMood } from '@/api/auth'
 import { updateProfile, uploadAvatar } from '@/api/user'
 import { getExcludePreferences, addExcludePreference, removeExcludePreference, getIncludePreferences, addIncludePreference, removeIncludePreference } from '@/api/preference'
@@ -86,6 +87,7 @@ export default function ProfilePage() {
   const navigate = useNavigate()
   const [stats, setStats] = useState<ReadingStats | null>(null)
   const [shelfCount, setShelfCount] = useState<number>(0)
+  const [trashCount, setTrashCount] = useState<number>(0)
   const [chatUnreadCount, setChatUnreadCount] = useState<number>(0)
 
   const [showTraitsModal, setShowTraitsModal] = useState(false)
@@ -165,6 +167,7 @@ export default function ProfilePage() {
   useEffect(() => {
     getReadingStats().then((res) => setStats((res as any) || null)).catch(() => {})
     getBookshelfCount().then((res) => setShelfCount((res as any) || 0)).catch(() => {})
+    getTrashCount().then((res) => setTrashCount((res as any) || 0)).catch(() => {})
     getUnreadCount().then((res) => {
       const count = (res as any)?.data || (res as any) || 0
       setChatUnreadCount(count)
@@ -239,6 +242,7 @@ export default function ProfilePage() {
       items: [
         { label: '我的画像', icon: UserCircle, path: '', extra: getTraitsSummary(), action: () => setShowTraitsModal(true) },
         { label: '阅读偏好', icon: SlidersHorizontal, path: '', extra: '', action: () => setShowPreferenceModal(true) },
+        { label: '垃圾桶', icon: Trash2, path: '/profile/trash', extra: trashCount > 0 ? `${trashCount} 本` : '' },
       ],
     },
     {

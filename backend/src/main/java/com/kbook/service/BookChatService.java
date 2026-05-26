@@ -43,7 +43,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class BookChatService {
 
-    /** 会话类型标识：图书问答 */
+    /**
+     * 会话类型标识：图书问答
+     */
     private static final String TYPE = "book_chat";
 
     private final EmbeddingService embeddingService;
@@ -57,11 +59,14 @@ public class BookChatService {
     private final QdrantProperties qdrantProperties;
     private final RagHitStatisticsService ragHitStatisticsService;
 
-    /** SSE 异步执行线程池 */
+    /**
+     * SSE 异步执行线程池
+     */
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
     /**
      * 根据书籍标签获取预设推荐问题
+     *
      * @param book 书籍实体
      * @return 推荐问题列表
      */
@@ -72,7 +77,8 @@ public class BookChatService {
 
         try {
             var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            var tags = mapper.readValue(book.getFormatTags(), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+            var tags = mapper.readValue(book.getFormatTags(), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {
+            });
             return BookTagQuestions.getQuestions(tags);
         } catch (Exception e) {
             log.debug("解析图书标签失败: bookId={}", book.getId());
@@ -84,6 +90,7 @@ public class BookChatService {
     /**
      * 获取图书推荐问题列表
      * 优先使用已生成的推荐问题，否则基于标签返回预设问题并异步触发生成
+     *
      * @param bookId 书籍ID
      * @return 推荐问题列表
      */
@@ -100,7 +107,7 @@ public class BookChatService {
             return selected;
         }
 
-        questionGenService.asyncGenerateQuestions(bookId);
+//        questionGenService.asyncGenerateQuestions(bookId);
 
         Book book = bookService.getBookById(bookId);
         if (book == null) {
@@ -109,7 +116,9 @@ public class BookChatService {
         return getSuggestedQuestionsForBook(book);
     }
 
-    /** 解析 AI 生成的文本为问题列表（按行分割，去除序号） */
+    /**
+     * 解析 AI 生成的文本为问题列表（按行分割，去除序号）
+     */
     private List<String> parseQuestions(String text) {
         return Arrays.stream(text.split("\n"))
                 .map(String::trim)
@@ -121,7 +130,9 @@ public class BookChatService {
                 .collect(Collectors.toList());
     }
 
-    /** 从问题池中随机选取最多6个问题 */
+    /**
+     * 从问题池中随机选取最多6个问题
+     */
     private List<String> getRandomQuestions(List<String> questions) {
         if (questions.size() <= 6) {
             return new ArrayList<>(questions);
@@ -133,13 +144,14 @@ public class BookChatService {
 
     /**
      * SSE 流式图书问答：基于 RAG 检索书籍内容并流式生成回答
-     * @param userId 用户ID
-     * @param bookId 书籍ID
-     * @param question 用户问题
+     *
+     * @param userId    用户ID
+     * @param bookId    书籍ID
+     * @param question  用户问题
      * @param sessionId 会话ID（可为空，自动生成）
      * @return SseEmitter 流式发射器
      */
-    public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId) {
+    public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId, boolean regenerate) {
         log.info("========== 图书问答请求 ==========");
         log.info("userId={}, bookId={}, question={}", userId, bookId, question);
 
@@ -167,50 +179,60 @@ public class BookChatService {
                     return;
                 }
 
-                // 检查是否有相同问题的缓存回答（跨用户）
-                try {
-                    Optional<AiConversation> cachedAnswer = conversationRepository.findCachedAnswer(bookId, question);
-                    if (cachedAnswer.isPresent()) {
-                        AiConversation answer = cachedAnswer.get();
-                        log.info("命中缓存回答: bookId={}, question={}", bookId, question);
+                // 检查是否有相同问题的缓存回答（跨用户），重新生成时跳过缓存
+                if (!regenerate) {
+                    try {
+                        Optional<AiConversation> cachedAnswer = conversationRepository.findCachedAnswer(bookId, question);
+                        if (cachedAnswer.isPresent()) {
+                            AiConversation answer = cachedAnswer.get();
+                            log.info("命中缓存回答: bookId={}, question={}", bookId, question);
 
-                        // 逐块输出思考内容
-                        if (answer.getThinkingContent() != null && !answer.getThinkingContent().isEmpty()) {
-                            String thinking = answer.getThinkingContent();
-                            for (int i = 0; i < thinking.length(); ) {
-                                int end = Math.min(i + 5, thinking.length());
-                                emitter.send(SseEmitter.event().name("thinking_content").data(thinking.substring(i, end)));
-                                i = end;
-                                try { Thread.sleep(15); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                            // 逐块输出思考内容
+                            if (answer.getThinkingContent() != null && !answer.getThinkingContent().isEmpty()) {
+                                String thinking = answer.getThinkingContent();
+                                for (int i = 0; i < thinking.length(); ) {
+                                    int end = Math.min(i + 5, thinking.length());
+                                    emitter.send(SseEmitter.event().name("thinking_content").data(thinking.substring(i, end)));
+                                    i = end;
+                                    try {
+                                        Thread.sleep(15);
+                                    } catch (InterruptedException ignored) {
+                                        Thread.currentThread().interrupt();
+                                    }
+                                }
                             }
+
+                            // 逐块输出回答
+                            String content = answer.getContent();
+                            for (int i = 0; i < content.length(); ) {
+                                int end = Math.min(i + 3, content.length());
+                                emitter.send(SseEmitter.event().name("message").data(content.substring(i, end)));
+                                i = end;
+                                try {
+                                    Thread.sleep(25);
+                                } catch (InterruptedException ignored) {
+                                    Thread.currentThread().interrupt();
+                                }
+                            }
+
+                            if (answer.getFollowUpQuestions() != null && !answer.getFollowUpQuestions().isEmpty()) {
+                                emitter.send(SseEmitter.event().name("follow_up_questions").data(answer.getFollowUpQuestions()));
+                            }
+                            emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                            emitter.complete();
+
+                            ensureSession(userId, finalSessionId, question, bookId);
+                            saveMessage(userId, finalSessionId, "user", question, bookId, null, null);
+                            saveMessage(userId, finalSessionId, "assistant", answer.getContent(), bookId,
+                                    answer.getThinkingContent(), answer.getFollowUpQuestions());
+                            updateSessionTimestamp(finalSessionId);
+
+                            log.info("缓存回答发送完成: bookId={}", bookId);
+                            return;
                         }
-
-                        // 逐块输出回答
-                        String content = answer.getContent();
-                        for (int i = 0; i < content.length(); ) {
-                            int end = Math.min(i + 3, content.length());
-                            emitter.send(SseEmitter.event().name("message").data(content.substring(i, end)));
-                            i = end;
-                            try { Thread.sleep(25); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-                        }
-
-                        if (answer.getFollowUpQuestions() != null && !answer.getFollowUpQuestions().isEmpty()) {
-                            emitter.send(SseEmitter.event().name("follow_up_questions").data(answer.getFollowUpQuestions()));
-                        }
-                        emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                        emitter.complete();
-
-                        ensureSession(userId, finalSessionId, question, bookId);
-                        saveMessage(userId, finalSessionId, "user", question, bookId, null, null);
-                        saveMessage(userId, finalSessionId, "assistant", answer.getContent(), bookId,
-                                answer.getThinkingContent(), answer.getFollowUpQuestions());
-                        updateSessionTimestamp(finalSessionId);
-
-                        log.info("缓存回答发送完成: bookId={}", bookId);
-                        return;
+                    } catch (Exception e) {
+                        log.warn("查询缓存回答失败，继续调用AI: {}", e.getMessage());
                     }
-                } catch (Exception e) {
-                    log.warn("查询缓存回答失败，继续调用AI: {}", e.getMessage());
                 }
 
                 if (!Boolean.TRUE.equals(book.getContentEmbedded())) {
@@ -237,7 +259,7 @@ public class BookChatService {
                 log.debug("RAG 检索结果长度: {}", ragContext.length());
 
                 try {
-                    emitter.send(SseEmitter.event().name("thinking").data("正在生成回答..."));
+                    emitter.send(SseEmitter.event().name("thinking").data("根据图书内容思考中..."));
                 } catch (Exception ignored) {
                 }
 
@@ -343,8 +365,9 @@ public class BookChatService {
 
     /**
      * 获取图书问答的历史消息
-     * @param userId 用户ID
-     * @param bookId 书籍ID
+     *
+     * @param userId    用户ID
+     * @param bookId    书籍ID
      * @param sessionId 会话ID（指定则返回该会话，否则返回最新会话）
      * @return 对话记录列表
      */
@@ -361,6 +384,7 @@ public class BookChatService {
 
     /**
      * 获取用户对指定书籍的所有问答会话
+     *
      * @param userId 用户ID
      * @param bookId 书籍ID
      * @return 会话列表
@@ -371,9 +395,10 @@ public class BookChatService {
 
     /**
      * 根据已有问答生成深入追问问题
-     * @param bookId 书籍ID
+     *
+     * @param bookId   书籍ID
      * @param question 原始问题
-     * @param answer AI 回答
+     * @param answer   AI 回答
      * @return 深入追问问题列表（最多3个）
      */
     public List<String> generateFollowUpQuestions(Long bookId, String question, String answer) {
@@ -390,24 +415,25 @@ public class BookChatService {
 
             String prompt = String.format(
                     """
-                            你是一位善于引导读者深入思考的阅读助手。
-                            当前在讨论《%s》这本书。
-
-                            读者问了：
-                            %s
-
-                            AI 已经回答：
-                            %s
-
-                            请根据 AI 的回答内容，生成 3 个深入追问的问题。
+                            你正在和读者讨论《%s》这本书。你刚给出了一个回答。
+                    
+                            读者问：%s
+                            你回答：%s
+                    
+                            现在，审视你刚才的回答，找出其中3个最可能引发读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
+                            - 你说了一个结论，但没有给出这个结论成立的条件或前提
+                            - 你使用了一个关键概念，但它的含义在语境中可能被误解
+                            - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
+                            - 你提出了一个判断，但没有说明它适用的边界或反例
+                    
                             要求：
-                            1. 问题必须紧扣回答内容，引导读者进一步思考。
-                            2. 问题语言自然简短，适合移动端阅读场景（不超过 25 字）。
-                            3. 不要带序号，每行一个问题。
-                            4. 不要泛泛而谈，要针对回答中的具体观点或细节提问。""",
+                            - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
+                            - 问题的提问对象是你这个AI，问题本身你必须能回答
+                            - 每行一个，不超25字，无序号
+                    """,
                     title,
                     question,
-                    answer.length() > 800 ? answer.substring(0, 800) : answer
+                    answer
             );
 
             long startTime = System.currentTimeMillis();
@@ -438,13 +464,16 @@ public class BookChatService {
         return Collections.emptyList();
     }
 
-    /** 历史对话最大轮数（一轮 = 一问一答） */
+    /**
+     * 历史对话最大轮数（一轮 = 一问一答）
+     */
     private static final int MAX_HISTORY_TURNS = AiPromptConstants.MAX_HISTORY_TURNS;
 
     /**
      * 构建包含系统提示词、历史对话和当前问题的完整消息列表
-     * @param sessionId 会话ID
-     * @param userId 用户ID
+     *
+     * @param sessionId     会话ID
+     * @param userId        用户ID
      * @param currentPrompt 当前用户提示词
      * @return 完整的 ChatMessage 列表
      */
@@ -482,9 +511,10 @@ public class BookChatService {
 
     /**
      * RAG 语义检索：从书籍内容向量中检索与问题相关的片段
-     * @param book 书籍实体
+     *
+     * @param book     书籍实体
      * @param question 用户问题
-     * @param topK 返回的最大结果数
+     * @param topK     返回的最大结果数
      * @return 拼接后的 RAG 上下文文本
      */
     private String retrieveRagContext(Book book, String question, int topK) {
@@ -536,8 +566,9 @@ public class BookChatService {
 
     /**
      * 构建完整的图书问答提示词，包含书籍信息、RAG 上下文和用户问题
-     * @param book 书籍实体
-     * @param question 用户问题
+     *
+     * @param book       书籍实体
+     * @param question   用户问题
      * @param ragContext RAG 检索到的参考内容
      * @return 完整的提示词文本
      */
@@ -588,7 +619,9 @@ public class BookChatService {
         return prompt;
     }
 
-    /** 确保会话记录存在，不存在则自动创建（含 bookId） */
+    /**
+     * 确保会话记录存在，不存在则自动创建（含 bookId）
+     */
     private void ensureSession(Long userId, String sessionId, String userMessage, Long bookId) {
         sessionRepository.findBySessionId(sessionId).orElseGet(() -> {
             String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
@@ -603,7 +636,9 @@ public class BookChatService {
         });
     }
 
-    /** 更新会话的最后活跃时间 */
+    /**
+     * 更新会话的最后活跃时间
+     */
     private void updateSessionTimestamp(String sessionId) {
         sessionRepository.findBySessionId(sessionId).ifPresent(session -> {
             session.setUpdatedAt(java.time.LocalDateTime.now());
@@ -611,7 +646,9 @@ public class BookChatService {
         });
     }
 
-    /** 保存图书问答消息记录 */
+    /**
+     * 保存图书问答消息记录
+     */
     private void saveMessage(Long userId, String sessionId, String role, String content, Long bookId,
                              String thinkingContent, String followUpQuestions) {
         try {
@@ -633,9 +670,10 @@ public class BookChatService {
 
     /**
      * 保存深入追问问题到最近一条 assistant 消息记录
-     * @param userId 用户ID
+     *
+     * @param userId    用户ID
      * @param sessionId 会话ID
-     * @param bookId 书籍ID
+     * @param bookId    书籍ID
      * @param questions 追问问题列表
      */
     @org.springframework.transaction.annotation.Transactional

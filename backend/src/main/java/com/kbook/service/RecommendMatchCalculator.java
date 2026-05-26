@@ -268,7 +268,7 @@ public class RecommendMatchCalculator {
             double finalScore = avgDeviation * coverageFactor;
             logDetail.append(String.format("汇总: totalDev=%.4f, totalWeight=%.4f, avgDev=%.4f, coverage[%d维]=%.2f, final=%.4f",
                     totalDeviation, totalWeight, avgDeviation, matchedDimensions, coverageFactor, finalScore));
-            log.debug("匹配度计算: {}", logDetail);
+//            log.debug("匹配度计算: {}", logDetail);
 
             return finalScore;
         } catch (Exception e) {

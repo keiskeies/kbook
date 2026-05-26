@@ -42,6 +42,7 @@ public class BookChatController extends BaseController {
         Long userId = extractUserId();
         String message = body.get("message");
         String sessionId = body.get("sessionId");
+        boolean regenerate = Boolean.parseBoolean(body.get("regenerate"));
 
         if (message == null || message.isBlank()) {
             SseEmitter emitter = new SseEmitter();
@@ -52,7 +53,7 @@ public class BookChatController extends BaseController {
             return emitter;
         }
 
-        return bookChatService.streamBookChat(userId, bookId, message, sessionId);
+        return bookChatService.streamBookChat(userId, bookId, message, sessionId, regenerate);
     }
 
     /**

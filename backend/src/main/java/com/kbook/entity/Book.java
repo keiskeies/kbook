@@ -105,6 +105,11 @@ public class Book {
     @Builder.Default
     private Long ratingCount = 0L;
 
+    /** 维度打分人数（基准1000 + 实际用户打分人数） */
+    @Column(name = "dimension_rating_count")
+    @Builder.Default
+    private Integer dimensionRatingCount = 0;
+
     /** 全书内容是否已存储到 Qdrant（用于 RAG 语义检索） */
     @Column(name = "content_embedded")
     @Builder.Default

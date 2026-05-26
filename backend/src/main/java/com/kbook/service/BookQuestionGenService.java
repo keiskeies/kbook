@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 /**
@@ -29,6 +29,9 @@ public class BookQuestionGenService {
     private final BookService bookService;
     private final AiProviderConfigService aiProviderConfigService;
     private final BookSuggestedQuestionRepository suggestedQuestionRepository;
+
+    // 创建线程池用于超时控制
+    private static final ExecutorService executor = Executors.newCachedThreadPool();
 
     /**
      * 异步生成预设问题
@@ -45,28 +48,57 @@ public class BookQuestionGenService {
         try {
             String prompt = String.format(
                     """
-                            请根据以下图书信息，生成20个适合读者向AI提问的问题。
-                            要求：
-                            1. 问题多样化，涵盖主旨、人物、情节、写作风格、现实启示等角度。
-                            2. 仅输出问题列表，每行一个问题，不要带序号或其他多余文字。
-                            3. 问题语言自然，具有启发性，紧密结合书籍的标签主题。
-                            
-                            书名：《%s》
-                            作者：%s
-                            标签：%s
-                            简介：%s
-                            目录：%s
-                            
-                            """,
+                        你是一位资深阅读引导专家。请根据提供的图书信息，为读者生成20个可以向AI深入探讨本书的问题。
+                        
+                        要求：
+                        1. 问题角度必须多样化且均衡分配，每个类别至少包含3个问题，整体覆盖：
+                         - 核心主旨与深层思想
+                         - 关键情节、冲突与转折（若为非虚构类，则为核心观点与论证逻辑）
+                         - 主要人物（或研究对象）的性格、动机与成长
+                         - 写作风格、叙事技巧与结构特色
+                         - 对现实生活的启示、与读者的个人关联
+                        2. 仔细阅读【简介】和【目录】，问题必须紧密结合书中的具体细节（如某一章节、某一事件或某一观点），避免空泛笼统。
+                        3. 问题采用读者在阅读后自然产生的口吻，语气带有探索和讨论的意味，就像在参加一场深度读书会。
+                        4. 问题要真正体现标签所指向的主题气质，但不要直接堆砌标签词汇。
+                        5. 严格遵守输出格式：
+                         - 只输出20个问题本身
+                         - 一行一个问题
+                         - 不加任何序号、项目符号、空行或解释性文字
+                         - 不要出现“问题1”“以下是……问题”等前缀
+                        
+                        图书信息：
+                        书名：《%s》
+                        作者：%s
+                        标签：%s
+                        简介：%s
+                        目录：%s
+                        摘要: %s
+                        
+                        """,
                     book.getTitle(),
                     book.getAuthor() != null ? book.getAuthor() : "未知",
                     book.getFormatTags() != null ? book.getFormatTags() : "暂无标签",
                     book.getDescription() != null ? book.getDescription() : "暂无简介",
-                    book.getToc() != null ? book.getToc() : "暂无目录"
+                    book.getToc() != null ? book.getToc() : "暂无目录",
+                    book.getChapterSummary() != null ? book.getChapterSummary() : "暂无摘要"
             );
 
             ChatModel chatModel = aiProviderConfigService.buildTagChatModel();
-            ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
+
+            // 使用Future实现超时控制
+            Future<ChatResponse> future = executor.submit(() -> chatModel.chat(List.of(UserMessage.from(prompt))));
+            ChatResponse response;
+            try {
+                response = future.get(2, TimeUnit.MINUTES);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+                throw new RuntimeException("AI调用超时（超过" + 2 + "分钟）", e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("AI调用被中断", e);
+            } catch (ExecutionException e) {
+                throw new RuntimeException("AI调用执行异常", e.getCause());
+            }
             String aiText = response.aiMessage().text();
 
             if (aiText != null && !aiText.isBlank()) {

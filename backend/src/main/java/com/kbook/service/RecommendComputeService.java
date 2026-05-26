@@ -29,14 +29,15 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RecommendComputeService {
 
-    private final BookRepository bookRepository; // 书籍数据访问层
-    private final ReadingProgressRepository progressRepository; // 阅读进度数据访问层
-    private final UserReadHistoryRepository readHistoryRepository; // 用户阅读历史数据访问层
-    private final UserService userService; // 用户服务
-    private final UserBookPreferenceRepository preferenceRepository; // 用户书籍偏好数据访问层
-    private final RecommendCoefficientService coefficientService; // 推荐系数配置服务
-    private final RedisTemplate<String, Object> redisTemplate; // Redis操作模板
-    private final DimensionStatsService dimensionStatsService; // 维度统计服务
+    private final BookRepository bookRepository;
+    private final ReadingProgressRepository progressRepository;
+    private final UserReadHistoryRepository readHistoryRepository;
+    private final UserService userService;
+    private final UserBookPreferenceRepository preferenceRepository;
+    private final RecommendCoefficientService coefficientService;
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final DimensionStatsService dimensionStatsService;
+    private final BookTrashService bookTrashService;
 
     private static final String SORTED_KEY_PREFIX = "kbook:recommend:sorted:"; // Redis有序集合键前缀
     private static final String SORTED_TEMP_SUFFIX = ":temp"; // 临时键后缀，用于原子性更新
@@ -66,9 +67,10 @@ public class RecommendComputeService {
      * @return 按最终分数降序排列的评分书籍列表
      */
     private List<ScoredBook> computeScoredBooks(Long userId) {
-        User user = userService.getUserById(userId); // 获取用户信息
-        List<Long> readBookIds = getReadBookIds(userId); // 获取用户已读/交互过的书籍ID列表
-        Set<Long> excludeSet = new HashSet<>(readBookIds); // 构建排除集合，避免重复推荐
+        User user = userService.getUserById(userId);
+        List<Long> readBookIds = getReadBookIds(userId);
+        Set<Long> excludeSet = new HashSet<>(readBookIds);
+        excludeSet.addAll(bookTrashService.getTrashedBookIds(userId));
 
         // 获取用户的排除偏好设置
         List<String> excludedTags = getExcludedTags(userId); // 排除的标签

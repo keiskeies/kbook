@@ -46,6 +46,7 @@ public class RecommendService {
     private final MatchScoreCacheService matchScoreCacheService;
     private final RecommendComputeService computeService;
     private final DimensionStatsService dimensionStatsService;
+    private final BookTrashService bookTrashService;
 
     public RecommendService(
             BookRepository bookRepository,
@@ -58,7 +59,8 @@ public class RecommendService {
             @Lazy RecommendCoefficientService coefficientService,
             MatchScoreCacheService matchScoreCacheService,
             RecommendComputeService computeService,
-            DimensionStatsService dimensionStatsService
+            DimensionStatsService dimensionStatsService,
+            BookTrashService bookTrashService
     ) {
         this.bookRepository = bookRepository;
         this.progressRepository = progressRepository;
@@ -71,6 +73,7 @@ public class RecommendService {
         this.matchScoreCacheService = matchScoreCacheService;
         this.computeService = computeService;
         this.dimensionStatsService = dimensionStatsService;
+        this.bookTrashService = bookTrashService;
     }
 
     /** 推荐缓存键前缀 */
@@ -245,6 +248,7 @@ public class RecommendService {
             User user = userService.getUserById(userId);
             List<Long> readBookIds = getReadBookIds(userId);
             Set<Long> excludeSet = new HashSet<>(readBookIds);
+            excludeSet.addAll(bookTrashService.getTrashedBookIds(userId));
 
             sendProgress(emitter, "loading", "正在加载书籍数据...", 5, 0, 0);
             List<Book> allBooks = bookRepository.findAll();
