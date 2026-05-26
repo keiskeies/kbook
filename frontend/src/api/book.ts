@@ -375,43 +375,4 @@ export function rebuildEsIndexStream(
   )
 }
 
-// ==================== RAG 向量命中统计 ====================
 
-/** RAG 命中统计 */
-export interface RagStats {
-  bookId: number
-  hits: number
-  misses: number
-  totalQueries: number
-  hitRate: number
-}
-
-/** 低命中率图书 */
-export interface LowHitBook {
-  bookId: number
-  hits: number
-  misses: number
-  totalQueries: number
-  missRate: number
-  firstMissAt?: string
-}
-
-/** 获取单本书的向量命中统计 */
-export function getRagStats(bookId: number) {
-  return request.get<RagStats>(`/books/admin/rag-stats/${bookId}`)
-}
-
-/** 获取未命中率最高的书籍列表 */
-export function getLowHitBooks(topN = 20) {
-  return request.get<LowHitBook[]>('/books/admin/rag-stats/low-hit', { params: { topN } })
-}
-
-/** 清除某本书的命中统计 */
-export function clearRagStats(bookId: number) {
-  return request.post<null>(`/books/admin/rag-stats/${bookId}/clear`)
-}
-
-/** 手动触发单本图书全文重新向量化 */
-export function reEmbedBook(bookId: number) {
-  return request.post<{ bookId: number; chunks: number; status: string }>(`/books/admin/rag-stats/${bookId}/re-embed`)
-}

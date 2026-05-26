@@ -4,12 +4,10 @@ import com.kbook.common.api.Result;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
-import com.kbook.service.BookParserService;
 import com.kbook.service.BookScanService;
 import com.kbook.service.BookSearchService;
 import com.kbook.service.BookService;
 import com.kbook.service.EmbeddingService;
-import com.kbook.service.RagHitStatisticsService;
 import com.kbook.config.properties.BookStorageProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,11 +39,9 @@ public class BookAdminController {
 
     private final BookScanService bookScanService;
     private final BookService bookService;
-    private final BookParserService bookParserService;
     private final BookRepository bookRepository;
     private final EmbeddingService embeddingService;
     private final BookSearchService bookSearchService;
-    private final RagHitStatisticsService ragHitStatisticsService;
     private final BookStorageProperties storageProps;
 
     /**
@@ -295,46 +291,4 @@ public class BookAdminController {
         return emitter;
     }
 
-    // ==================== RAG 向量命中统计 ====================
-
-    /**
-     * 获取单本书的向量命中统计
-     */
-    @GetMapping("/rag-stats/{bookId}")
-    public Result<Map<String, Object>> getRagStats(@PathVariable Long bookId) {
-        return Result.ok(ragHitStatisticsService.getStatistics(bookId));
-    }
-
-    /**
-     * 获取未命中率最高的书籍列表（topN）
-     */
-    @GetMapping("/rag-stats/low-hit")
-    public Result<List<Map<String, Object>>> getLowHitBooks(
-            @RequestParam(value = "topN", defaultValue = "20") int topN) {
-        return Result.ok(ragHitStatisticsService.getLowHitBooks(topN));
-    }
-
-    /**
-     * 手动清除某本书的命中统计
-     */
-    @PostMapping("/rag-stats/{bookId}/clear")
-    public Result<Void> clearRagStats(@PathVariable Long bookId) {
-        ragHitStatisticsService.clearStatistics(bookId);
-        return Result.ok(null);
-    }
-
-    /**
-     * 手动触发单本图书全文重新向量化
-     * 完成后清除命中统计
-     */
-    @PostMapping("/rag-stats/{bookId}/re-embed")
-    public Result<Map<String, Object>> reEmbedBook(@PathVariable Long bookId) {
-        int chunkCount = bookParserService.generateContentEmbeddingWithCount(bookId);
-        ragHitStatisticsService.clearStatistics(bookId);
-        return Result.ok(Map.of(
-                "bookId", bookId,
-                "chunks", chunkCount,
-                "status", chunkCount > 0 ? "completed" : "failed"
-        ));
-    }
 }

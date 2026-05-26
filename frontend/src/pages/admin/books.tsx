@@ -17,11 +17,9 @@ import {
   Search,
   Send,
   Sparkles,
-  Target,
   Upload,
   X,
-  XCircle,
-  Zap
+  XCircle
 } from 'lucide-react'
 import DraggableFab from '@/components/DraggableFab'
 import { useNavigate } from 'react-router-dom'
@@ -29,7 +27,6 @@ import type {
   EmbeddingStats,
   EsReindexProgress,
   EsReindexResult,
-  LowHitBook,
   ScanError,
   ScanProgress,
   ScanResult,
@@ -37,10 +34,8 @@ import type {
 import {
   clearContentVectors,
   getEmbeddingStats,
-  getLowHitBooks,
   getScanStatus,
   rebuildEsIndexStream,
-  reEmbedBook,
   resetScanStatus,
   scanBooksStream,
   uploadBook
@@ -89,11 +84,6 @@ export default function AdminBooksPage() {
   const [esProgress, setEsProgress] = useState<EsReindexProgress | null>(null)
   const [esResult, setEsResult] = useState<EsReindexResult | null>(null)
   const esAbortRef = useRef<AbortController | null>(null)
-
-  // RAG 向量命中统计状态
-  const [lowHitBooks, setLowHitBooks] = useState<LowHitBook[]>([])
-  const [ragLoading, setRagLoading] = useState(false)
-  const [ragReEmbedding, setRagReEmbedding] = useState<number | null>(null)
 
   // AI 管理员对话状态
   const [showChat, setShowChat] = useState(false)
@@ -312,33 +302,6 @@ export default function AdminBooksPage() {
     setEsReindexing(false)
     setEsProgress(null)
     toast.info('已取消 ES 索引重建')
-  }
-
-  // ==================== RAG 向量命中统计 ====================
-
-  const loadLowHitBooks = async () => {
-    setRagLoading(true)
-    try {
-      const result = await getLowHitBooks(20) as any
-      setLowHitBooks(result)
-    } catch (err: any) {
-      toast.error(err.message || '加载失败')
-    } finally { setRagLoading(false) }
-  }
-
-  const handleReEmbedBook = async (bookId: number) => {
-    setRagReEmbedding(bookId)
-    try {
-      const result = await reEmbedBook(bookId) as any
-      if (result.status === 'completed') {
-        toast.success(`已重新向量化，共 ${result.chunks} chunks`)
-      } else {
-        toast.warning('未提取到内容')
-      }
-      await loadLowHitBooks()
-    } catch (err: any) {
-      toast.error(err.message || '重新向量化失败')
-    } finally { setRagReEmbedding(null) }
   }
 
   // ==================== AI 管理员对话 ====================
@@ -704,79 +667,6 @@ export default function AdminBooksPage() {
             </button>
           </div>
 
-          {/* 分隔线 */}
-          <div className="my-4 border-t border-border/50" />
-
-          {/* RAG 向量命中统计 */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50">
-                <Target className="h-5 w-5 text-rose-500" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold">RAG 向量命中统计</h3>
-                <p className="text-xs text-muted-foreground">未命中率高的图书可能存在向量数据缺失</p>
-              </div>
-            </div>
-            <button
-              onClick={loadLowHitBooks}
-              disabled={ragLoading}
-              className="flex items-center gap-1.5 rounded-xl border border-border/50 px-3 py-1.5 text-xs font-medium hover:bg-muted"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${ragLoading ? 'animate-spin' : ''}`} />
-              刷新
-            </button>
-          </div>
-
-          {lowHitBooks.length > 0 ? (
-            <div className="space-y-2 max-h-80 overflow-y-auto overscroll-y-contain">
-              {lowHitBooks.map((item) => (
-                <div key={item.bookId} className="flex items-center gap-3 rounded-xl bg-muted/50 p-3">
-                  {/* 图书信息 */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold">ID {item.bookId}</span>
-                      <span className="rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">
-                        未命中 {(item.missRate * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      共 {item.totalQueries} 次 | 命中 {item.hits} | 未命中 {item.misses}
-                    </div>
-                    {item.firstMissAt && (
-                      <div className="mt-0.5 text-[10px] text-muted-foreground">首次未命中: {item.firstMissAt}</div>
-                    )}
-                  </div>
-                  {/* 操作按钮 */}
-                  <button
-                    onClick={() => handleReEmbedBook(item.bookId)}
-                    disabled={ragReEmbedding === item.bookId}
-                    className="flex items-center gap-1.5 rounded-xl bg-primary/10 px-3 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50"
-                  >
-                    <Zap className={`h-3 w-3 ${ragReEmbedding === item.bookId ? 'animate-pulse' : ''}`} />
-                    {ragReEmbedding === item.bookId ? '重新向量化中...' : '全文重向量'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl bg-muted/30 p-6 text-center">
-              <Target className="mx-auto h-8 w-8 text-muted-foreground/40" />
-              <p className="mt-2 text-xs text-muted-foreground">
-                {ragLoading ? '加载中...' : '暂无低命中率数据'}
-              </p>
-              {!ragLoading && (
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  用户进行图书 AI 问答后会开始统计
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* 自动风控说明 */}
-          <div className="mt-3 rounded-lg bg-amber-50 p-2.5 text-[10px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-            <p className="font-medium">自动风控：未命中率 ≥ 70% 且总查询 ≥ 10 次时，系统自动触发全文重新向量化并清除统计</p>
-          </div>
         </section>
 
         {/* ES 索引管理 */}
