@@ -12,8 +12,14 @@ import java.util.List;
  */
 public interface UserFollowRepository extends JpaRepository<UserFollow, Long> {
 
+    /**
+     * 判断用户是否关注了指定用户
+     */
     boolean existsByFollowerIdAndFollowingId(Long followerId, Long followingId);
 
+    /**
+     * 取消关注指定用户
+     */
     void deleteByFollowerIdAndFollowingId(Long followerId, Long followingId);
 
     /** 查询用户的关注列表（我关注了谁） */

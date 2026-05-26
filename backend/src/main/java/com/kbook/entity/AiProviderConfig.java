@@ -31,6 +31,7 @@ import java.time.LocalDateTime;
 })
 public class AiProviderConfig {
 
+    /** 主键 ID */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -81,17 +82,21 @@ public class AiProviderConfig {
     /** RAG 检索返回的最大片段数（top-k），为空则使用全局默认值 */
     private Integer ragTopK;
 
+    /** 创建时间 */
     @Column(updatable = false)
     private LocalDateTime createdAt;
 
+    /** 更新时间 */
     private LocalDateTime updatedAt;
 
+    /** JPA 持久化前回调，自动设置创建和更新时间 */
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
 
+    /** JPA 更新前回调，自动设置更新时间 */
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();

@@ -132,7 +132,7 @@ public class BookInfoServiceTest {
         int successCount = 0;
         int failCount = 0;
 
-        for (int i = 1900; i < allBooks.size(); i++) {
+        for (int i = 5393; i < allBooks.size(); i++) {
             Book book = allBooks.get(i);
             try {
                 System.out.println("处理第 " + (i + 1) + "/" + allBooks.size() + " 本: [" + book.getId() + "] " + book.getTitle());
@@ -164,8 +164,8 @@ public class BookInfoServiceTest {
                     System.out.println("  简介为占位符文本（正文），需AI补充");
                     needAi = true;
                 } else if (!book.getDescription().matches(".*[\\u4e00-\\u9fa5].*")) {
-                    System.out.println("  简介不包含中文字符，需AI补充");
-                    needAi = true;
+//                    System.out.println("  简介不包含中文字符，需AI补充");
+//                    needAi = true;
                 }
                 book.setDescription(null);
                 if (book.getFormatTags() == null || book.getFormatTags().isBlank()) {

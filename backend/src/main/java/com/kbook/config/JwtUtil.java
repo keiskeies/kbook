@@ -19,15 +19,23 @@ import java.util.Map;
 @Component
 public class JwtUtil {
 
+    /** JWT 签名密钥 */
     @Value("${jwt.secret}")
     private String secret;
 
+    /** Access Token 过期时间（毫秒） */
     @Value("${jwt.access-token-expiration}")
     private long accessTokenExpiration;
 
+    /** Refresh Token 过期时间（毫秒） */
     @Value("${jwt.refresh-token-expiration}")
     private long refreshTokenExpiration;
 
+    /**
+     * 获取 HMAC 签名密钥
+     *
+     * @return SecretKey 实例
+     */
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
@@ -54,6 +62,13 @@ public class JwtUtil {
         ), refreshTokenExpiration);
     }
 
+    /**
+     * 构建 Token 的通用方法
+     *
+     * @param claims     自定义声明
+     * @param expiration 过期时间（毫秒）
+     * @return JWT Token 字符串
+     */
     private String buildToken(Map<String, Object> claims, long expiration) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expiration);

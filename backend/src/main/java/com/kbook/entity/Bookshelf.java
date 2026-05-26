@@ -21,13 +21,16 @@ import java.time.LocalDateTime;
 })
 public class Bookshelf {
 
+    /** 主键 ID */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 用户 ID */
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    /** 图书 ID */
     @Column(name = "book_id", nullable = false)
     private Long bookId;
 
@@ -36,9 +39,11 @@ public class Bookshelf {
     @Builder.Default
     private Integer sortOrder = 0;
 
+    /** 加入书架时间 */
     @Column(name = "added_at", updatable = false)
     private LocalDateTime addedAt;
 
+    /** JPA 持久化前回调，自动设置加入时间 */
     @PrePersist
     protected void onCreate() {
         addedAt = LocalDateTime.now();

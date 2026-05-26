@@ -14,13 +14,17 @@ import java.util.List;
 
 /**
  * 用户关注服务
+ * <p>
+ * 管理用户之间的关注/取关操作，同步更新关注数和粉丝数计数器。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserFollowService {
 
+    /** 用户关注数据仓库 */
     private final UserFollowRepository userFollowRepository;
+    /** 用户数据仓库 */
     private final UserRepository userRepository;
 
     /** 关注用户 */

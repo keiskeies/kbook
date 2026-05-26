@@ -42,6 +42,13 @@ import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.FileImageOutputStream;
 
+/**
+ * 私信聊天服务
+ * <p>
+ * 提供用户之间的即时通讯功能，包括发送文本/图片/语音/文件消息、
+ * 会话管理、消息历史查询、未读计数、文件上传（含图片压缩和视频转码）等。
+ * 陌生人限制：未互关的用户30天内只能发送1条消息。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -56,8 +63,21 @@ public class ChatService {
     private final BookStorageProperties storageProps;
     private final VideoService videoService;
 
+    /** 陌生人消息限制：30天内最多发送条数 */
     private static final int MAX_STRANGER_MESSAGES = 1;
 
+    /**
+     * 发送消息（文本/图片/语音/文件）
+     * @param senderId 发送者ID
+     * @param recipientId 接收者ID
+     * @param content 消息内容
+     * @param messageType 消息类型
+     * @param fileName 文件名（文件消息）
+     * @param fileSize 文件大小（文件消息）
+     * @param fileUrl 文件URL（文件消息）
+     * @param voiceDuration 语音时长（语音消息）
+     * @return 会话视图对象
+     */
     @Transactional
     public ConversationVO sendMessage(Long senderId, Long recipientId, String content, 
                                       ChatMessage.MessageType messageType, String fileName,
@@ -105,12 +125,14 @@ public class ChatService {
         return getConversationVO(conversation, senderId);
     }
 
+    /** 校验用户是否存在 */
     private void validateUserExists(Long userId) {
         if (!userRepository.existsById(userId)) {
             throw new BusinessException("用户不存在");
         }
     }
 
+    /** 陌生人消息限制检查：未互关用户30天内只能发1条消息 */
     private void checkStrangerLimit(Long senderId, Long recipientId) {
         boolean isFollowing = userFollowRepository.existsByFollowerIdAndFollowingId(senderId, recipientId);
         if (isFollowing) {
@@ -124,6 +146,7 @@ public class ChatService {
         }
     }
 
+    /** 获取或创建两个用户之间的会话（user1Id < user2Id 保证唯一性） */
     private Conversation getOrCreateConversation(Long userId1, Long userId2) {
         Long user1Id = Math.min(userId1, userId2);
         Long user2Id = Math.max(userId1, userId2);
@@ -142,6 +165,7 @@ public class ChatService {
                 });
     }
 
+    /** 根据消息类型格式化最后一条消息的显示文本 */
     private String formatLastMessage(ChatMessage message) {
         return switch (message.getMessageType()) {
             case TEXT -> message.getContent();
@@ -151,6 +175,11 @@ public class ChatService {
         };
     }
 
+    /**
+     * 获取用户的所有会话列表
+     * @param userId 用户ID
+     * @return 会话视图对象列表
+     */
     public List<ConversationVO> getConversations(Long userId) {
         List<Conversation> conversations = conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
         return conversations.stream()
@@ -158,6 +187,12 @@ public class ChatService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 搜索用户的会话（按昵称或最后消息内容过滤）
+     * @param userId 用户ID
+     * @param keyword 搜索关键词
+     * @return 匹配的会话视图对象列表
+     */
     public List<ConversationVO> searchConversations(Long userId, String keyword) {
         List<Conversation> conversations = conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
         String lowerKeyword = keyword.toLowerCase();
@@ -168,6 +203,7 @@ public class ChatService {
                 .collect(Collectors.toList());
     }
 
+    /** 将会话实体转换为视图对象，填充对方用户昵称和头像 */
     private ConversationVO getConversationVO(Conversation conversation, Long userId) {
         Long otherUserId = conversation.getUser1Id().equals(userId) ? conversation.getUser2Id() : conversation.getUser1Id();
         User otherUser = userRepository.findById(otherUserId).orElse(null);
@@ -178,6 +214,14 @@ public class ChatService {
         return ConversationVO.fromEntity(conversation, userId, nickname, avatar);
     }
 
+    /**
+     * 获取会话的消息列表（支持分页加载）
+     * @param userId 用户ID
+     * @param conversationId 会话ID
+     * @param beforeId 加载此ID之前的消息（用于向上翻页，null则加载最新）
+     * @param limit 每页数量
+     * @return 消息视图对象列表
+     */
     @Transactional
     public List<ChatMessageVO> getMessages(Long userId, Long conversationId, Long beforeId, int limit) {
         Conversation conversation = conversationRepository.findById(conversationId)
@@ -201,6 +245,11 @@ public class ChatService {
         return messages.stream().map(ChatMessageVO::fromEntity).toList();
     }
 
+    /**
+     * 标记会话中所有消息为已读
+     * @param userId 用户ID
+     * @param conversationId 会话ID
+     */
     @Transactional
     public void markAsRead(Long userId, Long conversationId) {
         Conversation conversation = conversationRepository.findById(conversationId)
@@ -219,6 +268,11 @@ public class ChatService {
         }
     }
 
+    /**
+     * 删除会话（仅对当前用户可见，对方不受影响）
+     * @param userId 用户ID
+     * @param conversationId 会话ID
+     */
     @Transactional
     public void deleteConversation(Long userId, Long conversationId) {
         Conversation conversation = conversationRepository.findById(conversationId)
@@ -233,10 +287,22 @@ public class ChatService {
         }
     }
 
+    /**
+     * 获取用户的未读消息总数
+     * @param userId 用户ID
+     * @return 未读消息数
+     */
     public Long getUnreadCount(Long userId) {
         return conversationRepository.sumUnreadCount(userId);
     }
 
+    /**
+     * 上传聊天文件（图片自动压缩为JPEG，视频可选转码）
+     * @param userId 上传者ID
+     * @param conversationId 会话ID
+     * @param file 上传的文件
+     * @return 文件访问URL
+     */
     public String uploadChatFile(Long userId, Long conversationId, MultipartFile file) throws IOException {
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new BusinessException("会话不存在"));
@@ -378,6 +444,7 @@ public class ChatService {
         return storageProps.getUpload().getChatUrlPrefix() + "/" + conversationId + "/" + filename;
     }
 
+    /** 判断文件类型是否允许上传 */
     private boolean isAllowedFileType(String contentType, String ext) {
         if (contentType != null) {
             if (contentType.startsWith("image/") || contentType.startsWith("audio/") || contentType.startsWith("video/")) {
@@ -418,6 +485,7 @@ public class ChatService {
         return false;
     }
 
+    /** 判断是否为图片文件 */
     private boolean isImageFile(String contentType, String ext) {
         if (contentType != null && contentType.startsWith("image/")) {
             return true;
@@ -431,6 +499,7 @@ public class ChatService {
         return false;
     }
 
+    /** 判断是否为音频文件 */
     private boolean isAudioFile(String contentType, String ext) {
         if (contentType != null && contentType.startsWith("audio/")) {
             return true;
@@ -444,6 +513,7 @@ public class ChatService {
         return false;
     }
 
+    /** 判断是否为视频文件 */
     private boolean isVideoFile(String contentType, String ext) {
         if (contentType != null && contentType.startsWith("video/")) {
             return true;
@@ -457,6 +527,12 @@ public class ChatService {
         return false;
     }
 
+    /**
+     * 获取指定会话信息
+     * @param userId 用户ID
+     * @param conversationId 会话ID
+     * @return 会话视图对象
+     */
     public ConversationVO getConversation(Long userId, Long conversationId) {
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new BusinessException("会话不存在"));
@@ -468,6 +544,12 @@ public class ChatService {
         return getConversationVO(conversation, userId);
     }
 
+    /**
+     * 发起或获取与指定用户的会话
+     * @param userId 当前用户ID
+     * @param recipientId 对方用户ID
+     * @return 会话视图对象
+     */
     public ConversationVO startConversation(Long userId, Long recipientId) {
         validateUserExists(userId);
         validateUserExists(recipientId);

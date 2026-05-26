@@ -76,11 +76,11 @@ export default function BookshelfPage() {
 
   if (loading) {
     return (
-      <div className="px-4 pt-safe-top page-enter">
-        <header className="py-4">
-          <h1 className="text-xl font-bold">我的书架</h1>
+      <div className="min-h-screen px-4 page-enter pb-20">
+        <header className="sticky top-0 z-10 -mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
+          <h1 className="text-lg font-bold">我的书架</h1>
         </header>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 mt-4">
           {Array.from({ length: 4 }, (_, i) => (
             <div key={i} className="aspect-[3/4] w-full rounded-2xl bg-muted animate-pulse" />
           ))}
@@ -91,9 +91,9 @@ export default function BookshelfPage() {
 
   if (items.length === 0) {
     return (
-      <div className="px-4 pt-safe-top page-enter">
-        <header className="py-4">
-          <h1 className="text-xl font-bold">我的书架</h1>
+      <div className="min-h-screen px-4 page-enter pb-20">
+        <header className="-mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
+          <h1 className="text-lg font-bold">我的书架</h1>
         </header>
         <div className="flex h-[60vh] flex-col items-center justify-center">
           <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-muted">
@@ -114,12 +114,12 @@ export default function BookshelfPage() {
   }
 
   return (
-    <div className="px-4 pt-safe-top page-enter">
-      <header className="py-4">
+    <div className="min-h-screen px-4 page-enter pb-20">
+      <header className="sticky top-0 z-10 -mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold">我的书架</h1>
-            <p className="mt-1 text-xs text-muted-foreground font-medium">{items.length} 本{filterFormat ? ` · 筛选 ${formatTag(filterFormat)}` : ''}</p>
+            <h1 className="text-lg font-bold">我的书架</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground font-medium">{items.length} 本{filterFormat ? ` · 筛选 ${formatTag(filterFormat)}` : ''}</p>
           </div>
           <div className="flex items-center gap-2">
             {/* 筛选按钮 */}

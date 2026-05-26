@@ -19,7 +19,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class UserBookPreferenceService {
 
+    /** 用户偏好数据仓库 */
     private final UserBookPreferenceRepository preferenceRepository;
+    /** 推荐服务（偏好变更时触发推荐重算） */
     private final RecommendService recommendService;
 
     /**
@@ -114,6 +116,9 @@ public class UserBookPreferenceService {
 
     // ==================== INCLUDE（喜欢/想看）偏好 ====================
 
+    /**
+     * 添加用户喜欢偏好（想看某类书）
+     */
     @Transactional
     public UserBookPreference addIncludePreference(Long userId, String category, String value) {
         var existing = preferenceRepository.findByUserIdAndCategoryAndValue(userId, category, value);
@@ -134,6 +139,9 @@ public class UserBookPreferenceService {
         return saved;
     }
 
+    /**
+     * 取消喜欢偏好
+     */
     @Transactional
     public boolean removeIncludePreference(Long userId, String category, String value) {
         var existing = preferenceRepository.findByUserIdAndCategoryAndValueAndType(userId, category, value, "INCLUDE");
@@ -147,20 +155,24 @@ public class UserBookPreferenceService {
         return false;
     }
 
+    /** 获取用户所有喜欢偏好 */
     public List<UserBookPreference> getIncludePreferences(Long userId) {
         return preferenceRepository.findByUserIdAndType(userId, "INCLUDE");
     }
 
+    /** 获取用户喜欢的标签列表 */
     public List<String> getIncludedTags(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "INCLUDE")
                 .stream().map(UserBookPreference::getValue).collect(Collectors.toList());
     }
 
+    /** 获取用户喜欢的作者列表 */
     public List<String> getIncludedAuthors(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "INCLUDE")
                 .stream().map(UserBookPreference::getValue).collect(Collectors.toList());
     }
 
+    /** 获取用户喜欢的格式列表 */
     public List<String> getIncludedFormats(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "INCLUDE")
                 .stream().map(UserBookPreference::getValue).collect(Collectors.toList());

@@ -30,11 +30,20 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
+/**
+ * 图书问答服务
+ * <p>
+ * 基于书籍内容的 RAG（检索增强生成）问答服务。
+ * 用户针对某本书提问时，先通过向量检索从书籍内容中获取相关片段，
+ * 再将片段作为上下文交给 AI 生成回答。支持 SSE 流式输出、
+ * 缓存回答复用、按需生成内容向量、深入追问等功能。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class BookChatService {
 
+    /** 会话类型标识：图书问答 */
     private static final String TYPE = "book_chat";
 
     private final EmbeddingService embeddingService;
@@ -48,140 +57,36 @@ public class BookChatService {
     private final QdrantProperties qdrantProperties;
     private final RagHitStatisticsService ragHitStatisticsService;
 
+    /** SSE 异步执行线程池 */
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
-    private static final String CAT_FICTION = "FICTION_LITERATURE";
-    private static final String CAT_EMOTION = "EMOTION_PSYCHOLOGY";
-    private static final String CAT_BUSINESS = "BUSINESS_CAREER";
-    private static final String CAT_HISTORY = "HISTORY_HUMANITIES";
-    private static final String CAT_GROWTH = "GROWTH_EDUCATION";
-    private static final String CAT_HEALTH = "HEALTH_WELLNESS";
-    private static final String CAT_FAMILY = "FAMILY_PARENTING";
-    private static final String CAT_DEFAULT = "DEFAULT";
-
-    private static final Map<String, List<String>> SUGGESTED_QUESTIONS = Map.of(
-            CAT_FICTION, List.of(
-                    "这本书的核心隐喻或象征是什么？作者想通过故事表达什么？",
-                    "主角的性格弧光是如何随着情节演变的？",
-                    "作者如何通过细节描写来烘托故事的氛围？",
-                    "书中的冲突反映了怎样的社会矛盾或人性困境？",
-                    "如果让你给这本书写一个不同的结局，你会怎么设计？",
-                    "这本书的叙事结构（如倒叙、多视角）有什么独特之处？"
-            ),
-            CAT_EMOTION, List.of(
-                    "书中描述的心理机制如何解释我日常的情绪波动？",
-                    "作者提供了哪些改善亲密关系或家庭沟通的实操建议？",
-                    "如何通过书中的方法建立更强大的自我认知和内在安全感？",
-                    "书中提到的心理防御机制在现实生活中有哪些具体表现？",
-                    "面对书中的情感困境，作者认为最关键的破局点是什么？",
-                    "这本书对于'爱自己'和'接纳不完美'有哪些深刻见解？"
-            ),
-            CAT_BUSINESS, List.of(
-                    "书中提到的商业模型在当今市场环境下是否依然有效？",
-                    "作者对于领导力提升或团队管理的核心观点是什么？",
-                    "如何把书中的策略或工具应用到我的具体工作场景中？",
-                    "书中揭示了哪些关于财富积累、投资或避坑的底层逻辑？",
-                    "面对行业变革或职场危机，书中建议我们如何保持竞争力？",
-                    "这本书对于创业者的决策思维或风险控制有什么启发？"
-            ),
-            CAT_HISTORY, List.of(
-                    "这段历史对理解当下的社会问题或国际局势有什么启示？",
-                    "作者是如何客观评价书中关键历史人物的功过是非的？",
-                    "书中探讨的文化根源如何影响了现代人的思维方式和价值观？",
-                    "从历史规律来看，书中提到的社会变革有哪些必然性和偶然性？",
-                    "作者是如何在宏大叙事中展现个体命运的挣扎与抉择的？",
-                    "这本书对于理解不同文明或政治制度的演变有什么帮助？"
-            ),
-            CAT_GROWTH, List.of(
-                    "书中提到的学习方法或思维模型如何落地到我的日常习惯中？",
-                    "作者在个人成长道路上遇到了哪些关键转折点，是如何跨越的？",
-                    "如何通过书中的理念克服拖延、焦虑或自我怀疑？",
-                    "这本书对年轻人的职业规划、目标设定或人生选择有什么建议？",
-                    "书中提到的'成长型思维'具体体现在哪些行动上？",
-                    "面对失败或挫折，书中提供了哪些重建信心的心理建设方法？"
-            ),
-            CAT_HEALTH, List.of(
-                    "书中推荐的养生理念或疗法是否有科学依据或临床支持？",
-                    "如何将书中的饮食建议或运动方案融入我的日常生活节奏？",
-                    "作者对于常见慢性病或亚健康状态的预防调理有什么独到见解？",
-                    "书中提到的身心平衡方法（如冥想、呼吸）具体该如何练习？",
-                    "这本书对于现代人常见的'压力病'或'生活方式病'有哪些预警？",
-                    "作者在中医或自然疗法方面有哪些值得尝试的实用技巧？"
-            ),
-            CAT_FAMILY, List.of(
-                    "书中的教育观念对现代家庭的育儿焦虑有什么缓解作用？",
-                    "作者是如何处理书中复杂的代际冲突或婚姻危机的？",
-                    "如何避免书中提到的育儿误区或过度保护带来的负面影响？",
-                    "书中对于建立高质量亲子关系或伴侣沟通有哪些具体建议？",
-                    "面对孩子的叛逆期或学习压力，书中提供了哪些应对策略？",
-                    "这本书对于平衡家庭责任与个人发展有什么启发？"
-            ),
-            CAT_DEFAULT, List.of(
-                    "这本书主要讲了什么内容？适合哪些读者阅读？",
-                    "作者的核心观点或创作意图是什么？",
-                    "这本书有哪些值得反复阅读的经典段落？",
-                    "与其他同类书籍相比，这本书的独特优势是什么？",
-                    "读完这本书，我最大的收获或改变应该是什么？"
-            )
-    );
-
-    private static final Map<String, String> TAG_CATEGORY_MAP = new HashMap<>();
-    static {
-        List.of("爱情", "悬疑", "奇幻", "冒险", "科幻", "武侠", "推理", "犯罪", "复仇",
-                        "穿越", "宫廷", "权谋", "搞笑", "幽默", "治愈", "孤独", "背叛", "误会",
-                        "命运", "救赎", "伦理", "现实", "文学", "当代文学", "人物", "回忆", "轻松",
-                        "官场", "都市", "战争", "革命")
-                .forEach(t -> TAG_CATEGORY_MAP.put(t, CAT_FICTION));
-
-        List.of("情感", "女性", "心理", "心理学", "自我认知", "心态", "自信", "孤独",
-                        "情绪", "认知", "幸福", "恋爱", "亲情", "友情", "人际", "沟通", "孤独",
-                        "背叛", "误会", "命运", "治愈", "孤独", "情绪", "认知", "个人成长", "人生",
-                        "生活", "幸福", "梦想", "奋斗", "责任", "治愈", "沟通", "人际", "友谊")
-                .forEach(t -> TAG_CATEGORY_MAP.put(t, CAT_EMOTION));
-
-        List.of("职场", "管理", "创业", "商业", "经济", "金融", "理财", "投资", "市场",
-                        "营销", "销售", "品牌", "战略", "领导力", "权力", "成功", "财富", "危机",
-                        "创新")
-                .forEach(t -> TAG_CATEGORY_MAP.put(t, CAT_BUSINESS));
-
-        List.of("历史", "政治", "文化", "社会", "社会学", "哲学", "宗教", "伦理", "中国",
-                        "美国", "战争", "革命", "人性", "权力", "政治", "人物传记")
-                .forEach(t -> TAG_CATEGORY_MAP.put(t, CAT_HISTORY));
-
-        List.of("成长", "校园", "教育", "学习", "青春", "自我认知", "心态", "自信", "孤独",
-                        "情绪", "认知", "个人成长", "人生", "生活", "幸福", "梦想", "奋斗", "责任",
-                        "治愈", "沟通", "人际", "友谊")
-                .forEach(t -> TAG_CATEGORY_MAP.put(t, CAT_GROWTH));
-
-        List.of("健康", "养生", "中医", "饮食", "营养", "疾病", "运动", "时尚")
-                .forEach(t -> TAG_CATEGORY_MAP.put(t, CAT_HEALTH));
-
-        List.of("家庭", "婚姻", "亲子", "家族")
-                .forEach(t -> TAG_CATEGORY_MAP.put(t, CAT_FAMILY));
-    }
-
+    /**
+     * 根据书籍标签获取预设推荐问题
+     * @param book 书籍实体
+     * @return 推荐问题列表
+     */
     private List<String> getSuggestedQuestionsForBook(Book book) {
         if (book.getFormatTags() == null || book.getFormatTags().isBlank()) {
-            return SUGGESTED_QUESTIONS.get(CAT_DEFAULT);
+            return BookTagQuestions.getQuestions(null);
         }
 
         try {
             var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             var tags = mapper.readValue(book.getFormatTags(), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
-
-            for (String tag : tags) {
-                String category = TAG_CATEGORY_MAP.get(tag);
-                if (category != null && SUGGESTED_QUESTIONS.containsKey(category)) {
-                    return SUGGESTED_QUESTIONS.get(category);
-                }
-            }
+            return BookTagQuestions.getQuestions(tags);
         } catch (Exception e) {
             log.debug("解析图书标签失败: bookId={}", book.getId());
         }
 
-        return SUGGESTED_QUESTIONS.get(CAT_DEFAULT);
+        return BookTagQuestions.getQuestions(null);
     }
 
+    /**
+     * 获取图书推荐问题列表
+     * 优先使用已生成的推荐问题，否则基于标签返回预设问题并异步触发生成
+     * @param bookId 书籍ID
+     * @return 推荐问题列表
+     */
     public List<String> getSuggestedQuestions(Long bookId) {
         List<BookSuggestedQuestion> existing = suggestedQuestionRepository.findByBookId(bookId);
         if (!existing.isEmpty()) {
@@ -199,11 +104,12 @@ public class BookChatService {
 
         Book book = bookService.getBookById(bookId);
         if (book == null) {
-            return SUGGESTED_QUESTIONS.get(CAT_DEFAULT);
+            return BookTagQuestions.getQuestions(null);
         }
         return getSuggestedQuestionsForBook(book);
     }
 
+    /** 解析 AI 生成的文本为问题列表（按行分割，去除序号） */
     private List<String> parseQuestions(String text) {
         return Arrays.stream(text.split("\n"))
                 .map(String::trim)
@@ -215,6 +121,7 @@ public class BookChatService {
                 .collect(Collectors.toList());
     }
 
+    /** 从问题池中随机选取最多6个问题 */
     private List<String> getRandomQuestions(List<String> questions) {
         if (questions.size() <= 6) {
             return new ArrayList<>(questions);
@@ -224,6 +131,14 @@ public class BookChatService {
         return shuffled.subList(0, 6);
     }
 
+    /**
+     * SSE 流式图书问答：基于 RAG 检索书籍内容并流式生成回答
+     * @param userId 用户ID
+     * @param bookId 书籍ID
+     * @param question 用户问题
+     * @param sessionId 会话ID（可为空，自动生成）
+     * @return SseEmitter 流式发射器
+     */
     public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId) {
         log.info("========== 图书问答请求 ==========");
         log.info("userId={}, bookId={}, question={}", userId, bookId, question);
@@ -426,6 +341,13 @@ public class BookChatService {
         return emitter;
     }
 
+    /**
+     * 获取图书问答的历史消息
+     * @param userId 用户ID
+     * @param bookId 书籍ID
+     * @param sessionId 会话ID（指定则返回该会话，否则返回最新会话）
+     * @return 对话记录列表
+     */
     public List<AiConversation> getBookChatHistory(Long userId, Long bookId, String sessionId) {
         if (sessionId != null && !sessionId.isBlank()) {
             return conversationRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
@@ -437,10 +359,23 @@ public class BookChatService {
         return conversationRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessions.get(0).getSessionId());
     }
 
+    /**
+     * 获取用户对指定书籍的所有问答会话
+     * @param userId 用户ID
+     * @param bookId 书籍ID
+     * @return 会话列表
+     */
     public List<AiSession> getBookChatSessions(Long userId, Long bookId) {
         return sessionRepository.findByUserIdAndTypeAndBookIdOrderByUpdatedAtDesc(userId, TYPE, bookId);
     }
 
+    /**
+     * 根据已有问答生成深入追问问题
+     * @param bookId 书籍ID
+     * @param question 原始问题
+     * @param answer AI 回答
+     * @return 深入追问问题列表（最多3个）
+     */
     public List<String> generateFollowUpQuestions(Long bookId, String question, String answer) {
         if (answer == null || answer.isBlank() || question == null || question.isBlank()) {
             return Collections.emptyList();
@@ -503,8 +438,16 @@ public class BookChatService {
         return Collections.emptyList();
     }
 
+    /** 历史对话最大轮数（一轮 = 一问一答） */
     private static final int MAX_HISTORY_TURNS = AiPromptConstants.MAX_HISTORY_TURNS;
 
+    /**
+     * 构建包含系统提示词、历史对话和当前问题的完整消息列表
+     * @param sessionId 会话ID
+     * @param userId 用户ID
+     * @param currentPrompt 当前用户提示词
+     * @return 完整的 ChatMessage 列表
+     */
     private List<ChatMessage> buildChatMessages(String sessionId, Long userId, String currentPrompt) {
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(SystemMessage.from(AiPromptConstants.BOOK_CHAT_SYSTEM_PROMPT));
@@ -537,6 +480,13 @@ public class BookChatService {
         return messages;
     }
 
+    /**
+     * RAG 语义检索：从书籍内容向量中检索与问题相关的片段
+     * @param book 书籍实体
+     * @param question 用户问题
+     * @param topK 返回的最大结果数
+     * @return 拼接后的 RAG 上下文文本
+     */
     private String retrieveRagContext(Book book, String question, int topK) {
         if (!embeddingService.isAvailable()) {
             log.debug("Embedding 不可用，跳过 RAG 检索");
@@ -584,6 +534,13 @@ public class BookChatService {
         }
     }
 
+    /**
+     * 构建完整的图书问答提示词，包含书籍信息、RAG 上下文和用户问题
+     * @param book 书籍实体
+     * @param question 用户问题
+     * @param ragContext RAG 检索到的参考内容
+     * @return 完整的提示词文本
+     */
     private String buildPrompt(Book book, String question, String ragContext) {
         StringBuilder sb = new StringBuilder();
 
@@ -631,6 +588,7 @@ public class BookChatService {
         return prompt;
     }
 
+    /** 确保会话记录存在，不存在则自动创建（含 bookId） */
     private void ensureSession(Long userId, String sessionId, String userMessage, Long bookId) {
         sessionRepository.findBySessionId(sessionId).orElseGet(() -> {
             String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
@@ -645,6 +603,7 @@ public class BookChatService {
         });
     }
 
+    /** 更新会话的最后活跃时间 */
     private void updateSessionTimestamp(String sessionId) {
         sessionRepository.findBySessionId(sessionId).ifPresent(session -> {
             session.setUpdatedAt(java.time.LocalDateTime.now());
@@ -652,6 +611,7 @@ public class BookChatService {
         });
     }
 
+    /** 保存图书问答消息记录 */
     private void saveMessage(Long userId, String sessionId, String role, String content, Long bookId,
                              String thinkingContent, String followUpQuestions) {
         try {
@@ -671,6 +631,13 @@ public class BookChatService {
         }
     }
 
+    /**
+     * 保存深入追问问题到最近一条 assistant 消息记录
+     * @param userId 用户ID
+     * @param sessionId 会话ID
+     * @param bookId 书籍ID
+     * @param questions 追问问题列表
+     */
     @org.springframework.transaction.annotation.Transactional
     public void saveFollowUpQuestions(Long userId, String sessionId, Long bookId, List<String> questions) {
         try {

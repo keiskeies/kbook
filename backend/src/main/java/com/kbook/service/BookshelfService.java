@@ -20,16 +20,24 @@ import java.util.stream.Collectors;
 
 /**
  * 书架服务
+ * <p>
+ * 管理用户书架的增删查操作，书架变更时自动清除推荐匹配度缓存。
+ * 书架列表包含图书详情、阅读进度和匹配度得分。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class BookshelfService {
 
+    /** 书架数据仓库 */
     private final BookshelfRepository bookshelfRepository;
+    /** 图书数据仓库 */
     private final BookRepository bookRepository;
+    /** 阅读进度数据仓库 */
     private final ReadingProgressRepository progressRepository;
+    /** 匹配度缓存服务 */
     private final MatchScoreCacheService matchScoreCacheService;
+    /** 推荐服务（用于计算书架书籍的匹配度） */
     private final RecommendService recommendService;
 
     /**

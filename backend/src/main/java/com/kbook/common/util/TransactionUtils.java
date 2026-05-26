@@ -62,6 +62,12 @@ public class TransactionUtils {
         }
     }
 
+    /**
+     * 包装 Runnable，传递 MDC 上下文到异步线程，防止日志追踪信息丢失
+     *
+     * @param runnable 原始 Runnable
+     * @return 包装后的 Runnable
+     */
     private static Runnable wrap(Runnable runnable) {
         Map<String, String> mdcContext = MDC.getCopyOfContextMap();
         return () -> {

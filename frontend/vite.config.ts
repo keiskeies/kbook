@@ -62,9 +62,9 @@ export default defineConfig({
           // 所有后端接口均不通过 SW 缓存，保证数据实时性
           // 接口分为以下几类，全部走 NetworkOnly：
           // 1. 认证接口 /api/auth/* —— 含 Token/密码，不能缓存
-          // 2. 用户私密数据 /api/user/*, /api/bookshelf/*, /api/progress/*, /api/preferences/* —— 用户私有，不能缓存
+          // 2. 用户私密数据 /api/user/*, /api/bookshelf/*, /api/progress/* —— 用户私有，不能缓存
           // 3. 私信聊天 /api/chat/* —— 私密数据，不能缓存
-          // 4. 通知 /api/notifications/* —— 用户私有，不能缓存
+          // 4. 通知 /api/user/notifications/* —— 用户私有，不能缓存
           // 5. AI 对话 /api/ai/* —— 含 SSE 流式和用户历史，不能缓存
           // 6. 推荐 /api/recommend/* —— 用户个性化数据，不能缓存
           // 7. 图书文件 /api/books/{id}/file, /api/books/{id}/text-info —— Range 请求，后端已处理

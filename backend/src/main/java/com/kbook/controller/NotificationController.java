@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  * 通知控制器
  */
 @RestController
-@RequestMapping("/api/notifications")
+@RequestMapping("/api/user/notifications")
 @RequiredArgsConstructor
 public class NotificationController {
 
@@ -65,6 +65,11 @@ public class NotificationController {
 
     // ==================== VO ====================
 
+    /**
+     * 将通知实体转换为 VO
+     * @param n 通知实体
+     * @return 通知 VO
+     */
     private NotificationVO toVO(Notification n) {
         NotificationVO vo = new NotificationVO();
         vo.setId(n.getId());
@@ -77,6 +82,10 @@ public class NotificationController {
         return vo;
     }
 
+    /**
+     * 填充通知 VO 中的触发用户昵称和头像
+     * @param vos 通知 VO 列表
+     */
     private void fillTriggerUser(List<NotificationVO> vos) {
         if (vos == null || vos.isEmpty()) return;
         List<Long> userIds = vos.stream().map(NotificationVO::getTriggerUserId).distinct().toList();

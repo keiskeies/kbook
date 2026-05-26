@@ -8,9 +8,28 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 
+/**
+ * 推荐匹配度计算器
+ * <p>
+ * 根据用户画像（年龄、性别、MBTI、职业、学历、收入、心情等）
+ * 与书籍的相关度得分（relevanceScores）计算匹配度。
+ * <p>
+ * 核心算法：对每个画像维度，从书籍的 relevanceScores 中取对应维度的原始得分，
+ * 通过 Z-Score 标准化后加权求和，再乘以覆盖率因子得到最终匹配分。
+ * 支持邻近维度衰减（如相邻年龄组、相邻MBTI类型等）。
+ */
 @Slf4j
 public class RecommendMatchCalculator {
 
+    /**
+     * 计算用户与书籍的匹配度得分
+     * @param user 用户实体
+     * @param book 书籍实体
+     * @param coefficientService 系数服务
+     * @param objectMapper JSON 解析器
+     * @param statsService 维度统计服务
+     * @return 匹配度得分（0~1+），0 表示无匹配
+     */
     public static double calculateMatchScore(User user, Book book,
                                              RecommendCoefficientService coefficientService,
                                              ObjectMapper objectMapper,
@@ -258,6 +277,13 @@ public class RecommendMatchCalculator {
         }
     }
 
+    /**
+     * 获取指定维度的偏差值（Z-Score 或简单偏差）
+     * @param statsService 维度统计服务（可为null）
+     * @param key 维度键名
+     * @param scores 书籍的 relevanceScores JSON
+     * @return 偏差值
+     */
     private static double getDeviation(DimensionStatsService statsService, String key, JsonNode scores) {
         if (!scores.has(key)) return 0.0;
         double rawScore = scores.get(key).asDouble();
@@ -267,6 +293,7 @@ public class RecommendMatchCalculator {
         return rawScore - 0.5;
     }
 
+    /** 将年龄转换为年龄组标签 */
     static String getAgeGroup(int age) {
         if (age < 10) return "0-9";
         if (age < 20) return "10-19";
@@ -277,6 +304,7 @@ public class RecommendMatchCalculator {
         return "60+";
     }
 
+    /** 获取相邻年龄组标签（direction: -1=前一组, 1=后一组） */
     static String getAdjacentAgeGroup(int age, int direction) {
         int[] boundaries = {0, 10, 20, 30, 40, 50, 60, Integer.MAX_VALUE};
         int currentIdx = -1;
@@ -292,6 +320,7 @@ public class RecommendMatchCalculator {
         return getAgeGroup(boundaries[adjacentIdx]);
     }
 
+    /** 获取 MBTI 的邻近类型（翻转每个字母得到4个邻近类型） */
     static List<String> getAdjacentMbti(String mbti) {
         if (mbti == null || mbti.length() != 4) return List.of();
         List<String> adjacent = new java.util.ArrayList<>();
@@ -310,6 +339,7 @@ public class RecommendMatchCalculator {
         return adjacent;
     }
 
+    /** 获取职业的邻近职业映射 */
     static List<String> getAdjacentOccupations(String occupation) {
         return switch (occupation.toLowerCase()) {
             case "student" -> List.of("education");
@@ -326,6 +356,7 @@ public class RecommendMatchCalculator {
         };
     }
 
+    /** 获取学历的邻近学历映射 */
     static List<String> getAdjacentEducations(String education) {
         return switch (education.toLowerCase()) {
             case "high_school" -> List.of("college");
@@ -338,6 +369,7 @@ public class RecommendMatchCalculator {
         };
     }
 
+    /** 获取收入区间的邻近收入映射 */
     static List<String> getAdjacentIncomes(String income) {
         return switch (income.toLowerCase()) {
             case "under_50k" -> List.of("50k_150k");
@@ -350,6 +382,7 @@ public class RecommendMatchCalculator {
         };
     }
 
+    /** 获取心情的相关心情映射 */
     static List<String> getRelatedMoods(String mood) {
         return switch (mood.toLowerCase()) {
             case "happy" -> List.of("motivated", "calm");
@@ -362,6 +395,7 @@ public class RecommendMatchCalculator {
         };
     }
 
+    /** 获取职业的中文标签 */
     public static String getOccupationLabel(String occupation) {
         if (occupation == null) return "";
         return switch (occupation.toUpperCase()) {
@@ -379,6 +413,7 @@ public class RecommendMatchCalculator {
         };
     }
 
+    /** 获取学历的中文标签 */
     public static String getEducationLabel(String education) {
         if (education == null) return "";
         return switch (education.toUpperCase()) {
@@ -392,6 +427,7 @@ public class RecommendMatchCalculator {
         };
     }
 
+    /** 获取心情的中文标签 */
     public static String getMoodLabel(String mood) {
         if (mood == null) return "";
         return switch (mood.toUpperCase()) {
@@ -406,6 +442,7 @@ public class RecommendMatchCalculator {
         };
     }
 
+    /** 获取创业意向的中文标签 */
     public static String getEntrepreneurshipLabel(String entrepreneurship) {
         if (entrepreneurship == null) return "";
         return switch (entrepreneurship.toUpperCase()) {
@@ -415,6 +452,7 @@ public class RecommendMatchCalculator {
         };
     }
 
+    /** 获取年收入区间的中文标签 */
     public static String getAnnualIncomeLabel(String annualIncome) {
         if (annualIncome == null) return "";
         return switch (annualIncome.toUpperCase()) {

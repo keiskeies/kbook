@@ -24,10 +24,20 @@ import org.springframework.context.annotation.Primary;
 @Configuration
 public class LangChain4jConfig {
 
+    /** AI 对话记忆存储 */
     private final AiChatMemory chatMemoryStore;
+    /** AI 工具服务（使用 ObjectProvider 延迟加载，避免循环依赖） */
     private final ObjectProvider<AiToolService> toolServiceProvider;
+    /** 聊天模型工厂 */
     private final ChatModelFactory chatModelFactory;
 
+    /**
+     * 构造函数
+     *
+     * @param chatMemoryStore    AI 对话记忆存储
+     * @param toolServiceProvider AI 工具服务提供者（延迟加载）
+     * @param chatModelFactory   聊天模型工厂
+     */
     public LangChain4jConfig(
             AiChatMemory chatMemoryStore,
             ObjectProvider<AiToolService> toolServiceProvider,
@@ -38,6 +48,14 @@ public class LangChain4jConfig {
         this.chatModelFactory = chatModelFactory;
     }
 
+    /**
+     * 创建默认 AiAssistant Bean（兜底实例）
+     * <p>
+     * 使用 yml 默认配置构建，带滑动窗口记忆和工具调用能力。
+     * 实际对话通过 AiProviderConfigService 获取动态配置的 Assistant。
+     *
+     * @return AiAssistant 实例
+     */
     @Bean
     @Primary
     public AiAssistant aiAssistant() {

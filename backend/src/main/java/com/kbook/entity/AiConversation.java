@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 })
 public class AiConversation {
 
+    /** 主键 ID */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -40,9 +41,11 @@ public class AiConversation {
     @Column(name = "session_id", nullable = false, length = 100)
     private String sessionId;
 
+    /** 对话类型：CHAT(通用对话) / BOOK(图书问答) / LIBRARIAN(图书管理员) */
     @Column(length = 20)
     private String type;
 
+    /** 关联图书 ID（图书问答时非空） */
     @Column(name = "book_id")
     private Long bookId;
 
@@ -58,9 +61,11 @@ public class AiConversation {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
+    /** 思考过程内容（支持思维链的模型返回） */
     @Column(name = "thinking_content", columnDefinition = "TEXT")
     private String thinkingContent;
 
+    /** AI 推荐的后续追问（JSON 数组） */
     @Column(name = "follow_up_questions", columnDefinition = "TEXT")
     private String followUpQuestions;
 
@@ -82,9 +87,11 @@ public class AiConversation {
     @Column(name = "token_count")
     private Integer tokenCount;
 
+    /** 创建时间 */
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    /** JPA 持久化前回调，自动设置创建时间 */
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

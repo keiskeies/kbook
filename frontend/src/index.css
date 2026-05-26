@@ -5,7 +5,7 @@
 @layer base {
   :root {
     /* 品牌靛蓝色调 — 温暖、文艺、阅读感 */
-    --background: 220 20% 96%;
+    --background: 220 20% 92%;
     --foreground: 224 25% 12%;
     --card: 0 0% 100%;
     --card-foreground: 224 25% 12%;
@@ -38,9 +38,9 @@
   .dark {
     --background: 224 25% 4.5%;
     --foreground: 220 15% 92%;
-    --card: 224 20% 10%;
+    --card: 224 20% 12%;
     --card-foreground: 220 15% 92%;
-    --popover: 224 20% 10%;
+    --popover: 224 20% 12%;
     --popover-foreground: 220 15% 92%;
     --primary: 230 65% 58%;
     --primary-foreground: 0 0% 100%;

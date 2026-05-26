@@ -27,25 +27,36 @@ public class BookStorageProperties {
     /** 视频处理配置 */
     private VideoConfig video = new VideoConfig();
 
+    /** 图书文件存储路径 */
     @Data
     public static class BookPaths {
+        /** EPUB 文件存储路径 */
         private String epub = "";
+        /** PDF 文件存储路径 */
         private String pdf = "";
+        /** TXT 文件存储路径 */
         private String txt = "";
     }
 
+    /** 上传文件配置 */
     @Data
     public static class UploadConfig {
+        /** 头像文件存储目录 */
         private String avatarDir = "./uploads/avatars";
-        private String avatarUrlPrefix = "/api/uploads/avatars";
+        /** 头像访问 URL 前缀 */
+        private String avatarUrlPrefix = "/api/user/avatar";
+        /** 聊天文件存储目录 */
         private String chatDir = "./uploads/chat";
-        private String chatUrlPrefix = "/api/uploads/chat";
+        /** 聊天文件访问 URL 前缀 */
+        private String chatUrlPrefix = "/api/chat/files";
     }
 
+    /** 扫描配置（预留扩展） */
     @Data
     public static class ScanConfig {
     }
 
+    /** 视频处理配置 */
     @Data
     public static class VideoConfig {
         /** FFmpeg 可执行文件路径 */

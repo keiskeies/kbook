@@ -14,26 +14,37 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "langchain4j.ollama")
 public class AiModelProperties {
 
+    /** 聊天模型配置 */
     private ChatModelConfig chatModel = new ChatModelConfig();
+    /** 嵌入模型配置 */
     private EmbeddingModelConfig embeddingModel = new EmbeddingModelConfig();
 
     /** AI 视觉模型配置（PDF OCR 用） */
     private VisionConfig vision = new VisionConfig();
 
+    /** 聊天模型配置 */
     @Data
     public static class ChatModelConfig {
+        /** Ollama 服务地址 */
         private String baseUrl = "http://localhost:11434";
+        /** 聊天模型名称 */
         private String modelName = "gemma3n:e4b";
+        /** 温度参数（控制生成随机性，0-2） */
         private double temperature = 0.7;
+        /** 请求超时时间 */
         private Duration timeout = Duration.ofSeconds(120);
         /** 是否启用 Tool Calling（部分模型如 gemma3n 不支持 tools）。null=自动检测 */
         private Boolean toolsEnabled;
     }
 
+    /** 嵌入模型配置 */
     @Data
     public static class EmbeddingModelConfig {
+        /** Ollama 服务地址 */
         private String baseUrl = "http://localhost:11434";
+        /** 嵌入模型名称 */
         private String modelName = "qwen3-embedding:0.6b";
+        /** 请求超时时间 */
         private Duration timeout = Duration.ofSeconds(300);
     }
 

@@ -13,10 +13,19 @@ import java.util.Optional;
  */
 public interface UserReadHistoryRepository extends JpaRepository<UserReadHistory, Long> {
 
+    /**
+     * 查询用户的所有阅读历史记录
+     */
     List<UserReadHistory> findByUserId(Long userId);
 
+    /**
+     * 按用户和行为类型查询阅读历史记录
+     */
     List<UserReadHistory> findByUserIdAndAction(Long userId, String action);
 
+    /**
+     * 查询用户对指定图书的特定行为记录
+     */
     Optional<UserReadHistory> findByUserIdAndBookIdAndAction(Long userId, Long bookId, String action);
 
     /**

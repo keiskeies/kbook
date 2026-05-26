@@ -47,7 +47,7 @@ export function getConversation(conversationId: number) {
 }
 
 export function startConversation(recipientId: number) {
-  return request.post<ConversationVO>(`/chat/conversations/${recipientId}`)
+  return request.post<ConversationVO>('/chat/conversations', null, { params: { recipientId } })
 }
 
 export function getMessages(conversationId: number, beforeId: number | null | undefined, limit: number = 20): Promise<ChatMessageVO[]> {
@@ -74,7 +74,7 @@ export function sendMessage(recipientId: number, content: string, messageType: s
 }
 
 export function markAsRead(conversationId: number) {
-  return request.post(`/chat/conversations/${conversationId}/mark-read`)
+  return request.put(`/chat/conversations/${conversationId}/read`)
 }
 
 export function deleteConversation(conversationId: number) {
@@ -88,7 +88,8 @@ export function getUnreadCount() {
 export function uploadChatFile(file: File, conversationId: number) {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post<UploadResult>(`/chat/upload?conversationId=${conversationId}`, formData, {
+  return request.post<UploadResult>('/chat/files', formData, {
+    params: { conversationId },
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 300000,
   })

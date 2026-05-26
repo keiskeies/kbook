@@ -21,19 +21,24 @@ import java.time.LocalDateTime;
 })
 public class CommentLike {
 
+    /** 主键 ID */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 评论 ID */
     @Column(name = "comment_id", nullable = false)
     private Long commentId;
 
+    /** 点赞用户 ID */
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    /** 创建时间 */
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    /** JPA 持久化前回调，自动设置创建时间 */
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

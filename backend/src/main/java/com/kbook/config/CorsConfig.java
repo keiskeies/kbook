@@ -14,6 +14,14 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
+    /**
+     * 配置跨域过滤器
+     * <p>
+     * 允许所有来源、常用 HTTP 方法、所有请求头，支持携带凭证。
+     * 预检请求缓存 1 小时。
+     *
+     * @return CorsFilter 实例
+     */
     @Bean
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();

@@ -13,6 +13,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 维度统计服务
+ * <p>
+ * 计算并缓存书籍相关度得分（relevanceScores）各维度的均值和标准差，
+ * 用于推荐匹配度计算中的 Z-Score 标准化。每小时自动刷新一次。
+ */
 @Slf4j
 @Service
 public class DimensionStatsService {
@@ -20,8 +26,11 @@ public class DimensionStatsService {
     private final BookRepository bookRepository;
     private final ObjectMapper objectMapper;
 
+    /** 各维度的均值 */
     private volatile Map<String, Double> dimensionMeans = new ConcurrentHashMap<>();
+    /** 各维度的标准差 */
     private volatile Map<String, Double> dimensionStddevs = new ConcurrentHashMap<>();
+    /** 数据是否已加载 */
     private volatile boolean loaded = false;
 
     public DimensionStatsService(BookRepository bookRepository, ObjectMapper objectMapper) {
@@ -29,6 +38,7 @@ public class DimensionStatsService {
         this.objectMapper = objectMapper;
     }
 
+    /** 确保统计数据已加载（双重检查锁的懒加载模式） */
     public void ensureLoaded() {
         if (!loaded) {
             synchronized (this) {
@@ -39,6 +49,9 @@ public class DimensionStatsService {
         }
     }
 
+    /**
+     * 刷新维度统计：遍历所有书籍的 relevanceScores，计算各维度均值和标准差
+     */
     @Scheduled(fixedDelay = 3600_000)
     public void refresh() {
         try {
@@ -88,16 +101,32 @@ public class DimensionStatsService {
         }
     }
 
+    /**
+     * 获取指定维度的均值
+     * @param dimensionKey 维度键名
+     * @return 均值，未加载时默认0.5
+     */
     public double getMean(String dimensionKey) {
         ensureLoaded();
         return dimensionMeans.getOrDefault(dimensionKey, 0.5);
     }
 
+    /**
+     * 获取指定维度的标准差
+     * @param dimensionKey 维度键名
+     * @return 标准差，未加载时默认0.15
+     */
     public double getStddev(String dimensionKey) {
         ensureLoaded();
         return dimensionStddevs.getOrDefault(dimensionKey, 0.15);
     }
 
+    /**
+     * 计算指定维度的 Z-Score 标准分
+     * @param dimensionKey 维度键名
+     * @param rawScore 原始得分
+     * @return Z-Score 值
+     */
     public double getZScore(String dimensionKey, double rawScore) {
         double mean = getMean(dimensionKey);
         double stddev = getStddev(dimensionKey);

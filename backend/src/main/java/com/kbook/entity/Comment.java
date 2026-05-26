@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 })
 public class Comment {
 
+    /** 主键 ID */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -64,18 +65,22 @@ public class Comment {
     @Builder.Default
     private Integer favoriteCount = 0;
 
+    /** 创建时间 */
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    /** 更新时间 */
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    /** JPA 持久化前回调，自动设置创建和更新时间 */
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
 
+    /** JPA 更新前回调，自动设置更新时间 */
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();

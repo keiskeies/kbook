@@ -293,7 +293,7 @@ export default function AIPage() {
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-background">
-      <header className="flex shrink-0 items-center border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
+      <header className="relative z-10 flex shrink-0 items-center border-b border-border/50 bg-background/80 px-4 pt-safe-top pb-3 backdrop-blur-xl">
         <button
           onClick={() => setShowSidebar(!showSidebar)}
           className="mr-3 flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
@@ -312,7 +312,7 @@ export default function AIPage() {
         </button>
       </header>
 
-      <div className="relative flex flex-1 overflow-hidden">
+      <div className="relative -mt-12 flex-1 overflow-hidden">
         {showSidebar && (
           <div
             className="absolute inset-0 z-20 bg-black/30"
@@ -366,7 +366,7 @@ export default function AIPage() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="h-full overflow-y-auto overscroll-y-contain px-4 pt-12 pb-4">
           {messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
@@ -425,7 +425,7 @@ export default function AIPage() {
                       className={`rounded-2xl px-4 py-2.5 text-sm ${
                         msg.role === 'user'
                           ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted'
+                          : 'bg-card border border-border/40'
                       }`}
                     >
                       {msg.role === 'user' ? (

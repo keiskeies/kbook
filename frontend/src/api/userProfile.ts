@@ -37,20 +37,20 @@ export interface UserBooksVO {
 
 /** 获取用户主页 */
 export function getUserProfile(userId: number) {
-  return request.get<UserProfileVO>(`/user-profile/${userId}`)
+  return request.get<UserProfileVO>(`/user/${userId}/profile`)
 }
 
 /** 获取用户书籍 */
 export function getUserBooks(userId: number) {
-  return request.get<UserBooksVO>(`/user-profile/${userId}/books`)
+  return request.get<UserBooksVO>(`/user/${userId}/books`)
 }
 
 /** 获取用户书评 */
 export function getUserComments(userId: number, page = 1, size = 10) {
-  return request.get<PageResult<CommentVO>>(`/user-profile/${userId}/comments`, { params: { page, size } })
+  return request.get<PageResult<CommentVO>>(`/user/${userId}/comments`, { params: { page, size } })
 }
 
 /** 更新简介 */
 export function updateBio(bio: string) {
-  return request.put('/user-profile/bio', { bio })
+  return request.put('/user/profile/bio', { bio })
 }

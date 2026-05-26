@@ -116,6 +116,11 @@ public class BookFileController {
         return Result.ok(resp);
     }
 
+    /**
+     * 根据图书格式返回对应的 Content-Type
+     * @param format 图书格式（PDF/EPUB/TXT）
+     * @return MIME 类型字符串
+     */
     private String getContentType(String format) {
         return switch (format) {
             case "PDF" -> "application/pdf";

@@ -33,7 +33,7 @@ export function fetchWithAuth(url: string): Promise<Response> {
 
 /**
  * 将原始文件 URL 转换为缩略图 URL（图片）
- * 例: /api/uploads/chat/abc.png → /api/uploads/chat/abc_thumbnail.png
+ * 例: /api/chat/files/abc.png → /api/chat/files/abc_thumbnail.png
  */
 export function getThumbnailUrl(url: string): string {
   const dotIndex = url.lastIndexOf('.')
@@ -43,7 +43,7 @@ export function getThumbnailUrl(url: string): string {
 
 /**
  * 将视频文件 URL 转换为缩略图 URL
- * 例: /api/uploads/chat/abc.mp4 → /api/uploads/chat/abc_thumb.jpg
+ * 例: /api/chat/files/abc.mp4 → /api/chat/files/abc_thumb.jpg
  */
 export function getVideoThumbnailUrl(url: string): string {
   const dotIndex = url.lastIndexOf('.')

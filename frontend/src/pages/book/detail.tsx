@@ -10,6 +10,7 @@ import type { CommentVO } from '@/api/comment'
 import { formatProgress, formatFileSize, parseFormatTags } from '@/types/book'
 import CommentList from '@/components/comment/CommentList'
 import BookChatSheet from '@/components/book/BookChatSheet'
+import { BlinkingBot } from '@/components/layout/TabBar'
 import BookCover from '@/components/book/BookCover'
 import ImageViewer from '@/components/common/ImageViewer'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -664,7 +665,7 @@ export default function BookDetailPage() {
             onClick={() => setShowBookChat(true)}
             className="flex h-11 w-14 flex-col items-center justify-center rounded-2xl bg-accent text-[10px] font-medium text-accent-foreground transition-all active:scale-[0.97] leading-none gap-1"
           >
-            <Sparkles className="h-4 w-4" />
+            <BlinkingBot className="h-4 w-4" />
             <span>AI 问答</span>
           </button>
 

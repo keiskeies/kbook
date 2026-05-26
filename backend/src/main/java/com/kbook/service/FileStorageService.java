@@ -16,6 +16,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+/**
+ * 文件存储服务
+ * <p>
+ * 负责聊天文件的访问控制与读取。用户只能访问自己上传的文件，
+ * 或自己参与的会话中他人上传的文件。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -25,6 +31,12 @@ public class FileStorageService {
     private final ChatMessageRepository chatMessageRepository;
     private final BookStorageProperties storageProps;
 
+    /**
+     * 提供聊天文件的访问（含权限校验）
+     * @param requestingUserId 请求者用户ID
+     * @param filename 文件名
+     * @return 文件资源
+     */
     @Transactional(readOnly = true)
     public Resource serveChatFile(Long requestingUserId, String filename) {
         UploadedFile file = uploadedFileRepository.findByFilename(filename)
@@ -46,6 +58,7 @@ public class FileStorageService {
         return loadFileResource(file.getFilePath());
     }
 
+    /** 从磁盘加载文件为 Resource */
     private Resource loadFileResource(String filePath) {
         Path path = Paths.get(filePath);
         if (!Files.exists(path) || !Files.isRegularFile(path)) {

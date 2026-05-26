@@ -9,7 +9,7 @@ import {
   deleteAiConfig,
   switchDefaultConfig,
   testAiConfig,
-  AI_PROVIDER_PRESETS,
+  fetchProviderPresets,
   type AiProviderConfig,
   type AiProviderPreset,
 } from '@/api/aiConfig'
@@ -23,6 +23,7 @@ const CHAT_PURPOSE = 'CHAT'
 export default function AiConfigPage() {
   const navigate = useNavigate()
   const [configs, setConfigs] = useState<AiProviderConfig[]>([])
+  const [presets, setPresets] = useState<AiProviderPreset[]>([])
   const [loading, setLoading] = useState(true)
   const [showPresets, setShowPresets] = useState(false)
   const [regionFilter, setRegionFilter] = useState<'ALL' | 'CN' | 'GLOBAL'>('ALL')
@@ -48,11 +49,17 @@ export default function AiConfigPage() {
   })
 
   const filteredPresets = useMemo(() => {
-    if (regionFilter === 'ALL') return AI_PROVIDER_PRESETS
-    return AI_PROVIDER_PRESETS.filter((p) => p.region === regionFilter)
-  }, [regionFilter])
-  useMemo(() => AI_PROVIDER_PRESETS.filter((p) => p.region === 'CN'), []);
-  useMemo(() => AI_PROVIDER_PRESETS.filter((p) => p.region === 'GLOBAL'), []);
+    if (regionFilter === 'ALL') return presets
+    return presets.filter((p) => p.region === regionFilter)
+  }, [regionFilter, presets])
+  const loadPresets = useCallback(async () => {
+    try {
+      const data = await fetchProviderPresets()
+      setPresets(Array.isArray(data) ? data : [])
+    } catch {
+      setPresets([])
+    }
+  }, [])
   const loadConfigs = useCallback(async () => {
     try {
       setLoading(true)
@@ -66,8 +73,9 @@ export default function AiConfigPage() {
   }, [])
 
   useEffect(() => {
+    loadPresets()
     loadConfigs()
-  }, [loadConfigs])
+  }, [loadPresets, loadConfigs])
 
   const resetForm = () => {
     setForm({
@@ -194,8 +202,8 @@ export default function AiConfigPage() {
   }
 
   const currentPreset = useMemo(
-    () => AI_PROVIDER_PRESETS.find((p) => p.baseUrl === form.baseUrl),
-    [form.baseUrl]
+    () => presets.find((p) => p.baseUrl === form.baseUrl),
+    [form.baseUrl, presets]
   )
   configs.find((c) => c.isDefault);
   return (

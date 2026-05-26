@@ -21,6 +21,7 @@ import org.springframework.data.elasticsearch.annotations.Setting;
 @Setting(replicas = 0)
 public class BookDocument {
 
+    /** 图书 ID */
     @Id
     private Long id;
 

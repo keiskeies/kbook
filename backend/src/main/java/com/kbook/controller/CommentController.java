@@ -135,6 +135,10 @@ public class CommentController {
 
     // ==================== 辅助方法 ====================
 
+    /**
+     * 填充评论 VO 中的用户昵称/头像和图书标题/封面信息
+     * @param comments 评论 VO 列表
+     */
     private void fillUserInfo(List<CommentVO> comments) {
         if (comments == null || comments.isEmpty()) return;
         // 用户信息

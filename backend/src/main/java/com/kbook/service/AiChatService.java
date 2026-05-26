@@ -25,11 +25,19 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * AI 通用对话服务
+ * <p>
+ * 负责用户与 AI 助理的通用对话功能，包括会话管理、消息持久化、
+ * 非流式对话和 SSE 流式对话。对话上下文通过 AiChatMemory 管理，
+ * 消息记录持久化到 AiConversation 表。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiChatService {
 
+    /** 会话类型标识：通用助理 */
     private static final String TYPE = "assistant";
 
     private final AiConversationRepository conversationRepository;
@@ -37,8 +45,14 @@ public class AiChatService {
     private final AiProviderConfigService providerConfigService;
     private final AiChatMemory chatMemoryStore;
 
+    /** SSE 异步执行线程池 */
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
+    /**
+     * 创建新的对话会话，并初始化 SystemMessage 到 ChatMemory
+     * @param userId 用户ID
+     * @return 新创建的会话ID
+     */
     public String createSession(Long userId) {
         String sessionId = UUID.randomUUID().toString();
         try {
@@ -56,6 +70,13 @@ public class AiChatService {
         return sessionId;
     }
 
+    /**
+     * 非流式对话：发送消息并等待完整响应
+     * @param userId 用户ID
+     * @param sessionId 会话ID
+     * @param userMessage 用户消息内容
+     * @return AI 回复文本
+     */
     @Transactional
     public String chat(Long userId, String sessionId, String userMessage) {
         log.info("========== AI 对话请求 ==========");
@@ -133,6 +154,13 @@ public class AiChatService {
         }
     }
 
+    /**
+     * SSE 流式对话：发送消息并通过 SSE 逐 token 推送响应
+     * @param userId 用户ID
+     * @param sessionId 会话ID
+     * @param userMessage 用户消息内容
+     * @return SseEmitter 流式发射器
+     */
     public SseEmitter streamChat(Long userId, String sessionId, String userMessage) {
         log.info("========== AI 流式对话请求 ==========");
         log.info("用户ID: {}", userId);
@@ -303,20 +331,37 @@ public class AiChatService {
         return emitter;
     }
 
+    /**
+     * 获取指定会话的历史消息列表
+     * @param userId 用户ID
+     * @param sessionId 会话ID
+     * @return 按时间升序排列的对话记录
+     */
     public List<AiConversation> getHistory(Long userId, String sessionId) {
         return conversationRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
     }
 
+    /**
+     * 获取用户的所有通用对话会话列表
+     * @param userId 用户ID
+     * @return 按更新时间降序排列的会话列表
+     */
     public List<AiSession> getSessions(Long userId) {
         return sessionRepository.findByUserIdAndTypeOrderByUpdatedAtDesc(userId, TYPE);
     }
 
+    /**
+     * 删除指定会话及其所有消息记录
+     * @param userId 用户ID
+     * @param sessionId 会话ID
+     */
     @Transactional
     public void deleteSession(Long userId, String sessionId) {
         conversationRepository.deleteByUserIdAndSessionId(userId, sessionId);
         sessionRepository.deleteByUserIdAndSessionId(userId, sessionId);
     }
 
+    /** 确保会话记录存在，不存在则自动创建 */
     private void ensureSession(Long userId, String sessionId, String userMessage) {
         sessionRepository.findBySessionId(sessionId).orElseGet(() -> {
             String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
@@ -330,6 +375,7 @@ public class AiChatService {
         });
     }
 
+    /** 更新会话的最后活跃时间 */
     private void updateSessionTimestamp(String sessionId) {
         sessionRepository.findBySessionId(sessionId).ifPresent(session -> {
             session.setUpdatedAt(java.time.LocalDateTime.now());
@@ -337,10 +383,12 @@ public class AiChatService {
         });
     }
 
+    /** 保存消息记录（无思考内容） */
     private void saveMessage(Long userId, String sessionId, String role, String content) {
         saveMessage(userId, sessionId, role, content, null);
     }
 
+    /** 保存消息记录（含思考内容） */
     private void saveMessage(Long userId, String sessionId, String role, String content, String thinkingContent) {
         AiConversation record = AiConversation.builder()
                 .userId(userId)
@@ -353,6 +401,7 @@ public class AiChatService {
         conversationRepository.save(record);
     }
 
+    /** 判断异常是否为 Connection reset，用于自动重试决策 */
     private boolean isConnectionReset(Throwable error) {
         if (error == null) return false;
         String msg = error.getMessage();

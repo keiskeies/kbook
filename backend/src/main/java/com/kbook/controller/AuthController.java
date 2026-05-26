@@ -32,8 +32,7 @@ public class AuthController {
 
     /**
      * 发送验证码
-     * @param scene 场景：register | login | reset
-     * @param captchaId 滑动验证码ID
+     * @param req 场景：register | login | reset
      */
     @PostMapping("/send-code")
     public Result<Void> sendCode(@RequestBody @Validated AuthSendCodeRequest req) {
@@ -105,6 +104,11 @@ public class AuthController {
         return Result.ok();
     }
 
+    /**
+     * 从请求头中提取 Bearer Token
+     * @param request HTTP 请求
+     * @return Token 字符串，若无则返回 null
+     */
     private String extractToken(HttpServletRequest request) {
         String bearerToken = request.getHeader("Authorization");
         if (bearerToken != null && bearerToken.startsWith("Bearer ")) {

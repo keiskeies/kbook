@@ -31,6 +31,7 @@ import java.time.LocalDateTime;
 })
 public class RecommendCoefficient {
 
+    /** 主键 ID */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -72,11 +73,13 @@ public class RecommendCoefficient {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    /** JPA 持久化前回调，自动设置更新时间 */
     @PrePersist
     protected void onCreate() {
         updatedAt = LocalDateTime.now();
     }
 
+    /** JPA 更新前回调，自动设置更新时间 */
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();

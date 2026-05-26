@@ -28,12 +28,19 @@ import java.util.List;
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    /** JWT 工具类 */
     private final JwtUtil jwtUtil;
+    /** JSON 序列化工具 */
     private final ObjectMapper objectMapper;
+    /** Redis 模板（用于 Token 黑名单检查） */
     private final StringRedisTemplate redisTemplate;
 
+    /** Token 黑名单 Redis Key 前缀 */
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
 
+    /**
+     * 过滤器核心逻辑 — 提取并校验 JWT Token，设置安全上下文
+     */
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
@@ -76,10 +83,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    /**
+     * 检查 Token 是否在黑名单中（用户已登出）
+     *
+     * @param token JWT Token
+     * @return true-已黑名单, false-未黑名单
+     */
     private boolean isTokenBlacklisted(String token) {
         return Boolean.TRUE.equals(redisTemplate.hasKey(TOKEN_BLACKLIST_PREFIX + token));
     }
 
+    /**
+     * 从请求中提取 JWT Token
+     * <p>
+     * 优先从 Authorization 头提取，其次从 query 参数提取（用于浏览器可缓存的文件请求）
+     *
+     * @param request HTTP 请求
+     * @return Token 字符串，不存在则返回 null
+     */
     private String extractToken(HttpServletRequest request) {
         String bearerToken = request.getHeader("Authorization");
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
@@ -93,6 +114,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return null;
     }
 
+    /**
+     * 发送 401 未认证错误响应
+     *
+     * @param response HTTP 响应
+     * @param message  错误信息
+     */
     private void sendErrorResponse(HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json;charset=UTF-8");

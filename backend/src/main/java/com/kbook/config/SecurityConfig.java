@@ -28,9 +28,17 @@ import org.springframework.web.filter.CorsFilter;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    /** JWT 认证过滤器 */
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    /** 跨域过滤器 */
     private final CorsFilter corsFilter;
 
+    /**
+     * 配置安全过滤链 — JWT 无状态认证 + 接口权限控制
+     *
+     * @param http HttpSecurity 构建器
+     * @return SecurityFilterChain 实例
+     */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -67,20 +75,15 @@ public class SecurityConfig {
                 // 接口权限配置（注意：规则按从上到下顺序匹配，第一个匹配的规则生效）
                 .authorizeHttpRequests(auth -> auth
                         // ===== 公开接口（无需认证）=====
-                        // 健康检查
                         .requestMatchers("/api/health").permitAll()
-                        // 认证相关公开接口
                         .requestMatchers("/api/auth/send-code").permitAll()
                         .requestMatchers("/api/auth/login/**").permitAll()
                         .requestMatchers("/api/auth/register").permitAll()
                         .requestMatchers("/api/auth/refresh").permitAll()
                         .requestMatchers("/api/auth/reset-password").permitAll()
                         .requestMatchers("/api/captcha/**").permitAll()
-                        // 公共资源
                         .requestMatchers("/api/public/**").permitAll()
-                        // 头像公开访问
-                        .requestMatchers("/api/uploads/avatars/**").permitAll()
-                        // WebSocket
+                        .requestMatchers("/api/user/avatar/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/api/ws/**").permitAll()
                         
@@ -91,20 +94,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/books/*/tags").hasRole("ADMIN")
                         
                         // ===== 图书相关接口 =====
-                        // 注意：具体规则必须放在通用规则之前
-                        // 图书文件读取需认证（版权保护）- 优先匹配
                         .requestMatchers(HttpMethod.GET, "/api/books/*/file").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/books/*/text-info").authenticated()
-                        // 图书浏览公开（GET 请求 - 搜索/排行/详情/封面）
                         .requestMatchers(HttpMethod.GET, "/api/books/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/book-files/**").permitAll()
-                        // 图书入库和修改需认证
                         .requestMatchers(HttpMethod.POST, "/api/books").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/books/**").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/books/**").authenticated()
                         
                         // ===== 评论相关接口 =====
-                        // 评论浏览公开（GET），其他操作需认证
                         .requestMatchers(HttpMethod.GET, "/api/comments/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/comments").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/comments/**").authenticated()
@@ -113,36 +111,24 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/comments/*/favorite").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/comments/*/favorite").authenticated()
                         
-                        // ===== 用户相关接口 =====
-                        // 用户主页公开浏览
-                        .requestMatchers(HttpMethod.GET, "/api/user-profile/**").permitAll()
-                        // 关注列表公开浏览，但关注/取消关注需认证
-                        .requestMatchers(HttpMethod.GET, "/api/follow/*/followings").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/follow/*/followers").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/follow/is-following/**").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/follow/**").authenticated()
-                        .requestMatchers(HttpMethod.DELETE, "/api/follow/**").authenticated()
+                        // ===== 用户相关接口（公开浏览 + 认证操作）=====
+                        .requestMatchers(HttpMethod.GET, "/api/user/*/profile").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/user/*/books").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/user/*/comments").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/user/*/followings").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/user/*/followers").permitAll()
+                        .requestMatchers("/api/user/**").authenticated()
                         
                         // ===== 需认证的接口 =====
-                        // 认证相关（修改密码/登出）
                         .requestMatchers("/api/auth/change-password").authenticated()
                         .requestMatchers("/api/auth/logout").authenticated()
-                        // 书架相关全部需认证
                         .requestMatchers("/api/bookshelf/**").authenticated()
-                        // 阅读进度需认证
                         .requestMatchers("/api/progress/**").authenticated()
-                        // AI 相关需认证
                         .requestMatchers("/api/ai/**").authenticated()
-                        // 推荐需认证
                         .requestMatchers("/api/recommend/**").authenticated()
-                        // 通知需认证
-                        .requestMatchers("/api/notifications/**").authenticated()
-                        // 用户信息（除公开profile外）需认证
-                        .requestMatchers("/api/user/**").authenticated()
-                        // 首页数据需认证（包含个性化推荐）
+                        .requestMatchers("/api/chat/**").authenticated()
                         .requestMatchers("/api/home/**").authenticated()
                         
-                        // 其他所有接口需认证
                         .anyRequest().authenticated()
                 )
                 // JWT 过滤器
@@ -151,6 +137,11 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * 密码编码器 — 使用 BCrypt 算法
+     *
+     * @return PasswordEncoder 实例
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();

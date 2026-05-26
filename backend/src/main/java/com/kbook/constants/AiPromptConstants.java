@@ -5,10 +5,12 @@ package com.kbook.constants;
  */
 public final class AiPromptConstants {
 
+    /** 私有构造，禁止实例化 */
     private AiPromptConstants() {}
 
     // ==================== 图书伴聊系统提示词 ====================
 
+    /** 图书伴聊系统提示词 — 定义 AI 伴读助手的角色、风格与规则 */
     public static final String BOOK_CHAT_SYSTEM_PROMPT = """
             你是 KBook 智能阅读平台的「图书伴读」AI 助手，名叫「小K」。你正在与读者共读一本具体的书。
 
@@ -48,6 +50,7 @@ public final class AiPromptConstants {
 
     // ==================== 合并 AI 请求提示词（标签+评分+相关度+简介） ====================
 
+    /** 合并提示词 — 一次性完成标签生成、评分、读者相关度计算和简介撰写 */
     public static final String COMBINED_PROMPT = """
             你是一位严格、完全以正文内容为中心的图书评论家。你会收到图书信息（书名、作者、简介、正文片段），并按以下逻辑完成分析。
             

@@ -18,14 +18,20 @@ import java.util.List;
 
 /**
  * 通知服务
+ * <p>
+ * 管理用户通知的创建、查询和已读标记。
+ * 支持评论回复、评论点赞、评论收藏、关注用户新书评等通知类型。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
 
+    /** 通知数据仓库 */
     private final NotificationRepository notificationRepository;
+    /** 用户关注数据仓库（用于查询粉丝列表） */
     private final UserFollowRepository userFollowRepository;
+    /** 用户数据仓库 */
     private final UserRepository userRepository;
 
     /** 评论被回复 */
@@ -55,6 +61,7 @@ public class NotificationService {
         }
     }
 
+    /** 创建通知（不通知自己） */
     private void createNotification(Long triggerUserId, Long receiverId, String type, Long commentId, Long bookId) {
         if (triggerUserId.equals(receiverId)) return; // 不通知自己
         Notification notification = Notification.builder()

@@ -11,6 +11,9 @@ public final class SseHelper {
 
     /**
      * 发送错误事件并完成 SSE 连接
+     *
+     * @param emitter SSE 发射器
+     * @param message 错误消息
      */
     public static void sendErrorAndComplete(SseEmitter emitter, String message) {
         try {
@@ -23,11 +26,16 @@ public final class SseHelper {
     /**
      * 从异常信息中提取用户友好的错误提示
      * 合并自 AiChatService / BookAdminChatService / BookChatService 中的重复方法
+     *
+     * @param e 异常对象
+     * @return 用户友好的错误提示文本
      */
     public static String extractFriendlyError(Throwable e) {
         if (e == null) return "AI 响应异常，请稍后重试。";
         String msg = e.getMessage();
+        // 消息为空时返回默认提示
         if (msg == null) return "AI 响应异常，请稍后重试。";
+        // 根据异常消息中的关键字匹配常见错误场景
         if (msg.contains("not found")) return "AI 模型不存在，请管理员检查模型配置。";
         if (msg.contains("timed out") || msg.contains("Timeout")) return "AI 响应超时，请检查模型服务是否正常运行。";
         if (msg.contains("Connection refused") || msg.contains("connect")) return "无法连接到 AI 模型服务，请检查端点地址和网络。";
@@ -38,6 +46,10 @@ public final class SseHelper {
 
     /**
      * 安全发送 SSE 事件（忽略已关闭的连接）
+     *
+     * @param emitter   SSE 发射器
+     * @param eventName 事件名称
+     * @param data      事件数据
      */
     public static void safeSendEvent(SseEmitter emitter, String eventName, String data) {
         try {

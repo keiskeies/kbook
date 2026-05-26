@@ -6,6 +6,9 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
+/**
+ * 图书预设问题数据访问层
+ */
 @Repository
 public interface BookSuggestedQuestionRepository extends JpaRepository<BookSuggestedQuestion, Long> {
 

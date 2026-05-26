@@ -174,7 +174,7 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
 
   if (loading) {
     return (
-      <div className="my-2 rounded-2xl bg-card p-3 shadow-sm border border-border/50">
+      <div className="my-2 rounded-2xl bg-card p-3 shadow-lg shadow-black/5 dark:shadow-black/60 border border-border/50">
         <div className="flex gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex gap-3">
@@ -196,7 +196,7 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
   return (
     <div
       onClick={handleClick}
-      className="my-2 rounded-2xl bg-card p-3 shadow-sm border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150"
+      className="my-2 rounded-2xl bg-card p-3 shadow-lg shadow-black/5 dark:shadow-black/60 border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150"
     >
       <div className="flex gap-3">
         <div className="flex-1 min-w-0">

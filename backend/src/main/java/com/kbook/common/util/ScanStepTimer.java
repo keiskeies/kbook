@@ -33,6 +33,11 @@ public class ScanStepTimer {
     /** 步骤的固定显示顺序 */
     private final String[] stepOrder;
 
+    /**
+     * 构造计时器，指定步骤的固定显示顺序
+     *
+     * @param stepOrder 步骤名称列表，决定日志输出顺序
+     */
     public ScanStepTimer(String... stepOrder) {
         this.stepOrder = stepOrder;
         for (String step : stepOrder) {

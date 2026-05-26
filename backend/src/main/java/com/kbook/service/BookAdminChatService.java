@@ -24,11 +24,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * 管理员 AI 对话服务
+ * <p>
+ * 为管理员提供独立的 AI 对话能力，使用 BookAdminAssistant 接口，
+ * 支持管理员工具调用（如扫描书籍等）。与 AiChatService 不同，
+ * 此服务不注入用户ID到系统提示词，且使用独立的 Assistant 缓存。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class BookAdminChatService {
 
+    /** 会话类型标识：管理员 */
     private static final String TYPE = "admin";
 
     private final AiProviderConfigService providerConfigService;
@@ -37,23 +45,39 @@ public class BookAdminChatService {
     private final ObjectProvider<AiToolService> toolServiceProvider;
     private final AiChatMemory chatMemoryStore;
 
+    /** SSE 异步执行线程池 */
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
+    /** 管理员 Assistant 实例缓存（单例） */
     private final ConcurrentHashMap<String, BookAdminAssistant> adminAssistantCache = new ConcurrentHashMap<>();
 
+    /**
+     * 创建管理员对话会话
+     * @param userId 管理员用户ID
+     * @return 带 "admin-" 前缀的会话ID
+     */
     public String createSession(Long userId) {
         return "admin-" + UUID.randomUUID();
     }
 
+    /** 获取或构建管理员 Assistant 实例（单例缓存） */
     public BookAdminAssistant getAdminAssistant() {
         return adminAssistantCache.computeIfAbsent("admin", k -> buildAdminAssistant());
     }
 
+    /** 清除管理员 Assistant 缓存，下次调用时重新构建 */
     public void clearCache() {
         adminAssistantCache.clear();
         log.info("管理员 AI Assistant 缓存已清除");
     }
 
+    /**
+     * SSE 流式对话：管理员发送消息并通过 SSE 逐 token 推送响应
+     * @param userId 管理员用户ID
+     * @param sessionId 会话ID
+     * @param userMessage 管理员消息内容
+     * @return SseEmitter 流式发射器
+     */
     public SseEmitter streamChat(Long userId, String sessionId, String userMessage) {
         log.info("========== 管理员 AI 对话请求 ==========");
         log.info("userId={}, sessionId={}, message={}", userId, sessionId, userMessage);
@@ -163,19 +187,42 @@ public class BookAdminChatService {
         return emitter;
     }
 
+    /**
+     * 获取指定会话的历史消息列表
+     * @param userId 管理员用户ID
+     * @param sessionId 会话ID
+     * @return 按时间升序排列的对话记录
+     */
     public List<AiConversation> getHistory(Long userId, String sessionId) {
         return conversationRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
     }
 
+    /**
+     * 获取管理员的所有对话会话列表
+     * @param userId 管理员用户ID
+     * @return 按更新时间降序排列的会话列表
+     */
     public List<AiSession> getSessions(Long userId) {
         return sessionRepository.findByUserIdAndTypeOrderByUpdatedAtDesc(userId, TYPE);
     }
 
+    /**
+     * 删除指定管理员会话及其所有消息记录
+     * @param userId 管理员用户ID
+     * @param sessionId 会话ID
+     */
     public void deleteSession(Long userId, String sessionId) {
         conversationRepository.deleteByUserIdAndSessionId(userId, sessionId);
         sessionRepository.deleteByUserIdAndSessionId(userId, sessionId);
     }
 
+    /**
+     * 非流式对话：管理员发送消息并等待完整响应
+     * @param userId 管理员用户ID
+     * @param sessionId 会话ID
+     * @param userMessage 管理员消息内容
+     * @return AI 回复文本
+     */
     public String chat(Long userId, String sessionId, String userMessage) {
         log.info("========== 管理员 AI 对话（非流式） ==========");
         ensureSession(userId, sessionId, userMessage);
@@ -208,6 +255,7 @@ public class BookAdminChatService {
         }
     }
 
+    /** 构建管理员 Assistant 实例，配置 ChatModel、StreamingChatModel、工具和记忆 */
     private BookAdminAssistant buildAdminAssistant() {
         ChatModel chatModel = providerConfigService.buildChatChatModel();
         StreamingChatModel streamingChatModel = providerConfigService.buildChatStreamingModel();
@@ -226,6 +274,7 @@ public class BookAdminChatService {
                 .build();
     }
 
+    /** 确保会话记录存在，不存在则自动创建 */
     private void ensureSession(Long userId, String sessionId, String userMessage) {
         sessionRepository.findBySessionId(sessionId).orElseGet(() -> {
             String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
@@ -239,6 +288,7 @@ public class BookAdminChatService {
         });
     }
 
+    /** 更新会话的最后活跃时间 */
     private void updateSessionTimestamp(String sessionId) {
         sessionRepository.findBySessionId(sessionId).ifPresent(session -> {
             session.setUpdatedAt(java.time.LocalDateTime.now());
@@ -246,10 +296,12 @@ public class BookAdminChatService {
         });
     }
 
+    /** 保存消息记录（无思考内容） */
     private void saveMessage(Long userId, String sessionId, String role, String content) {
         saveMessage(userId, sessionId, role, content, null);
     }
 
+    /** 保存消息记录（含思考内容） */
     private void saveMessage(Long userId, String sessionId, String role, String content, String thinkingContent) {
         AiConversation record = AiConversation.builder()
                 .userId(userId)

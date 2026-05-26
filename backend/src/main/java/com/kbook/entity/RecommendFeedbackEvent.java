@@ -43,13 +43,16 @@ import java.time.LocalDateTime;
 })
 public class RecommendFeedbackEvent {
 
+    /** 主键 ID */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 用户 ID */
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    /** 图书 ID */
     @Column(name = "book_id", nullable = false)
     private Long bookId;
 
@@ -78,9 +81,11 @@ public class RecommendFeedbackEvent {
     @Column(name = "feedback_detail", length = 100)
     private String feedbackDetail;
 
+    /** 创建时间 */
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    /** JPA 持久化前回调，自动设置创建时间 */
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

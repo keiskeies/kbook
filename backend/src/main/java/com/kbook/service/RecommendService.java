@@ -24,6 +24,13 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * 推荐服务
+ * <p>
+ * 核心推荐入口，协调规则匹配、向量召回、协同过滤和探索发现四路召回策略。
+ * 推荐结果存储在 Redis Sorted Set 中，支持分页查询和 SSE 进度推送。
+ * 用户画像变更时异步重算推荐。
+ */
 @Slf4j
 @Service
 public class RecommendService {
@@ -66,10 +73,19 @@ public class RecommendService {
         this.dimensionStatsService = dimensionStatsService;
     }
 
+    /** 推荐缓存键前缀 */
     private static final String CACHE_PREFIX = "kbook:recommend:";
+    /** 推荐排序集合键前缀 */
     private static final String SORTED_KEY_PREFIX = "kbook:recommend:sorted:";
+    /** 临时排序集合键后缀 */
     private static final String SORTED_TEMP_SUFFIX = ":temp";
 
+    /**
+     * 批量计算用户与多本书的匹配度得分（带缓存）
+     * @param userId 用户ID
+     * @param bookIds 书籍ID列表
+     * @return bookId → 匹配度得分 的映射
+     */
     public Map<Long, Double> batchCalculateMatchScores(Long userId, List<Long> bookIds) {
         if (bookIds == null || bookIds.isEmpty()) return Map.of();
 
@@ -111,6 +127,12 @@ public class RecommendService {
         return result;
     }
 
+    /**
+     * 获取个性化推荐列表（优先从 Redis Sorted Set 读取）
+     * @param userId 用户ID
+     * @param count 返回数量
+     * @return 推荐项列表
+     */
     public List<RecommendedItem> getPersonalizedRecommendations(Long userId, int count) {
         String sortedKey = SORTED_KEY_PREFIX + userId;
         try {
@@ -130,6 +152,13 @@ public class RecommendService {
         return buildTopItems(scoredBooks, count);
     }
 
+    /**
+     * 分页获取推荐结果
+     * @param userId 用户ID
+     * @param page 页码
+     * @param size 每页大小
+     * @return 分页结果（含 list, total, page, size）
+     */
     public Map<String, Object> getRecommendationsPage(Long userId, int page, int size) {
         String sortedKey = SORTED_KEY_PREFIX + userId;
         Map<String, Object> result = new LinkedHashMap<>();
@@ -168,6 +197,10 @@ public class RecommendService {
         return result;
     }
 
+    /**
+     * 清除用户的推荐缓存
+     * @param userId 用户ID
+     */
     public void clearUserCache(Long userId) {
         try {
             Set<String> keys = redisTemplate.keys(CACHE_PREFIX + userId + ":*");
@@ -181,6 +214,10 @@ public class RecommendService {
         }
     }
 
+    /**
+     * 异步重新计算用户推荐
+     * @param userId 用户ID
+     */
     @Async
     public void asyncRecompute(Long userId) {
         try {
@@ -196,6 +233,11 @@ public class RecommendService {
         }
     }
 
+    /**
+     * SSE 推荐生成（带进度推送）：规则匹配 + 探索发现，实时推送进度
+     * @param userId 用户ID
+     * @param emitter SSE 发射器
+     */
     public void generateWithProgress(Long userId, SseEmitter emitter) {
         try {
             sendProgress(emitter, "loading", "正在加载用户数据...", 0, 0, 0);
@@ -269,6 +311,7 @@ public class RecommendService {
         }
     }
 
+    /** 添加探索书籍：随机书籍 + 热门书籍，避免信息茧房 */
     private void addExploreBooks(User user, Set<Long> excludeSet, List<RecommendComputeService.ScoredBook> scoredBooks) {
         int exploreRandomCount = (int) coefficientService.getCoefficient("OTHER", "explore_random_count", 30);
         Set<Long> existingIds = scoredBooks.stream()
@@ -303,6 +346,7 @@ public class RecommendService {
 
     // ==================== Redis 读取 ====================
 
+    /** 从 Redis Sorted Set 构建 RecommendedItem 列表 */
     private List<RecommendedItem> buildItemsFromSortedSet(String sortedKey, Set<Object> bookIds) {
         List<RecommendedItem> items = new ArrayList<>();
         for (Object idObj : bookIds) {
@@ -339,6 +383,7 @@ public class RecommendService {
         return items;
     }
 
+    /** 从评分书籍列表构建推荐项（限制同一作者最多出现次数） */
     private List<RecommendedItem> buildTopItems(List<RecommendComputeService.ScoredBook> scoredBooks, int count) {
         List<RecommendedItem> result = new ArrayList<>();
         int maxSameAuthor = (int) coefficientService.getCoefficient("OTHER", "max_same_author", 2);
@@ -373,6 +418,7 @@ public class RecommendService {
 
     // ==================== SSE 进度 ====================
 
+    /** 通过 SSE 发送推荐生成进度 */
     private void sendProgress(SseEmitter emitter, String stage, String message,
                                int progress, int current, int total) {
         try {
@@ -392,6 +438,7 @@ public class RecommendService {
 
     // ==================== 辅助方法 ====================
 
+    /** 计算书籍质量加分（基于评分） */
     private double calculateQualityBonus(Double rating) {
         if (rating == null || rating <= 0) return -0.05;
         if (rating < 2.0) return -0.15 + (rating - 1.0) * 0.07;
@@ -400,6 +447,7 @@ public class RecommendService {
         else return 0.04 + (rating - 4.0) * 0.06;
     }
 
+    /** 计算新鲜度加分（基于入库时间，7天内最高0.05，30天内递减） */
     private double calculateFreshnessBonus(LocalDateTime createdAt) {
         if (createdAt == null) return 0;
         long daysAgo = java.time.temporal.ChronoUnit.DAYS.between(createdAt, LocalDateTime.now());
@@ -409,6 +457,7 @@ public class RecommendService {
         return 0;
     }
 
+    /** 计算用户偏好加分（标签/作者/格式 INCLUDE 偏好） */
     private double calculateIncludeBonus(Book book, List<String> includedTags,
                                           List<String> includedAuthors, List<String> includedFormats) {
         double tagBonus = coefficientService.getCoefficient("PREFERENCE", "tag_bonus", 0.12);
@@ -435,6 +484,34 @@ public class RecommendService {
         return bonus;
     }
 
+    /** 计算用户偏好减分（标签/作者/格式 EXCLUDE 偏好） */
+    private double calculateExcludePenalty(Book book, List<String> excludedTags,
+                                           List<String> excludedAuthors, List<String> excludedFormats) {
+        double tagPenalty = coefficientService.getCoefficient("PREFERENCE", "tag_penalty", 0.12);
+        double authorPenalty = coefficientService.getCoefficient("PREFERENCE", "author_penalty", 0.15);
+        double formatPenalty = coefficientService.getCoefficient("PREFERENCE", "format_penalty", 0.05);
+
+        double penalty = 0.0;
+        if (!excludedTags.isEmpty() && book.getFormatTags() != null) {
+            Set<String> bookTags = parseTags(book.getFormatTags());
+            for (String tag : excludedTags) {
+                if (bookTags.stream().anyMatch(t -> t.equalsIgnoreCase(tag))) penalty -= tagPenalty;
+            }
+        }
+        if (!excludedAuthors.isEmpty() && book.getAuthor() != null) {
+            for (String author : excludedAuthors) {
+                if (author.equalsIgnoreCase(book.getAuthor())) { penalty -= authorPenalty; break; }
+            }
+        }
+        if (!excludedFormats.isEmpty() && book.getFormat() != null) {
+            for (String format : excludedFormats) {
+                if (format.equalsIgnoreCase(book.getFormat())) { penalty -= formatPenalty; break; }
+            }
+        }
+        return penalty;
+    }
+
+    /** 判断书籍是否被用户偏好排除 */
     private boolean isExcludedByPreference(Book book, List<String> excludedTags,
                                             List<String> excludedAuthors, List<String> excludedFormats) {
         if (!excludedFormats.isEmpty() && book.getFormat() != null
@@ -451,6 +528,14 @@ public class RecommendService {
     }
 
 
+    /**
+     * 记录用户阅读行为（用于协同过滤）
+     * @param userId 用户ID
+     * @param bookId 书籍ID
+     * @param action 行为类型
+     * @param weight 权重
+     * @param detail 行为详情
+     */
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public void recordReadAction(Long userId, Long bookId, String action, Integer weight, String detail) {
         try {
@@ -475,6 +560,7 @@ public class RecommendService {
         }
     }
 
+    /** 获取用户已读/已交互的书籍ID列表 */
     private List<Long> getReadBookIds(Long userId) {
         Set<Long> ids = new LinkedHashSet<>();
         ids.addAll(readHistoryRepository.findAllInteractedBookIdsByUserId(userId));
@@ -482,36 +568,43 @@ public class RecommendService {
         return new ArrayList<>(ids);
     }
 
+    /** 获取用户排除的标签偏好列表 */
     private List<String> getExcludedTags(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "EXCLUDE")
                 .stream().map(UserBookPreference::getValue).toList();
     }
 
+    /** 获取用户排除的作者偏好列表 */
     private List<String> getExcludedAuthors(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "EXCLUDE")
                 .stream().map(UserBookPreference::getValue).toList();
     }
 
+    /** 获取用户排除的格式偏好列表 */
     private List<String> getExcludedFormats(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "EXCLUDE")
                 .stream().map(UserBookPreference::getValue).toList();
     }
 
+    /** 获取用户偏好的标签列表 */
     private List<String> getIncludedTags(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "INCLUDE")
                 .stream().map(UserBookPreference::getValue).toList();
     }
 
+    /** 获取用户偏好的作者列表 */
     private List<String> getIncludedAuthors(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "INCLUDE")
                 .stream().map(UserBookPreference::getValue).toList();
     }
 
+    /** 获取用户偏好的格式列表 */
     private List<String> getIncludedFormats(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "INCLUDE")
                 .stream().map(UserBookPreference::getValue).toList();
     }
 
+    /** 解析书籍标签字符串为 Set（兼容 JSON 数组和逗号分隔格式） */
     private Set<String> parseTags(String formatTags) {
         if (formatTags == null || formatTags.isBlank()) return Set.of();
         return Arrays.stream(formatTags.replaceAll("[\\[\\]\"]", "").split("[,，]"))

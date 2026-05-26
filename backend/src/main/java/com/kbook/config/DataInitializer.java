@@ -27,19 +27,28 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class DataInitializer implements CommandLineRunner {
 
+    /** 用户仓库 */
     private final UserRepository userRepository;
+    /** 密码编码器 */
     private final PasswordEncoder passwordEncoder;
+    /** 推荐系数服务 */
     private final RecommendCoefficientService coefficientService;
 
+    /** 管理员邮箱 */
     @Value("${kbook.admin.email:admin@kbook.com}")
     private String adminEmail;
 
+    /** 管理员密码 */
     @Value("${kbook.admin.password:admin123456}")
     private String adminPassword;
 
+    /** 管理员昵称 */
     @Value("${kbook.admin.nickname:系统管理员}")
     private String adminNickname;
 
+    /**
+     * 应用启动后执行初始化
+     */
     @Override
     public void run(String... args) {
         initAdmin();

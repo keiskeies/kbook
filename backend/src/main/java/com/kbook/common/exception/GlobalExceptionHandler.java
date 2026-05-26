@@ -21,6 +21,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    /**
+     * 处理业务异常，返回业务错误码和消息
+     */
     @ExceptionHandler(BusinessException.class)
     @ResponseStatus(HttpStatus.OK)
     public Result<?> handleBusinessException(BusinessException e, HttpServletResponse response) {
@@ -30,6 +33,9 @@ public class GlobalExceptionHandler {
         return Result.fail(e.getCode(), e.getMessage());
     }
 
+    /**
+     * 处理登录凭证错误（用户名或密码错误）
+     */
     @ExceptionHandler(BadCredentialsException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public Result<?> handleBadCredentials(BadCredentialsException e, HttpServletResponse response) {
@@ -37,6 +43,9 @@ public class GlobalExceptionHandler {
         return Result.fail(401, "用户名或密码错误");
     }
 
+    /**
+     * 处理访问被拒绝异常（URL级别权限控制）
+     */
     @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Result<?> handleAccessDenied(AccessDeniedException e, HttpServletResponse response) {
@@ -45,7 +54,10 @@ public class GlobalExceptionHandler {
         return Result.fail(403, "您没有权限访问此资源");
     }
 
-    /** Spring Security 6.x 方法级权限拒绝（@PreAuthorize 等） */
+    /**
+     * 处理 Spring Security 6.x 方法级权限拒绝（@PreAuthorize 等）
+     * <p>当 SSE 流式响应已提交时，后续权限检查触发的异常会被忽略</p>
+     */
     @ExceptionHandler(AuthorizationDeniedException.class)
     public Result<?> handleAuthorizationDenied(AuthorizationDeniedException e, HttpServletResponse response) {
         // SSE 流式响应已提交时，过滤器链的后续检查会触发此异常，直接忽略
@@ -59,6 +71,9 @@ public class GlobalExceptionHandler {
         return Result.fail(403, "您没有权限执行此操作");
     }
 
+    /**
+     * 处理请求参数校验失败异常（@Valid 注解触发）
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<?> handleValidation(MethodArgumentNotValidException e, HttpServletResponse response) {
@@ -70,6 +85,9 @@ public class GlobalExceptionHandler {
         return Result.fail(400, message);
     }
 
+    /**
+     * 处理参数绑定异常（请求参数类型不匹配等）
+     */
     @ExceptionHandler(BindException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<?> handleBindException(BindException e, HttpServletResponse response) {
@@ -81,6 +99,9 @@ public class GlobalExceptionHandler {
         return Result.fail(400, message);
     }
 
+    /**
+     * 兜底异常处理，捕获所有未处理的异常
+     */
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<?> handleException(Exception e, HttpServletResponse response) {

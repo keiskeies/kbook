@@ -24,13 +24,16 @@ import java.time.LocalDateTime;
 })
 public class ReadingProgress {
 
+    /** 主键 ID */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 用户 ID */
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    /** 图书 ID */
     @Column(name = "book_id", nullable = false)
     private Long bookId;
 
@@ -51,11 +54,13 @@ public class ReadingProgress {
     @Column(name = "user_rating")
     private Integer userRating;
 
+    /** JPA 持久化前回调，自动设置更新时间 */
     @PrePersist
     protected void onCreate() {
         updatedAt = LocalDateTime.now();
     }
 
+    /** JPA 更新前回调，自动设置更新时间 */
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();

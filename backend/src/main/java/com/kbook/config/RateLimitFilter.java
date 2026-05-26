@@ -31,6 +31,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
     /** 本地 Bucket 缓存 */
     private final ConcurrentHashMap<String, Bucket> localBuckets = new ConcurrentHashMap<>();
 
+    /**
+     * 过滤器核心逻辑 — 根据请求路径和客户端标识进行令牌桶限流
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request, @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
@@ -66,7 +69,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 尝试消费令牌
+     * 尝试消费一个令牌
+     *
+     * @param key          限流标识（如 IP、用户 ID）
+     * @param capacity     令牌桶容量
+     * @param refillPeriod 令牌补充周期
+     * @return true-允许请求, false-被限流
      */
     private boolean tryConsume(String key, int capacity, Duration refillPeriod) {
         Bucket bucket = localBuckets.computeIfAbsent(key, k -> {
@@ -81,12 +89,26 @@ public class RateLimitFilter extends OncePerRequestFilter {
         return bucket.tryConsume(1);
     }
 
+    /**
+     * 发送 429 Too Many Requests 响应
+     *
+     * @param response HTTP 响应
+     * @param message  提示信息
+     */
     private void sendTooManyRequests(HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write(String.format("{\"code\":429,\"message\":\"%s\",\"data\":null}", message));
     }
 
+    /**
+     * 获取客户端真实 IP 地址
+     * <p>
+     * 优先从反向代理头（X-Forwarded-For、X-Real-IP）获取，多级代理取第一个。
+     *
+     * @param request HTTP 请求
+     * @return 客户端 IP 地址
+     */
     private String getClientIp(HttpServletRequest request) {
         String ip = request.getHeader("X-Forwarded-For");
         if (ip == null || ip.isBlank()) {

@@ -16,16 +16,20 @@ import java.time.LocalDateTime;
 })
 public class BookSuggestedQuestion {
 
+    /** 主键 ID */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 关联图书 ID */
     @Column(name = "book_id", nullable = false)
     private Long bookId;
 
+    /** 预设问题内容 */
     @Column(name = "question", nullable = false, length = 500)
     private String question;
 
+    /** 创建时间 */
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

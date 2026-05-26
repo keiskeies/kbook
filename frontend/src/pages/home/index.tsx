@@ -356,7 +356,7 @@ function VerticalBookList({ books, onBookClick, matchScores }: {
         return (
           <div
             key={book.id}
-            className="rounded-2xl bg-card p-3 shadow-sm border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150"
+            className="rounded-2xl bg-card p-3 shadow-lg shadow-black/5 dark:shadow-black/60 border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150"
             onClick={() => onBookClick(book.id)}
           >
             <div className="flex gap-3">
@@ -419,7 +419,7 @@ function RankedBookList({ books, onBookClick, matchScores }: {
         return (
           <div
             key={book.id}
-            className="rounded-2xl bg-card p-3 shadow-sm border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150 min-h-[112px]"
+            className="rounded-2xl bg-card p-3 shadow-lg shadow-black/5 dark:shadow-black/60 border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150 min-h-[112px]"
             onClick={() => onBookClick(book.id)}
           >
             <div className="flex gap-3">
@@ -932,7 +932,7 @@ export default function HomePage() {
             <VerticalListSkeleton />
           </div>
         ) : personalizedBooks.length > 0 ? (
-          <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+          <section className="rounded-2xl bg-card border border-border/50 shadow-lg shadow-black/5 dark:shadow-black/60 p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-sm font-bold">
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-500/5">
@@ -1005,7 +1005,7 @@ export default function HomePage() {
         ) : null}
 
         {/* 6. 热门榜单 — 横向滑动 Tabs */}
-        <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+        <section className="rounded-2xl bg-card border border-border/50 shadow-lg shadow-black/5 dark:shadow-black/60 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-bold">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500/20 to-rose-500/5">

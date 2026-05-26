@@ -37,13 +37,19 @@ import javax.imageio.stream.FileImageOutputStream;
 
 /**
  * 用户服务
+ * <p>
+ * 管理用户注册审核、状态变更（通过/拒绝/封禁/解封）、
+ * 用户画像更新、头像上传和邮箱绑定。画像变更时异步触发推荐重算。
  */
 @Slf4j
 @Service
 public class UserService {
 
+    /** 用户数据仓库 */
     private final UserRepository userRepository;
+    /** 文件存储配置 */
     private final BookStorageProperties storageProps;
+    /** 推荐服务（@Lazy 避免循环依赖） */
     private final RecommendService recommendService;
 
     public UserService(UserRepository userRepository, BookStorageProperties storageProps,
@@ -53,6 +59,11 @@ public class UserService {
         this.recommendService = recommendService;
     }
 
+    /**
+     * 根据ID获取用户，不存在则抛出异常
+     * @param id 用户ID
+     * @return 用户实体
+     */
     public User getUserById(Long id) {
         return userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("用户不存在"));

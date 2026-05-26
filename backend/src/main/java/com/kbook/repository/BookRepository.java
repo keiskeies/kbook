@@ -16,12 +16,24 @@ import java.util.Optional;
  */
 public interface BookRepository extends JpaRepository<Book, Long> {
 
+    /**
+     * 按格式查询图书列表
+     */
     List<Book> findByFormat(String format);
 
+    /**
+     * 按阅读量降序查询所有图书
+     */
     List<Book> findAllByOrderByReadCountDesc();
 
+    /**
+     * 按评分降序查询所有图书
+     */
     List<Book> findAllByOrderByRatingDesc();
 
+    /**
+     * 根据封面URL集合批量查询图书
+     */
     List<Book> findAllByCoverUrlIn(Collection<String> coverUrls);
 
     /**

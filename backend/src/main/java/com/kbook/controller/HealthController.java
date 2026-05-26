@@ -13,6 +13,10 @@ import java.util.Map;
 @RestController
 public class HealthController {
 
+    /**
+     * 健康检查接口，返回服务状态和时间戳
+     * @return 服务状态信息
+     */
     @GetMapping("/api/health")
     public Result<Map<String, Object>> health() {
         return Result.ok(Map.of(

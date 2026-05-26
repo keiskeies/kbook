@@ -38,9 +38,15 @@ public class BookController {
     private final RankService rankService;
     private final RecommendService recommendService;
 
+    /** 封面图片存储路径 */
     @Value("${kbook.cover-path:./covers}")
     private String coverPath;
 
+    /**
+     * 获取封面图片
+     * @param filename 封面文件名
+     * @return 图片资源响应
+     */
     @GetMapping(value = "/cover/{filename:.+}")
     public ResponseEntity<Resource> getCover(@PathVariable String filename) {
         Path coverDir = Paths.get(coverPath);

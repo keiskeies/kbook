@@ -15,10 +15,19 @@ import java.util.Optional;
  */
 public interface UserRepository extends JpaRepository<User, Long> {
 
+    /**
+     * 根据邮箱查询用户
+     */
     Optional<User> findByEmail(String email);
 
+    /**
+     * 判断邮箱是否已注册
+     */
     boolean existsByEmail(String email);
 
+    /**
+     * 按状态分页查询用户
+     */
     Page<User> findByStatus(String status, Pageable pageable);
 
     /**
@@ -43,7 +52,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<Object[]> countGroupByStatus();
 
     /**
-     * 查询所有管理员
+     * 根据角色查询用户列表（如查询所有管理员）
      */
     List<User> findByRole(String role);
 }

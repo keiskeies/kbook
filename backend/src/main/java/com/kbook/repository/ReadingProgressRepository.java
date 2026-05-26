@@ -15,12 +15,24 @@ import java.util.Optional;
  */
 public interface ReadingProgressRepository extends JpaRepository<ReadingProgress, Long> {
 
+    /**
+     * 查询用户对指定图书的阅读进度
+     */
     Optional<ReadingProgress> findByUserIdAndBookId(Long userId, Long bookId);
 
+    /**
+     * 查询用户的所有阅读进度，按更新时间降序排列
+     */
     List<ReadingProgress> findByUserIdOrderByUpdatedAtDesc(Long userId);
 
+    /**
+     * 分页查询用户的阅读进度，按更新时间降序排列
+     */
     Page<ReadingProgress> findByUserIdOrderByUpdatedAtDesc(Long userId, Pageable pageable);
 
+    /**
+     * 删除用户对指定图书的阅读进度
+     */
     void deleteByUserIdAndBookId(Long userId, Long bookId);
 
     /**

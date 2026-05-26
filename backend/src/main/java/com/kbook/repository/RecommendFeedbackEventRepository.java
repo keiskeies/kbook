@@ -8,6 +8,9 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 推荐反馈事件数据访问层
+ */
 public interface RecommendFeedbackEventRepository extends JpaRepository<RecommendFeedbackEvent, Long> {
 
     /**

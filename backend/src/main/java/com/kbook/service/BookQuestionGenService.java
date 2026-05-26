@@ -55,7 +55,9 @@ public class BookQuestionGenService {
                             作者：%s
                             标签：%s
                             简介：%s
-                            目录：%s""",
+                            目录：%s
+                            
+                            """,
                     book.getTitle(),
                     book.getAuthor() != null ? book.getAuthor() : "未知",
                     book.getFormatTags() != null ? book.getFormatTags() : "暂无标签",

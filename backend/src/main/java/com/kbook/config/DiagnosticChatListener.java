@@ -16,6 +16,9 @@ import java.util.List;
 @Slf4j
 public class DiagnosticChatListener implements ChatModelListener {
 
+    /**
+     * 请求发送时的回调 — 打印 SystemMessage 摘要
+     */
     @Override
     public void onRequest(ChatModelRequestContext ctx) {
         List<ChatMessage> messages = ctx.chatRequest().messages();
@@ -32,11 +35,17 @@ public class DiagnosticChatListener implements ChatModelListener {
         log.warn("📤 [AI 请求] ⚠️ 未找到 SystemMessage！消息数={}", messages.size());
     }
 
+    /**
+     * 响应成功时的回调 — 空实现，避免日志爆炸
+     */
     @Override
     public void onResponse(ChatModelResponseContext ctx) {
         // 不打印模型响应内容，避免日志爆炸
     }
 
+    /**
+     * 请求出错时的回调 — 记录错误日志
+     */
     @Override
     public void onError(ChatModelErrorContext ctx) {
         log.error("📤 [AI 请求] 模型调用失败: {}", ctx.error().getMessage());

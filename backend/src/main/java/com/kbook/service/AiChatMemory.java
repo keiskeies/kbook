@@ -24,20 +24,35 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @Component
 public class AiChatMemory implements ChatMemoryStore {
 
+    /** 按 sessionId 分组存储对话消息的内存容器 */
     private final ConcurrentHashMap<String, List<ChatMessage>> store = new ConcurrentHashMap<>();
 
+    /**
+     * 获取指定会话的消息列表
+     * @param memoryId 会话标识（sessionId）
+     * @return 消息列表的副本（CopyOnWriteArrayList，线程安全）
+     */
     @Override
     public List<ChatMessage> getMessages(Object memoryId) {
         String sessionId = memoryId.toString();
         return new CopyOnWriteArrayList<>(store.getOrDefault(sessionId, List.of()));
     }
 
+    /**
+     * 更新指定会话的消息列表（全量替换）
+     * @param memoryId 会话标识（sessionId）
+     * @param messages 新的完整消息列表
+     */
     @Override
     public void updateMessages(Object memoryId, List<ChatMessage> messages) {
         String sessionId = memoryId.toString();
         store.put(sessionId, new CopyOnWriteArrayList<>(messages));
     }
 
+    /**
+     * 删除指定会话的所有消息
+     * @param memoryId 会话标识（sessionId）
+     */
     @Override
     public void deleteMessages(Object memoryId) {
         String sessionId = memoryId.toString();

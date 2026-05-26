@@ -14,15 +14,30 @@ import java.util.Optional;
  */
 public interface BookshelfRepository extends JpaRepository<Bookshelf, Long> {
 
+    /**
+     * 查询用户书架中指定图书的记录
+     */
     Optional<Bookshelf> findByUserIdAndBookId(Long userId, Long bookId);
 
+    /**
+     * 查询用户书架列表，按排序权重和添加时间降序排列
+     */
     List<Bookshelf> findByUserIdOrderBySortOrderDescAddedAtDesc(Long userId);
 
+    /**
+     * 判断用户书架中是否包含指定图书
+     */
     boolean existsByUserIdAndBookId(Long userId, Long bookId);
 
+    /**
+     * 从用户书架中移除指定图书
+     */
     @Modifying
     void deleteByUserIdAndBookId(Long userId, Long bookId);
 
+    /**
+     * 统计用户书架中的图书数量
+     */
     long countByUserId(Long userId);
 
     /**
