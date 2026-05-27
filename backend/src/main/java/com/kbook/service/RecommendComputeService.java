@@ -97,12 +97,12 @@ public class RecommendComputeService {
             if (matchScore <= ruleMinScore) continue; // 如果匹配分数低于阈值则跳过
 
             // 计算各项加分项
-            double qualityBonus = calculateQualityBonus(book.getRating()); // 质量加分（基于评分）
-            double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt()); // 新鲜度加分（基于创建时间）
-            double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats); // 偏好加分（基于用户包含偏好）
-            double finalScore = matchScore + qualityBonus + freshnessBonus + preferenceBonus; // 计算最终综合分数
+            double qualityBonus = calculateQualityBonus(book.getRating());
+            double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());
+            double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
+            double rawFinalScore = matchScore + qualityBonus + freshnessBonus + preferenceBonus;
+            double finalScore = RecommendMatchCalculator.normalizeScore(rawFinalScore);
 
-            // 创建评分书籍对象并添加到结果列表
             scoredBooks.add(new ScoredBook(book, finalScore, matchScore, qualityBonus, "RULE"));
         }
 

@@ -3,7 +3,9 @@ package com.kbook.controller;
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
 import com.kbook.document.BookDocument;
+import com.kbook.dto.BookSpeedReadVO;
 import com.kbook.entity.Book;
+import com.kbook.service.BookParserService;
 import com.kbook.service.BookSearchService;
 import com.kbook.service.BookService;
 import com.kbook.service.RankService;
@@ -13,7 +15,9 @@ import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.CreateBookRequest;
 import com.kbook.dto.RateRequest;
 import com.kbook.dto.UpdateTagsRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
@@ -31,12 +35,15 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/books")
 @RequiredArgsConstructor
+@Slf4j
 public class BookController {
 
     private final BookService bookService;
     private final BookSearchService bookSearchService;
     private final RankService rankService;
     private final RecommendService recommendService;
+    private final BookParserService bookParserService;
+    private final ObjectMapper objectMapper;
 
     /** 封面图片存储路径 */
     @Value("${kbook.cover-path:./covers}")
@@ -196,6 +203,44 @@ public class BookController {
     @PostMapping("/reindex")
     public Result<Long> rebuildIndex() {
         return Result.ok(bookSearchService.rebuildIndex());
+    }
+
+    @GetMapping("/{id}/speed-read")
+    public Result<BookSpeedReadVO> getSpeedRead(@PathVariable Long id) {
+        Book book = bookService.getBookById(id);
+        if (book == null) {
+            return Result.fail("图书不存在");
+        }
+
+        if (book.getSpeedRead() != null && !book.getSpeedRead().isBlank()) {
+            try {
+                BookSpeedReadVO vo = objectMapper.readValue(book.getSpeedRead(), BookSpeedReadVO.class);
+                return Result.ok(vo);
+            } catch (Exception e) {
+                log.warn("解析速读摘要失败: bookId={} - {}", id, e.getMessage());
+            }
+        }
+
+        BookSpeedReadVO vo = bookParserService.generateSpeedRead(book);
+        if (vo != null) {
+            try {
+                book.setSpeedRead(objectMapper.writeValueAsString(vo));
+                book.setSpeedReadGenerated(true);
+                bookService.updateBook(id, book);
+            } catch (Exception e) {
+                log.warn("保存速读摘要失败: bookId={} - {}", id, e.getMessage());
+            }
+            return Result.ok(vo);
+        }
+
+        return Result.ok(BookSpeedReadVO.builder()
+                .bookId(id)
+                .corePoints(List.of())
+                .suitableFor(List.of())
+                .notSuitableFor(List.of())
+                .takeaways(List.of())
+                .difficulty("未知")
+                .build());
     }
 
 }

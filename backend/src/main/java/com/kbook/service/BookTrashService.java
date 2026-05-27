@@ -37,6 +37,7 @@ public class BookTrashService {
     private final BookRepository bookRepository;
     private final UserService userService;
     private final MatchScoreCacheService matchScoreCacheService;
+    private final BookService bookService;
     private final ObjectMapper objectMapper;
 
     private static final int BASE_RATER_COUNT = 1000;
@@ -81,6 +82,7 @@ public class BookTrashService {
 
         // 清除用户匹配分数缓存
         matchScoreCacheService.evictUser(userId);
+        bookService.clearSpeedRead(bookId);
 
         // 记录日志
         log.info("图书丢入垃圾桶: userId={}, bookId={}, dimensionRatingCount={}", userId, bookId, newCount);
@@ -117,6 +119,7 @@ public class BookTrashService {
 
         // 清除用户匹配分数缓存
         matchScoreCacheService.evictUser(userId);
+        bookService.clearSpeedRead(bookId);
 
         // 记录日志
         log.info("图书移出垃圾桶: userId={}, bookId={}, dimensionRatingCount={}", userId, bookId, newCount);

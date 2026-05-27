@@ -1,10 +1,19 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.dto.MatchScoreDetailVO;
 import com.kbook.dto.RecommendedItem;
+import com.kbook.entity.Book;
+import com.kbook.entity.User;
 import com.kbook.service.BookParserService;
+import com.kbook.service.BookService;
+import com.kbook.service.DimensionStatsService;
 import com.kbook.service.EmbeddingService;
+import com.kbook.service.RecommendCoefficientService;
+import com.kbook.service.RecommendMatchCalculator;
 import com.kbook.service.RecommendService;
+import com.kbook.service.UserService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -28,6 +37,11 @@ public class RecommendController {
     private final RecommendService recommendService;
     private final EmbeddingService embeddingService;
     private final BookParserService bookParserService;
+    private final BookService bookService;
+    private final UserService userService;
+    private final RecommendCoefficientService coefficientService;
+    private final DimensionStatsService dimensionStatsService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 获取个性化推荐（从 Redis Sorted Set 取 top N）
@@ -95,6 +109,21 @@ public class RecommendController {
         Long userId = (Long) authentication.getPrincipal();
         Map<Long, Double> scores = recommendService.batchCalculateMatchScores(userId, bookIds);
         return Result.ok(scores);
+    }
+
+    @GetMapping("/match-detail/{bookId}")
+    public Result<MatchScoreDetailVO> getMatchScoreDetail(
+            Authentication authentication,
+            @PathVariable Long bookId) {
+        Long userId = (Long) authentication.getPrincipal();
+        User user = userService.getUserById(userId);
+        Book book = bookService.getBookById(bookId);
+        if (book == null) {
+            return Result.fail("图书不存在");
+        }
+        MatchScoreDetailVO detail = RecommendMatchCalculator.calculateMatchScoreDetail(
+                user, book, coefficientService, objectMapper, dimensionStatsService);
+        return Result.ok(detail);
     }
 
 

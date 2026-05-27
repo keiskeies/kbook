@@ -319,6 +319,44 @@ export function getMatchScores(bookIds: number[]) {
   })
 }
 
+/** 匹配度维度得分 */
+export interface DimensionScore {
+  dimension: string
+  label: string
+  score: number
+  weight: number
+  weightedScore: number
+}
+
+/** 匹配度详情 */
+export interface MatchScoreDetail {
+  bookId: number
+  overallScore: number
+  matchedDimensions: number
+  coverageFactor: number
+  dimensions: DimensionScore[]
+}
+
+/** 获取匹配度详情（各维度分数） */
+export function getMatchScoreDetail(bookId: number) {
+  return request.get<MatchScoreDetail>(`/recommend/match-detail/${bookId}`)
+}
+
+/** 3分钟速读 */
+export interface BookSpeedRead {
+  bookId: number
+  corePoints: string[]
+  suitableFor: string[]
+  notSuitableFor: string[]
+  takeaways: string[]
+  difficulty: string
+}
+
+/** 获取3分钟速读摘要 */
+export function getBookSpeedRead(bookId: number) {
+  return request.get<BookSpeedRead>(`/books/${bookId}/speed-read`)
+}
+
 // ==================== 管理员AI图书操作 ====================
 
 /** 按作者删除所有书籍（全链路：DB+缓存+RAG+ES+封面） */

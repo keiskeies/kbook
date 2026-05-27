@@ -282,7 +282,8 @@ public class RecommendService {
                     double qualityBonus = calculateQualityBonus(book.getRating());
                     double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());
                     double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
-                    double finalScore = matchScore + qualityBonus + freshnessBonus + preferenceBonus;
+                    double rawFinalScore = matchScore + qualityBonus + freshnessBonus + preferenceBonus;
+                    double finalScore = RecommendMatchCalculator.normalizeScore(rawFinalScore);
 
                     scoredBooks.add(new RecommendComputeService.ScoredBook(book, finalScore, matchScore, qualityBonus, "RULE"));
                 }

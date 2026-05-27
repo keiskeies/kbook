@@ -37,6 +37,7 @@ public class BookshelfService {
     private final ReadingProgressRepository progressRepository;
     /** 匹配度缓存服务 */
     private final MatchScoreCacheService matchScoreCacheService;
+    private final BookService bookService;
     /** 推荐服务（用于计算书架书籍的匹配度） */
     private final RecommendService recommendService;
     /** 图书回收站服务 */
@@ -60,6 +61,7 @@ public class BookshelfService {
         bookshelfRepository.save(item);
         bookTrashService.updateDimensionScoresOnBookshelf(userId, bookId);
         matchScoreCacheService.evictUser(userId);
+        bookService.clearSpeedRead(bookId);
         log.info("加入书架: userId={}, bookId={}", userId, bookId);
     }
 
@@ -71,6 +73,7 @@ public class BookshelfService {
         bookshelfRepository.deleteByUserIdAndBookId(userId, bookId);
         bookTrashService.reverseDimensionScoresOnBookshelf(userId, bookId);
         matchScoreCacheService.evictUser(userId);
+        bookService.clearSpeedRead(bookId);
         log.info("移出书架: userId={}, bookId={}", userId, bookId);
     }
 

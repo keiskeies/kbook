@@ -2,10 +2,12 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.dto.MatchScoreDetailVO;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -265,7 +267,7 @@ public class RecommendMatchCalculator {
                 default -> 0.35;
             };
 
-            double finalScore = avgDeviation * coverageFactor;
+            double finalScore = normalizeScore(avgDeviation * coverageFactor);
             logDetail.append(String.format("汇总: totalDev=%.4f, totalWeight=%.4f, avgDev=%.4f, coverage[%d维]=%.2f, final=%.4f",
                     totalDeviation, totalWeight, avgDeviation, matchedDimensions, coverageFactor, finalScore));
 //            log.debug("匹配度计算: {}", logDetail);
@@ -275,6 +277,207 @@ public class RecommendMatchCalculator {
             log.debug("解析相关度得分失败: bookId={} - {}", book.getId(), e.getMessage());
             return 0.0;
         }
+    }
+
+    public static MatchScoreDetailVO calculateMatchScoreDetail(User user, Book book,
+                                                                RecommendCoefficientService coefficientService,
+                                                                ObjectMapper objectMapper,
+                                                                DimensionStatsService statsService) {
+        double overallScore = calculateMatchScore(user, book, coefficientService, objectMapper, statsService);
+
+        if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
+            return MatchScoreDetailVO.builder()
+                    .bookId(book.getId())
+                    .overallScore(overallScore)
+                    .matchedDimensions(0)
+                    .coverageFactor(0.35)
+                    .dimensions(List.of())
+                    .build();
+        }
+
+        if (objectMapper == null) {
+            objectMapper = new ObjectMapper();
+        }
+
+        try {
+            JsonNode scores = objectMapper.readTree(book.getRelevanceScores());
+            int matchedDimensions = 0;
+            List<MatchScoreDetailVO.DimensionScore> dimensions = new ArrayList<>();
+
+            if (user.getBirthday() != null) {
+                int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
+                String ageGroup = getAgeGroup(age);
+                double dev = getDeviation(statsService, ageGroup, scores);
+                double w = coefficientService.getCoefficient("MATCH", "age_weight", 1.5);
+                double normalizedDev = normalizeScore(dev);
+                matchedDimensions++;
+                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                        .dimension("age").label("年龄: " + ageGroup)
+                        .score(normalizedDev)
+                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .build());
+            }
+
+            if (user.getGender() != null) {
+                String genderKey = "MALE".equals(user.getGender()) ? "male" : "female";
+                double dev = getDeviation(statsService, genderKey, scores);
+                double normalizedDev = normalizeScore(dev);
+                matchedDimensions++;
+                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                        .dimension("gender").label("性别: " + ("MALE".equals(user.getGender()) ? "男" : "女"))
+                        .score(normalizedDev)
+                        .weight(1.0).weightedScore(normalizedDev)
+                        .build());
+            }
+
+            if (user.getMarried() != null) {
+                String marryKey = user.getMarried() ? "married" : "unmarried";
+                double dev = getDeviation(statsService, marryKey, scores);
+                double normalizedDev = normalizeScore(dev);
+                matchedDimensions++;
+                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                        .dimension("married").label(user.getMarried() ? "已婚" : "未婚")
+                        .score(normalizedDev)
+                        .weight(1.0).weightedScore(normalizedDev)
+                        .build());
+            }
+
+            if (user.getHasChildren() != null) {
+                String childKey = user.getHasChildren() ? "hasChildren" : "noChildren";
+                double dev = getDeviation(statsService, childKey, scores);
+                double normalizedDev = normalizeScore(dev);
+                matchedDimensions++;
+                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                        .dimension("hasChildren").label(user.getHasChildren() ? "有孩子" : "无孩子")
+                        .score(normalizedDev)
+                        .weight(1.0).weightedScore(normalizedDev)
+                        .build());
+            }
+
+            if (user.getMbti() != null) {
+                String mbtiKey = user.getMbti().toUpperCase();
+                double dev = getDeviation(statsService, mbtiKey, scores);
+                double w = coefficientService.getCoefficient("MATCH", "mbti_weight", 1.3);
+                double normalizedDev = normalizeScore(dev);
+                matchedDimensions++;
+                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                        .dimension("mbti").label("MBTI: " + mbtiKey)
+                        .score(normalizedDev)
+                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .build());
+            }
+
+            if (user.getOccupation() != null && !user.getOccupation().isBlank()) {
+                String[] userOccList = user.getOccupation().split(",");
+                double w = coefficientService.getCoefficient("MATCH", "occupation_weight", 1.0);
+                for (String userOcc : userOccList) {
+                    String occKey = userOcc.trim().toLowerCase();
+                    if (occKey.isEmpty()) continue;
+                    double dev = getDeviation(statsService, occKey, scores);
+                    double normalizedDev = normalizeScore(dev);
+                    matchedDimensions++;
+                    dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                            .dimension("occupation").label("职业: " + getOccupationLabel(occKey))
+                            .score(normalizedDev)
+                            .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                            .build());
+                }
+            }
+
+            if (user.getEducation() != null) {
+                String eduKey = user.getEducation().toLowerCase();
+                double w = coefficientService.getCoefficient("MATCH", "education_weight", 0.8);
+                double dev = getDeviation(statsService, eduKey, scores);
+                double normalizedDev = normalizeScore(dev);
+                matchedDimensions++;
+                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                        .dimension("education").label("学历: " + getEducationLabel(user.getEducation()))
+                        .score(normalizedDev)
+                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .build());
+            }
+
+            if (user.getEntrepreneurship() != null && !user.getEntrepreneurship().isBlank()) {
+                String entreKey = user.getEntrepreneurship().toLowerCase();
+                double w = coefficientService.getCoefficient("MATCH", "entrepreneurship_weight", 0.6);
+                double dev = getDeviation(statsService, entreKey, scores);
+                double normalizedDev = normalizeScore(dev);
+                matchedDimensions++;
+                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                        .dimension("entrepreneurship").label(getEntrepreneurshipLabel(user.getEntrepreneurship()))
+                        .score(normalizedDev)
+                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .build());
+            }
+
+            if (user.getAnnualIncome() != null && !user.getAnnualIncome().isBlank()
+                    && !"PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAnnualIncome())) {
+                String incomeKey = user.getAnnualIncome().toLowerCase();
+                double w = coefficientService.getCoefficient("MATCH", "income_weight", 0.5);
+                double dev = getDeviation(statsService, incomeKey, scores);
+                double normalizedDev = normalizeScore(dev);
+                matchedDimensions++;
+                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                        .dimension("income").label(getAnnualIncomeLabel(user.getAnnualIncome()))
+                        .score(normalizedDev)
+                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .build());
+            }
+
+            if (user.getMood() != null) {
+                String moodKey = user.getMood().toLowerCase();
+                double w = coefficientService.getCoefficient("MATCH", "mood_weight", 0.7);
+                double dev = getDeviation(statsService, moodKey, scores);
+                double normalizedDev = normalizeScore(dev);
+                matchedDimensions++;
+                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                        .dimension("mood").label("心情: " + getMoodLabel(user.getMood()))
+                        .score(normalizedDev)
+                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .build());
+            }
+
+            double coverageFactor = getCoverageFactor(matchedDimensions);
+
+            return MatchScoreDetailVO.builder()
+                    .bookId(book.getId())
+                    .overallScore(Math.round(overallScore * 100.0) / 100.0)
+                    .matchedDimensions(matchedDimensions)
+                    .coverageFactor(coverageFactor)
+                    .dimensions(dimensions)
+                    .build();
+        } catch (Exception e) {
+            log.debug("解析相关度得分失败: bookId={} - {}", book.getId(), e.getMessage());
+            return MatchScoreDetailVO.builder()
+                    .bookId(book.getId())
+                    .overallScore(overallScore)
+                    .matchedDimensions(0)
+                    .coverageFactor(0.35)
+                    .dimensions(List.of())
+                    .build();
+        }
+    }
+
+    static double getCoverageFactor(int matchedDimensions) {
+        return switch (matchedDimensions) {
+            case 10 -> 1.0;
+            case 9 -> 0.98;
+            case 8 -> 0.96;
+            case 7 -> 0.93;
+            case 6 -> 0.89;
+            case 5 -> 0.84;
+            case 4 -> 0.78;
+            case 3 -> 0.70;
+            case 2 -> 0.58;
+            case 1 -> 0.42;
+            default -> 0.35;
+        };
+    }
+
+    static double normalizeScore(double rawScore) {
+        if (rawScore <= 0) return 0.0;
+        double normalized = 1.0 / (1.0 + Math.exp(-4.0 * (rawScore - 0.5)));
+        return Math.round(normalized * 10000.0) / 10000.0;
     }
 
     /**

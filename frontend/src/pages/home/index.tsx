@@ -4,6 +4,7 @@ import {
   Search, BookOpen, ChevronRight, Clock, Star, Sparkles,
   TrendingUp, Zap, Flame, Award,
   Bell, MessageSquareText, Tag, BarChart3, BookCheck, BookOpenCheck,
+  Target, Compass,
 } from 'lucide-react'
 import {
   getHomeStats, getHomeRecent, getHomePersonalized,
@@ -792,7 +793,129 @@ export default function HomePage() {
 
       {/* 内容区域 - 留出顶部固定头部的高度 */}
       <div className="pt-[140px] px-4 space-y-6">
-        {/* 1. 阅读统计卡片 — 横向数据条 */}
+        {/* 1. 为你推荐 */}
+        {personalizedLoading ? (
+          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="h-7 w-7 animate-pulse rounded-lg bg-muted" />
+              <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+            </div>
+            <VerticalListSkeleton />
+          </div>
+        ) : personalizedBooks.length > 0 ? (
+          <section className="rounded-2xl bg-card border border-border/50 shadow-lg shadow-black/5 dark:shadow-black/60 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-bold">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-500/5">
+                  <Target className="h-4 w-4 text-amber-500" />
+                </div>
+                为你推荐
+                <span className="text-[10px] font-normal text-muted-foreground ml-1">基于你的画像</span>
+              </h2>
+              <button onClick={() => navigate('/recommend')} className="flex items-center text-xs text-primary font-medium">
+                查看更多 <ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
+            <VerticalBookList books={personalizedBooks} onBookClick={goToBook} matchScores={matchScores} />
+          </section>
+        ) : null}
+
+        {/* 2. 继续阅读 */}
+        {recentLoading ? (
+          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="h-7 w-7 animate-pulse rounded-lg bg-muted" />
+              <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="h-[120px] animate-pulse rounded-2xl bg-muted" />
+          </div>
+        ) : recentBooks.length > 0 ? (
+          <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-bold">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
+                  <Clock className="h-4 w-4 text-primary" />
+                </div>
+                继续阅读
+              </h2>
+              <button onClick={() => navigate('/profile/history')} className="flex items-center text-xs text-primary font-medium">
+                查看更多 <ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
+            <ContinueReadingCarousel books={recentBooks.slice(0, 3)} onReadClick={goToBookDetail} />
+          </section>
+        ) : null}
+
+        {/* 3. 发现 — Tab切换：高分推荐 | 新书速递 | 热门阅读 */}
+        <section className="rounded-2xl bg-card border border-border/50 shadow-lg shadow-black/5 dark:shadow-black/60 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-bold">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500/20 to-rose-500/5">
+                <Compass className="h-4 w-4 text-rose-500" />
+              </div>
+              发现
+            </h2>
+          </div>
+          <div className="-mx-4 px-4">
+            <div className="overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', scrollSnapType: 'x mandatory' }}>
+              <div className="flex gap-4" style={{ scrollSnapType: 'x mandatory' }}>
+                <div className="w-[85%] flex-shrink-0 snap-center" style={{ scrollSnapAlign: 'center' }}>
+                  <RankTabList tabKey="rating" icon={<Award className="h-4 w-4" />} label="高分推荐" onBookClick={goToBook} />
+                </div>
+                <div className="w-[85%] flex-shrink-0 snap-center" style={{ scrollSnapAlign: 'center' }}>
+                  <RankTabList tabKey="new" icon={<Zap className="h-4 w-4" />} label="新书速递" onBookClick={goToBook} />
+                </div>
+                <div className="w-[85%] flex-shrink-0 snap-center" style={{ scrollSnapAlign: 'center' }}>
+                  <RankTabList tabKey="read" icon={<Flame className="h-4 w-4" />} label="热门阅读" onBookClick={goToBook} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 4. 热门标签 */}
+        {categoriesLoading ? (
+          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="h-7 w-7 animate-pulse rounded-lg bg-muted" />
+              <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {Array.from({ length: 8 }, (_, i) => (
+                <div key={i} className="h-9 animate-pulse rounded-xl bg-muted" style={{ width: `${60 + (i % 3) * 20}px` }} />
+              ))}
+            </div>
+          </div>
+        ) : categories.length > 0 ? (
+          <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-bold">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500/20 to-violet-500/5">
+                  <Tag className="h-4 w-4 text-violet-500" />
+                </div>
+                热门标签
+              </h2>
+              <button onClick={() => navigate('/search')} className="flex items-center text-xs text-primary font-medium">
+                搜索图书 <ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {categories.map((cat) => (
+                <button
+                  key={cat.name}
+                  onClick={() => navigate(`/search?tag=${encodeURIComponent(cat.name)}`)}
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-muted/50 px-3 py-2 active:scale-[0.96] transition-all duration-150"
+                >
+                  <Tag className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs font-medium">{cat.name}</span>
+                  <span className="text-[10px] text-muted-foreground">{cat.count}本</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {/* 5. 阅读统计卡片 — 横向数据条 */}
         {statsLoading ? (
           <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4 space-y-4">
             <div className="flex items-center justify-between">
@@ -892,186 +1015,6 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
-            </div>
-          </section>
-        ) : null}
-
-        {/* 2. 继续阅读 */}
-        {recentLoading ? (
-          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="h-7 w-7 animate-pulse rounded-lg bg-muted" />
-              <div className="h-4 w-16 animate-pulse rounded bg-muted" />
-            </div>
-            <div className="h-[120px] animate-pulse rounded-2xl bg-muted" />
-          </div>
-        ) : recentBooks.length > 0 ? (
-          <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-bold">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
-                  <Clock className="h-4 w-4 text-primary" />
-                </div>
-                继续阅读
-              </h2>
-              <button onClick={() => navigate('/profile/history')} className="flex items-center text-xs text-primary font-medium">
-                查看更多 <ChevronRight className="h-3 w-3" />
-              </button>
-            </div>
-            <ContinueReadingCarousel books={recentBooks.slice(0, 3)} onReadClick={goToBookDetail} />
-          </section>
-        ) : null}
-
-        {/* 3. 猜你喜欢 */}
-        {personalizedLoading ? (
-          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="h-7 w-7 animate-pulse rounded-lg bg-muted" />
-              <div className="h-4 w-16 animate-pulse rounded bg-muted" />
-            </div>
-            <VerticalListSkeleton />
-          </div>
-        ) : personalizedBooks.length > 0 ? (
-          <section className="rounded-2xl bg-card border border-border/50 shadow-lg shadow-black/5 dark:shadow-black/60 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-bold">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-500/5">
-                  <Sparkles className="h-4 w-4 text-amber-500" />
-                </div>
-                猜你喜欢
-              </h2>
-              <button onClick={() => navigate('/recommend')} className="flex items-center text-xs text-primary font-medium">
-                查看更多 <ChevronRight className="h-3 w-3" />
-              </button>
-            </div>
-            <VerticalBookList books={personalizedBooks} onBookClick={goToBook} matchScores={matchScores} />
-          </section>
-        ) : null}
-
-        {/* 4. 高分佳作 */}
-        {topRatedLoading ? (
-          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="h-7 w-7 animate-pulse rounded-lg bg-muted" />
-              <div className="h-4 w-16 animate-pulse rounded bg-muted" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="aspect-[3/4] animate-pulse rounded-2xl bg-muted" />
-              ))}
-            </div>
-          </div>
-        ) : topRatedBooks.length > 0 ? (
-          <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-bold">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400/20 to-amber-400/5">
-                  <Star className="h-4 w-4 text-amber-400" />
-                </div>
-                高分佳作
-              </h2>
-              <button onClick={() => navigate('/rank?type=rating')} className="flex items-center text-xs text-primary font-medium">
-                查看更多 <ChevronRight className="h-3 w-3" />
-              </button>
-            </div>
-            <DualColumnBookCard books={topRatedBooks} onBookClick={goToBook} matchScores={matchScores} />
-          </section>
-        ) : null}
-
-        {/* 5. 新书速递 */}
-        {newBooksLoading ? (
-          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="h-7 w-7 animate-pulse rounded-lg bg-muted" />
-              <div className="h-4 w-16 animate-pulse rounded bg-muted" />
-            </div>
-            <NewBooksDualRowSkeleton />
-          </div>
-        ) : newBooks.length > 0 ? (
-          <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-bold">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500/20 to-sky-500/5">
-                  <Zap className="h-4 w-4 text-sky-500" />
-                </div>
-                新书速递
-              </h2>
-              <button onClick={() => navigate('/rank?type=new')} className="flex items-center text-xs text-primary font-medium">
-                查看更多 <ChevronRight className="h-3 w-3" />
-              </button>
-            </div>
-            <NewBooksDualRow books={newBooks} onBookClick={goToBook} matchScores={matchScores} />
-          </section>
-        ) : null}
-
-        {/* 6. 热门榜单 — 横向滑动 Tabs */}
-        <section className="rounded-2xl bg-card border border-border/50 shadow-lg shadow-black/5 dark:shadow-black/60 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-sm font-bold">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500/20 to-rose-500/5">
-                <TrendingUp className="h-4 w-4 text-rose-500" />
-              </div>
-              热门榜单
-            </h2>
-            <button onClick={() => navigate('/rank?type=read')} className="flex items-center text-xs text-primary font-medium">
-              查看更多 <ChevronRight className="h-3 w-3" />
-            </button>
-          </div>
-          <div className="-mx-4 px-4">
-            <div className="overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', scrollSnapType: 'x mandatory' }}>
-              <div className="flex gap-4" style={{ scrollSnapType: 'x mandatory' }}>
-                <div className="w-[85%] flex-shrink-0 snap-center" style={{ scrollSnapAlign: 'center' }}>
-                  <RankTabList tabKey="read" icon={<Flame className="h-4 w-4" />} label="热门阅读" onBookClick={goToBook} />
-                </div>
-                <div className="w-[85%] flex-shrink-0 snap-center" style={{ scrollSnapAlign: 'center' }}>
-                  <RankTabList tabKey="rating" icon={<Award className="h-4 w-4" />} label="高分推荐" onBookClick={goToBook} />
-                </div>
-                <div className="w-[85%] flex-shrink-0 snap-center" style={{ scrollSnapAlign: 'center' }}>
-                  <RankTabList tabKey="new" icon={<Clock className="h-4 w-4" />} label="新书速递" onBookClick={goToBook} />
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 7. 热门标签 */}
-        {categoriesLoading ? (
-          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="h-7 w-7 animate-pulse rounded-lg bg-muted" />
-              <div className="h-4 w-16 animate-pulse rounded bg-muted" />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {Array.from({ length: 8 }, (_, i) => (
-                <div key={i} className="h-9 animate-pulse rounded-xl bg-muted" style={{ width: `${60 + (i % 3) * 20}px` }} />
-              ))}
-            </div>
-          </div>
-        ) : categories.length > 0 ? (
-          <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-bold">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500/20 to-violet-500/5">
-                  <Tag className="h-4 w-4 text-violet-500" />
-                </div>
-                热门标签
-              </h2>
-              <button onClick={() => navigate('/search')} className="flex items-center text-xs text-primary font-medium">
-                搜索图书 <ChevronRight className="h-3 w-3" />
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {categories.map((cat) => (
-                <button
-                  key={cat.name}
-                  onClick={() => navigate(`/search?tag=${encodeURIComponent(cat.name)}`)}
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-muted/50 px-3 py-2 active:scale-[0.96] transition-all duration-150"
-                >
-                  <Tag className="h-3.5 w-3.5 text-primary" />
-                  <span className="text-xs font-medium">{cat.name}</span>
-                  <span className="text-[10px] text-muted-foreground">{cat.count}本</span>
-                </button>
-              ))}
             </div>
           </section>
         ) : null}

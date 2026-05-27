@@ -1,11 +1,20 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bookmark, BookmarkCheck, BookOpen, Star, Eye, MessageSquare, Sparkles, Pencil, X, Plus, Trash2 } from 'lucide-react'
-import { getBook, rateBook, updateBookCover, updateBookTitle, updateBookAuthor, updateBookDescription, updateFormatTags } from '@/api/book'
+import {
+  ArrowLeft, Bookmark, BookmarkCheck, BookOpen, Star, Eye, MessageSquare, Sparkles,
+  Pencil, X, Plus, Trash2, Clock, Target, Users, UserX, Lightbulb, Gauge,
+  ChevronDown, ChevronUp, MessageCircle,
+} from 'lucide-react'
+import {
+  getBook, rateBook, updateBookCover, updateBookTitle, updateBookAuthor,
+  updateBookDescription, updateFormatTags, getMatchScoreDetail, getBookSpeedRead,
+} from '@/api/book'
+import type { MatchScoreDetail, DimensionScore, BookSpeedRead } from '@/api/book'
 import { checkInBookshelf, addToBookshelf, removeFromBookshelf } from '@/api/bookshelf'
 import { moveToTrash, checkInTrash } from '@/api/bookTrash'
 import { getProgress } from '@/api/progress'
 import { getBookComments, countBookComments } from '@/api/comment'
+import { getBookSuggestedQuestions } from '@/api/bookChat'
 import type { Book } from '@/types/book'
 import type { CommentVO } from '@/api/comment'
 import { formatProgress, formatFileSize, parseFormatTags } from '@/types/book'
@@ -55,6 +64,289 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
       <Sparkles className="h-3 w-3" />
       匹配度：{pct}%
     </span>
+  )
+}
+
+function MatchScoreCard({ bookId, ms }: { bookId: number; ms: number | undefined | null }) {
+  const [detail, setDetail] = useState<MatchScoreDetail | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!bookId) return
+    setLoading(true)
+    getMatchScoreDetail(bookId)
+      .then((res: any) => {
+        const data = res?.data ?? res
+        if (data) setDetail(data)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [bookId])
+
+  const overallPct = Math.round(Math.max(0, detail?.overallScore ?? ms ?? 0) * 100)
+
+  if (loading) {
+    return (
+      <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+        <div className="flex items-center gap-3">
+          <div className="h-14 w-14 animate-pulse rounded-full bg-muted" />
+          <div className="flex-1 space-y-2">
+            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!detail && overallPct <= 0) return null
+
+  const dims = detail?.dimensions || []
+
+  return (
+    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+            <span className="text-lg font-bold text-primary">{overallPct}%</span>
+          </div>
+          <div>
+            <p className="text-sm font-bold">匹配度分析</p>
+            <p className="text-xs text-muted-foreground">
+              {detail ? `覆盖 ${detail.matchedDimensions} 个维度` : '基于你的阅读偏好'}
+            </p>
+          </div>
+        </div>
+        {dims.length > 0 && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted transition-colors"
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        )}
+      </div>
+
+      {expanded && dims.length > 0 && (
+        <div className="mt-3 space-y-2.5 border-t border-border/50 pt-3">
+          {dims.map((d: DimensionScore) => {
+            const pct = Math.round(Math.max(0, d.score) * 100)
+            return (
+              <div key={d.dimension}>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-muted-foreground">{d.label}</span>
+                  <span className="font-medium">{pct}%</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-primary/10">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SpeedReadCard({ bookId }: { bookId: number }) {
+  const [data, setData] = useState<BookSpeedRead | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [expanded, setExpanded] = useState(true)
+
+  useEffect(() => {
+    if (!bookId) return
+    setLoading(true)
+    getBookSpeedRead(bookId)
+      .then((res: any) => {
+        const d = res?.data ?? res
+        if (d) setData(d)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [bookId])
+
+  if (loading) {
+    return (
+      <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+        </div>
+        <div className="space-y-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-3 w-full animate-pulse rounded bg-muted" />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (!data) return null
+
+  return (
+    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between"
+      >
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-bold">3分钟速读</h3>
+          {data.difficulty && (
+            <span className="rounded-md bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              {data.difficulty}
+            </span>
+          )}
+        </div>
+        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {data.corePoints && data.corePoints.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <Target className="h-3.5 w-3.5 text-primary" />
+                核心观点
+              </div>
+              <ul className="space-y-1.5">
+                {data.corePoints.map((point, idx) => (
+                  <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                      {idx + 1}
+                    </span>
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {data.suitableFor && data.suitableFor.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                <Users className="h-3.5 w-3.5" />
+                适合谁读
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {data.suitableFor.map((item, idx) => (
+                  <span
+                    key={idx}
+                    className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {data.notSuitableFor && data.notSuitableFor.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                <UserX className="h-3.5 w-3.5" />
+                不适合谁读
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {data.notSuitableFor.map((item, idx) => (
+                  <span
+                    key={idx}
+                    className="rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {data.takeaways && data.takeaways.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                <Lightbulb className="h-3.5 w-3.5" />
+                读完能收获什么
+              </div>
+              <ul className="space-y-1">
+                {data.takeaways.map((item, idx) => (
+                  <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <Gauge className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AiQaEntry({
+  bookId,
+  onOpenChat,
+}: {
+  bookId: number
+  onOpenChat: (initialQuestion?: string) => void
+}) {
+  const [questions, setQuestions] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!bookId) return
+    setLoading(true)
+    getBookSuggestedQuestions(bookId)
+      .then((res: any) => {
+        const data = res?.data ?? res
+        if (Array.isArray(data)) setQuestions(data)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [bookId])
+
+  return (
+    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <MessageCircle className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-bold">AI 深度问答</h3>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        基于全书内容，AI 可以为你解答任何关于这本书的问题
+      </p>
+
+      {loading ? (
+        <div className="flex flex-wrap gap-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-8 w-28 animate-pulse rounded-full bg-muted" />
+          ))}
+        </div>
+      ) : questions.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {questions.map((q, idx) => (
+            <button
+              key={idx}
+              onClick={() => onOpenChat(q)}
+              className="rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <button
+          onClick={() => onOpenChat()}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary/5 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+        >
+          <Sparkles className="h-4 w-4" />
+          向 AI 提问
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -254,6 +546,7 @@ export default function BookDetailPage() {
   const [commentPage, setCommentPage] = useState(1)
   const [hasMoreComments, setHasMoreComments] = useState(true)
   const [showBookChat, setShowBookChat] = useState(false)
+  const [chatInitialQuestion, setChatInitialQuestion] = useState<string | undefined>(undefined)
   const [descExpanded, setDescExpanded] = useState(false)
   const [showImageViewer, setShowImageViewer] = useState(false)
   const coverInputRef = useRef<HTMLInputElement>(null)
@@ -414,6 +707,11 @@ export default function BookDetailPage() {
     toast.success('简介已更新')
   }
 
+  const handleOpenChat = useCallback((initialQuestion?: string) => {
+    setChatInitialQuestion(initialQuestion)
+    setShowBookChat(true)
+  }, [])
+
   if (loading || !book) {
     return (
       <div className="min-h-screen bg-background page-enter pb-20">
@@ -454,6 +752,28 @@ export default function BookDetailPage() {
           </div>
         </div>
 
+        <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+          <div className="flex items-center gap-3">
+            <div className="h-14 w-14 animate-pulse rounded-full bg-muted" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+            </div>
+          </div>
+        </div>
+
+        <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="space-y-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-3 w-full animate-pulse rounded bg-muted" />
+            ))}
+          </div>
+        </div>
+
         <div className="px-4 pb-4 space-y-2">
           <div className="h-4 w-10 animate-pulse rounded bg-muted" />
           <div className="space-y-1.5">
@@ -462,6 +782,18 @@ export default function BookDetailPage() {
             <div className="h-3.5 w-4/5 animate-pulse rounded bg-muted" />
           </div>
           <div className="h-3 w-8 animate-pulse rounded bg-muted" />
+        </div>
+
+        <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-8 w-28 animate-pulse rounded-full bg-muted" />
+            ))}
+          </div>
         </div>
 
         <div className="px-4 border-t border-border/50 pt-4">
@@ -629,6 +961,12 @@ export default function BookDetailPage() {
         )}
       </div>
 
+      {/* 匹配度卡片 */}
+      <MatchScoreCard bookId={id} ms={ms} />
+
+      {/* 3分钟速读 */}
+      <SpeedReadCard bookId={id} />
+
       {/* 简介 */}
       {(book.description || isAdmin) && (
         <div className="px-4 pb-4">
@@ -665,6 +1003,9 @@ export default function BookDetailPage() {
         </div>
       )}
 
+      {/* AI 深度问答入口 */}
+      <AiQaEntry bookId={id} onOpenChat={handleOpenChat} />
+
       {/* 评论区 */}
       <div className="px-4 border-t border-border/50 pt-4">
         <div className="flex items-center gap-2 mb-3">
@@ -692,7 +1033,7 @@ export default function BookDetailPage() {
           </button>
 
           <button
-            onClick={() => setShowBookChat(true)}
+            onClick={() => handleOpenChat()}
             className="flex h-11 w-14 flex-col items-center justify-center rounded-2xl bg-accent text-[10px] font-medium text-accent-foreground transition-all active:scale-[0.97] leading-none gap-1"
           >
             <BlinkingBot className="h-4 w-4" />
@@ -714,7 +1055,11 @@ export default function BookDetailPage() {
         <BookChatSheet
           book={book}
           open={showBookChat}
-          onOpenChange={setShowBookChat}
+          onOpenChange={(open) => {
+            setShowBookChat(open)
+            if (!open) setChatInitialQuestion(undefined)
+          }}
+          initialQuestion={chatInitialQuestion}
         />
       )}
 

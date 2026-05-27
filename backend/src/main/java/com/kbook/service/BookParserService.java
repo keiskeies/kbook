@@ -1172,7 +1172,9 @@ public class BookParserService {
 
             // 填充8维度相关度得分（JSON字符串）
             if (result.relevanceScoresJson != null && !result.relevanceScoresJson.isBlank()) {
-                book.setRelevanceScores(result.relevanceScoresJson); // 设置相关度得分
+                book.setRelevanceScores(result.relevanceScoresJson);
+                book.setSpeedRead(null);
+                book.setSpeedReadGenerated(false);
             }
 
             // 填充AI生成的简介
@@ -1690,6 +1692,96 @@ public class BookParserService {
 
         } catch (Exception e) {
             log.warn("封面重命名失败: {}", e.getMessage());
+        }
+    }
+
+    public com.kbook.dto.BookSpeedReadVO generateSpeedRead(Book book) {
+        try {
+            ChatModel chatModel = aiProviderConfigService.buildChatModelWithoutThinking();
+            if (chatModel == null) {
+                log.warn("AI 模型未配置，无法生成速读摘要: bookId={}", book.getId());
+                return null;
+            }
+
+            StringBuilder contentBuilder = new StringBuilder();
+            contentBuilder.append("书名：《").append(book.getTitle()).append("》\n");
+            if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
+                contentBuilder.append("作者：").append(book.getAuthor()).append("\n");
+            }
+            if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+                String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+                contentBuilder.append("标签：").append(tags).append("\n");
+            }
+            if (book.getDescription() != null && !book.getDescription().isBlank()) {
+                contentBuilder.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 2000)).append("\n");
+            }
+            if (book.getToc() != null && !book.getToc().isBlank()) {
+                contentBuilder.append("目录：\n").append(CommonUtils.truncateText(book.getToc(), 1500)).append("\n");
+            }
+            if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+                contentBuilder.append("章节摘要：\n").append(CommonUtils.truncateText(book.getChapterSummary(), 2000)).append("\n");
+            }
+
+            String prompt = """
+                    你是一位资深阅读顾问。请基于以下书籍信息，生成一份「3分钟速读」摘要，帮助读者快速判断这本书是否值得阅读。
+
+                    %s
+
+                    请严格按照以下JSON格式输出（不要输出其他内容）：
+                    {
+                      "corePoints": ["核心观点1", "核心观点2", "核心观点3"],
+                      "suitableFor": ["适合人群1", "适合人群2"],
+                      "notSuitableFor": ["不适合人群1", "不适合人群2"],
+                      "takeaways": ["读完能收获什么1", "读完能收获什么2"],
+                      "difficulty": "入门/中等/进阶"
+                    }
+
+                    要求：
+                    - corePoints: 3个最核心的观点或主题，每个不超过30字
+                    - suitableFor: 2-3类最适合阅读的人群描述
+                    - notSuitableFor: 2-3类不适合阅读的人群描述
+                    - takeaways: 2-3个读完能获得的具体收获
+                    - difficulty: 根据内容深度判断阅读难度
+                    """.formatted(contentBuilder.toString());
+
+            long startTime = System.currentTimeMillis();
+            ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            String aiText = response.aiMessage().text();
+            if (aiText == null || aiText.isBlank()) {
+                log.warn("AI 速读摘要为空: bookId={}", book.getId());
+                return null;
+            }
+
+            String jsonStr = aiText.trim();
+            if (jsonStr.startsWith("```json")) {
+                jsonStr = jsonStr.substring(7);
+            }
+            if (jsonStr.startsWith("```")) {
+                jsonStr = jsonStr.substring(3);
+            }
+            if (jsonStr.endsWith("```")) {
+                jsonStr = jsonStr.substring(0, jsonStr.length() - 3);
+            }
+            jsonStr = jsonStr.trim();
+
+            com.kbook.dto.BookSpeedReadVO vo = objectMapper.readValue(jsonStr, com.kbook.dto.BookSpeedReadVO.class);
+            vo.setBookId(book.getId());
+            vo.setRawContent(aiText);
+
+            int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
+                    ? response.tokenUsage().inputTokenCount() : 0;
+            int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
+                    ? response.tokenUsage().outputTokenCount() : 0;
+
+            CommonUtils.logAiCall("3分钟速读", elapsed, inputTokens, outputTokens,
+                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
+
+            return vo;
+        } catch (Exception e) {
+            log.warn("生成速读摘要失败: bookId={} - {}", book.getId(), e.getMessage());
+            return null;
         }
     }
 }

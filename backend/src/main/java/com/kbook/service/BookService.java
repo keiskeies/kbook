@@ -229,6 +229,17 @@ public class BookService {
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
 
+    @Transactional
+    public void clearSpeedRead(Long bookId) {
+        Book book = getBookById(bookId);
+        if (book == null) return;
+        if (book.getSpeedRead() == null && !Boolean.TRUE.equals(book.getSpeedReadGenerated())) return;
+        book.setSpeedRead(null);
+        book.setSpeedReadGenerated(false);
+        bookRepository.save(book);
+        log.info("清除速读缓存: bookId={}", bookId);
+    }
+
     /**
      * 更新图书封面（管理员）
      * 上传新封面图片，自动压缩至最大宽度 300px

@@ -93,7 +93,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8181',
+        target: 'http://localhost:8282',
         changeOrigin: true,
         ws: true,
         // 开发环境超时配置（支持 AI 流式输出）
