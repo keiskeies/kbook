@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
@@ -52,6 +53,7 @@ public class BookChatService {
     private final BookService bookService;
     private final BookParserService bookParserService;
     private final AiProviderConfigService aiProviderConfigService;
+    private final ChatModelFactory chatModelFactory;
     private final AiConversationRepository conversationRepository;
     private final AiSessionRepository sessionRepository;
     private final BookSuggestedQuestionRepository suggestedQuestionRepository;
@@ -265,7 +267,7 @@ public class BookChatService {
 
                 String fullPrompt = buildPrompt(book, question, ragContext);
 
-                StreamingChatModel streamingChatModel = aiProviderConfigService.buildChatStreamingModel();
+                StreamingChatModel streamingChatModel = chatModelFactory.buildStreamingChatModel();
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
@@ -438,7 +440,7 @@ public class BookChatService {
 
             long startTime = System.currentTimeMillis();
 
-            dev.langchain4j.model.chat.ChatModel chatModel = aiProviderConfigService.buildChatModelWithoutThinking();
+            dev.langchain4j.model.chat.ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
             dev.langchain4j.model.chat.response.ChatResponse response =
                     chatModel.chat(List.of(dev.langchain4j.data.message.UserMessage.from(prompt)));
 

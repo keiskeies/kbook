@@ -407,8 +407,16 @@ public class BookTrashService {
             dims.put(user.getMarried() ? "married" : "unmarried", 1.0);
         }
 
-        // 处理是否有子女维度
-        if (user.getHasChildren() != null) {
+        // 处理孩子年龄区间维度（优先新字段，兜底旧字段）
+        if (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank()) {
+            String[] ranges = user.getChildrenAgeRanges().split(",");
+            for (String range : ranges) {
+                String key = range.trim().toLowerCase();
+                if (!key.isEmpty()) {
+                    dims.put(key, 1.0);
+                }
+            }
+        } else if (user.getHasChildren() != null) {
             dims.put(user.getHasChildren() ? "hasChildren" : "noChildren", 1.0);
         }
 
@@ -429,8 +437,8 @@ public class BookTrashService {
         }
 
         // 处理教育程度维度
-        if (user.getEducation() != null) {
-            dims.put(user.getEducation().toLowerCase(), 1.0);
+        if (user.getAspirationEducation() != null) {
+            dims.put(user.getAspirationEducation().toLowerCase(), 1.0);
         }
 
         // 处理创业意向维度
@@ -444,9 +452,9 @@ public class BookTrashService {
         }
 
         // 处理年收入维度：排除不愿透露的情况
-        if (user.getAnnualIncome() != null && !user.getAnnualIncome().isBlank()
-                && !"PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAnnualIncome())) {
-            dims.put(user.getAnnualIncome().toLowerCase(), 1.0);
+        if (user.getAspirationIncome() != null && !user.getAspirationIncome().isBlank()
+                && !"PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAspirationIncome())) {
+            dims.put(user.getAspirationIncome().toLowerCase(), 1.0);
         }
 
         // 处理心情维度

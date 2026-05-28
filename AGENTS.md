@@ -63,3 +63,43 @@ AI-native reading platform. React 19 frontend + Spring Boot 3.4 backend.
 - Nginx proxies to backend on `127.0.0.1:8080`
 - Frontend `dist/` served as static files by Nginx
 - `deploy/nginx/kbook.conf` also routes other domains on same server — only `book.keiskei.top` is KBook
+
+## ChatModelFactory — 8 no-arg methods
+
+All 8 methods return `ChatModel` or `StreamingChatModel`, zero parameters, provider auto-detected inside.
+
+| # | Method | Source | Thinking | Streaming |
+|---|--------|--------|----------|-----------|
+| 1 | `buildChatModel()` | DB→yml | on | no |
+| 2 | `buildChatModelWithoutThinking()` | DB→yml | off | no |
+| 3 | `buildStreamingChatModel()` | DB→yml | on | yes |
+| 4 | `buildStreamingChatModelWithoutThinking()` | DB→yml | off | yes |
+| 5 | `buildChatModelFromYml()` | yml | on | no |
+| 6 | `buildChatModelWithoutThinkingFromYml()` | yml | off | no |
+| 7 | `buildStreamingChatModelFromYml()` | yml | on | yes |
+| 8 | `buildStreamingChatModelWithoutThinkingFromYml()` | yml | off | yes |
+
+### Secondary methods
+- `buildVisionChatModel()` — Ollama only, temperature 0.3, 600s timeout, no thinking
+- `buildChatModelForTest(Long configId)` — loads from DB by ID
+- `buildOllamaEmbeddingModel(...)` — create from params
+- `buildDefaultEmbeddingModel()` — yml embedding config
+
+### All models (except vision) wrapped with:
+- `RetryableChatModel` — exponential backoff 1s/2s/4s, ±25% jitter, max 30s, 3 retries on 429
+- `customHeaders` with UTF-8 charset (Ollama only)
+- OpenAI models get `DiagnosticChatListener`
+- Ollama models get `ollamaCounterListener` — increments Redis counter every request, triggers KV cache reset every 50 requests
+
+## AiProviderConfig.provider — enum
+- `Provider` enum: `OLLAMA`, `OPENAI`
+- JPA `AttributeConverter`: case-insensitive reads
+- `@JsonCreator from(String)`: case-insensitive deserialization
+- All comparisons use `==` not `.equals()`
+
+## Callers using yml-only methods
+- `BookParserService.generateSpeedRead()` → `buildChatModelWithoutThinkingFromYml()`
+- `BookChatService.followUpQuestions()` → `buildChatModelWithoutThinkingFromYml()`
+
+## Known issues / TODO
+- `performOllamaSoftReset` calls `buildChatModel()` (which is DB→yml fallback) — might need to use yml version instead to avoid potential DB dependency during reset

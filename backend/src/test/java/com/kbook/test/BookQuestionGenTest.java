@@ -1,6 +1,7 @@
 package com.kbook.test;
 
 import com.kbook.common.util.CommonUtils;
+import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.Book;
 import com.kbook.entity.BookSuggestedQuestion;
 import com.kbook.repository.BookRepository;
@@ -41,11 +42,13 @@ public class BookQuestionGenTest {
     private static final int AI_TIMEOUT_MINUTES = 5;
 
     private static final String IGNORE_TAGS = "长篇小说、短篇小说、推理、悬疑、科幻、奇幻、武侠、言情、官场、穿越、重生、仙侠、修真、玄幻、都市、青春校园、乡土、历史小说、军事小说、谍战、惊悚、恐怖、灵异、轻小说、浪漫、史诗、悲剧、喜剧、意识流、黑色幽默、讽刺、现实主义、魔幻现实主义、传记、回忆录、纪实、随笔、散文、诗歌、书信、寓言、童话、神话、传说、民间故事、绘本、漫画、连环画、戏剧、戏曲、网络小说、同人、种田、后宫、系统";
+    @Autowired
+    private ChatModelFactory chatModelFactory;
 
     @Test
     public void generateQuestionsForAllBooks() {
         long methodStartTime = System.currentTimeMillis(); // 记录方法开始时间
-        ChatModel chatModel = aiProviderConfigService.buildTagChatModel();
+        ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
         if (chatModel == null) {
             System.err.println("AI 模型不可用，跳过测试");
             return;

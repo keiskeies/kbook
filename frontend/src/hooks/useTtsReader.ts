@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useTtsStore } from '@/store/tts'
 import { ttsService } from '@/utils/tts'
+import { getActiveTtsConfig } from '@/api/adminTts'
 
 interface UseTtsReaderOptions {
   /** 书籍 ID */
@@ -31,12 +32,19 @@ export function useTtsReader({ bookId, bookTitle, getAllSegments, getAllSegments
   const currentSegmentIndex = isCurrentBook ? segmentIndex : -1
 
   // 同步开始朗读（TXT 等已有全量文本的情况）
-  const startReading = useCallback((startSegment = 0) => {
+  const startReading = useCallback(async (startSegment = 0) => {
+    if (!useTtsStore.getState().backendConfig) {
+      try {
+        const config = await getActiveTtsConfig()
+        if (config) {
+          useTtsStore.getState().setBackendConfig(config)
+          useTtsStore.getState().setBackendMode(true)
+        }
+      } catch { /* no backend TTS */ }
+    }
     if (getAllSegmentsAsync) {
-      // EPUB 异步模式
       ttsService.startReadingAsync(bookId, bookTitle, getAllSegmentsAsync, startSegment)
     } else if (getAllSegments) {
-      // TXT 同步模式
       const segments = getAllSegments()
       if (segments.length === 0) return
       ttsService.startReading(bookId, bookTitle, segments, startSegment)

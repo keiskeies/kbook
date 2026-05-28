@@ -22,6 +22,7 @@ export const ROUTES = {
   ADMIN_BIND_EMAIL: '/admin/bind-email',
   ADMIN_BOOKS: '/admin/books',
   ADMIN_AI_CONFIG: '/admin/ai-config',
+  ADMIN_TTS_CONFIG: '/admin/tts-config',
   FOLLOW_LIST: '/user/:userId/follow',
   CHAT: '/chat',
   CHAT_ROOM: '/chat/:conversationId',

@@ -13,6 +13,9 @@ import com.kbook.repository.UserBookPreferenceRepository;
 import com.kbook.repository.UserReadHistoryRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -94,10 +97,12 @@ public class RecommendService {
 
         User user = userService.getUserById(userId);
         boolean hasProfile = user.getBirthday() != null || user.getGender() != null
-                || user.getMarried() != null || user.getHasChildren() != null
+                || user.getMarried() != null
+                || (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank())
+                || user.getHasChildren() != null
                 || user.getMbti() != null || user.getOccupation() != null
-                || user.getEducation() != null || user.getEntrepreneurship() != null
-                || user.getAnnualIncome() != null || user.getMood() != null;
+                || user.getAspirationEducation() != null || user.getEntrepreneurship() != null
+                || user.getAspirationIncome() != null || user.getMood() != null;
 
         if (!hasProfile) return Map.of();
 
@@ -251,10 +256,21 @@ public class RecommendService {
             excludeSet.addAll(bookTrashService.getTrashedBookIds(userId));
 
             sendProgress(emitter, "loading", "正在加载书籍数据...", 5, 0, 0);
-            List<Book> allBooks = bookRepository.findAll();
-            int totalBooks = allBooks.size();
 
-            sendProgress(emitter, "matching", "正在计算匹配度...", 10, 0, totalBooks);
+            // 分页查询书籍，避免 findAll() 全量加载
+            int pageSize = 500;
+            int pageNumber = 0;
+            Page<Book> bookPage;
+            long totalBooks = 0;
+            // 先获取总数
+            try {
+                totalBooks = bookRepository.count();
+            } catch (Exception e) {
+                log.warn("获取书籍总数失败，使用估算值: {}", e.getMessage());
+            }
+            int intTotalBooks = totalBooks > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) totalBooks;
+
+            sendProgress(emitter, "matching", "正在计算匹配度...", 10, 0, intTotalBooks);
 
             List<String> excludedTags = getExcludedTags(userId);
             List<String> excludedAuthors = getExcludedAuthors(userId);
@@ -266,13 +282,14 @@ public class RecommendService {
             double ruleMinScore = coefficientService.getCoefficient("OTHER", "rule_min_score", -0.5);
 
             List<RecommendComputeService.ScoredBook> scoredBooks = new ArrayList<>();
-            int batchSize = 500;
             int processed = 0;
 
-            for (int i = 0; i < totalBooks; i += batchSize) {
-                int end = Math.min(i + batchSize, totalBooks);
-                for (int j = i; j < end; j++) {
-                    Book book = allBooks.get(j);
+            do {
+                Pageable pageable = PageRequest.of(pageNumber, pageSize);
+                bookPage = bookRepository.findAllByOrderByIdAsc(pageable);
+                List<Book> books = bookPage.getContent();
+
+                for (Book book : books) {
                     if (excludeSet.contains(book.getId())) continue;
                     if (isExcludedByPreference(book, excludedTags, excludedAuthors, excludedFormats)) continue;
 
@@ -287,10 +304,11 @@ public class RecommendService {
 
                     scoredBooks.add(new RecommendComputeService.ScoredBook(book, finalScore, matchScore, qualityBonus, "RULE"));
                 }
-                processed = end;
-                int progressPercent = 10 + (int) (60.0 * processed / totalBooks);
-                sendProgress(emitter, "matching", "正在计算匹配度...", progressPercent, processed, totalBooks);
-            }
+                processed += books.size();
+                pageNumber++;
+                int progressPercent = 10 + (int) (60.0 * processed / Math.max(intTotalBooks, 1));
+                sendProgress(emitter, "matching", "正在计算匹配度...", progressPercent, processed, intTotalBooks);
+            } while (bookPage.hasNext());
 
             sendProgress(emitter, "exploring", "正在探索更多书籍...", 72, 0, 0);
             addExploreBooks(user, excludeSet, scoredBooks);
@@ -301,7 +319,7 @@ public class RecommendService {
             sendProgress(emitter, "saving", "正在保存推荐结果...", 90, 0, 0);
             computeService.saveToSortedSetDirect(userId, scoredBooks);
 
-            sendProgress(emitter, "done", "推荐生成完成", 100, scoredBooks.size(), totalBooks);
+            sendProgress(emitter, "done", "推荐生成完成", 100, scoredBooks.size(), intTotalBooks);
 
             List<RecommendedItem> topItems = buildTopItems(scoredBooks, 60);
             emitter.send(SseEmitter.event()
@@ -379,8 +397,7 @@ public class RecommendService {
                     .readCount(book.getReadCount())
                     .formatTags(book.getFormatTags())
                     .fileSize(book.getFileSize())
-                    .description(book.getDescription() != null && book.getDescription().length() > 80
-                            ? book.getDescription().substring(0, 80) + "..." : book.getDescription())
+                    .description(book.getDescription())
                     .matchScore(Math.round(matchScore * 100.0) / 100.0)
                     .recommendedAt(LocalDateTime.now())
                     .build());
@@ -410,8 +427,7 @@ public class RecommendService {
                     .readCount(sb.book().getReadCount())
                     .formatTags(sb.book().getFormatTags())
                     .fileSize(sb.book().getFileSize())
-                    .description(sb.book().getDescription() != null && sb.book().getDescription().length() > 80
-                            ? sb.book().getDescription().substring(0, 80) + "..." : sb.book().getDescription())
+                    .description(sb.book().getDescription())
                     .matchScore(Math.round(sb.finalScore() * 100.0) / 100.0)
                     .recommendedAt(LocalDateTime.now())
                     .build());

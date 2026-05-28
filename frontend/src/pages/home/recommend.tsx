@@ -15,12 +15,12 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
   let colorClass = ''
-  if (r >= 5.0) colorClass = 'text-red-600 dark:text-red-400'
-  else if (r >= 4.5) colorClass = 'text-orange-600 dark:text-orange-400'
-  else if (r >= 4.0) colorClass = 'text-amber-600 dark:text-amber-400'
-  else if (r >= 3.0) colorClass = 'text-emerald-600 dark:text-emerald-400'
-  else if (r >= 2.5) colorClass = 'text-teal-600 dark:text-teal-400'
-  else colorClass = 'text-slate-400 dark:text-slate-500'
+  if (r >= 5.0) colorClass = 'text-danger dark:text-danger'
+  else if (r >= 4.5) colorClass = 'text-warning dark:text-warning'
+  else if (r >= 4.0) colorClass = 'text-warning dark:text-warning'
+  else if (r >= 3.0) colorClass = 'text-success dark:text-success'
+  else if (r >= 2.5) colorClass = 'text-success dark:text-success'
+  else colorClass = 'text-muted-foreground dark:text-muted-foreground'
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
@@ -32,12 +32,12 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
 function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   const pct = Math.round(Math.max(0, score ?? 0) * 100)
   let colorClass = ''
-  if (pct >= 100) colorClass = 'text-red-600 dark:text-red-400'
-  else if (pct >= 80) colorClass = 'text-orange-600 dark:text-orange-400'
-  else if (pct >= 60) colorClass = 'text-amber-600 dark:text-amber-400'
-  else if (pct >= 50) colorClass = 'text-emerald-600 dark:text-emerald-400'
-  else if (pct >= 40) colorClass = 'text-teal-600 dark:text-teal-400'
-  else colorClass = 'text-slate-400 dark:text-slate-500'
+  if (pct >= 100) colorClass = 'text-danger dark:text-danger'
+  else if (pct >= 80) colorClass = 'text-warning dark:text-warning'
+  else if (pct >= 60) colorClass = 'text-warning dark:text-warning'
+  else if (pct >= 50) colorClass = 'text-success dark:text-success'
+  else if (pct >= 40) colorClass = 'text-success dark:text-success'
+  else colorClass = 'text-muted-foreground dark:text-muted-foreground'
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
       <Sparkles className="h-2.5 w-2.5" />
@@ -348,7 +348,7 @@ export default function RecommendPage() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2 flex-1">
-            <Sparkles className="h-5 w-5 text-amber-500" />
+            <Sparkles className="h-5 w-5 text-warning" />
             <h1 className="text-lg font-bold">为你推荐</h1>
             {total > 0 && !generating && (
               <span className="text-xs text-muted-foreground">共{total}本</span>
@@ -375,7 +375,7 @@ export default function RecommendPage() {
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-300 ease-out"
+                  className="h-full rounded-full bg-gradient-to-r from-warning to-warning transition-all duration-300 ease-out"
                   style={{ width: `${progress.progress}%` }}
                 />
               </div>

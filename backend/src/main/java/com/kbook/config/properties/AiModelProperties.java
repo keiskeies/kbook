@@ -1,5 +1,6 @@
 package com.kbook.config.properties;
 
+import com.kbook.entity.AiProviderConfig;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -11,7 +12,7 @@ import java.time.Duration;
  */
 @Data
 @Component
-@ConfigurationProperties(prefix = "langchain4j.ollama")
+@ConfigurationProperties(prefix = "langchain4j")
 public class AiModelProperties {
 
     /** 聊天模型配置 */
@@ -25,10 +26,14 @@ public class AiModelProperties {
     /** 聊天模型配置 */
     @Data
     public static class ChatModelConfig {
-        /** Ollama 服务地址 */
+        /** 提供商类型：OLLAMA（默认）或 OPENAI */
+        private AiProviderConfig.Provider provider = AiProviderConfig.Provider.OLLAMA;
+        /** 服务地址（Ollama 默认 http://localhost:11434，OpenAI 兼容 API 填对应地址） */
         private String baseUrl = "http://localhost:11434";
-        /** 聊天模型名称 */
+        /** 模型名称 */
         private String modelName = "gemma3n:e4b";
+        /** API Key（OpenAI 兼容 API 需要；Ollama 可留空） */
+        private String apiKey;
         /** 温度参数（控制生成随机性，0-2） */
         private double temperature = 0.7;
         /** 请求超时时间 */
@@ -69,9 +74,12 @@ public class AiModelProperties {
         if (chatModel.getToolsEnabled() != null) {
             return chatModel.getToolsEnabled();
         }
-        // 自动检测：已知不支持 tools 的模型
+        // OpenAI 兼容 API 普遍支持 tools
+        if (chatModel.getProvider() == AiProviderConfig.Provider.OPENAI) {
+            return true;
+        }
+        // 自动检测 Ollama：已知不支持 tools 的模型
         String model = chatModel.getModelName().toLowerCase();
-        // gemma3n 全系列不支持 tools
         return !model.startsWith("gemma3n");
     }
 }

@@ -122,4 +122,21 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      */
     @Query(value = "SELECT * FROM books ORDER BY RAND() LIMIT :limit", nativeQuery = true)
     List<Book> findRandomBooks(@Param("limit") int limit);
+
+    /**
+     * 分页查询所有图书（按ID升序，用于批量处理）
+     */
+    Page<Book> findAllByOrderByIdAsc(Pageable pageable);
+
+    /**
+     * 只查询ID列表（用于需要遍历所有书籍但不需要完整实体的场景）
+     */
+    @Query("SELECT b.id FROM Book b ORDER BY b.id")
+    List<Long> findAllIds();
+
+    /**
+     * 只查询ID和relevanceScores（用于维度统计，减少内存占用）
+     */
+    @Query("SELECT b.id, b.relevanceScores FROM Book b WHERE b.relevanceScores IS NOT NULL")
+    List<Object[]> findAllRelevanceScores();
 }

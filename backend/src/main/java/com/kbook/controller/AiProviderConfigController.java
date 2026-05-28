@@ -160,7 +160,7 @@ public class AiProviderConfigController {
         }
 
         try {
-            ChatModel testModel = chatModelFactory.buildChatModel(config);
+            ChatModel testModel = chatModelFactory.buildChatModelForTest(id);
             String response = testModel.chat("请用中文回复：连接测试成功");
             return Result.ok(response);
         } catch (Exception e) {

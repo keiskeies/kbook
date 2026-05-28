@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.ChatModelFactory;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
@@ -50,6 +51,7 @@ public class BookAdminChatService {
 
     /** 管理员 Assistant 实例缓存（单例） */
     private final ConcurrentHashMap<String, BookAdminAssistant> adminAssistantCache = new ConcurrentHashMap<>();
+    private final ChatModelFactory chatModelFactory;
 
     /**
      * 创建管理员对话会话
@@ -257,8 +259,8 @@ public class BookAdminChatService {
 
     /** 构建管理员 Assistant 实例，配置 ChatModel、StreamingChatModel、工具和记忆 */
     private BookAdminAssistant buildAdminAssistant() {
-        ChatModel chatModel = providerConfigService.buildChatChatModel();
-        StreamingChatModel streamingChatModel = providerConfigService.buildChatStreamingModel();
+        ChatModel chatModel = chatModelFactory.buildChatModel();
+        StreamingChatModel streamingChatModel = chatModelFactory.buildStreamingChatModel();
         AiToolService realToolService = toolServiceProvider.getObject();
 
         log.info("构建管理员 AI Assistant (BookAdminAssistant)...");

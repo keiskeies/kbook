@@ -9,17 +9,17 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
 
   let colorClass = ''
   if (r >= 5.0) {
-    colorClass = 'text-red-600 dark:text-red-400'
+    colorClass = 'text-danger dark:text-danger'
   } else if (r >= 4.5) {
-    colorClass = 'text-orange-600 dark:text-orange-400'
+    colorClass = 'text-warning dark:text-warning'
   } else if (r >= 4.0) {
-    colorClass = 'text-amber-600 dark:text-amber-400'
+    colorClass = 'text-warning dark:text-warning'
   } else if (r >= 3.0) {
-    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    colorClass = 'text-success dark:text-success'
   } else if (r >= 2.5) {
-    colorClass = 'text-teal-600 dark:text-teal-400'
+    colorClass = 'text-success dark:text-success'
   } else {
-    colorClass = 'text-slate-400 dark:text-slate-500'
+    colorClass = 'text-muted-foreground dark:text-muted-foreground'
   }
 
   return (
@@ -36,17 +36,17 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
 
   let colorClass = ''
   if (pct >= 100) {
-    colorClass = 'text-red-600 dark:text-red-400'
+    colorClass = 'text-danger dark:text-danger'
   } else if (pct >= 80) {
-    colorClass = 'text-orange-600 dark:text-orange-400'
+    colorClass = 'text-warning dark:text-warning'
   } else if (pct >= 60) {
-    colorClass = 'text-amber-600 dark:text-amber-400'
+    colorClass = 'text-warning dark:text-warning'
   } else if (pct >= 50) {
-    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    colorClass = 'text-success dark:text-success'
   } else if (pct >= 40) {
-    colorClass = 'text-teal-600 dark:text-teal-400'
+    colorClass = 'text-success dark:text-success'
   } else {
-    colorClass = 'text-slate-400 dark:text-slate-500'
+    colorClass = 'text-muted-foreground dark:text-muted-foreground'
   }
 
   return (
@@ -230,6 +230,7 @@ export default function SearchPage() {
     }
     // 加载热门标签
     loadPopularTags()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadPopularTags = async () => {

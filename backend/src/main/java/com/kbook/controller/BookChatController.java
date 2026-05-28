@@ -4,6 +4,7 @@ import com.kbook.common.api.Result;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.service.BookChatService;
+import com.kbook.service.ReadingProgressService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -27,6 +28,9 @@ public class BookChatController extends BaseController {
 
     /** 图书 AI 对话服务 */
     private final BookChatService bookChatService;
+
+    /** 阅读进度服务 — 用于在提问时记录最近阅读 */
+    private final ReadingProgressService readingProgressService;
 
     /**
      * 流式图书 AI 对话（SSE）
@@ -52,6 +56,9 @@ public class BookChatController extends BaseController {
             } catch (Exception ignored) {}
             return emitter;
         }
+
+        // 将图书加入最近阅读（已有记录则更新时间，无记录则设进度为 0%）
+        readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
         return bookChatService.streamBookChat(userId, bookId, message, sessionId, regenerate);
     }

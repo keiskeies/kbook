@@ -5,7 +5,9 @@ import { Toaster } from '@/components/ui/sonner'
 import TtsFloatPlayer from '@/components/reader/TtsFloatPlayer'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useAuthStore } from '@/store/auth'
+import { useTtsStore } from '@/store/tts'
 import { initTokenSyncListener } from '@/utils/token-sync'
+import { getActiveTtsConfig } from '@/api/adminTts'
 import { router } from '@/router'
 import './index.css'
 import './App.css'
@@ -14,6 +16,17 @@ import './App.css'
 try {
   useAuthStore.getState().hydrate()
 } catch { /* ignore */ }
+
+if (useAuthStore.getState().isAuthenticated) {
+  try {
+    getActiveTtsConfig().then((config) => {
+      if (config) {
+        useTtsStore.getState().setBackendConfig(config)
+        useTtsStore.getState().setBackendMode(true)
+      }
+    }).catch(() => { /* no backend TTS configured */ })
+  } catch { /* ignore */ }
+}
 
 // 初始化多标签页 token 同步监听（try-catch 兜底，部分移动端 BroadcastChannel 会抛异常）
 try {

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle, RotateCcw, Trash2 } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle, RotateCcw, Trash2, Volume2 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
 import { useNavigate } from 'react-router-dom'
@@ -18,6 +18,7 @@ import { useChatStore } from '@/store/chat'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import FooterVersion from '@/components/common/FooterVersion'
 import AvatarCropModal from '@/components/common/AvatarCropModal'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 
 const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
 
@@ -100,9 +101,9 @@ export default function ProfilePage() {
     const occ = userInfo?.occupation
     return occ ? occ.split(',').filter(Boolean) : []
   })
-  const [traitEducation, setTraitEducation] = useState(userInfo?.education ?? '')
+  const [traitEducation, setTraitEducation] = useState(userInfo?.aspirationEducation ?? '')
   const [traitEntrepreneurship, setTraitEntrepreneurship] = useState(userInfo?.entrepreneurship ?? '')
-  const [traitAnnualIncome, setTraitAnnualIncome] = useState(userInfo?.annualIncome ?? '')
+  const [traitAnnualIncome, setTraitAnnualIncome] = useState(userInfo?.aspirationIncome ?? '')
   const [savingTraits, setSavingTraits] = useState(false)
 
   const [showProfileModal, setShowProfileModal] = useState(false)
@@ -144,8 +145,8 @@ export default function ProfilePage() {
       })
       if (occLabels.length > 0) parts.push(occLabels.join('/'))
     }
-    if (userInfo?.education) {
-      const edu = EDUCATION_OPTIONS.find(o => o.value === userInfo.education)
+    if (userInfo?.aspirationEducation) {
+      const edu = EDUCATION_OPTIONS.find(o => o.value === userInfo.aspirationEducation)
       if (edu) parts.push(edu.label)
     }
     if (userInfo?.entrepreneurship) {
@@ -157,8 +158,8 @@ export default function ProfilePage() {
         if (ent) parts.push(ent.label)
       }
     }
-    if (userInfo?.annualIncome && userInfo.annualIncome !== 'PREFER_NOT_TO_SAY') {
-      const inc = ANNUAL_INCOME_OPTIONS.find(o => o.value === userInfo.annualIncome)
+    if (userInfo?.aspirationIncome && userInfo.aspirationIncome !== 'PREFER_NOT_TO_SAY') {
+      const inc = ANNUAL_INCOME_OPTIONS.find(o => o.value === userInfo.aspirationIncome)
       if (inc) parts.push(inc.label)
     }
     return parts.length > 0 ? parts.join(' · ') : '未设置'
@@ -179,7 +180,7 @@ export default function ProfilePage() {
     const anyModalOpen = showProfileModal || showTraitsModal || showPreferenceModal
     setTabBarVisible(!anyModalOpen)
     return () => setTabBarVisible(true)
-  }, [showProfileModal, showTraitsModal, showPreferenceModal])
+  }, [showProfileModal, showTraitsModal, showPreferenceModal, setTabBarVisible])
 
   useEffect(() => {
     if (showProfileModal) {
@@ -200,9 +201,9 @@ export default function ProfilePage() {
       setTraitMbti(userInfo?.mbti ?? '')
       const occ = userInfo?.occupation
       setTraitOccupations(occ ? occ.split(',').filter(Boolean) : [])
-      setTraitEducation(userInfo?.education ?? '')
+      setTraitEducation(userInfo?.aspirationEducation ?? '')
       setTraitEntrepreneurship(userInfo?.entrepreneurship ?? '')
-      setTraitAnnualIncome(userInfo?.annualIncome ?? '')
+      setTraitAnnualIncome(userInfo?.aspirationIncome ?? '')
     }
   }, [showTraitsModal, userInfo])
 
@@ -269,6 +270,7 @@ export default function ProfilePage() {
     { label: '图书管理', icon: BookMarked, path: ROUTES.ADMIN_BOOKS, badge: '' },
     { label: '用户审核', icon: ShieldCheck, path: ROUTES.ADMIN_REVIEW, badge: '' },
     { label: 'AI 配置', icon: Settings, path: ROUTES.ADMIN_AI_CONFIG, badge: '' },
+    { label: 'TTS 配置', icon: Volume2, path: ROUTES.ADMIN_TTS_CONFIG, badge: '' },
     ...(needBindEmail
       ? [{ label: '绑定邮箱', icon: Mail, path: ROUTES.ADMIN_BIND_EMAIL, badge: '待绑定' }]
       : []),
@@ -347,9 +349,9 @@ export default function ProfilePage() {
         hasChildren: traitHasChildren ? traitHasChildren === 'yes' : null,
         mbti: traitMbti || null,
         occupation: traitOccupations.length > 0 ? traitOccupations.join(',') : null,
-        education: traitEducation || null,
+        aspirationEducation: traitEducation || null,
         entrepreneurship: traitEntrepreneurship || null,
-        annualIncome: traitAnnualIncome || null,
+        aspirationIncome: traitAnnualIncome || null,
       }
       await updateTraits(data)
       updateUserInfo({
@@ -357,11 +359,12 @@ export default function ProfilePage() {
         gender: data.gender,
         married: data.married,
         hasChildren: data.hasChildren,
+        childrenAgeRanges: data.childrenAgeRanges,
         mbti: data.mbti,
         occupation: data.occupation,
-        education: data.education,
+        aspirationEducation: data.aspirationEducation,
         entrepreneurship: data.entrepreneurship,
-        annualIncome: data.annualIncome,
+        aspirationIncome: data.aspirationIncome,
       })
       setShowTraitsModal(false)
       toast.success('画像已更新')
@@ -432,9 +435,9 @@ export default function ProfilePage() {
 
   const getCategoryColor = (cat: string) => {
     switch (cat) {
-      case 'TAG': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-      case 'AUTHOR': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-      case 'FORMAT': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+      case 'TAG': return 'bg-info/10 text-info dark:bg-info/10 dark:text-info'
+      case 'AUTHOR': return 'bg-info/10 text-info dark:bg-info/10 dark:text-info'
+      case 'FORMAT': return 'bg-success/10 text-success dark:bg-success/10 dark:text-success'
       default: return 'bg-muted text-muted-foreground'
     }
   }
@@ -479,7 +482,7 @@ export default function ProfilePage() {
               {userInfo?.email || '未设置邮箱'}
             </p>
             {needBindEmail && (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+              <p className="mt-1 text-xs text-warning dark:text-warning">
                 绑定邮箱后即可重置密码
               </p>
             )}
@@ -499,11 +502,11 @@ export default function ProfilePage() {
               <p className="text-[10px] text-muted-foreground font-medium">在读/读过</p>
             </div>
             <div className="text-center">
-              <p className="text-xl font-bold text-emerald-500">{stats.readingBooks}</p>
+              <p className="text-xl font-bold text-success">{stats.readingBooks}</p>
               <p className="text-[10px] text-muted-foreground font-medium">在读</p>
             </div>
             <div className="text-center">
-              <p className="text-xl font-bold text-amber-500">{stats.completedBooks}</p>
+              <p className="text-xl font-bold text-warning">{stats.completedBooks}</p>
               <p className="text-[10px] text-muted-foreground font-medium">已读完</p>
             </div>
           </div>
@@ -533,7 +536,7 @@ export default function ProfilePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {item.badge && (
-                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                    <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-bold text-warning dark:text-warning">
                       {item.badge}
                     </span>
                   )}
@@ -607,376 +610,398 @@ export default function ProfilePage() {
 
       <FooterVersion />
 
-      {showProfileModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowProfileModal(false)}>
-          <div className="w-full max-w-lg rounded-t-3xl bg-card p-5 space-y-4 shadow-2xl" style={{ paddingBottom: 'calc(1.25rem + 5rem)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex justify-center pb-1">
-              <div className="h-1 w-10 rounded-full bg-muted-foreground/20" />
-            </div>
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold">编辑个人信息</h3>
-              <button onClick={() => setShowProfileModal(false)} className="text-muted-foreground text-sm font-medium">关闭</button>
-            </div>
+      <Sheet open={showProfileModal} onOpenChange={setShowProfileModal}>
+        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto overscroll-y-contain rounded-t-3xl bg-card p-5 space-y-4">
+          <SheetHeader className="p-0">
+            <SheetTitle className="text-base font-bold">编辑个人信息</SheetTitle>
+            <SheetDescription className="sr-only">编辑你的昵称、头像、简介和心情</SheetDescription>
+          </SheetHeader>
 
-            <div className="flex flex-col items-center gap-2">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="relative flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 ring-2 ring-primary/20 overflow-hidden"
+          <div className="flex flex-col items-center gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="relative flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 ring-2 ring-primary/20 overflow-hidden"
+            >
+              {croppedAvatarUrl ? (
+                <img src={croppedAvatarUrl} alt="预览" className="h-full w-full object-cover" />
+              ) : avatarFullUrl ? (
+                <img src={avatarFullUrl} alt={userInfo?.nickname} className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-2xl font-bold text-primary">
+                  {userInfo?.nickname?.[0] || 'U'}
+                </span>
+              )}
+              <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/40 transition-colors">
+                <Camera className="h-5 w-5 text-white opacity-0 hover:opacity-100 transition-opacity" />
+              </div>
+            </button>
+            <span className="text-xs text-muted-foreground">{croppedAvatarUrl ? '已裁剪，点击可重新选择' : '点击更换头像'}</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarSelect}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">昵称</label>
+            <input
+              type="text"
+              value={editNickname}
+              onChange={(e) => setEditNickname(e.target.value)}
+              placeholder="输入昵称"
+              maxLength={20}
+              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">个人简介</label>
+            <textarea
+              value={editBio}
+              onChange={(e) => setEditBio(e.target.value)}
+              placeholder="介绍一下自己吧..."
+              maxLength={200}
+              rows={3}
+              className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow resize-none"
+            />
+            <p className="mt-1 text-[10px] text-muted-foreground text-right">{editBio.length}/200</p>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">当前心情</label>
+            <div className="flex flex-wrap gap-2">
+              {MOOD_OPTIONS.map(m => {
+                const isActive = editMood === m.value
+                return (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => setEditMood(isActive ? '' : m.value)}
+                    className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors border ${
+                      isActive
+                        ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                        : 'bg-background text-muted-foreground border-border hover:border-primary/40'
+                    }`}
+                  >
+                    <span>{m.emoji}</span>
+                    <span>{m.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <button
+            onClick={handleSaveProfile}
+            disabled={savingProfile || !editNickname.trim()}
+            className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
+          >
+            {savingProfile ? '保存中...' : (croppedAvatarBlob ? '保存（含新头像）' : '保存')}
+          </button>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={showTraitsModal} onOpenChange={setShowTraitsModal}>
+        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto overscroll-y-contain rounded-t-3xl bg-card p-5 space-y-4">
+          <SheetHeader className="p-0">
+            <SheetTitle className="text-base font-bold">编辑我的画像</SheetTitle>
+            <SheetDescription className="text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</SheetDescription>
+          </SheetHeader>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">出生日期</label>
+            <div className="grid grid-cols-3 gap-2">
+              <select
+                value={traitBirthday ? traitBirthday.split('-')[0] : ''}
+                onChange={(e) => {
+                  const y = e.target.value
+                  const m = traitBirthday ? traitBirthday.split('-')[1] : ''
+                  const d = traitBirthday ? traitBirthday.split('-')[2] : ''
+                  setTraitBirthday(y && m && d ? `${y}-${m}-${d}` : y ? `${y}-01-01` : '')
+                }}
+                className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-2.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
               >
-                {croppedAvatarUrl ? (
-                  <img src={croppedAvatarUrl} alt="预览" className="h-full w-full object-cover" />
-                ) : avatarFullUrl ? (
-                  <img src={avatarFullUrl} alt={userInfo?.nickname} className="h-full w-full object-cover" />
-                ) : (
-                  <span className="text-2xl font-bold text-primary">
-                    {userInfo?.nickname?.[0] || 'U'}
-                  </span>
-                )}
-                <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/40 transition-colors">
-                  <Camera className="h-5 w-5 text-white opacity-0 hover:opacity-100 transition-opacity" />
-                </div>
-              </button>
-              <span className="text-xs text-muted-foreground">{croppedAvatarUrl ? '已裁剪，点击可重新选择' : '点击更换头像'}</span>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleAvatarSelect}
-              />
+                <option value="">年</option>
+                {Array.from({ length: 100 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                  <option key={y} value={String(y)}>{y}</option>
+                ))}
+              </select>
+              <select
+                value={traitBirthday ? traitBirthday.split('-')[1] : ''}
+                onChange={(e) => {
+                  const y = traitBirthday ? traitBirthday.split('-')[0] : ''
+                  const m = e.target.value
+                  const d = traitBirthday ? traitBirthday.split('-')[2] : ''
+                  setTraitBirthday(y && m && d ? `${y}-${m}-${d}` : m ? `2000-${m}-01` : '')
+                }}
+                className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-2.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
+              >
+                <option value="">月</option>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                  <option key={m} value={String(m).padStart(2, '0')}>{m}月</option>
+                ))}
+              </select>
+              <select
+                value={traitBirthday ? traitBirthday.split('-')[2] : ''}
+                onChange={(e) => {
+                  const y = traitBirthday ? traitBirthday.split('-')[0] : ''
+                  const m = traitBirthday ? traitBirthday.split('-')[1] : ''
+                  const d = e.target.value
+                  setTraitBirthday(y && m && d ? `${y}-${m}-${d}` : d ? `2000-01-${d}` : '')
+                }}
+                className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-2.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
+              >
+                <option value="">日</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                  <option key={d} value={String(d).padStart(2, '0')}>{d}日</option>
+                ))}
+              </select>
             </div>
+            {traitBirthday && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                当前年龄：{calcAge(traitBirthday)}岁
+              </p>
+            )}
+          </div>
 
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">昵称</label>
+          <select
+            value={traitGender}
+            onChange={(e) => setTraitGender(e.target.value)}
+            className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
+          >
+            <option value="">选择性别</option>
+            <option value="MALE">男</option>
+            <option value="FEMALE">女</option>
+            <option value="OTHER">其他</option>
+          </select>
+
+          <select
+            value={traitMarried}
+            onChange={(e) => setTraitMarried(e.target.value)}
+            className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
+          >
+            <option value="">婚姻状况</option>
+            <option value="yes">已婚</option>
+            <option value="no">未婚</option>
+          </select>
+
+          <select
+            value={traitHasChildren}
+            onChange={(e) => setTraitHasChildren(e.target.value)}
+            className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
+          >
+            <option value="">是否有孩子</option>
+            <option value="yes">有孩子</option>
+            <option value="no">无孩子</option>
+          </select>
+
+          <select
+            value={traitMbti}
+            onChange={(e) => setTraitMbti(e.target.value)}
+            className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
+          >
+            <option value="">MBTI 人格</option>
+            {MBTI_OPTIONS.map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">职业方向（可多选）</label>
+            <div className="flex flex-wrap gap-2">
+              {OCCUPATION_OPTIONS.map(o => {
+                const selected = traitOccupations.includes(o.value)
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => {
+                      setTraitOccupations(prev =>
+                        selected ? prev.filter(v => v !== o.value) : [...prev, o.value]
+                      )
+                    }}
+                    className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors border ${
+                      selected
+                        ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                        : 'bg-background text-muted-foreground border-border hover:border-primary/40'
+                    }`}
+                  >
+                    {selected && <Check className="h-3 w-3" />}
+                    {o.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <select
+            value={traitEducation}
+            onChange={(e) => setTraitEducation(e.target.value)}
+            className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
+          >
+            <option value="">当前/目标学历</option>
+            {EDUCATION_OPTIONS.map(e => (
+              <option key={e.value} value={e.value}>{e.label}</option>
+            ))}
+          </select>
+
+          <select
+            value={traitEntrepreneurship}
+            onChange={(e) => setTraitEntrepreneurship(e.target.value)}
+            className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
+          >
+            <option value="">创业意向</option>
+            {ENTREPRENEURSHIP_OPTIONS.map(e => (
+              <option key={e.value} value={e.value}>{e.label}</option>
+            ))}
+          </select>
+
+          <select
+            value={traitAnnualIncome}
+            onChange={(e) => setTraitAnnualIncome(e.target.value)}
+            className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
+          >
+            <option value="">当前/期望年收入</option>
+            {ANNUAL_INCOME_OPTIONS.map(e => (
+              <option key={e.value} value={e.value}>{e.label}</option>
+            ))}
+          </select>
+
+          <button
+            onClick={handleSaveTraits}
+            disabled={savingTraits}
+            className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
+          >
+            {savingTraits ? '保存中...' : '保存'}
+          </button>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={showPreferenceModal} onOpenChange={setShowPreferenceModal}>
+        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto overscroll-y-contain rounded-t-3xl bg-card p-5 space-y-4">
+          <SheetHeader className="p-0">
+            <SheetTitle className="text-lg font-bold">阅读偏好</SheetTitle>
+            <SheetDescription className="text-xs text-muted-foreground">
+              设置你的阅读偏好，让推荐更懂你。喜欢的类型会优先推荐，不想看的会自动排除。
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex rounded-lg bg-muted p-1">
+            <button
+              onClick={() => { setPrefTab('include'); setPrefValue('') }}
+              className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'include' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+            >
+              ❤️ 想看
+            </button>
+            <button
+              onClick={() => { setPrefTab('exclude'); setPrefValue('') }}
+              className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'exclude' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+            >
+              🚫 不想看
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <select
+                value={prefCategory}
+                onChange={(e) => setPrefCategory(e.target.value as 'TAG' | 'AUTHOR' | 'FORMAT')}
+                className="rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="TAG">标签</option>
+                <option value="AUTHOR">作者</option>
+                <option value="FORMAT">格式</option>
+              </select>
               <input
                 type="text"
-                value={editNickname}
-                onChange={(e) => setEditNickname(e.target.value)}
-                placeholder="输入昵称"
-                maxLength={20}
-                className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
+                value={prefValue}
+                onChange={(e) => setPrefValue(e.target.value)}
+                placeholder={prefTab === 'exclude'
+                  ? `输入不想看的${catLabel(prefCategory)}${prefCategory === 'FORMAT' ? '(如PDF)' : ''}`
+                  : `输入想看的${catLabel(prefCategory)}${prefCategory === 'FORMAT' ? '(如EPUB)' : ''}`
+                }
+                className="flex-1 rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                onKeyDown={(e) => e.key === 'Enter' && handleAddPreference()}
               />
+              <button
+                onClick={handleAddPreference}
+                disabled={prefSaving || !prefValue.trim()}
+                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${prefTab === 'include' ? 'bg-danger hover:bg-danger/90' : 'bg-primary hover:bg-primary/90'}`}
+              >
+                {prefSaving ? '...' : '添加'}
+              </button>
             </div>
-
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">个人简介</label>
-              <textarea
-                value={editBio}
-                onChange={(e) => setEditBio(e.target.value)}
-                placeholder="介绍一下自己吧..."
-                maxLength={200}
-                rows={3}
-                className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow resize-none"
-              />
-              <p className="mt-1 text-[10px] text-muted-foreground text-right">{editBio.length}/200</p>
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">当前心情</label>
-              <div className="flex flex-wrap gap-2">
-                {MOOD_OPTIONS.map(m => {
-                  const isActive = editMood === m.value
-                  return (
-                    <button
-                      key={m.value}
-                      type="button"
-                      onClick={() => setEditMood(isActive ? '' : m.value)}
-                      className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors border ${
-                        isActive
-                          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                          : 'bg-background text-muted-foreground border-border hover:border-primary/40'
-                      }`}
-                    >
-                      <span>{m.emoji}</span>
-                      <span>{m.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <button
-              onClick={handleSaveProfile}
-              disabled={savingProfile || !editNickname.trim()}
-              className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
-            >
-              {savingProfile ? '保存中...' : (croppedAvatarBlob ? '保存（含新头像）' : '保存')}
-            </button>
           </div>
-        </div>
-      )}
 
-      {showTraitsModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowTraitsModal(false)}>
-          <div className="w-full max-w-lg max-h-[85vh] rounded-t-3xl bg-card shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-center pt-3 pb-1">
-              <div className="h-1 w-10 rounded-full bg-muted-foreground/20" />
-            </div>
-            <div className="flex items-center justify-between px-5">
-              <h3 className="text-base font-bold">编辑我的画像</h3>
-              <button onClick={() => setShowTraitsModal(false)} className="text-muted-foreground text-sm font-medium">关闭</button>
-            </div>
-            <p className="px-5 pt-1 text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</p>
-            <div className="w-full min-w-0 overflow-y-auto overscroll-y-contain overflow-x-hidden px-5 py-4 space-y-4" style={{ paddingBottom: 'calc(1rem + 5rem)' }}>
-
+          {prefTab === 'include' ? (
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">出生日期</label>
-              <input
-                type="date"
-                value={traitBirthday}
-                onChange={(e) => setTraitBirthday(e.target.value)}
-                max={new Date().toISOString().split('T')[0]}
-                className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
-              />
-              {traitBirthday && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  当前年龄：{calcAge(traitBirthday)}岁
-                </p>
+              <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+                想看的内容（{includePrefs.length}）
+              </h4>
+              {prefLoading ? (
+                <div className="py-4 text-center text-xs text-muted-foreground">加载中...</div>
+              ) : includePrefs.length === 0 ? (
+                <div className="py-4 text-center text-xs text-muted-foreground">暂无偏好，添加喜欢的类型获取更精准推荐</div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto overscroll-y-contain space-y-1.5">
+                  {includePrefs.map((pref) => (
+                    <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-danger/10 dark:bg-danger/10 px-3 py-2">
+                      <span className="text-danger text-xs">❤️</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getCategoryColor(pref.category)}`}>
+                        {getCategoryLabel(pref.category)}
+                      </span>
+                      <span className="flex-1 text-sm truncate">{pref.value}</span>
+                      <button
+                        onClick={() => handleRemovePreference(pref.category, pref.value, 'include')}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-red-100 text-red-500 hover:text-red-600 transition-colors"
+                        title="取消偏好"
+                      >
+                        <XCircle className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
-
-            <select
-              value={traitGender}
-              onChange={(e) => setTraitGender(e.target.value)}
-              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">选择性别</option>
-              <option value="MALE">男</option>
-              <option value="FEMALE">女</option>
-              <option value="OTHER">其他</option>
-            </select>
-
-            <select
-              value={traitMarried}
-              onChange={(e) => setTraitMarried(e.target.value)}
-              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">婚姻状况</option>
-              <option value="yes">已婚</option>
-              <option value="no">未婚</option>
-            </select>
-
-            <select
-              value={traitHasChildren}
-              onChange={(e) => setTraitHasChildren(e.target.value)}
-              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">是否有孩子</option>
-              <option value="yes">有孩子</option>
-              <option value="no">无孩子</option>
-            </select>
-
-            <select
-              value={traitMbti}
-              onChange={(e) => setTraitMbti(e.target.value)}
-              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">MBTI 人格</option>
-              {MBTI_OPTIONS.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-
+          ) : (
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">职业方向（可多选）</label>
-              <div className="flex flex-wrap gap-2">
-                {OCCUPATION_OPTIONS.map(o => {
-                  const selected = traitOccupations.includes(o.value)
-                  return (
-                    <button
-                      key={o.value}
-                      type="button"
-                      onClick={() => {
-                        setTraitOccupations(prev =>
-                          selected ? prev.filter(v => v !== o.value) : [...prev, o.value]
-                        )
-                      }}
-                      className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors border ${
-                        selected
-                          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                          : 'bg-background text-muted-foreground border-border hover:border-primary/40'
-                      }`}
-                    >
-                      {selected && <Check className="h-3 w-3" />}
-                      {o.label}
-                    </button>
-                  )
-                })}
-              </div>
+              <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+                已排除的内容（{excludePrefs.length}）
+              </h4>
+              {prefLoading ? (
+                <div className="py-4 text-center text-xs text-muted-foreground">加载中...</div>
+              ) : excludePrefs.length === 0 ? (
+                <div className="py-4 text-center text-xs text-muted-foreground">暂无排除偏好</div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto overscroll-y-contain space-y-1.5">
+                  {excludePrefs.map((pref) => (
+                    <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getCategoryColor(pref.category)}`}>
+                        {getCategoryLabel(pref.category)}
+                      </span>
+                      <span className="flex-1 text-sm truncate">{pref.value}</span>
+                      <button
+                        onClick={() => handleRemovePreference(pref.category, pref.value, 'exclude')}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-red-100 text-red-500 hover:text-red-600 transition-colors"
+                        title="恢复推荐"
+                      >
+                        <XCircle className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+          )}
 
-            <select
-              value={traitEducation}
-              onChange={(e) => setTraitEducation(e.target.value)}
-              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">当前/目标学历</option>
-              {EDUCATION_OPTIONS.map(e => (
-                <option key={e.value} value={e.value}>{e.label}</option>
-              ))}
-            </select>
-
-            <select
-              value={traitEntrepreneurship}
-              onChange={(e) => setTraitEntrepreneurship(e.target.value)}
-              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">创业意向</option>
-              {ENTREPRENEURSHIP_OPTIONS.map(e => (
-                <option key={e.value} value={e.value}>{e.label}</option>
-              ))}
-            </select>
-
-            <select
-              value={traitAnnualIncome}
-              onChange={(e) => setTraitAnnualIncome(e.target.value)}
-              className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">当前/期望年收入</option>
-              {ANNUAL_INCOME_OPTIONS.map(e => (
-                <option key={e.value} value={e.value}>{e.label}</option>
-              ))}
-            </select>
-
-            <button
-              onClick={handleSaveTraits}
-              disabled={savingTraits}
-              className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
-            >
-              {savingTraits ? '保存中...' : '保存'}
-            </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showPreferenceModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowPreferenceModal(false)}>
-          <div className="w-full max-w-lg rounded-t-3xl bg-card p-5 space-y-4 shadow-2xl" style={{ paddingBottom: 'calc(1.25rem + 5rem)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">阅读偏好</h2>
-              <button onClick={() => setShowPreferenceModal(false)} className="text-muted-foreground hover:text-foreground">
-                <XCircle className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              设置你的阅读偏好，让推荐更懂你。喜欢的类型会优先推荐，不想看的会自动排除。
-            </p>
-
-            <div className="flex rounded-lg bg-muted p-1">
-              <button
-                onClick={() => { setPrefTab('include'); setPrefValue('') }}
-                className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'include' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
-              >
-                ❤️ 想看
-              </button>
-              <button
-                onClick={() => { setPrefTab('exclude'); setPrefValue('') }}
-                className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'exclude' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
-              >
-                🚫 不想看
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <select
-                  value={prefCategory}
-                  onChange={(e) => setPrefCategory(e.target.value as 'TAG' | 'AUTHOR' | 'FORMAT')}
-                  className="rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  <option value="TAG">标签</option>
-                  <option value="AUTHOR">作者</option>
-                  <option value="FORMAT">格式</option>
-                </select>
-                <input
-                  type="text"
-                  value={prefValue}
-                  onChange={(e) => setPrefValue(e.target.value)}
-                  placeholder={prefTab === 'exclude'
-                    ? `输入不想看的${catLabel(prefCategory)}${prefCategory === 'FORMAT' ? '(如PDF)' : ''}`
-                    : `输入想看的${catLabel(prefCategory)}${prefCategory === 'FORMAT' ? '(如EPUB)' : ''}`
-                  }
-                  className="flex-1 rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddPreference()}
-                />
-                <button
-                  onClick={handleAddPreference}
-                  disabled={prefSaving || !prefValue.trim()}
-                  className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${prefTab === 'include' ? 'bg-rose-500 hover:bg-rose-600' : 'bg-primary hover:bg-primary/90'}`}
-                >
-                  {prefSaving ? '...' : '添加'}
-                </button>
-              </div>
-            </div>
-
-            {prefTab === 'include' ? (
-              <div>
-                <h4 className="text-xs font-semibold text-muted-foreground mb-2">
-                  想看的内容（{includePrefs.length}）
-                </h4>
-                {prefLoading ? (
-                  <div className="py-4 text-center text-xs text-muted-foreground">加载中...</div>
-                ) : includePrefs.length === 0 ? (
-                  <div className="py-4 text-center text-xs text-muted-foreground">暂无偏好，添加喜欢的类型获取更精准推荐</div>
-                ) : (
-                  <div className="max-h-60 overflow-y-auto overscroll-y-contain space-y-1.5">
-                    {includePrefs.map((pref) => (
-                      <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-rose-50 dark:bg-rose-900/10 px-3 py-2">
-                        <span className="text-rose-500 text-xs">❤️</span>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getCategoryColor(pref.category)}`}>
-                          {getCategoryLabel(pref.category)}
-                        </span>
-                        <span className="flex-1 text-sm truncate">{pref.value}</span>
-                        <button
-                          onClick={() => handleRemovePreference(pref.category, pref.value, 'include')}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-red-100 text-red-500 hover:text-red-600 transition-colors"
-                          title="取消偏好"
-                        >
-                          <XCircle className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div>
-                <h4 className="text-xs font-semibold text-muted-foreground mb-2">
-                  已排除的内容（{excludePrefs.length}）
-                </h4>
-                {prefLoading ? (
-                  <div className="py-4 text-center text-xs text-muted-foreground">加载中...</div>
-                ) : excludePrefs.length === 0 ? (
-                  <div className="py-4 text-center text-xs text-muted-foreground">暂无排除偏好</div>
-                ) : (
-                  <div className="max-h-60 overflow-y-auto overscroll-y-contain space-y-1.5">
-                    {excludePrefs.map((pref) => (
-                      <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getCategoryColor(pref.category)}`}>
-                          {getCategoryLabel(pref.category)}
-                        </span>
-                        <span className="flex-1 text-sm truncate">{pref.value}</span>
-                        <button
-                          onClick={() => handleRemovePreference(pref.category, pref.value, 'exclude')}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full hover:bg-red-100 text-red-500 hover:text-red-600 transition-colors"
-                          title="恢复推荐"
-                        >
-                          <XCircle className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <p className="text-xs text-muted-foreground text-center">
-              {prefTab === 'include' ? '取消后，该类书籍不再获得优先推荐' : '恢复后，该类书籍将重新出现在推荐中'}
-            </p>
-          </div>
-        </div>
-      )}
+          <p className="text-xs text-muted-foreground text-center">
+            {prefTab === 'include' ? '取消后，该类书籍不再获得优先推荐' : '恢复后，该类书籍将重新出现在推荐中'}
+          </p>
+        </SheetContent>
+      </Sheet>
 
       <AvatarCropModal
         open={cropModalOpen}

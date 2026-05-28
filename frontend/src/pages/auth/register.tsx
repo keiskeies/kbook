@@ -5,8 +5,7 @@ import { ROUTES } from '@/constants'
 import { useCountdown } from '@/hooks/useCountdown'
 import { toast } from 'sonner'
 import ClickCaptcha from '@/components/auth/ClickCaptcha'
-
-const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
+import { BookOpen, Mail, Lock, KeyRound } from 'lucide-react'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -19,13 +18,6 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [sendingCode, setSendingCode] = useState(false)
   const [showCaptcha, setShowCaptcha] = useState(false)
-
-  // 画像字段（可选）
-  const [birthday, setBirthday] = useState('')
-  const [gender, setGender] = useState('')
-  const [married, setMarried] = useState('')
-  const [hasChildren, setHasChildren] = useState('')
-  const [mbti, setMbti] = useState('')
 
   const handleSendCodeClick = () => {
     if (!email.trim()) {
@@ -77,16 +69,10 @@ export default function RegisterPage() {
 
     try {
       setLoading(true)
-      await register({
-        email, code, password,
-        birthday: birthday || undefined,
-        gender: gender || undefined,
-        married: married ? married === 'yes' : undefined,
-        hasChildren: hasChildren ? hasChildren === 'yes' : undefined,
-        mbti: mbti || undefined,
-      })
-      toast.success('注册完成，等待管理员审核中')
-      navigate(ROUTES.LOGIN)
+      await register({ email, code, password })
+      toast.success('注册成功！')
+      // 注册成功后跳转到 Onboarding 引导页
+      navigate('/onboarding', { replace: true })
     } catch (err: any) {
       toast.error(err.message || '注册未完成')
     } finally {
@@ -95,119 +81,83 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col px-6 pt-safe-top">
-      <div className="py-8">
-        <h1 className="mb-2 text-2xl font-bold">创建账号</h1>
-        <p className="text-sm text-muted-foreground">注册 KBook，开始你的阅读之旅</p>
+    <div className="flex min-h-screen flex-col px-6 pt-safe-top bg-gradient-to-b from-primary/5 to-background">
+      {/* 顶部品牌 */}
+      <div className="py-8 flex flex-col items-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary mb-4">
+          <BookOpen className="h-7 w-7 text-primary-foreground" strokeWidth={2.5} />
+        </div>
+        <h1 className="text-2xl font-bold">创建账号</h1>
+        <p className="text-sm text-muted-foreground mt-1">注册后完善画像，获取精准推荐</p>
       </div>
 
-      <div className="space-y-4">
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="你的邮箱"
-          autoComplete="email"
-          className="w-full rounded-xl border bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary"
-        />
-
-        <div className="flex gap-3">
+      <div className="space-y-4 max-w-sm mx-auto w-full">
+        {/* 邮箱 */}
+        <div className="relative">
+          <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
-            type="text"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="验证码"
-            maxLength={6}
-            inputMode="numeric"
-            className="flex-1 rounded-xl border bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="你的邮箱"
+            autoComplete="email"
+            className="w-full rounded-xl border bg-background pl-10 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
           />
+        </div>
+
+        {/* 验证码 */}
+        <div className="flex gap-3">
+          <div className="relative flex-1">
+            <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="验证码"
+              maxLength={6}
+              inputMode="numeric"
+              className="w-full rounded-xl border bg-background pl-10 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
+            />
+          </div>
           <button
             onClick={handleSendCodeClick}
             disabled={countdown > 0 || sendingCode}
-            className="flex-shrink-0 rounded-xl bg-primary px-4 py-3 text-sm text-primary-foreground disabled:opacity-50"
+            className="flex-shrink-0 rounded-xl bg-primary px-4 py-3 text-sm text-primary-foreground disabled:opacity-50 font-medium"
           >
             {sendingCode ? '发送中...' : countdown > 0 ? `${countdown}s` : '获取验证码'}
           </button>
         </div>
 
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="设置密码（6-20位）"
-          autoComplete="new-password"
-          className="w-full rounded-xl border bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary"
-        />
-
-        <input
-          type="password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          placeholder="确认密码"
-          autoComplete="new-password"
-          className="w-full rounded-xl border bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary"
-        />
-
-        {/* 画像信息（可选） */}
-        <div className="rounded-xl border border-dashed p-4 space-y-3">
-          <p className="text-xs text-muted-foreground">以下信息可选填，用于个性化推荐</p>
-
+        {/* 密码 */}
+        <div className="relative">
+          <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
-            type="date"
-            value={birthday}
-            onChange={(e) => setBirthday(e.target.value)}
-            max={new Date().toISOString().split('T')[0]}
-            placeholder="出生日期"
-            className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="设置密码（6-20位）"
+            autoComplete="new-password"
+            className="w-full rounded-xl border bg-background pl-10 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
           />
+        </div>
 
-          <select
-            value={gender}
-            onChange={(e) => setGender(e.target.value)}
-            className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="">选择性别（可选）</option>
-            <option value="MALE">男</option>
-            <option value="FEMALE">女</option>
-            <option value="OTHER">其他</option>
-          </select>
-
-          <select
-            value={married}
-            onChange={(e) => setMarried(e.target.value)}
-            className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="">婚姻状况（可选）</option>
-            <option value="yes">已婚</option>
-            <option value="no">未婚</option>
-          </select>
-
-          <select
-            value={hasChildren}
-            onChange={(e) => setHasChildren(e.target.value)}
-            className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="">是否有孩子（可选）</option>
-            <option value="yes">有孩子</option>
-            <option value="no">无孩子</option>
-          </select>
-
-          <select
-            value={mbti}
-            onChange={(e) => setMbti(e.target.value)}
-            className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="">MBTI 人格（可选）</option>
-            {MBTI_OPTIONS.map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+        {/* 确认密码 */}
+        <div className="relative">
+          <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="确认密码"
+            autoComplete="new-password"
+            className="w-full rounded-xl border bg-background pl-10 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
+          />
         </div>
 
         <button
           onClick={handleRegister}
           disabled={loading}
-          className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
         >
           {loading ? '注册中...' : '注册'}
         </button>
@@ -215,7 +165,7 @@ export default function RegisterPage() {
 
       <div className="mt-6 text-center text-sm text-muted-foreground">
         已有账号？
-        <button onClick={() => navigate(ROUTES.LOGIN)} className="text-primary">
+        <button onClick={() => navigate(ROUTES.LOGIN)} className="text-primary font-medium ml-1">
           去登录
         </button>
       </div>

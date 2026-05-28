@@ -1,5 +1,6 @@
 package com.kbook.entity;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -46,7 +47,7 @@ public class AiProviderConfig {
 
     /** 供应商类型：OLLAMA 或 OPENAI */
     @Column(nullable = false, length = 20)
-    private String provider;
+    private Provider provider;
 
     /** API 基础地址（如 http://localhost:11434 或 https://api.deepseek.com） */
     @Column(nullable = false, length = 500)
@@ -109,6 +110,26 @@ public class AiProviderConfig {
 
     /** 供应商类型枚举 */
     public enum Provider {
-        OLLAMA, OPENAI
+        OLLAMA, OPENAI;
+
+        @JsonCreator
+        public static Provider from(String value) {
+            if (value == null) return null;
+            return valueOf(value.toUpperCase());
+        }
+    }
+
+    /** JPA 枚举转换器 — 大小写不敏感 */
+    @Converter(autoApply = true)
+    public static class ProviderConverter implements AttributeConverter<Provider, String> {
+        @Override
+        public String convertToDatabaseColumn(Provider attribute) {
+            return attribute == null ? null : attribute.name();
+        }
+
+        @Override
+        public Provider convertToEntityAttribute(String dbData) {
+            return dbData == null ? null : Provider.valueOf(dbData.toUpperCase());
+        }
     }
 }

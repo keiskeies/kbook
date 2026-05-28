@@ -1,0 +1,70 @@
+import request from '@/utils/request'
+
+export interface TtsConfig {
+  id?: number
+  name: string
+  ttsType: 'LLM' | 'TRADITIONAL'
+  provider: 'XIAOMI' | 'IFLYTEK' | 'CUSTOM'
+  baseUrl?: string
+  modelName?: string
+  apiKey?: string
+  apiSecret?: string
+  appId?: string
+  voice?: string
+  language?: string
+  speed?: number
+  pitch?: number
+  enabled?: boolean
+  isDefault?: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface TtsSynthesizeRequest {
+  text: string
+  configId?: number
+}
+
+export function listTtsConfigs() {
+  return request.get<TtsConfig[]>('/admin/tts-config')
+}
+
+export function getActiveTtsConfig() {
+  return request.get<TtsConfig>('/tts/config/active')
+}
+
+export function getActiveTtsConfigAdmin() {
+  return request.get<TtsConfig>('/admin/tts-config/active')
+}
+
+export function createTtsConfig(data: TtsConfig) {
+  return request.post<TtsConfig>('/admin/tts-config', data)
+}
+
+export function updateTtsConfig(id: number, data: TtsConfig) {
+  return request.put<TtsConfig>(`/admin/tts-config/${id}`, data)
+}
+
+export function deleteTtsConfig(id: number) {
+  return request.delete(`/admin/tts-config/${id}`)
+}
+
+export function switchDefaultTtsConfig(id: number) {
+  return request.post<TtsConfig>(`/admin/tts-config/${id}/switch-default`)
+}
+
+export async function synthesizeTts(text: string, configId?: number): Promise<ArrayBuffer> {
+  const res = await fetch('/api/tts/synthesize', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('kbook_token')}`,
+    },
+    body: JSON.stringify({ text, configId } satisfies TtsSynthesizeRequest),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: 'TTS 请求失败' }))
+    throw new Error(err.message || 'TTS 请求失败')
+  }
+  return res.arrayBuffer()
+}

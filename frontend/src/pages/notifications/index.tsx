@@ -7,10 +7,10 @@ import { formatRelativeTime } from '@/utils/time'
 import { toast } from 'sonner'
 
 const typeConfig: Record<string, { icon: typeof Heart; label: string; color: string }> = {
-  COMMENT_REPLY: { icon: MessageCircle, label: '回复了你的评论', color: 'text-blue-500' },
-  COMMENT_LIKED: { icon: Heart, label: '赞了你的评论', color: 'text-rose-500' },
-  COMMENT_FAVORITED: { icon: Bookmark, label: '收藏了你的评论', color: 'text-amber-500' },
-  NEW_REVIEW: { icon: BookOpen, label: '发表了新书评', color: 'text-green-500' },
+  COMMENT_REPLY: { icon: MessageCircle, label: '回复了你的评论', color: 'text-info' },
+  COMMENT_LIKED: { icon: Heart, label: '赞了你的评论', color: 'text-danger' },
+  COMMENT_FAVORITED: { icon: Bookmark, label: '收藏了你的评论', color: 'text-warning' },
+  NEW_REVIEW: { icon: BookOpen, label: '发表了新书评', color: 'text-success' },
 }
 
 export default function NotificationsPage() {
@@ -59,15 +59,15 @@ export default function NotificationsPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="fixed inset-0 flex items-center justify-center bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background page-enter">
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
+      <header className="shrink-0 flex items-center justify-between border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
@@ -82,7 +82,7 @@ export default function NotificationsPage() {
         )}
       </header>
 
-      <div className="px-4">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-4">
         {notifications.length === 0 ? (
           <div className="py-16 text-center text-sm text-muted-foreground">
             <Bell className="mx-auto h-10 w-10 text-muted-foreground/30" />

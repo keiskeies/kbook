@@ -12,12 +12,12 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
   let colorClass = ''
-  if (r >= 5.0) colorClass = 'text-red-600 dark:text-red-400'
-  else if (r >= 4.5) colorClass = 'text-orange-600 dark:text-orange-400'
-  else if (r >= 4.0) colorClass = 'text-amber-600 dark:text-amber-400'
-  else if (r >= 3.0) colorClass = 'text-emerald-600 dark:text-emerald-400'
-  else if (r >= 2.5) colorClass = 'text-teal-600 dark:text-teal-400'
-  else colorClass = 'text-slate-400 dark:text-slate-500'
+  if (r >= 5.0) colorClass = 'text-danger dark:text-danger'
+  else if (r >= 4.5) colorClass = 'text-warning dark:text-warning'
+  else if (r >= 4.0) colorClass = 'text-warning dark:text-warning'
+  else if (r >= 3.0) colorClass = 'text-success dark:text-success'
+  else if (r >= 2.5) colorClass = 'text-success dark:text-success'
+  else colorClass = 'text-muted-foreground dark:text-muted-foreground'
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
@@ -73,8 +73,8 @@ export default function BookTrashPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background page-enter">
-      <div className="sticky top-0 z-50 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
+      <div className="shrink-0 z-20 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
         <header className="flex items-center gap-3 px-4 py-3">
           <button onClick={() => navigate(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">
             <ArrowLeft className="h-5 w-5" />
@@ -89,7 +89,7 @@ export default function BookTrashPage() {
         </header>
       </div>
 
-      <div className="px-4 py-3">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }, (_, i) => (

@@ -51,21 +51,23 @@ public class DimensionStatsService {
 
     /**
      * 刷新维度统计：遍历所有书籍的 relevanceScores，计算各维度均值和标准差
+     * 使用 findAllRelevanceScores() 只查询需要的字段，减少内存占用
      */
     @Scheduled(fixedDelay = 3600_000)
     public void refresh() {
         try {
             long start = System.currentTimeMillis();
-            List<Book> allBooks = bookRepository.findAll();
+            List<Object[]> scoreRows = bookRepository.findAllRelevanceScores();
 
             Map<String, Double> sums = new HashMap<>();
             Map<String, Double> sumSquares = new HashMap<>();
             Map<String, Integer> counts = new HashMap<>();
 
-            for (Book book : allBooks) {
-                if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) continue;
+            for (Object[] row : scoreRows) {
+                String relevanceScores = (String) row[1];
+                if (relevanceScores == null || relevanceScores.isBlank()) continue;
                 try {
-                    JsonNode scores = objectMapper.readTree(book.getRelevanceScores());
+                    JsonNode scores = objectMapper.readTree(relevanceScores);
                     var iter = scores.fields();
                     while (iter.hasNext()) {
                         var entry = iter.next();
@@ -75,7 +77,9 @@ public class DimensionStatsService {
                         sumSquares.merge(key, val * val, Double::sum);
                         counts.merge(key, 1, Integer::sum);
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.debug("解析 relevanceScores 失败: {}", e.getMessage());
+                }
             }
 
             Map<String, Double> means = new ConcurrentHashMap<>();

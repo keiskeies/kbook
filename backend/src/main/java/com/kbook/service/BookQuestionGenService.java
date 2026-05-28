@@ -1,5 +1,6 @@
 package com.kbook.service;
 
+import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.entity.Book;
 import com.kbook.entity.BookSuggestedQuestion;
@@ -27,7 +28,7 @@ import java.util.stream.Collectors;
 public class BookQuestionGenService {
 
     private final BookService bookService;
-    private final AiProviderConfigService aiProviderConfigService;
+    private final ChatModelFactory chatModelFactory;
     private final BookSuggestedQuestionRepository suggestedQuestionRepository;
 
     // 创建线程池用于超时控制
@@ -83,7 +84,7 @@ public class BookQuestionGenService {
                     book.getChapterSummary() != null ? book.getChapterSummary() : "暂无摘要"
             );
 
-            ChatModel chatModel = aiProviderConfigService.buildTagChatModel();
+            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
 
             // 使用Future实现超时控制
             Future<ChatResponse> future = executor.submit(() -> chatModel.chat(List.of(UserMessage.from(prompt))));

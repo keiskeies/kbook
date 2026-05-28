@@ -9,7 +9,9 @@ import com.kbook.repository.UserBookPreferenceRepository;
 import com.kbook.repository.UserReadHistoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -85,26 +87,34 @@ public class RecommendComputeService {
         double ruleMinScore = coefficientService.getCoefficient("OTHER", "rule_min_score", -0.5);
 
         List<ScoredBook> scoredBooks = new ArrayList<>(); // 存储评分结果的列表
-        List<Book> allBooks = bookRepository.findAll(); // 获取数据库中所有书籍
 
-        // 遍历所有书籍进行评分计算
-        for (Book book : allBooks) {
-            if (excludeSet.contains(book.getId())) continue; // 跳过已读/交互过的书籍
-            if (isExcludedByPreference(book, excludedTags, excludedAuthors, excludedFormats)) continue; // 跳过被用户排除偏好的书籍
+        // 分页查询书籍，避免 findAll() 全量加载导致内存和 CPU 压力
+        int pageSize = 500;
+        int pageNumber = 0;
+        Page<Book> bookPage;
+        do {
+            Pageable pageable = PageRequest.of(pageNumber, pageSize);
+            bookPage = bookRepository.findAllByOrderByIdAsc(pageable);
 
-            // 计算基础匹配分数（基于用户画像与书籍特征的相似度）
-            double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, null, dimensionStatsService);
-            if (matchScore <= ruleMinScore) continue; // 如果匹配分数低于阈值则跳过
+            for (Book book : bookPage.getContent()) {
+                if (excludeSet.contains(book.getId())) continue; // 跳过已读/交互过的书籍
+                if (isExcludedByPreference(book, excludedTags, excludedAuthors, excludedFormats)) continue; // 跳过被用户排除偏好的书籍
 
-            // 计算各项加分项
-            double qualityBonus = calculateQualityBonus(book.getRating());
-            double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());
-            double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
-            double rawFinalScore = matchScore + qualityBonus + freshnessBonus + preferenceBonus;
-            double finalScore = RecommendMatchCalculator.normalizeScore(rawFinalScore);
+                // 计算基础匹配分数（基于用户画像与书籍特征的相似度）
+                double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, null, dimensionStatsService);
+                if (matchScore <= ruleMinScore) continue; // 如果匹配分数低于阈值则跳过
 
-            scoredBooks.add(new ScoredBook(book, finalScore, matchScore, qualityBonus, "RULE"));
-        }
+                // 计算各项加分项
+                double qualityBonus = calculateQualityBonus(book.getRating());
+                double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());
+                double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
+                double rawFinalScore = matchScore + qualityBonus + freshnessBonus + preferenceBonus;
+                double finalScore = RecommendMatchCalculator.normalizeScore(rawFinalScore);
+
+                scoredBooks.add(new ScoredBook(book, finalScore, matchScore, qualityBonus, "RULE"));
+            }
+            pageNumber++;
+        } while (bookPage.hasNext());
 
         addExploreBooks(user, excludeSet, scoredBooks); // 添加探索性书籍（随机+热门）
 

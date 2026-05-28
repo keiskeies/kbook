@@ -68,17 +68,17 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
 
   let colorClass = ''
   if (r >= 5.0) {
-    colorClass = 'text-red-600 dark:text-red-400'
+    colorClass = 'text-danger dark:text-danger'
   } else if (r >= 4.5) {
-    colorClass = 'text-orange-600 dark:text-orange-400'
+    colorClass = 'text-warning dark:text-warning'
   } else if (r >= 4.0) {
-    colorClass = 'text-amber-600 dark:text-amber-400'
+    colorClass = 'text-warning dark:text-warning'
   } else if (r >= 3.0) {
-    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    colorClass = 'text-success dark:text-success'
   } else if (r >= 2.5) {
-    colorClass = 'text-teal-600 dark:text-teal-400'
+    colorClass = 'text-success dark:text-success'
   } else {
-    colorClass = 'text-slate-400 dark:text-slate-500'
+    colorClass = 'text-muted-foreground dark:text-muted-foreground'
   }
 
   return (
@@ -95,17 +95,17 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
 
   let colorClass = ''
   if (pct >= 100) {
-    colorClass = 'text-red-600 dark:text-red-400'
+    colorClass = 'text-danger dark:text-danger'
   } else if (pct >= 80) {
-    colorClass = 'text-orange-600 dark:text-orange-400'
+    colorClass = 'text-warning dark:text-warning'
   } else if (pct >= 60) {
-    colorClass = 'text-amber-600 dark:text-amber-400'
+    colorClass = 'text-warning dark:text-warning'
   } else if (pct >= 50) {
-    colorClass = 'text-emerald-600 dark:text-emerald-400'
+    colorClass = 'text-success dark:text-success'
   } else if (pct >= 40) {
-    colorClass = 'text-teal-600 dark:text-teal-400'
+    colorClass = 'text-success dark:text-success'
   } else {
-    colorClass = 'text-slate-400 dark:text-slate-500'
+    colorClass = 'text-muted-foreground dark:text-muted-foreground'
   }
 
   return (
@@ -186,33 +186,29 @@ export default function RankPage() {
   const matchScores = useMatchScores(books.map(b => b.id))
 
   return (
-    <div className="page-enter">
+    <div className="page-enter px-4">
       {/* 顶部头部 + Tab */}
-      <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
-        <div className="px-4">
-          <header className="py-4">
-            <h1 className="text-xl font-bold">发现好书</h1>
-          </header>
-          <div className="mb-4 flex gap-2">
-            {RANK_TABS.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => handleTypeChange(tab.key)}
-                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                  type === tab.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-            ))}
-          </div>
+      <div className="sticky top-0 z-50 -mx-4 px-4 pt-safe-top bg-background/80 backdrop-blur-xl border-b border-border/30">
+        <header className="py-4">
+          <h1 className="text-xl font-bold">发现好书</h1>
+        </header>
+        <div className="mb-4 flex gap-2">
+          {RANK_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => handleTypeChange(tab.key)}
+              className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                type === tab.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="h-[140px]" />
-
-      <div className="px-4 pb-8">
+      <div className="pb-8">
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: 8 }, (_, i) => (
@@ -248,9 +244,9 @@ export default function RankPage() {
                 >
                   <div className="flex gap-3">
                     <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl text-xs font-bold shadow-sm ${
-                      index === 0 ? 'bg-amber-400 text-white' :
-                      index === 1 ? 'bg-zinc-400 text-white' :
-                      index === 2 ? 'bg-orange-400 text-white' :
+                      index === 0 ? 'bg-warning text-white' :
+                      index === 1 ? 'bg-muted text-muted-foreground' :
+                      index === 2 ? 'bg-warning/70 text-white' :
                       'bg-muted text-muted-foreground'
                     }`}>
                       {index + 1}

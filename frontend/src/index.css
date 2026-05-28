@@ -4,65 +4,108 @@
 
 @layer base {
   :root {
-    /* 品牌靛蓝色调 — 温暖、文艺、阅读感 */
-    --background: 220 20% 92%;
-    --foreground: 224 25% 12%;
-    --card: 0 0% 100%;
-    --card-foreground: 224 25% 12%;
+    /* === 品牌色 Brand === */
+    --brand-50:  #F0F7EF;
+    --brand-100: #D4E8D3;
+    --brand-200: #A8D1A7;
+    --brand-300: #7DBA7C;
+    --brand-400: #5B8C5A;
+    --brand-500: #4A7249;
+    --brand-600: #3A5A39;
+
+    /* === 功能色 Functional === */
+    --success:   #5B8C5A;
+    --warning:   #D4A574;
+    --danger:    #C75B5B;
+    --info:      #6B8FA8;
+
+    /* === 中性色 Neutral === */
+    --gray-0:   #FFFFFF;
+    --gray-50:  #FAFAF8;
+    --gray-100: #F2F0EC;
+    --gray-200: #E6E2DC;
+    --gray-300: #C9C3BA;
+    --gray-400: #9A948A;
+    --gray-500: #6B655C;
+    --gray-600: #4A453E;
+    --gray-700: #2E2A24;
+    --gray-800: #1A1814;
+
+    /* === shadcn 变量映射 === */
+    --background: 40 10% 93%;           /* gray-200 #E6E2DC */
+    --foreground: 36 10% 33%;           /* gray-500 */
+    --card: 0 0% 100%;                  /* pure white */
+    --card-foreground: 36 10% 33%;      /* gray-500 */
     --popover: 0 0% 100%;
-    --popover-foreground: 224 25% 12%;
-    --primary: 230 65% 50%;
+    --popover-foreground: 36 10% 33%;
+    --primary: 119 24% 46%;             /* brand-400 #5B8C5A */
     --primary-foreground: 0 0% 100%;
-    --secondary: 230 20% 94%;
-    --secondary-foreground: 230 40% 30%;
-    --muted: 230 15% 94%;
-    --muted-foreground: 225 10% 46%;
-    --accent: 230 55% 92%;
-    --accent-foreground: 230 65% 35%;
-    --destructive: 0 72% 51%;
+    --secondary: 40 14% 97%;            /* gray-50 */
+    --secondary-foreground: 36 10% 33%; /* gray-500 */
+    --muted: 40 14% 97%;
+    --muted-foreground: 36 8% 57%;      /* gray-400 */
+    --accent: 119 24% 90%;              /* brand-100 */
+    --accent-foreground: 119 24% 30%;
+    --destructive: 0 42% 56%;           /* danger */
     --destructive-foreground: 0 0% 100%;
-    --border: 230 15% 88%;
-    --input: 230 15% 88%;
-    --ring: 230 65% 50%;
+    --border: 36 14% 89%;               /* gray-200 */
+    --input: 36 14% 89%;
+    --ring: 119 24% 46%;
     --radius: 0.75rem;
+
+    /* === 阴影系统 Elevation === */
+    --shadow-sm: 0 1px 2px rgba(26, 24, 20, 0.04), 0 1px 3px rgba(26, 24, 20, 0.02);
+    --shadow-md: 0 4px 6px -1px rgba(26, 24, 20, 0.06), 0 2px 4px -2px rgba(26, 24, 20, 0.04);
+    --shadow-lg: 0 10px 15px -3px rgba(26, 24, 20, 0.08), 0 4px 6px -4px rgba(26, 24, 20, 0.04);
+    --shadow-xl: 0 20px 25px -5px rgba(26, 24, 20, 0.1), 0 8px 10px -6px rgba(26, 24, 20, 0.04);
+
+    /* === 动画时间 === */
+    --duration-fast: 150ms;
+    --duration-normal: 250ms;
+    --duration-slow: 400ms;
+    --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+    --easing-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* sidebar */
     --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 224 25% 12%;
-    --sidebar-primary: 230 65% 50%;
+    --sidebar-foreground: 36 10% 33%;
+    --sidebar-primary: 119 24% 46%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 230 20% 94%;
-    --sidebar-accent-foreground: 230 40% 30%;
-    --sidebar-border: 230 15% 88%;
-    --sidebar-ring: 230 65% 50%;
+    --sidebar-accent: 36 14% 94%;
+    --sidebar-accent-foreground: 36 10% 33%;
+    --sidebar-border: 36 14% 89%;
+    --sidebar-ring: 119 24% 46%;
   }
 
   .dark {
-    --background: 224 25% 4.5%;
-    --foreground: 220 15% 92%;
-    --card: 224 20% 12%;
-    --card-foreground: 220 15% 92%;
-    --popover: 224 20% 12%;
-    --popover-foreground: 220 15% 92%;
-    --primary: 230 65% 58%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 224 15% 16%;
-    --secondary-foreground: 220 15% 92%;
-    --muted: 224 15% 16%;
-    --muted-foreground: 220 10% 55%;
-    --accent: 224 20% 16%;
-    --accent-foreground: 230 50% 75%;
-    --destructive: 0 62% 30%;
+    --background: 36 18% 5%;            /* deeper dark #0F0E0C */
+    --foreground: 36 14% 94%;           /* gray-100 */
+    --card: 36 12% 16%;                 /* #262320 — 比背景亮一些 */
+    --card-foreground: 36 14% 94%;
+    --popover: 36 14% 10%;
+    --popover-foreground: 36 14% 94%;
+    --primary: 119 30% 61%;             /* brand-300 #7DBA7C — 深色模式提亮 */
+    --primary-foreground: 36 18% 9%;
+    --secondary: 36 10% 12%;
+    --secondary-foreground: 36 14% 94%;
+    --muted: 36 10% 12%;
+    --muted-foreground: 36 8% 57%;
+    --accent: 119 24% 20%;
+    --accent-foreground: 119 30% 70%;
+    --destructive: 0 42% 40%;
     --destructive-foreground: 0 0% 100%;
-    --border: 224 15% 18%;
-    --input: 224 15% 18%;
-    --ring: 230 65% 58%;
-    --sidebar-background: 224 20% 8%;
-    --sidebar-foreground: 220 15% 92%;
-    --sidebar-primary: 230 65% 58%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 224 15% 16%;
-    --sidebar-accent-foreground: 220 15% 92%;
-    --sidebar-border: 224 15% 18%;
-    --sidebar-ring: 230 65% 58%;
+    --border: 36 10% 18%;
+    --input: 36 10% 18%;
+    --ring: 119 30% 61%;
+
+    --sidebar-background: 36 14% 7%;
+    --sidebar-foreground: 36 14% 94%;
+    --sidebar-primary: 119 30% 61%;
+    --sidebar-primary-foreground: 36 18% 9%;
+    --sidebar-accent: 36 10% 12%;
+    --sidebar-accent-foreground: 36 14% 94%;
+    --sidebar-border: 36 10% 18%;
+    --sidebar-ring: 119 30% 61%;
   }
 }
 
@@ -74,10 +117,65 @@
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   }
 }
 
-/* 隐藏横向滚动条 */
+/* === 页面切换过渡 === */
+.page-enter {
+  animation: pageEnter 300ms var(--easing-default) forwards;
+}
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.page-exit {
+  animation: pageExit 200ms var(--easing-default) forwards;
+}
+@keyframes pageExit {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-8px); }
+}
+
+/* === 按钮交互 === */
+.btn-press {
+  transition: transform var(--duration-fast) var(--easing-default), box-shadow var(--duration-fast) var(--easing-default);
+}
+.btn-press:active {
+  transform: scale(0.96);
+}
+
+.btn-lift {
+  transition: transform 200ms var(--easing-default), box-shadow 200ms var(--easing-default);
+}
+.btn-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* === 列表项进入动画 === */
+.list-item-enter {
+  animation: listItemEnter 400ms var(--easing-default) forwards;
+  opacity: 0;
+}
+@keyframes listItemEnter {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* === 骨架屏动画 === */
+.skeleton {
+  background: linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--border)) 50%, hsl(var(--muted)) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s infinite;
+}
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* === 隐藏横向滚动条 === */
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -86,7 +184,7 @@
   display: none;
 }
 
-/* 表格横向滚动 — 始终显示滚动条 + 移动端渐变提示 */
+/* === 表格横向滚动 === */
 .table-scroll {
   overflow-x: scroll;
   -webkit-overflow-scrolling: touch;
@@ -132,19 +230,10 @@
   right: 0;
   bottom: 5px;
   width: 28px;
-  background: linear-gradient(to right, transparent, var(--background, #fff));
+  background: linear-gradient(to right, transparent, hsl(var(--background)));
   pointer-events: none;
   transition: opacity 0.2s;
 }
 .table-scroll-wrapper.scrolled-end::after {
   opacity: 0;
-}
-
-/* 页面切换过渡 */
-.page-enter {
-  animation: pageFadeIn 0.25s ease-out;
-}
-@keyframes pageFadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
 }

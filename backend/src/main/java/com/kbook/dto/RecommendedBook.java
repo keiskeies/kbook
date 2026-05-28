@@ -28,6 +28,8 @@ public class RecommendedBook {
     private String description;
     /** 匹配度评分（0-1） */
     private Double matchScore;
+    /** 格式标签（JSON数组字符串） */
+    private String formatTags;
     /** 阅读次数 */
     private Long readCount;
 
@@ -45,10 +47,9 @@ public class RecommendedBook {
                 .coverUrl(book.getCoverUrl())
                 .format(book.getFormat())
                 .rating(book.getRating())
+                .formatTags(book.getFormatTags())
                 .readCount(book.getReadCount())
-                // 简介超过80字时截断并添加省略号
-                .description(book.getDescription() != null && book.getDescription().length() > 80
-                        ? book.getDescription().substring(0, 80) + "..." : book.getDescription())
+                .description(book.getDescription())
                 // 匹配度保留两位小数
                 .matchScore(Math.round(matchScore * 100.0) / 100.0)
                 .build();
@@ -68,6 +69,7 @@ public class RecommendedBook {
                 .format(item.getFormat())
                 .rating(item.getRating())
                 .description(item.getDescription())
+                .formatTags(item.getFormatTags())
                 .matchScore(item.getMatchScore())
                 .readCount(item.getReadCount())
                 .build();

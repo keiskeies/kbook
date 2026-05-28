@@ -1,5 +1,6 @@
 import { STORAGE_KEYS } from '@/constants'
 import { broadcastTokenUpdate, broadcastTokenCleared } from './token-sync'
+import { useAuthStore } from '@/store/auth'
 
 /**
  * 统一的 Token 刷新协调器
@@ -83,7 +84,10 @@ export function clearAuthAndRedirect() {
   localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
   localStorage.removeItem(STORAGE_KEYS.USER_INFO)
   broadcastTokenCleared()
-  window.location.href = '/login'
+  useAuthStore.setState({ token: null, userInfo: null, isAuthenticated: false })
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login'
+  }
 }
 
 /**

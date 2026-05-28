@@ -10,6 +10,8 @@ import com.kbook.service.BookSearchService;
 import com.kbook.service.BookService;
 import com.kbook.service.RankService;
 import com.kbook.service.RecommendService;
+import com.kbook.service.UserService;
+import com.kbook.entity.User;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.CreateBookRequest;
@@ -43,6 +45,7 @@ public class BookController {
     private final RankService rankService;
     private final RecommendService recommendService;
     private final BookParserService bookParserService;
+    private final UserService userService;
     private final ObjectMapper objectMapper;
 
     /** 封面图片存储路径 */
@@ -206,30 +209,26 @@ public class BookController {
     }
 
     @GetMapping("/{id}/speed-read")
-    public Result<BookSpeedReadVO> getSpeedRead(@PathVariable Long id) {
+    public Result<BookSpeedReadVO> getSpeedRead(@PathVariable Long id, Authentication authentication) {
         Book book = bookService.getBookById(id);
         if (book == null) {
             return Result.fail("图书不存在");
         }
 
-        if (book.getSpeedRead() != null && !book.getSpeedRead().isBlank()) {
+        // 获取当前用户画像（用于个性化速读）
+        User currentUser = null;
+        if (authentication != null && authentication.getPrincipal() != null) {
             try {
-                BookSpeedReadVO vo = objectMapper.readValue(book.getSpeedRead(), BookSpeedReadVO.class);
-                return Result.ok(vo);
+                Long userId = (Long) authentication.getPrincipal();
+                currentUser = userService.getUserById(userId);
             } catch (Exception e) {
-                log.warn("解析速读摘要失败: bookId={} - {}", id, e.getMessage());
+                log.debug("获取当前用户失败: {}", e.getMessage());
             }
         }
 
-        BookSpeedReadVO vo = bookParserService.generateSpeedRead(book);
+        // 生成个性化速读（每次根据用户画像实时生成，不缓存，因为不同用户结果不同）
+        BookSpeedReadVO vo = bookParserService.generateSpeedRead(book, currentUser);
         if (vo != null) {
-            try {
-                book.setSpeedRead(objectMapper.writeValueAsString(vo));
-                book.setSpeedReadGenerated(true);
-                bookService.updateBook(id, book);
-            } catch (Exception e) {
-                log.warn("保存速读摘要失败: bookId={} - {}", id, e.getMessage());
-            }
             return Result.ok(vo);
         }
 

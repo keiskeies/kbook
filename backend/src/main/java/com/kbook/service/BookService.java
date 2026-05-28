@@ -220,6 +220,39 @@ public class BookService {
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
+        if (updates.getSpeedRead() != null) book.setSpeedRead(updates.getSpeedRead());
+        if (updates.getSpeedReadGenerated() != null) book.setSpeedReadGenerated(updates.getSpeedReadGenerated());
+
+        Book saved = bookRepository.save(book);
+        // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
+        TransactionUtils.afterCommit(() -> {
+            bookSearchService.indexBook(saved);
+            evictBookCache(saved.getId());
+        });
+        log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
+    }
+    /**
+     * 更新图书信息（JPA + ES 双写）
+     */
+    @Transactional
+    public void updateBookAll(Long id, Book updates) {
+        log.debug("更新图书: id={}", id);
+        Book book = getBookById(id);
+        if (updates.getTitle() != null) book.setTitle(updates.getTitle());
+        if (updates.getAuthor() != null) book.setAuthor(updates.getAuthor());
+        if (updates.getCoverUrl() != null) book.setCoverUrl(updates.getCoverUrl());
+        if (updates.getDescription() != null) book.setDescription(updates.getDescription());
+        if (updates.getFormatTags() != null) book.setFormatTags(updates.getFormatTags());
+        if (updates.getTotalUnits() != null) book.setTotalUnits(updates.getTotalUnits());
+        if (updates.getRelevanceScores() != null) book.setRelevanceScores(updates.getRelevanceScores());
+        if (updates.getRating() != null) book.setRating(updates.getRating());
+        if (updates.getReadCount() != null) book.setReadCount(updates.getReadCount());
+        if (updates.getToc() != null) book.setToc(updates.getToc());
+        if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
+        if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
+        if (updates.getSpeedRead() != null) book.setSpeedRead(updates.getSpeedRead());
+        if (updates.getSpeedReadGenerated() != null) book.setSpeedReadGenerated(updates.getSpeedReadGenerated());
+
         Book saved = bookRepository.save(book);
         // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
         TransactionUtils.afterCommit(() -> {

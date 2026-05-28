@@ -64,9 +64,9 @@ function BookDescription({ description }: { description: string }) {
   const isLong = description.length > 80
 
   return (
-    <div className="mt-2 border-t border-border/30 pt-2">
+    <div className="border-t border-border/30 px-3 pb-2.5 pt-1.5">
       <p
-        className={`text-[11px] text-muted-foreground/70 leading-relaxed transition-all duration-200 ${
+        className={`text-[11px] text-muted-foreground/60 leading-snug transition-all duration-200 ${
           expanded ? '' : 'line-clamp-2'
         }`}
       >
@@ -78,7 +78,7 @@ function BookDescription({ description }: { description: string }) {
             e.stopPropagation()
             setExpanded(!expanded)
           }}
-          className="mt-1 flex items-center gap-0.5 text-[10px] text-primary/80 hover:text-primary font-medium"
+          className="mt-1 inline-flex items-center gap-0.5 text-[10px] text-brand-400 hover:text-brand-500 transition-colors"
         >
           {expanded ? (
             <>
@@ -174,20 +174,20 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
 
   if (loading) {
     return (
-      <div className="my-2 rounded-2xl bg-card p-3 shadow-lg shadow-black/5 dark:shadow-black/60 border border-border/50">
-        <div className="flex gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex gap-3">
-              <div className="h-20 w-14 flex-shrink-0 rounded-lg bg-muted animate-pulse" />
-              <div className="flex-1 space-y-2">
-                <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
-                <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
-                <div className="h-3 w-full rounded bg-muted animate-pulse" />
-              </div>
+      <div className="my-2 rounded-2xl bg-secondary shadow-sm border border-border/50">
+        <div className="flex gap-3 p-3 pb-2">
+          <div className="h-24 w-16 flex-shrink-0 rounded-lg bg-muted animate-pulse" />
+          <div className="flex-1 min-w-0 flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
+              <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
+              <div className="h-5 w-1/3 rounded bg-muted animate-pulse" />
             </div>
-            <div className="mt-2 h-4 w-full rounded bg-muted animate-pulse" />
-            <div className="mt-1 h-4 w-4/5 rounded bg-muted animate-pulse" />
+            <div className="h-4 w-2/3 rounded bg-muted animate-pulse" />
           </div>
+        </div>
+        <div className="border-t border-border/30 px-3 pb-2.5 pt-1.5">
+          <div className="h-3 w-full rounded bg-muted animate-pulse" />
         </div>
       </div>
     )
@@ -196,59 +196,52 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
   return (
     <div
       onClick={handleClick}
-      className="my-2 rounded-2xl bg-card p-3 shadow-lg shadow-black/5 dark:shadow-black/60 border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150"
+      className="my-2 rounded-2xl bg-secondary shadow-sm border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150"
     >
-      <div className="flex gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex gap-3">
-            <BookCover
-              coverUrl={displayCoverUrl}
-              title={displayTitle}
-              author={displayAuthor}
-              format={displayFormat}
-              size="md"
-              className="flex-shrink-0"
-            />
+      <div className="flex gap-3 p-3 pb-2">
+        <BookCover
+          coverUrl={displayCoverUrl}
+          title={displayTitle}
+          author={displayAuthor}
+          format={displayFormat}
+          size="md"
+          className="flex-shrink-0 h-24 w-16"
+        />
 
-            <div className="flex-1 min-w-0 flex flex-col justify-between">
-              <div>
-                <p className="truncate text-sm font-semibold">
-                  {displayTitle}
-                </p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {displayAuthor || '未知作者'}
-                </p>
+        <div className="flex-1 min-w-0 flex flex-col justify-between">
+          <div>
+            <p className="truncate text-sm font-semibold">{displayTitle}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {displayAuthor || '未知作者'}
+            </p>
+            {tags.length > 0 && (
+              <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                {tags.slice(0, 3).map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-0.5 rounded-md bg-brand-100 px-1.5 py-0.5 text-[10px] font-medium text-brand-500"
+                  >
+                    <Tag className="h-2.5 w-2.5" />
+                    {t}
+                  </span>
+                ))}
               </div>
-
-              <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                <RatingBadgeCN rating={displayRating} />
-                <MatchBadgeCN score={matchScore !== undefined ? matchScore / 100 : undefined} />
-                <span className="text-[11px] text-muted-foreground">
-                  {fmtReadCount(displayReadCount)}
-                </span>
-              </div>
-
-              {tags.length > 0 && (
-                <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-                  {tags.slice(0, 3).map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary flex-shrink-0"
-                    >
-                      <Tag className="h-2.5 w-2.5" />
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+            )}
           </div>
 
-          {displayDescription && displayDescription !== '暂无' && (
-            <BookDescription description={displayDescription} />
-          )}
+          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+            <RatingBadgeCN rating={displayRating} />
+            <MatchBadgeCN score={matchScore !== undefined ? matchScore / 100 : undefined} />
+            <span className="text-[11px] text-muted-foreground">
+              {fmtReadCount(displayReadCount)}
+            </span>
+          </div>
         </div>
       </div>
+
+      {displayDescription && displayDescription !== '暂无' && (
+        <BookDescription description={displayDescription} />
+      )}
     </div>
   )
 }

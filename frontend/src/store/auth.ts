@@ -15,11 +15,12 @@ export interface UserInfo {
   gender?: 'MALE' | 'FEMALE' | 'OTHER' | null
   married?: boolean | null
   hasChildren?: boolean | null
+  childrenAgeRanges?: string | null
   mbti?: string | null
   occupation?: string | null
-  education?: string | null
+  aspirationEducation?: string | null
   entrepreneurship?: string | null
-  annualIncome?: string | null
+  aspirationIncome?: string | null
   mood?: string | null
   bio?: string | null
   followerCount?: number
@@ -55,11 +56,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       gender: apiUserInfo.gender as 'MALE' | 'FEMALE' | 'OTHER' | null,
       married: apiUserInfo.married,
       hasChildren: apiUserInfo.hasChildren,
+      childrenAgeRanges: apiUserInfo.childrenAgeRanges,
       mbti: apiUserInfo.mbti,
       occupation: apiUserInfo.occupation,
-      education: apiUserInfo.education,
+      aspirationEducation: apiUserInfo.aspirationEducation,
       entrepreneurship: apiUserInfo.entrepreneurship,
-      annualIncome: apiUserInfo.annualIncome,
+      aspirationIncome: apiUserInfo.aspirationIncome,
       mood: apiUserInfo.mood,
       bio: apiUserInfo.bio,
       followerCount: apiUserInfo.followerCount,

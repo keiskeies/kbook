@@ -499,7 +499,7 @@ export default function AIPage() {
         </div>
       </div>
 
-      <div className="shrink-0 border-t bg-background px-4 py-3 safe-area-bottom" style={{ paddingBottom: tabBarVisible ? 'calc(0.75rem + 5rem)' : undefined }}>
+      <div className="shrink-0 border-t bg-background px-4 pt-3" style={{ paddingBottom: tabBarVisible ? 'calc(0.75rem + 5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
         <div className="flex items-end gap-2">
           <textarea
             ref={textareaRef}

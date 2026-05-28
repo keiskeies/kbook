@@ -1,10 +1,9 @@
 import { create } from 'zustand'
 import { STORAGE_KEYS } from '@/constants'
+import type { TtsConfig } from '@/api/adminTts'
 
-/** TTS 播放状态 */
 export type TtsStatus = 'idle' | 'playing' | 'paused'
 
-/** TTS 音色 */
 export interface TtsVoice {
   voiceURI: string
   name: string
@@ -12,11 +11,8 @@ export interface TtsVoice {
   localService: boolean
 }
 
-/** TTS 设置 */
 export interface TtsSettings {
-  /** 语速 0.5~2，默认 1 */
   rate: number
-  /** 音色 URI */
   voiceURI: string | null
 }
 
@@ -38,52 +34,39 @@ function saveTtsSettings(settings: TtsSettings) {
 }
 
 interface TtsState {
-  /** 播放状态 */
   status: TtsStatus
-  /** 当前朗读的书籍 ID */
   bookId: number | null
-  /** 当前朗读的书籍标题 */
   bookTitle: string | null
-  /** 当前朗读的段索引 */
   segmentIndex: number
-  /** 总段数 */
   totalSegments: number
-  /** 全量段落缓存 —— 整本书的所有段落，退出阅读页后仍可用于朗读 */
   segments: string[]
-  /** 段落是否正在加载中（EPUB 异步提取时为 true） */
   segmentsLoading: boolean
-  /** TTS 设置 */
   settings: TtsSettings
-  /** 可用音色列表 */
   voices: TtsVoice[]
-  /** 浮动播放器是否展开 */
   playerExpanded: boolean
 
-  // 操作
+  /** 是否使用后端 TTS */
+  backendMode: boolean
+  /** 后端 TTS 配置 */
+  backendConfig: TtsConfig | null
+
   setStatus: (status: TtsStatus) => void
-  /** 开始朗读（缓存全量段落） */
   startReading: (bookId: number, bookTitle: string, segments: string[], startSegment?: number) => void
-  /** 开始朗读（异步加载段落，EPUB 用） */
   startReadingAsync: (bookId: number, bookTitle: string, startSegment?: number) => void
-  /** 段落加载完成，缓存到 store 并开始朗读 */
   onSegmentsLoaded: (segments: string[]) => void
-  /** 段落加载失败 */
   onSegmentsLoadFailed: () => void
-  /** 停止朗读 */
   stopReading: () => void
-  /** 暂停 */
   pause: () => void
-  /** 恢复 */
   resume: () => void
-  /** 更新段索引 */
   setSegmentIndex: (index: number) => void
-  /** 更新设置 */
   updateSettings: (partial: Partial<TtsSettings>) => void
-  /** 设置可用音色 */
   setVoices: (voices: TtsVoice[]) => void
-  /** 切换浮动播放器展开/收起 */
   togglePlayerExpanded: () => void
   setPlayerExpanded: (v: boolean) => void
+
+  /** 设置后端 TTS */
+  setBackendConfig: (config: TtsConfig | null) => void
+  setBackendMode: (mode: boolean) => void
 }
 
 export const useTtsStore = create<TtsState>((set, get) => ({
@@ -97,6 +80,8 @@ export const useTtsStore = create<TtsState>((set, get) => ({
   settings: loadTtsSettings(),
   voices: [],
   playerExpanded: false,
+  backendMode: false,
+  backendConfig: null,
 
   setStatus: (status) => set({ status }),
 
@@ -113,7 +98,6 @@ export const useTtsStore = create<TtsState>((set, get) => ({
     })
   },
 
-  /** 异步开始朗读：先标记 loading，等段落加载完再开始播放 */
   startReadingAsync: (bookId, bookTitle, startSegment = 0) => {
     set({
       status: 'playing',
@@ -127,10 +111,8 @@ export const useTtsStore = create<TtsState>((set, get) => ({
     })
   },
 
-  /** 段落加载完成 */
   onSegmentsLoaded: (segments) => {
-    const {status } = get()
-    // 只有还在朗读状态才更新
+    const { status } = get()
     if (status !== 'idle') {
       set({
         totalSegments: segments.length,
@@ -140,7 +122,6 @@ export const useTtsStore = create<TtsState>((set, get) => ({
     }
   },
 
-  /** 段落加载失败 */
   onSegmentsLoadFailed: () => {
     set({
       status: 'idle',
@@ -166,9 +147,7 @@ export const useTtsStore = create<TtsState>((set, get) => ({
   }),
 
   pause: () => set({ status: 'paused' }),
-
   resume: () => set({ status: 'playing' }),
-
   setSegmentIndex: (index) => set({ segmentIndex: index }),
 
   updateSettings: (partial) => {
@@ -178,12 +157,13 @@ export const useTtsStore = create<TtsState>((set, get) => ({
   },
 
   setVoices: (voices) => set({ voices }),
-
   togglePlayerExpanded: () => set((s) => ({ playerExpanded: !s.playerExpanded })),
   setPlayerExpanded: (v) => set({ playerExpanded: v }),
+
+  setBackendConfig: (config) => set({ backendConfig: config }),
+  setBackendMode: (mode) => set({ backendMode: mode }),
 }))
 
-// 初始化音色列表
 if (typeof window !== 'undefined' && window.speechSynthesis) {
   const loadVoices = () => {
     const sv = window.speechSynthesis.getVoices()

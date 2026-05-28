@@ -232,11 +232,11 @@ export default function AdminReviewPage() {
   const statusBadge = (status: string) => {
     switch (status) {
       case 'PENDING':
-        return <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">待审核</span>
+        return <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">待审核</span>
       case 'APPROVED':
-        return <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">已通过</span>
+        return <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">已通过</span>
       case 'BANNED':
-        return <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">已封禁</span>
+        return <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">已封禁</span>
       default:
         return null
     }
@@ -270,10 +270,10 @@ export default function AdminReviewPage() {
       {stats && (
         <div className="grid grid-cols-4 gap-2 px-4 py-3">
           {[
-            { label: '待审核', value: stats.PENDING, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-            { label: '已通过', value: stats.APPROVED, color: 'text-green-600', bg: 'bg-green-50' },
-            { label: '已封禁', value: stats.BANNED, color: 'text-red-600', bg: 'bg-red-50' },
-            { label: '总计', value: stats.TOTAL, color: 'text-blue-600', bg: 'bg-blue-50' },
+            { label: '待审核', value: stats.PENDING, color: 'text-warning', bg: 'bg-warning/10' },
+            { label: '已通过', value: stats.APPROVED, color: 'text-success', bg: 'bg-success/10' },
+            { label: '已封禁', value: stats.BANNED, color: 'text-danger', bg: 'bg-danger/10' },
+            { label: '总计', value: stats.TOTAL, color: 'text-info', bg: 'bg-info/10' },
           ].map((stat) => (
             <div key={stat.label} className={`rounded-xl ${stat.bg} p-3 text-center`}>
               <div className={`text-xl font-bold ${stat.color}`}>{formatCount(stat.value)}</div>
@@ -341,16 +341,16 @@ export default function AdminReviewPage() {
         <div className="flex items-center gap-2 border-b px-4 py-2 bg-muted/50">
           <span className="text-sm text-muted-foreground">已选 {selectedIds.size} 项</span>
           <button
-            onClick={handleBatchApprove}
-            className="ml-auto flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white"
-          >
+              onClick={handleBatchApprove}
+              className="ml-auto flex items-center gap-1 rounded-lg bg-success px-3 py-1.5 text-xs font-medium text-white"
+            >
             <CheckCircle2 className="h-3 w-3" />
             批量通过
           </button>
           <button
-            onClick={handleBatchReject}
-            className="flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white"
-          >
+              onClick={handleBatchReject}
+              className="flex items-center gap-1 rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white"
+            >
             <X className="h-3 w-3" />
             批量拒绝
           </button>
@@ -405,14 +405,14 @@ export default function AdminReviewPage() {
                   <>
                     <button
                       onClick={() => handleApprove(user.id)}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-600"
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10 text-success"
                       title="通过"
                     >
                       <Check className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => handleReject(user.id)}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-red-100 text-red-600"
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-danger/10 text-danger"
                       title="拒绝"
                     >
                       <X className="h-4 w-4" />
@@ -422,7 +422,7 @@ export default function AdminReviewPage() {
                 {user.status === 'APPROVED' && (
                   <button
                     onClick={() => handleBan(user.id)}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-red-100 text-red-600"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-danger/10 text-danger"
                     title="封禁"
                   >
                     <Ban className="h-4 w-4" />
@@ -431,7 +431,7 @@ export default function AdminReviewPage() {
                 {user.status === 'BANNED' && (
                   <button
                     onClick={() => handleUnban(user.id)}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-info/10 text-info"
                     title="解封"
                   >
                     <Unlock className="h-4 w-4" />
@@ -508,10 +508,10 @@ export default function AdminReviewPage() {
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <div className="mb-4 rounded-xl bg-green-50 p-4 text-center">
-                  <CheckCheck className="mx-auto mb-2 h-10 w-10 text-green-500" />
-                  <p className="text-sm font-medium text-green-700">邀请邮件已发送到</p>
-                  <p className="text-sm text-green-600">{inviteResult.email}</p>
+                <div className="mb-4 rounded-xl bg-success/10 p-4 text-center">
+                  <CheckCheck className="mx-auto mb-2 h-10 w-10 text-success" />
+                  <p className="text-sm font-medium text-success">邀请邮件已发送到</p>
+                  <p className="text-sm text-success">{inviteResult.email}</p>
                 </div>
                 <p className="mb-2 text-xs text-muted-foreground">邀请码</p>
                 <div className="mb-4 flex items-center gap-2 rounded-lg bg-muted p-3">
@@ -519,7 +519,7 @@ export default function AdminReviewPage() {
                   <button
                     onClick={handleCopyInviteLink}
                     className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                      copied ? 'bg-green-100 text-green-700' : 'bg-primary/10 text-primary'
+                      copied ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'
                     }`}
                   >
                     {copied ? (

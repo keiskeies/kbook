@@ -117,13 +117,36 @@ public class RecommendMatchCalculator {
                 logDetail.append(" | ");
             }
 
-            if (user.getHasChildren() != null) {
+            // 孩子年龄区间：优先使用新字段 childrenAgeRanges，兜底旧字段 hasChildren
+            if (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank()) {
+                String[] ranges = user.getChildrenAgeRanges().split(",");
+                double childWeight = 1.0;
+                double childDecay = 0.4;
+                logDetail.append("子女");
+                for (String range : ranges) {
+                    String childKey = range.trim().toLowerCase();
+                    if (childKey.isEmpty()) continue;
+                    double dev = getDeviation(statsService, childKey, scores);
+                    totalDeviation += dev * childWeight;
+                    totalWeight += childWeight;
+                    logDetail.append(String.format("[%s]: dev=%.4f*%.2f=%.4f", childKey, dev, childWeight, dev * childWeight));
+                    // 邻近区间衰减
+                    List<String> adjacentRanges = getAdjacentChildRanges(childKey);
+                    for (String adj : adjacentRanges) {
+                        double adjDev = getDeviation(statsService, adj, scores);
+                        totalDeviation += adjDev * childWeight * childDecay;
+                        totalWeight += childWeight * childDecay;
+                        logDetail.append(String.format(" + 邻近子女[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, childWeight, childDecay, adjDev * childWeight * childDecay));
+                    }
+                }
+                matchedDimensions++;
+                logDetail.append(" | ");
+            } else if (user.getHasChildren() != null) {
                 String childKey = user.getHasChildren() ? "hasChildren" : "noChildren";
                 double dev = getDeviation(statsService, childKey, scores);
                 totalDeviation += dev * 1.0;
                 totalWeight += 1.0;
-                logDetail.append(String.format("子女[%s]: dev=%.4f*1.0=%.4f", childKey, dev, dev * 1.0));
-
+                logDetail.append(String.format("子女(旧)[%s]: dev=%.4f*1.0=%.4f", childKey, dev, dev * 1.0));
                 String oppositeKey = user.getHasChildren() ? "noChildren" : "hasChildren";
                 double oppDev = getDeviation(statsService, oppositeKey, scores);
                 if (oppDev > 0) {
@@ -177,8 +200,8 @@ public class RecommendMatchCalculator {
                 logDetail.append(" | ");
             }
 
-            if (user.getEducation() != null) {
-                String eduKey = user.getEducation().toLowerCase();
+            if (user.getAspirationEducation() != null) {
+                String eduKey = user.getAspirationEducation().toLowerCase();
                 double eduWeight = coefficientService.getCoefficient("MATCH", "education_weight", 0.8);
                 double eduDecay = coefficientService.getCoefficient("MATCH", "education_decay", 0.40);
                 double dev = getDeviation(statsService, eduKey, scores);
@@ -208,9 +231,9 @@ public class RecommendMatchCalculator {
                 logDetail.append(" | ");
             }
 
-            if (user.getAnnualIncome() != null && !user.getAnnualIncome().isBlank()
-                    && !"PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAnnualIncome())) {
-                String incomeKey = user.getAnnualIncome().toLowerCase();
+            if (user.getAspirationIncome() != null && !user.getAspirationIncome().isBlank()
+                    && !"PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAspirationIncome())) {
+                String incomeKey = user.getAspirationIncome().toLowerCase();
                 double incomeWeight = coefficientService.getCoefficient("MATCH", "income_weight", 0.5);
                 double incomeDecay = coefficientService.getCoefficient("MATCH", "income_decay", 0.40);
                 double dev = getDeviation(statsService, incomeKey, scores);
@@ -229,23 +252,54 @@ public class RecommendMatchCalculator {
                 logDetail.append(" | ");
             }
 
-            if (user.getMood() != null) {
-                String moodKey = user.getMood().toLowerCase();
-                double moodWeight = coefficientService.getCoefficient("MATCH", "mood_weight", 0.7);
-                double moodDecay = coefficientService.getCoefficient("MATCH", "mood_decay", 0.40);
-                double dev = getDeviation(statsService, moodKey, scores);
-                totalDeviation += dev * moodWeight;
-                totalWeight += moodWeight;
-                logDetail.append(String.format("心情[%s]: dev=%.4f*%.2f=%.4f", moodKey, dev, moodWeight, dev * moodWeight));
-
-                List<String> relatedMoods = getRelatedMoods(moodKey);
-                for (String adj : relatedMoods) {
-                    double adjDev = getDeviation(statsService, adj, scores);
-                    totalDeviation += adjDev * moodWeight * moodDecay;
-                    totalWeight += moodWeight * moodDecay;
-                    logDetail.append(String.format(" + 相关心情[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, moodWeight, moodDecay, adjDev * moodWeight * moodDecay));
+            // 阅读意图+心情（支持新格式 "INTENT|MOOD" 和旧格式纯 MOOD）
+            if (user.getMood() != null && !user.getMood().isBlank()) {
+                String moodRaw = user.getMood();
+                String intentKey = null;
+                String moodKey;
+                int pipeIdx = moodRaw.indexOf('|');
+                if (pipeIdx > 0) {
+                    intentKey = moodRaw.substring(0, pipeIdx).toLowerCase().trim();
+                    moodKey = moodRaw.substring(pipeIdx + 1).toLowerCase().trim();
+                } else {
+                    moodKey = moodRaw.toLowerCase().trim();
                 }
-                matchedDimensions++;
+
+                // 意图维度（权重 0.5）
+                if (intentKey != null && !intentKey.isEmpty()) {
+                    double intentWeight = coefficientService.getCoefficient("MATCH", "intent_weight", 0.5);
+                    double intentDecay = coefficientService.getCoefficient("MATCH", "intent_decay", 0.40);
+                    double dev = getDeviation(statsService, intentKey, scores);
+                    totalDeviation += dev * intentWeight;
+                    totalWeight += intentWeight;
+                    logDetail.append(String.format("意图[%s]: dev=%.4f*%.2f=%.4f", intentKey, dev, intentWeight, dev * intentWeight));
+                    List<String> relatedIntents = getRelatedIntents(intentKey);
+                    for (String adj : relatedIntents) {
+                        double adjDev = getDeviation(statsService, adj, scores);
+                        totalDeviation += adjDev * intentWeight * intentDecay;
+                        totalWeight += intentWeight * intentDecay;
+                        logDetail.append(String.format(" + 相关意图[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, intentWeight, intentDecay, adjDev * intentWeight * intentDecay));
+                    }
+                    matchedDimensions++;
+                }
+
+                // 情绪维度（权重 0.3）
+                if (moodKey != null && !moodKey.isEmpty()) {
+                    double moodWeight = coefficientService.getCoefficient("MATCH", "mood_weight", 0.3);
+                    double moodDecay = coefficientService.getCoefficient("MATCH", "mood_decay", 0.40);
+                    double dev = getDeviation(statsService, moodKey, scores);
+                    totalDeviation += dev * moodWeight;
+                    totalWeight += moodWeight;
+                    logDetail.append(String.format("心情[%s]: dev=%.4f*%.2f=%.4f", moodKey, dev, moodWeight, dev * moodWeight));
+                    List<String> relatedMoods = getRelatedMoods(moodKey);
+                    for (String adj : relatedMoods) {
+                        double adjDev = getDeviation(statsService, adj, scores);
+                        totalDeviation += adjDev * moodWeight * moodDecay;
+                        totalWeight += moodWeight * moodDecay;
+                        logDetail.append(String.format(" + 相关心情[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, moodWeight, moodDecay, adjDev * moodWeight * moodDecay));
+                    }
+                    matchedDimensions++;
+                }
                 logDetail.append(" | ");
             }
 
@@ -262,9 +316,9 @@ public class RecommendMatchCalculator {
                 case 5 -> 0.84;
                 case 4 -> 0.78;
                 case 3 -> 0.70;
-                case 2 -> 0.58;
-                case 1 -> 0.42;
-                default -> 0.35;
+                case 2 -> 0.60;
+                case 1 -> 0.60;
+                default -> 0.60;
             };
 
             double finalScore = normalizeScore(avgDeviation * coverageFactor);
@@ -342,7 +396,23 @@ public class RecommendMatchCalculator {
                         .build());
             }
 
-            if (user.getHasChildren() != null) {
+            // 孩子年龄区间：优先新字段，兜底旧字段
+            if (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank()) {
+                String[] ranges = user.getChildrenAgeRanges().split(",");
+                double childWeight = 1.0;
+                for (String range : ranges) {
+                    String childKey = range.trim().toLowerCase();
+                    if (childKey.isEmpty()) continue;
+                    double dev = getDeviation(statsService, childKey, scores);
+                    double normalizedDev = normalizeScore(dev);
+                    dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                            .dimension("children").label("子女: " + getChildRangeLabel(childKey))
+                            .score(normalizedDev)
+                            .weight(childWeight).weightedScore(Math.round(normalizedDev * childWeight * 10000.0) / 10000.0)
+                            .build());
+                }
+                matchedDimensions++;
+            } else if (user.getHasChildren() != null) {
                 String childKey = user.getHasChildren() ? "hasChildren" : "noChildren";
                 double dev = getDeviation(statsService, childKey, scores);
                 double normalizedDev = normalizeScore(dev);
@@ -384,14 +454,14 @@ public class RecommendMatchCalculator {
                 }
             }
 
-            if (user.getEducation() != null) {
-                String eduKey = user.getEducation().toLowerCase();
+            if (user.getAspirationEducation() != null) {
+                String eduKey = user.getAspirationEducation().toLowerCase();
                 double w = coefficientService.getCoefficient("MATCH", "education_weight", 0.8);
                 double dev = getDeviation(statsService, eduKey, scores);
                 double normalizedDev = normalizeScore(dev);
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
-                        .dimension("education").label("学历: " + getEducationLabel(user.getEducation()))
+                        .dimension("education").label("学历: " + getEducationLabel(user.getAspirationEducation()))
                         .score(normalizedDev)
                         .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
                         .build());
@@ -410,31 +480,56 @@ public class RecommendMatchCalculator {
                         .build());
             }
 
-            if (user.getAnnualIncome() != null && !user.getAnnualIncome().isBlank()
-                    && !"PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAnnualIncome())) {
-                String incomeKey = user.getAnnualIncome().toLowerCase();
+            if (user.getAspirationIncome() != null && !user.getAspirationIncome().isBlank()
+                    && !"PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAspirationIncome())) {
+                String incomeKey = user.getAspirationIncome().toLowerCase();
                 double w = coefficientService.getCoefficient("MATCH", "income_weight", 0.5);
                 double dev = getDeviation(statsService, incomeKey, scores);
                 double normalizedDev = normalizeScore(dev);
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
-                        .dimension("income").label(getAnnualIncomeLabel(user.getAnnualIncome()))
+                        .dimension("income").label(getAnnualIncomeLabel(user.getAspirationIncome()))
                         .score(normalizedDev)
                         .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
                         .build());
             }
 
-            if (user.getMood() != null) {
-                String moodKey = user.getMood().toLowerCase();
-                double w = coefficientService.getCoefficient("MATCH", "mood_weight", 0.7);
-                double dev = getDeviation(statsService, moodKey, scores);
-                double normalizedDev = normalizeScore(dev);
-                matchedDimensions++;
-                dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
-                        .dimension("mood").label("心情: " + getMoodLabel(user.getMood()))
-                        .score(normalizedDev)
-                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
-                        .build());
+            // 阅读意图+心情（支持新格式 "INTENT|MOOD" 和旧格式纯 MOOD）
+            if (user.getMood() != null && !user.getMood().isBlank()) {
+                String moodRaw = user.getMood();
+                String intentKey = null;
+                String moodKey;
+                int pipeIdx = moodRaw.indexOf('|');
+                if (pipeIdx > 0) {
+                    intentKey = moodRaw.substring(0, pipeIdx).toLowerCase().trim();
+                    moodKey = moodRaw.substring(pipeIdx + 1).toLowerCase().trim();
+                } else {
+                    moodKey = moodRaw.toLowerCase().trim();
+                }
+
+                if (intentKey != null && !intentKey.isEmpty()) {
+                    double w = coefficientService.getCoefficient("MATCH", "intent_weight", 0.5);
+                    double dev = getDeviation(statsService, intentKey, scores);
+                    double normalizedDev = normalizeScore(dev);
+                    matchedDimensions++;
+                    dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                            .dimension("intent").label("意图: " + getIntentLabel(intentKey))
+                            .score(normalizedDev)
+                            .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                            .build());
+                }
+
+                if (moodKey != null && !moodKey.isEmpty()) {
+                    double w = coefficientService.getCoefficient("MATCH", "mood_weight", 0.3);
+                    double dev = getDeviation(statsService, moodKey, scores);
+                    double normalizedDev = normalizeScore(dev);
+                    matchedDimensions++;
+                    dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
+                            .dimension("mood").label("心情: " + getMoodLabel(moodKey))
+                            .score(normalizedDev)
+                            .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                            .build());
+                }
             }
 
             double coverageFactor = getCoverageFactor(matchedDimensions);
@@ -588,13 +683,38 @@ public class RecommendMatchCalculator {
     /** 获取心情的相关心情映射 */
     static List<String> getRelatedMoods(String mood) {
         return switch (mood.toLowerCase()) {
-            case "happy" -> List.of("motivated", "calm");
-            case "calm", "motivated" -> List.of("happy", "curious");
-            case "anxious" -> List.of("sad", "tired");
-            case "sad" -> List.of("anxious", "tired");
+            case "happy" -> List.of("calm");
+            case "calm" -> List.of("happy");
+            case "anxious" -> List.of("sad", "tired", "frustrated");
+            case "sad" -> List.of("anxious", "tired", "frustrated");
             case "tired" -> List.of("sad", "anxious");
-            case "curious" -> List.of("calm", "motivated");
+            case "frustrated" -> List.of("anxious", "sad");
             default -> List.of();
+        };
+    }
+
+    /** 获取阅读意图的邻近意图（用于衰减） */
+    public static List<String> getRelatedIntents(String intent) {
+        return switch (intent.toLowerCase()) {
+            case "growth" -> List.of("insight");
+            case "insight" -> List.of("growth", "comfort");
+            case "comfort" -> List.of("escape", "insight");
+            case "escape" -> List.of("comfort", "excite");
+            case "excite" -> List.of("escape");
+            default -> List.of();
+        };
+    }
+
+    /** 获取阅读意图的中文标签 */
+    public static String getIntentLabel(String intent) {
+        if (intent == null) return "";
+        return switch (intent.toLowerCase()) {
+            case "growth" -> "充电成长";
+            case "comfort" -> "共鸣陪伴";
+            case "escape" -> "逃离放松";
+            case "excite" -> "新鲜刺激";
+            case "insight" -> "答案解惑";
+            default -> intent;
         };
     }
 
@@ -638,9 +758,8 @@ public class RecommendMatchCalculator {
             case "CALM" -> "平静";
             case "ANXIOUS" -> "焦虑";
             case "SAD" -> "低落";
-            case "MOTIVATED" -> "充满动力";
+            case "FRUSTRATED" -> "烦躁";
             case "TIRED" -> "疲惫";
-            case "CURIOUS" -> "好奇";
             default -> mood;
         };
     }
@@ -653,6 +772,33 @@ public class RecommendMatchCalculator {
             case "NOT_INTERESTED" -> "暂不考虑";
             default -> entrepreneurship;
         };
+    }
+
+    /** 获取孩子年龄区间的中文标签 */
+    public static String getChildRangeLabel(String childKey) {
+        if (childKey == null) return "";
+        return switch (childKey.toLowerCase()) {
+            case "0_2" -> "0-2岁";
+            case "3_6" -> "3-6岁";
+            case "7_12" -> "7-12岁";
+            case "13_17" -> "13-17岁";
+            case "18_plus" -> "18岁以上";
+            case "no_children" -> "无孩子";
+            default -> childKey;
+        };
+    }
+
+    /** 获取孩子年龄区间的邻近区间（用于衰减） */
+    public static List<String> getAdjacentChildRanges(String childKey) {
+        List<String> result = new ArrayList<>();
+        switch (childKey.toLowerCase()) {
+            case "0_2" -> { result.add("3_6"); }
+            case "3_6" -> { result.add("0_2"); result.add("7_12"); }
+            case "7_12" -> { result.add("3_6"); result.add("13_17"); }
+            case "13_17" -> { result.add("7_12"); result.add("18_plus"); }
+            case "18_plus" -> { result.add("13_17"); }
+        }
+        return result;
     }
 
     /** 获取年收入区间的中文标签 */

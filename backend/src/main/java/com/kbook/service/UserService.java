@@ -216,22 +216,24 @@ public class UserService {
     }
 
     /**
-     * 更新用户画像（出生日期/性别/婚否/孩子/MBTI/职业/学历/创业意向/年收入）
+     * 更新用户画像（出生日期/性别/婚否/孩子年龄区间/MBTI/职业/期望学历/创业意向/期望年收入）
      */
     @Transactional
     public User updateTraits(Long userId, LocalDate birthday, String gender,
-                             Boolean married, Boolean hasChildren, String mbti, String occupation,
-                             String education, String entrepreneurship, String annualIncome) {
+                             Boolean married, Boolean hasChildren, String childrenAgeRanges,
+                             String mbti, String occupation,
+                             String aspirationEducation, String entrepreneurship, String aspirationIncome) {
         User user = getUserById(userId);
         if (birthday != null) user.setBirthday(birthday);
         if (gender != null) user.setGender(gender);
         if (married != null) user.setMarried(married);
         if (hasChildren != null) user.setHasChildren(hasChildren);
+        if (childrenAgeRanges != null) user.setChildrenAgeRanges(childrenAgeRanges);
         if (mbti != null) user.setMbti(mbti.toUpperCase());
         if (occupation != null) user.setOccupation(occupation);
-        if (education != null) user.setEducation(education);
+        if (aspirationEducation != null) user.setAspirationEducation(aspirationEducation);
         if (entrepreneurship != null) user.setEntrepreneurship(entrepreneurship);
-        if (annualIncome != null) user.setAnnualIncome(annualIncome);
+        if (aspirationIncome != null) user.setAspirationIncome(aspirationIncome);
         user = userRepository.save(user);
         recommendService.asyncRecompute(userId);
         return user;

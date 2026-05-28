@@ -102,11 +102,11 @@ export default function ReviewsPage() {
                   {/* 互动数据 */}
                   <div className="mt-3 flex items-center gap-5 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
-                      <Heart className={`h-3.5 w-3.5 ${comment.likeCount > 0 ? 'text-rose-500' : ''}`} />
+                      <Heart className={`h-3.5 w-3.5 ${comment.likeCount > 0 ? 'text-danger' : ''}`} />
                       {comment.likeCount}
                     </span>
                     <span className="flex items-center gap-1">
-                      <Bookmark className={`h-3.5 w-3.5 ${comment.favoriteCount > 0 ? 'text-amber-500' : ''}`} />
+                      <Bookmark className={`h-3.5 w-3.5 ${comment.favoriteCount > 0 ? 'text-warning' : ''}`} />
                       {comment.favoriteCount}
                     </span>
                     <span className="flex items-center gap-1">

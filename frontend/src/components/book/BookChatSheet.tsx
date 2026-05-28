@@ -6,6 +6,8 @@ import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import { BlinkingBot } from '@/components/layout/TabBar'
 import { ttsService } from '@/utils/tts'
+import { useTtsStore } from '@/store/tts'
+import { getActiveTtsConfig } from '@/api/adminTts'
 import type { AiMessage } from '@/types/ai'
 import type { AiSessionItem } from '@/types/ai'
 import type { Book } from '@/types/book'
@@ -14,9 +16,10 @@ interface BookChatSheetProps {
   book: Book
   open: boolean
   onOpenChange: (open: boolean) => void
+  initialQuestion?: string
 }
 
-export default function BookChatSheet({ book, open, onOpenChange }: BookChatSheetProps) {
+export default function BookChatSheet({ book, open, onOpenChange, initialQuestion }: BookChatSheetProps) {
   const [messages, setMessages] = useState<AiMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -32,6 +35,12 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
   const abortRef = useRef<AbortController | null>(null)
   const streamSessionIdRef = useRef('')
   const followUpsFromSseRef = useRef(false)
+  const initialQuestionRef = useRef(initialQuestion)
+  const hasSentInitialRef = useRef(false)
+
+  useEffect(() => {
+    initialQuestionRef.current = initialQuestion
+  }, [initialQuestion])
 
   useEffect(() => {
     if (open && book.id) {
@@ -42,6 +51,16 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
         })
         .catch(() => {})
       loadHistorySessions()
+
+      // 如果有初始问题，自动发送（只发送一次）
+      const iq = initialQuestionRef.current
+      if (iq && iq.trim() && !hasSentInitialRef.current) {
+        hasSentInitialRef.current = true
+        // 延迟一点确保 sheet 完全打开
+        setTimeout(() => {
+          handleSend(iq.trim())
+        }, 300)
+      }
     }
   }, [open, book.id])
 
@@ -290,11 +309,20 @@ export default function BookChatSheet({ book, open, onOpenChange }: BookChatShee
     abortRef.current = controller
   }, [input, loading, book.id, sessionId])
 
-  const handleToggleSpeak = useCallback((msgId: string, content: string) => {
+  const handleToggleSpeak = useCallback(async (msgId: string, content: string) => {
     if (speakingId === msgId) {
       ttsService.cancel()
       setSpeakingId(null)
       return
+    }
+    if (!useTtsStore.getState().backendConfig) {
+      try {
+        const config = await getActiveTtsConfig()
+        if (config) {
+          useTtsStore.getState().setBackendConfig(config)
+          useTtsStore.getState().setBackendMode(true)
+        }
+      } catch { /* no backend TTS, use browser */ }
     }
     const plainText = content
       .replace(/```[\s\S]*?```/g, '')

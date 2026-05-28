@@ -642,10 +642,10 @@ export default function ChatRoomPage() {
     switch (ext) {
       case 'pdf': return { type: 'PDF', color: 'bg-red-600', foldColor: 'bg-red-800' }
       case 'doc': case 'docx': return { type: 'DOC', color: 'bg-blue-600', foldColor: 'bg-blue-800' }
-      case 'xls': case 'xlsx': return { type: 'XLS', color: 'bg-emerald-600', foldColor: 'bg-emerald-800' }
-      case 'ppt': case 'pptx': return { type: 'PPT', color: 'bg-amber-600', foldColor: 'bg-amber-800' }
+      case 'xls': case 'xlsx': return { type: 'XLS', color: 'bg-success', foldColor: 'bg-success' }
+      case 'ppt': case 'pptx': return { type: 'PPT', color: 'bg-warning', foldColor: 'bg-warning' }
       case 'txt': return { type: 'TXT', color: 'bg-slate-600', foldColor: 'bg-slate-800' }
-      case 'md': return { type: 'MD', color: 'bg-violet-600', foldColor: 'bg-violet-800' }
+      case 'md': return { type: 'MD', color: 'bg-info', foldColor: 'bg-info' }
       default: return { type: 'FILE', color: 'bg-zinc-600', foldColor: 'bg-zinc-800' }
     }
   }
@@ -931,7 +931,7 @@ export default function ChatRoomPage() {
       )}
 
       {/* Input Area */}
-      <div className="flex-shrink-0 border-t border-border/50 bg-background px-4 pt-3 relative safe-area-bottom">
+      <div className="flex-shrink-0 border-t border-border/50 bg-background px-4 pt-3 relative" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
         <div className="flex items-end gap-2">
           <button
             onClick={toggleVoiceMode}

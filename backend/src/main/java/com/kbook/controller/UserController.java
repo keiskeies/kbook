@@ -72,8 +72,9 @@ public class UserController {
                                       @RequestBody UpdateTraitsRequest req) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(userService.updateTraits(userId, req.getBirthday(), req.getGender(),
-                req.getMarried(), req.getHasChildren(), req.getMbti(), req.getOccupation(),
-                req.getEducation(), req.getEntrepreneurship(), req.getAnnualIncome()));
+                req.getMarried(), req.getHasChildren(), req.getChildrenAgeRanges(),
+                req.getMbti(), req.getOccupation(),
+                req.getAspirationEducation(), req.getEntrepreneurship(), req.getAspirationIncome()));
     }
 
     @PutMapping("/profile/mood")

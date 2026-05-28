@@ -104,8 +104,11 @@ export default function ReaderPage() {
     onContentClick: handleEpubClick,
     onImageClick: handleEpubImageClick,
   })
-  epubGoPageRef.current = epubReader.goPage
   const pdfReader = usePdfReader({ bookId: id, initialPosition })
+
+  useEffect(() => {
+    epubGoPageRef.current = epubReader.goPage
+  }, [epubReader.goPage])
 
   const format = book?.format || 'TXT'
 
@@ -254,7 +257,7 @@ export default function ReaderPage() {
 
   if (readerState.error) {
     return (
-      <div className="flex h-screen items-center justify-center" style={{ backgroundColor: theme.bg }}>
+      <div className="flex fixed inset-0 items-center justify-center" style={{ backgroundColor: theme.bg }}>
         <div className="px-6 text-center">
           <AlertCircle className="mx-auto h-10 w-10 text-destructive" />
           <p className="mt-3 text-sm text-foreground">{readerState.error}</p>
@@ -270,7 +273,7 @@ export default function ReaderPage() {
   }
 
   return (
-    <div className="relative h-screen select-none" style={{ backgroundColor: theme.bg }}>
+    <div className="relative fixed inset-0 select-none" style={{ backgroundColor: theme.bg }}>
       {/* 顶部工具栏 */}
       <div
         className="fixed inset-x-0 top-0 z-40 flex items-center gap-3 border-b px-4 py-3 backdrop-blur-xl"

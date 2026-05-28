@@ -18,11 +18,12 @@ export interface UserInfo {
   gender?: 'MALE' | 'FEMALE' | 'OTHER' | null
   married?: boolean | null
   hasChildren?: boolean | null
+  childrenAgeRanges?: string | null
   mbti?: string | null
   occupation?: string | null
-  education?: string | null
+  aspirationEducation?: string | null
   entrepreneurship?: string | null
-  annualIncome?: string | null
+  aspirationIncome?: string | null
   mood?: string | null
   bio?: string | null
   followerCount?: number
@@ -83,11 +84,12 @@ export function updateTraits(data: {
   gender?: string
   married?: boolean
   hasChildren?: boolean
+  childrenAgeRanges?: string
   mbti?: string
   occupation?: string
-  education?: string
+  aspirationEducation?: string
   entrepreneurship?: string
-  annualIncome?: string
+  aspirationIncome?: string
 }) {
   return request.put('/user/profile/traits', data)
 }

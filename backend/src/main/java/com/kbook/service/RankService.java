@@ -131,14 +131,16 @@ public class RankService {
 
     /**
      * 生成新书速递随机列表
+     * 使用 findRandomBooks 替代 findAll()，避免全量加载
      */
     private List<Book> generateNewArrivalsRandom() {
-        List<Book> all = bookRepository.findAll();
-        if (all.isEmpty()) {
+        // 直接随机采样，不需要加载所有书籍
+        List<Book> randomBooks = bookRepository.findRandomBooks(NEW_ARRIVALS_COUNT * 3);
+        if (randomBooks.isEmpty()) {
             return List.of();
         }
-        Collections.shuffle(all);
-        List<Book> result = all.stream().limit(NEW_ARRIVALS_COUNT).toList();
+        Collections.shuffle(randomBooks);
+        List<Book> result = randomBooks.stream().limit(NEW_ARRIVALS_COUNT).toList();
         cacheBookIds(NEW_ARRIVALS_RANDOM_KEY, result);
         return result;
     }

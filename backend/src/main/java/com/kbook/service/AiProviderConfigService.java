@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * 配置优先级：
  * 1. 数据库 ai_provider_config 表中 purpose=CHAT 且 enabled=true 的记录
- * 2. application.yml 中的 langchain4j.ollama.chat-model 配置
+ * 2. application.yml 中的 langchain4j.chat-model 配置
  * <p>
  * ChatModel 的构建委托给 ChatModelFactory。
  * AiToolService 使用 ObjectProvider 延迟获取（@Lazy 代理会导致 @Tool 注解不可见）。
@@ -112,46 +112,6 @@ public class AiProviderConfigService {
         return saved;
     }
 
-    /**
-     * 构建对话用的 ChatModel
-     * <p>
-     * 优先使用数据库 CHAT 配置，未配置时回退到 yml 默认（标签评分模型）
-     */
-    public ChatModel buildChatChatModel() {
-        AiProviderConfig config = getChatConfig();
-        if (config != null) {
-            log.debug("使用数据库对话配置: provider={}, model={}", config.getProvider(), config.getModelName());
-        } else {
-            log.debug("无数据库对话配置，回退到 yml 默认模型");
-        }
-        return chatModelFactory.buildChatModel(config);
-    }
-
-    /**
-     * 构建对话用的 StreamingChatModel
-     * <p>
-     * 优先使用数据库 CHAT 配置，未配置时回退到 yml 默认
-     */
-    public StreamingChatModel buildChatStreamingModel() {
-        AiProviderConfig config = getChatConfig();
-        return chatModelFactory.buildStreamingChatModel(config);
-    }
-
-    /**
-     * 构建关闭思考模式的 ChatModel（用于生成追问等不需要深度推理的场景）
-     * <p>
-     * DeepSeek 等模型默认开启思考模式，生成追问问题时无需思考，关闭可节省 token 和耗时。
-     */
-    public ChatModel buildChatModelWithoutThinking() {
-        AiProviderConfig config = getChatConfig();
-        if (config != null) {
-            log.debug("使用数据库对话配置（关闭思考）: provider={}, model={}", config.getProvider(), config.getModelName());
-        } else {
-            log.debug("无数据库对话配置，回退到 yml 默认模型（关闭思考）");
-        }
-        return chatModelFactory.buildChatModelWithoutThinking(config);
-    }
-
 
     /**
      * 获取对话 AiAssistant（带版本缓存）
@@ -196,20 +156,6 @@ public class AiProviderConfigService {
         log.debug("已清除所有 AI Assistant 缓存");
     }
 
-    // ==================== 标签/评分/OCR 配置（仍用 yml） ====================
-
-    public ChatModel buildTagChatModel() {
-        return chatModelFactory.buildChatModel();
-    }
-
-    public StreamingChatModel buildStreamingChatModel() {
-        return chatModelFactory.buildStreamingChatModel();
-    }
-
-    public ChatModel buildVisionChatModel() {
-        return chatModelFactory.buildVisionChatModel();
-    }
-
 
     // ==================== 内部方法 ====================
 
@@ -244,8 +190,8 @@ public class AiProviderConfigService {
             log.error("  读取 @SystemMessage 失败: {}", e.getMessage());
         }
 
-        ChatModel chatModel = chatModelFactory.buildChatModel(config);
-        StreamingChatModel streamingModel = chatModelFactory.buildStreamingChatModel(config);
+        ChatModel chatModel = chatModelFactory.buildChatModel();
+        StreamingChatModel streamingModel = chatModelFactory.buildStreamingChatModel();
 
         var builder = AiServices.builder(AiAssistant.class)
                 .chatModel(chatModel)

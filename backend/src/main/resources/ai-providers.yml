@@ -74,7 +74,7 @@ providers:
     provider: OPENAI
     baseUrl: "https://open.bigmodel.cn/api/paas/v4"
     region: CN
-    description: "GLM-5.1 最新旗舰 200K 上下文，Flash 免费，Coding ¥49/月"
+    description: "GLM-5.1 输入¥6-8/M 输出¥24-28/M，Flash 免费，Coding Plan $30/季起"
     apiKeyUrl: "https://open.bigmodel.cn/usercenter/apikeys"
     tokenPlanUrl: "https://open.bigmodel.cn/usercenter/overview"
     codingPlanUrl: "https://open.bigmodel.cn/pricing"
@@ -83,13 +83,23 @@ providers:
       - name: "glm-5.1"
         label: "GLM-5.1 最新旗舰 (推荐)"
       - name: "glm-5"
-        label: "GLM-5 745B"
+        label: "GLM-5 旗舰"
       - name: "glm-5-turbo"
-        label: "GLM-5 Turbo 快速"
+        label: "GLM-5 Turbo 极速"
       - name: "glm-4.7"
-        label: "GLM-4.7"
+        label: "GLM-4.7 均衡"
+      - name: "glm-4.5-air"
+        label: "GLM-4.5 Air 经济"
+      - name: "glm-4.7-flashx"
+        label: "GLM-4.7 FlashX 极速"
+      - name: "glm-4.7-flash"
+        label: "GLM-4.7 Flash 免费"
+        free: true
       - name: "glm-4-flash"
         label: "GLM-4 Flash 免费"
+        free: true
+      - name: "glm-z1-flash"
+        label: "GLM-Z1-Flash 免费"
         free: true
 
   - id: moonshot

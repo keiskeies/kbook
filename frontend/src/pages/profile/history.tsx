@@ -13,12 +13,12 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating < 0) return null
   const r = Number(rating.toFixed(1))
   let colorClass = ''
-  if (r >= 5.0) colorClass = 'text-red-600 dark:text-red-400'
-  else if (r >= 4.5) colorClass = 'text-orange-600 dark:text-orange-400'
-  else if (r >= 4.0) colorClass = 'text-amber-600 dark:text-amber-400'
-  else if (r >= 3.0) colorClass = 'text-emerald-600 dark:text-emerald-400'
-  else if (r >= 2.5) colorClass = 'text-teal-600 dark:text-teal-400'
-  else colorClass = 'text-slate-400 dark:text-slate-500'
+  if (r >= 5.0) colorClass = 'text-danger dark:text-danger'
+  else if (r >= 4.5) colorClass = 'text-warning dark:text-warning'
+  else if (r >= 4.0) colorClass = 'text-warning dark:text-warning'
+  else if (r >= 3.0) colorClass = 'text-success dark:text-success'
+  else if (r >= 2.5) colorClass = 'text-success dark:text-success'
+  else colorClass = 'text-muted-foreground dark:text-muted-foreground'
 
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
@@ -31,12 +31,12 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
 function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   const pct = Math.round(Math.max(0, score ?? 0) * 100)
   let colorClass = ''
-  if (pct >= 100) colorClass = 'text-red-600 dark:text-red-400'
-  else if (pct >= 80) colorClass = 'text-orange-600 dark:text-orange-400'
-  else if (pct >= 60) colorClass = 'text-amber-600 dark:text-amber-400'
-  else if (pct >= 50) colorClass = 'text-emerald-600 dark:text-emerald-400'
-  else if (pct >= 40) colorClass = 'text-teal-600 dark:text-teal-400'
-  else colorClass = 'text-slate-400 dark:text-slate-500'
+  if (pct >= 100) colorClass = 'text-danger dark:text-danger'
+  else if (pct >= 80) colorClass = 'text-warning dark:text-warning'
+  else if (pct >= 60) colorClass = 'text-warning dark:text-warning'
+  else if (pct >= 50) colorClass = 'text-success dark:text-success'
+  else if (pct >= 40) colorClass = 'text-success dark:text-success'
+  else colorClass = 'text-muted-foreground dark:text-muted-foreground'
 
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
@@ -201,7 +201,7 @@ export default function ReadingHistoryPage() {
 
                 <div className="flex items-center gap-2 px-3.5 pb-3.5">
                   {completed ? (
-                    <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500">
+                    <span className="flex items-center gap-1 text-[10px] font-semibold text-success">
                       <CheckCircle2 className="h-3 w-3" />
                       已读完
                     </span>

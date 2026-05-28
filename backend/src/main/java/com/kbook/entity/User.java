@@ -73,9 +73,13 @@ public class User {
     @Column(name = "is_married")
     private Boolean married;
 
-    /** 是否有孩子 */
+    /** 是否有孩子（旧字段，保留兼容。新代码请用 childrenAgeRanges） */
     @Column(name = "has_children")
     private Boolean hasChildren;
+
+    /** 孩子年龄区间（多选，逗号分隔）：0_2 / 3_6 / 7_12 / 13_17 / 18_plus / no_children */
+    @Column(name = "children_age_ranges", length = 100)
+    private String childrenAgeRanges;
 
     /** MBTI 人格类型 */
     @Column(length = 10)
@@ -85,20 +89,20 @@ public class User {
     @Column(length = 200)
     private String occupation;
 
-    /** 学历：HIGH_SCHOOL / COLLEGE / BACHELOR / MASTER / DOCTORATE / OTHER */
-    @Column(length = 20)
-    private String education;
+    /** 期望学历：HIGH_SCHOOL / COLLEGE / BACHELOR / MASTER / DOCTORATE / OTHER */
+    @Column(name = "education", length = 20)
+    private String aspirationEducation;
 
     /** 创业意向：ENTREPRENEUR_OR_WANT(正在创业/想创业) / NOT_INTERESTED(暂不考虑) */
     @Column(name = "entrepreneurship", length = 30)
     private String entrepreneurship;
 
-    /** 当前/期望年收入：UNDER_50K / 50K_150K / 150K_300K / 300K_500K / 500K_1M / OVER_1M / PREFER_NOT_TO_SAY */
+    /** 期望年收入：UNDER_50K / 50K_150K / 150K_300K / 300K_500K / 500K_1M / OVER_1M / PREFER_NOT_TO_SAY */
     @Column(name = "annual_income", length = 30)
-    private String annualIncome;
+    private String aspirationIncome;
 
-    /** 当前心情状态：HAPPY / CALM / ANXIOUS / SAD / MOTIVATED / TIRED / CURIOUS */
-    @Column(length = 20)
+    /** 阅读意图+心情状态，格式 "INTENT|MOOD"，如 "GROWTH|CALM"。兼容旧格式纯 MOOD 值。 */
+    @Column(length = 50)
     private String mood;
 
     /** 个人简介 */

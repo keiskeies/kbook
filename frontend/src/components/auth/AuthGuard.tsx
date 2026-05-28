@@ -82,13 +82,14 @@ export function AdminGuard({ children }: AuthGuardProps) {
   return <>{children}</>
 }
 
-/**
- * 游客路由守卫 - 已登录用户访问登录/注册页时重定向
- */
 export function GuestGuard({ children }: AuthGuardProps) {
   const { isAuthenticated, userInfo } = useAuthStore()
 
-  if (isAuthenticated && userInfo?.status === USER_STATUS.APPROVED) {
+  if (!isAuthenticated || !userInfo) {
+    return <>{children}</>
+  }
+
+  if (userInfo.status === USER_STATUS.APPROVED) {
     return <Navigate to={ROUTES.HOME} replace />
   }
 

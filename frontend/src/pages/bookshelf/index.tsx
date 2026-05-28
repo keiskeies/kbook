@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, MoreVertical, Trash2, ArrowUpDown, Filter, BookOpen, Sparkles, Star } from 'lucide-react'
+import { Plus, MoreVertical, Trash2, ArrowUpDown, Filter, BookOpen } from 'lucide-react'
 import { getBookshelf, removeFromBookshelf } from '@/api/bookshelf'
 import type { BookshelfItem } from '@/types/book'
-import { parseFormatTags, formatProgress } from '@/types/book'
+import { formatProgress } from '@/types/book'
 import { formatTag } from '@/utils/time'
 import { toast } from 'sonner'
 
@@ -80,9 +80,13 @@ export default function BookshelfPage() {
         <header className="sticky top-0 z-10 -mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
           <h1 className="text-lg font-bold">我的书架</h1>
         </header>
-        <div className="grid grid-cols-2 gap-3 mt-4">
-          {Array.from({ length: 4 }, (_, i) => (
-            <div key={i} className="aspect-[3/4] w-full rounded-2xl bg-muted animate-pulse" />
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="space-y-3">
+              <div className="aspect-[3/4] w-full rounded-2xl skeleton" />
+              <div className="h-4 w-3/4 skeleton rounded" />
+              <div className="h-3 w-1/2 skeleton rounded" />
+            </div>
           ))}
         </div>
       </div>
@@ -96,17 +100,17 @@ export default function BookshelfPage() {
           <h1 className="text-lg font-bold">我的书架</h1>
         </header>
         <div className="flex h-[60vh] flex-col items-center justify-center">
-          <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-muted">
-            <BookOpen className="h-10 w-10 text-muted-foreground/40" />
+          <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-brand-50">
+            <BookOpen className="h-10 w-10 text-brand-300" />
           </div>
           <h3 className="mb-2 mt-4 text-base font-semibold">书架还是空的</h3>
-          <p className="mb-6 text-sm text-muted-foreground">去首页发现好书吧</p>
+          <p className="mb-6 text-sm text-muted-foreground">去首页发现好书，或搜索你感兴趣的书</p>
           <button
             onClick={() => navigate('/home')}
-            className="flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 active:scale-[0.97] transition-transform"
+            className="flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-md active:scale-[0.97] transition-transform btn-press"
           >
             <Plus className="h-4 w-4" />
-            去逛逛
+            去发现好书
           </button>
         </div>
       </div>
@@ -126,7 +130,7 @@ export default function BookshelfPage() {
             <div className="relative">
               <button
                 onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false) }}
-                className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-colors ${filterFormat ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}
+                className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${filterFormat ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground'}`}
               >
                 <Filter className="h-3.5 w-3.5" />
                 {filterFormat ? formatTag(filterFormat) : '筛选'}
@@ -137,7 +141,7 @@ export default function BookshelfPage() {
                     <button
                       key={fmt}
                       onClick={() => { setFilterFormat(fmt); setShowFilterMenu(false) }}
-                      className={`flex w-full items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors ${filterFormat === fmt ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted'}`}
+                      className={`flex w-full items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors ${filterFormat === fmt ? 'bg-brand-100 text-brand-500' : 'text-foreground hover:bg-muted'}`}
                     >
                       {fmt ? formatTag(fmt) : '全部格式'}
                     </button>
@@ -149,7 +153,7 @@ export default function BookshelfPage() {
             <div className="relative">
               <button
                 onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterMenu(false) }}
-                    className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-muted px-3 text-xs font-medium text-muted-foreground"
+                className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground"
               >
                 <ArrowUpDown className="h-3.5 w-3.5" />
                 {SORT_LABELS[sortKey]}
@@ -160,7 +164,7 @@ export default function BookshelfPage() {
                     <button
                       key={key}
                       onClick={() => { setSortKey(key); setShowSortMenu(false) }}
-                      className={`flex w-full items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors ${sortKey === key ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted'}`}
+                      className={`flex w-full items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors ${sortKey === key ? 'bg-brand-100 text-brand-500' : 'text-foreground hover:bg-muted'}`}
                     >
                       {SORT_LABELS[key]}
                     </button>
@@ -179,96 +183,79 @@ export default function BookshelfPage() {
           <button onClick={() => setFilterFormat('')} className="mt-2 text-xs text-primary">清除筛选</button>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-2">
-          {filteredAndSorted.map((item) => {
-            parseFormatTags(item.formatTags);
-            const pct = Math.round(Math.max(0, item.matchScore ?? 0) * 100)
-            return (
-              <div
-                key={item.bookshelfId}
-                className="group relative flex flex-col active:scale-[0.97] transition-transform duration-150"
-                onClick={() => navigate(`/book/${item.bookId}`)}
-              >
-                {/* 封面容器 */}
-                <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-border/50 shadow-sm">
-                  <div
-                    className="absolute inset-0 bg-cover bg-center"
-                    style={{ backgroundImage: `url(${item.coverUrl || ''})` }}
-                  />
-                  {!item.coverUrl && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
-                      <BookOpen className="h-10 w-10 text-primary/30" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-
-                  {/* 更多按钮 */}
-                  <button
-                    className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-black/30 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setMenuOpen(menuOpen === item.bookId ? null : item.bookId)
-                    }}
-                  >
-                    <MoreVertical className="h-3 w-3 text-white" />
-                  </button>
-
-                  {/* 右键菜单 */}
-                  {menuOpen === item.bookId && (
-                    <div className="absolute right-0 top-8 z-10 w-28 rounded-xl bg-popover p-1 shadow-lg ring-1 ring-border/50">
-                      <button
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-destructive hover:bg-destructive/10"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleRemove(item.bookId)
-                        }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                        移出书架
-                      </button>
-                    </div>
-                  )}
-
-                  {/* 底部评分 & 匹配度 */}
-                  <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1">
-                    {item.rating != null && item.rating >= 0 && (
-                      <span className="inline-flex items-center gap-0.5 rounded-md bg-black/40 px-1 py-0.5 text-[9px] font-semibold text-amber-400 backdrop-blur-sm">
-                        <Star className="h-2 w-2" />
-                        {Number(item.rating.toFixed(1))}
-                      </span>
-                    )}
-                    <span className="inline-flex items-center gap-0.5 rounded-md bg-black/40 px-1 py-0.5 text-[9px] font-semibold text-orange-400 backdrop-blur-sm">
-                      <Sparkles className="h-2 w-2" />
-                      {pct}%
-                    </span>
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          {filteredAndSorted.map((item, index) => (
+            <div
+              key={item.bookshelfId}
+              className="group relative flex flex-col list-item-enter"
+              style={{ animationDelay: `${index * 50}ms` }}
+              onClick={() => navigate(`/book/${item.bookId}`)}
+            >
+              {/* 封面容器 */}
+              <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-border/50 shadow-sm transition-shadow duration-200 group-hover:shadow-md">
+                <div
+                  className="absolute inset-0 bg-cover bg-center"
+                  style={{ backgroundImage: `url(${item.coverUrl || ''})` }}
+                />
+                {!item.coverUrl && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-brand-50 to-brand-100">
+                    <BookOpen className="h-12 w-12 text-brand-200" />
                   </div>
-                </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
-                {/* 书名 — 固定两行 */}
-                <p className="mt-1.5 px-0.5 text-xs font-semibold leading-tight line-clamp-2">
-                  {item.title}
-                </p>
+                {/* 更多按钮 */}
+                <button
+                  className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/30 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setMenuOpen(menuOpen === item.bookId ? null : item.bookId)
+                  }}
+                >
+                  <MoreVertical className="h-3.5 w-3.5 text-white" />
+                </button>
 
-                {/* 作者 & 进度 */}
-                <div className="mt-0.5 flex items-center justify-between px-0.5">
-                  {item.author ? (
-                    <p className="truncate text-[10px] text-muted-foreground">{item.author}</p>
-                  ) : <div />}
-                  <p className="shrink-0 text-[10px] text-primary font-medium">
-                    {item.progress >= 1 ? '已读完' : formatProgress(item.progress)}
-                  </p>
-                </div>
+                {/* 右键菜单 */}
+                {menuOpen === item.bookId && (
+                  <div className="absolute right-1 top-10 z-10 w-28 rounded-xl bg-popover p-1 shadow-lg ring-1 ring-border/50">
+                    <button
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-destructive hover:bg-destructive/10"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemove(item.bookId)
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      移出书架
+                    </button>
+                  </div>
+                )}
 
-                {/* 进度条 */}
-                <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+                {/* 进度指示 */}
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/20">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70 transition-all"
+                    className="h-full bg-brand-400 transition-all"
                     style={{ width: `${Math.round(item.progress * 100)}%` }}
                   />
                 </div>
               </div>
-            )
-          })}
+
+              {/* 书名 */}
+              <p className="mt-2 text-sm font-semibold leading-tight line-clamp-2">
+                {item.title}
+              </p>
+
+              {/* 作者 */}
+              {item.author && (
+                <p className="mt-0.5 text-xs text-muted-foreground truncate">{item.author}</p>
+              )}
+
+              {/* 进度文字 */}
+              <p className="mt-1 text-xs text-brand-500 font-medium">
+                {item.progress >= 1 ? '已读完' : formatProgress(item.progress)}
+              </p>
+            </div>
+          ))}
         </div>
       )}
     </div>

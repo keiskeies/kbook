@@ -36,8 +36,8 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   let colorClass = ''
   if (r >= 5.0) colorClass = 'text-red-600 dark:text-red-400'
   else if (r >= 4.5) colorClass = 'text-orange-600 dark:text-orange-400'
-  else if (r >= 4.0) colorClass = 'text-amber-600 dark:text-amber-400'
-  else if (r >= 3.0) colorClass = 'text-emerald-600 dark:text-emerald-400'
+  else if (r >= 4.0) colorClass = 'text-warning dark:text-warning'
+  else if (r >= 3.0) colorClass = 'text-success dark:text-success'
   else if (r >= 2.5) colorClass = 'text-teal-600 dark:text-teal-400'
   else colorClass = 'text-slate-400 dark:text-slate-500'
 
@@ -54,8 +54,8 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   let colorClass = ''
   if (pct >= 100) colorClass = 'text-red-600 dark:text-red-400'
   else if (pct >= 80) colorClass = 'text-orange-600 dark:text-orange-400'
-  else if (pct >= 60) colorClass = 'text-amber-600 dark:text-amber-400'
-  else if (pct >= 50) colorClass = 'text-emerald-600 dark:text-emerald-400'
+  else if (pct >= 60) colorClass = 'text-warning dark:text-warning'
+  else if (pct >= 50) colorClass = 'text-success dark:text-success'
   else if (pct >= 40) colorClass = 'text-teal-600 dark:text-teal-400'
   else colorClass = 'text-slate-400 dark:text-slate-500'
 
@@ -64,6 +64,60 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
       <Sparkles className="h-3 w-3" />
       匹配度：{pct}%
     </span>
+  )
+}
+
+/** 圆形进度环 */
+function CircularProgress({ percentage, size = 56, strokeWidth = 4 }: {
+  percentage: number
+  size?: number
+  strokeWidth?: number
+}) {
+  const radius = (size - strokeWidth) / 2
+  const circumference = radius * 2 * Math.PI
+  const offset = circumference - (percentage / 100) * circumference
+
+  // 根据百分比选择颜色
+  let color = '#94a3b8'
+  if (percentage >= 80) color = '#f97316'
+  else if (percentage >= 60) color = '#f59e0b'
+  else if (percentage >= 40) color = '#10b981'
+
+  return (
+    <svg width={size} height={size} className="transform -rotate-90">
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        className="text-primary/10"
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        className="transition-all duration-700"
+      />
+      <text
+        x="50%"
+        y="50%"
+        dy="0.3em"
+        textAnchor="middle"
+        className="text-xs font-bold"
+        fill={color}
+        transform={`rotate(90 ${size / 2} ${size / 2})`}
+      >
+        {percentage}%
+      </text>
+    </svg>
   )
 }
 
@@ -104,18 +158,30 @@ function MatchScoreCard({ bookId, ms }: { bookId: number; ms: number | undefined
 
   const dims = detail?.dimensions || []
 
+  // 维度颜色映射
+  const getDimColor = (pct: number) => {
+    if (pct >= 80) return 'bg-success'
+    if (pct >= 60) return 'bg-warning'
+    if (pct >= 40) return 'bg-orange-500'
+    return 'bg-slate-400'
+  }
+
   return (
-    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-gradient-to-br from-card to-muted/20 p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-            <span className="text-lg font-bold text-primary">{overallPct}%</span>
-          </div>
+          <CircularProgress percentage={overallPct} />
           <div>
             <p className="text-sm font-bold">匹配度分析</p>
             <p className="text-xs text-muted-foreground">
               {detail ? `覆盖 ${detail.matchedDimensions} 个维度` : '基于你的阅读偏好'}
             </p>
+            {overallPct >= 80 && (
+              <span className="inline-flex items-center gap-0.5 mt-1 rounded-full bg-orange-500/10 px-2 py-0.5 text-[10px] font-medium text-orange-600">
+                <Sparkles className="h-2.5 w-2.5" />
+                强烈推荐
+              </span>
+            )}
           </div>
         </div>
         {dims.length > 0 && (
@@ -136,11 +202,13 @@ function MatchScoreCard({ bookId, ms }: { bookId: number; ms: number | undefined
               <div key={d.dimension}>
                 <div className="flex items-center justify-between text-xs mb-1">
                   <span className="text-muted-foreground">{d.label}</span>
-                  <span className="font-medium">{pct}%</span>
+                  <span className={`font-medium ${pct >= 80 ? 'text-success' : pct >= 60 ? 'text-warning' : 'text-muted-foreground'}`}>
+                    {pct}%
+                  </span>
                 </div>
-                <div className="h-1.5 w-full rounded-full bg-primary/10">
+                <div className="h-1.5 w-full rounded-full bg-muted">
                   <div
-                    className="h-full rounded-full bg-primary transition-all"
+                    className={`h-full rounded-full transition-all duration-500 ${getDimColor(pct)}`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
@@ -188,17 +256,34 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
 
   if (!data) return null
 
+  // 难度徽章样式
+  const getDifficultyBadge = (difficulty: string) => {
+    const d = difficulty?.toLowerCase() || ''
+    if (d.includes('入门') || d.includes('简单')) {
+      return 'bg-success/10 text-success dark:bg-success/20 dark:text-success border-success/20'
+    }
+    if (d.includes('中等') || d.includes('进阶')) {
+      return 'bg-warning/10 text-warning dark:bg-warning/20 dark:text-warning border-warning/20'
+    }
+    if (d.includes('高级') || d.includes('困难')) {
+      return 'bg-danger/10 text-danger dark:bg-danger/20 dark:text-danger border-danger/20'
+    }
+    return 'bg-primary/5 text-primary border-primary/20'
+  }
+
   return (
-    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-gradient-to-br from-card to-muted/20 p-4">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center justify-between"
       >
         <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-primary" />
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
+            <Clock className="h-4 w-4 text-primary" />
+          </div>
           <h3 className="text-sm font-bold">3分钟速读</h3>
           {data.difficulty && (
-            <span className="rounded-md bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${getDifficultyBadge(data.difficulty)}`}>
               {data.difficulty}
             </span>
           )}
@@ -207,29 +292,29 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
       </button>
 
       {expanded && (
-        <div className="mt-3 space-y-3">
+        <div className="mt-3 space-y-4">
           {data.corePoints && data.corePoints.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                 <Target className="h-3.5 w-3.5 text-primary" />
                 核心观点
               </div>
-              <ul className="space-y-1.5">
+              <div className="border-l-2 border-primary/30 pl-3 space-y-2">
                 {data.corePoints.map((point, idx) => (
-                  <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                  <div key={idx} className="flex items-start gap-2">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
                       {idx + 1}
                     </span>
-                    <span>{point}</span>
-                  </li>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{point}</p>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
 
           {data.suitableFor && data.suitableFor.length > 0 && (
             <div className="space-y-2">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-success dark:text-success">
                 <Users className="h-3.5 w-3.5" />
                 适合谁读
               </div>
@@ -237,7 +322,7 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
                 {data.suitableFor.map((item, idx) => (
                   <span
                     key={idx}
-                    className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    className="rounded-full bg-success/10 border border-success/20 px-2.5 py-0.5 text-xs font-medium text-success dark:bg-success/20 dark:border-success/30 dark:text-success"
                   >
                     {item}
                   </span>
@@ -248,7 +333,7 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
 
           {data.notSuitableFor && data.notSuitableFor.length > 0 && (
             <div className="space-y-2">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-danger dark:text-danger">
                 <UserX className="h-3.5 w-3.5" />
                 不适合谁读
               </div>
@@ -256,7 +341,7 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
                 {data.notSuitableFor.map((item, idx) => (
                   <span
                     key={idx}
-                    className="rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                    className="rounded-full bg-danger/10 border border-danger/20 px-2.5 py-0.5 text-xs font-medium text-danger dark:bg-danger/20 dark:border-danger/30 dark:text-danger"
                   >
                     {item}
                   </span>
@@ -267,18 +352,18 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
 
           {data.takeaways && data.takeaways.length > 0 && (
             <div className="space-y-2">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-warning dark:text-warning">
                 <Lightbulb className="h-3.5 w-3.5" />
                 读完能收获什么
               </div>
-              <ul className="space-y-1">
+              <div className="border-l-2 border-warning/30 pl-3 space-y-1.5">
                 {data.takeaways.map((item, idx) => (
-                  <li key={idx} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <Gauge className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                    <span>{item}</span>
-                  </li>
+                  <div key={idx} className="flex items-start gap-2">
+                    <Gauge className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                    <p className="text-sm text-muted-foreground">{item}</p>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
         </div>
@@ -296,6 +381,7 @@ function AiQaEntry({
 }) {
   const [questions, setQuestions] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  const [showAll, setShowAll] = useState(false)
 
   useEffect(() => {
     if (!bookId) return
@@ -309,10 +395,18 @@ function AiQaEntry({
       .finally(() => setLoading(false))
   }, [bookId])
 
+  // 分类问题：第一个通常是"这本书主要讲了什么"，后面是深度问题
+  const overviewQuestions = questions.filter(q => q.includes('主要讲') || q.includes('讲了什么'))
+  const deepQuestions = questions.filter(q => !(q.includes('主要讲') || q.includes('讲了什么')))
+
+  const hasMore = questions.length > 6
+
   return (
-    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-gradient-to-br from-primary/5 to-primary/[0.02] p-4">
       <div className="flex items-center gap-2 mb-3">
-        <MessageCircle className="h-4 w-4 text-primary" />
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
+          <MessageCircle className="h-4 w-4 text-primary" />
+        </div>
         <h3 className="text-sm font-bold">AI 深度问答</h3>
       </div>
       <p className="text-xs text-muted-foreground mb-3">
@@ -326,21 +420,46 @@ function AiQaEntry({
           ))}
         </div>
       ) : questions.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {questions.map((q, idx) => (
+        <div className="space-y-2">
+          {/* 概述类问题 — 突出显示 */}
+          {overviewQuestions.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {overviewQuestions.slice(0, 1).map((q, idx) => (
+                <button
+                  key={`overview-${idx}`}
+                  onClick={() => onOpenChat(q)}
+                  className="rounded-2xl border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/15 hover:shadow-sm transition-all duration-200 text-left"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* 深度问题 */}
+          <div className="flex flex-wrap gap-2">
+            {(showAll ? deepQuestions : deepQuestions.slice(0, 5)).map((q, idx) => (
+              <button
+                key={idx}
+                onClick={() => onOpenChat(q)}
+                className="rounded-xl border border-primary/20 bg-white/50 dark:bg-white/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 hover:shadow-sm transition-all duration-200 hover:-translate-y-0.5 text-left"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+          {hasMore && !showAll && (
             <button
-              key={idx}
-              onClick={() => onOpenChat(q)}
-              className="rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+              onClick={() => setShowAll(true)}
+              className="text-xs text-muted-foreground hover:text-primary transition-colors mt-1"
             >
-              {q}
+              展开更多问题 ({questions.length - 6}+)
             </button>
-          ))}
+          )}
         </div>
       ) : (
         <button
           onClick={() => onOpenChat()}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary/5 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary/10 py-2.5 text-sm font-medium text-primary hover:bg-primary/15 transition-colors"
         >
           <Sparkles className="h-4 w-4" />
           向 AI 提问
@@ -714,112 +833,106 @@ export default function BookDetailPage() {
 
   if (loading || !book) {
     return (
-      <div className="min-h-screen bg-background page-enter pb-20">
-        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
-          <div className="h-9 w-9 animate-pulse rounded-xl bg-muted" />
+      <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
+        <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
+          <div className="h-9 w-9 shrink-0 animate-pulse rounded-xl bg-muted" />
           <div className="h-5 flex-1 animate-pulse rounded bg-muted" />
-          <div className="h-9 w-9 animate-pulse rounded-xl bg-muted" />
+          <div className="h-9 w-9 shrink-0 animate-pulse rounded-xl bg-muted" />
         </header>
-
-        <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
-          <div className="flex gap-4">
-            <div className="h-36 w-24 flex-shrink-0 animate-pulse rounded-xl bg-muted shadow-lg" />
-            <div className="flex flex-1 flex-col justify-between py-1">
-              <div className="space-y-2">
-                <div className="h-5 w-4/5 animate-pulse rounded bg-muted" />
-                <div className="h-3.5 w-1/2 animate-pulse rounded bg-muted" />
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="h-4 w-12 animate-pulse rounded bg-muted" />
-                <div className="h-4 w-16 animate-pulse rounded bg-muted" />
-                <div className="h-5 w-10 animate-pulse rounded-md bg-muted" />
-                <div className="h-4 w-14 animate-pulse rounded bg-muted" />
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <div className="h-3 w-12 animate-pulse rounded bg-muted" />
-                  <div className="h-3 w-8 animate-pulse rounded bg-muted" />
+        <div className="flex-1 overflow-y-auto overscroll-contain">
+          <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
+            <div className="flex gap-4">
+              <div className="h-36 w-24 flex-shrink-0 animate-pulse rounded-xl bg-muted shadow-lg" />
+              <div className="flex flex-1 flex-col justify-between py-1">
+                <div className="space-y-2">
+                  <div className="h-5 w-4/5 animate-pulse rounded bg-muted" />
+                  <div className="h-3.5 w-1/2 animate-pulse rounded bg-muted" />
                 </div>
-                <div className="h-2 w-full animate-pulse rounded-full bg-muted" />
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="h-4 w-12 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+                  <div className="h-5 w-10 animate-pulse rounded-md bg-muted" />
+                  <div className="h-4 w-14 animate-pulse rounded bg-muted" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="h-3 w-12 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-8 animate-pulse rounded bg-muted" />
+                  </div>
+                  <div className="h-2 w-full animate-pulse rounded-full bg-muted" />
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-7 animate-pulse rounded-full bg-muted" style={{ width: `${50 + i * 15}px` }} />
+              ))}
+            </div>
+          </div>
+          <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-14 w-14 animate-pulse rounded-full bg-muted" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-16 animate-pulse rounded bg-muted" />
               </div>
             </div>
           </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="h-7 animate-pulse rounded-full bg-muted" style={{ width: `${50 + i * 15}px` }} />
-            ))}
-          </div>
-        </div>
-
-        <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
-          <div className="flex items-center gap-3">
-            <div className="h-14 w-14 animate-pulse rounded-full bg-muted" />
-            <div className="flex-1 space-y-2">
+          <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="h-4 w-4 animate-pulse rounded bg-muted" />
               <div className="h-4 w-24 animate-pulse rounded bg-muted" />
-              <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-3 w-full animate-pulse rounded bg-muted" />
+              ))}
             </div>
           </div>
-        </div>
-
-        <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="h-4 w-4 animate-pulse rounded bg-muted" />
-            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
-          </div>
-          <div className="space-y-2">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="h-3 w-full animate-pulse rounded bg-muted" />
-            ))}
-          </div>
-        </div>
-
-        <div className="px-4 pb-4 space-y-2">
-          <div className="h-4 w-10 animate-pulse rounded bg-muted" />
-          <div className="space-y-1.5">
-            <div className="h-3.5 w-full animate-pulse rounded bg-muted" />
-            <div className="h-3.5 w-full animate-pulse rounded bg-muted" />
-            <div className="h-3.5 w-4/5 animate-pulse rounded bg-muted" />
-          </div>
-          <div className="h-3 w-8 animate-pulse rounded bg-muted" />
-        </div>
-
-        <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="h-4 w-4 animate-pulse rounded bg-muted" />
-            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="h-8 w-28 animate-pulse rounded-full bg-muted" />
-            ))}
-          </div>
-        </div>
-
-        <div className="px-4 border-t border-border/50 pt-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+          <div className="px-4 pb-4 space-y-2">
             <div className="h-4 w-10 animate-pulse rounded bg-muted" />
+            <div className="space-y-1.5">
+              <div className="h-3.5 w-full animate-pulse rounded bg-muted" />
+              <div className="h-3.5 w-full animate-pulse rounded bg-muted" />
+              <div className="h-3.5 w-4/5 animate-pulse rounded bg-muted" />
+            </div>
             <div className="h-3 w-8 animate-pulse rounded bg-muted" />
           </div>
-          <div className="space-y-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="flex gap-3">
-                <div className="h-8 w-8 flex-shrink-0 animate-pulse rounded-full bg-muted" />
-                <div className="flex-1 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-3 w-16 animate-pulse rounded bg-muted" />
-                    <div className="h-3 w-10 animate-pulse rounded bg-muted" />
+          <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+              <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-8 w-28 animate-pulse rounded-full bg-muted" />
+              ))}
+            </div>
+          </div>
+          <div className="px-4 border-t border-border/50 pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+              <div className="h-4 w-10 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-8 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="space-y-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex gap-3">
+                  <div className="h-8 w-8 flex-shrink-0 animate-pulse rounded-full bg-muted" />
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+                      <div className="h-3 w-10 animate-pulse rounded bg-muted" />
+                    </div>
+                    <div className="h-3 w-full animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
                   </div>
-                  <div className="h-3 w-full animate-pulse rounded bg-muted" />
-                  <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
-
-        <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background/80 backdrop-blur-xl p-3 pb-safe-bottom">
+        <div className="shrink-0 border-t border-border/50 bg-background/80 backdrop-blur-xl px-3 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
           <div className="flex gap-2">
             <div className="h-11 w-14 animate-pulse rounded-2xl bg-muted" />
             <div className="h-11 w-14 animate-pulse rounded-2xl bg-muted" />
@@ -833,19 +946,19 @@ export default function BookDetailPage() {
   const tags = parseFormatTags(book.formatTags)
 
   return (
-    <div className="min-h-screen bg-background page-enter pb-20">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       {/* 顶部导航 */}
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
+      <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
+        <button onClick={() => navigate(-1)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="flex-1 truncate text-base font-bold">{book.title}</h1>
         {!inTrash && (
-          <button onClick={handleTrash} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
+          <button onClick={handleTrash} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
             <Trash2 className="h-5 w-5 text-muted-foreground" />
           </button>
         )}
-        <button onClick={toggleShelf} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
+        <button onClick={toggleShelf} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           {inShelf ? (
             <BookmarkCheck className="h-5 w-5 text-primary" />
           ) : (
@@ -853,6 +966,9 @@ export default function BookDetailPage() {
           )}
         </button>
       </header>
+
+      {/* 内容区域 - 可滚动 */}
+      <div className="flex-1 overflow-y-auto overscroll-contain">
 
       {/* 图书信息 — 渐变背景 */}
       <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
@@ -946,8 +1062,8 @@ export default function BookDetailPage() {
                   <Star
                     className={`h-9 w-9 transition-colors ${
                       (hoverStar || userRating) >= star
-                        ? 'fill-amber-400 text-amber-400'
-                        : 'text-muted-foreground/30 hover:text-amber-400/50'
+                        ? 'fill-warning text-warning'
+                        : 'text-muted-foreground/30 hover:text-warning/50'
                     }`}
                   />
                 </button>
@@ -969,7 +1085,7 @@ export default function BookDetailPage() {
 
       {/* 简介 */}
       {(book.description || isAdmin) && (
-        <div className="px-4 pb-4">
+        <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
           <div className="mb-2 flex items-center gap-1.5">
             <h3 className="text-sm font-bold">简介</h3>
             {isAdmin && (
@@ -1020,9 +1136,10 @@ export default function BookDetailPage() {
           </button>
         )}
       </div>
+      </div>
 
       {/* 底部操作栏 */}
-      <div className="fixed bottom-0 left-0 right-0 border-t border-border/50 bg-background/80 backdrop-blur-xl p-3 pb-safe-bottom">
+      <div className="shrink-0 border-t border-border/50 bg-background/95 backdrop-blur-xl px-3 pt-3 z-20" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
         <div className="flex gap-2">
           <button
             onClick={toggleShelf}
@@ -1033,19 +1150,19 @@ export default function BookDetailPage() {
           </button>
 
           <button
-            onClick={() => handleOpenChat()}
-            className="flex h-11 w-14 flex-col items-center justify-center rounded-2xl bg-accent text-[10px] font-medium text-accent-foreground transition-all active:scale-[0.97] leading-none gap-1"
+            onClick={() => navigate(`/reader/${book.id}`)}
+            className="flex h-11 w-14 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
           >
-            <BlinkingBot className="h-4 w-4" />
-            <span>AI 问答</span>
+            <BookOpen className="h-4 w-4" />
+            <span className="truncate">{progress > 0 ? '继续' : '阅读'}</span>
           </button>
 
           <button
-            onClick={() => navigate(`/reader/${book.id}`)}
+            onClick={() => handleOpenChat()}
             className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 active:scale-[0.97] transition-transform"
           >
-            <BookOpen className="h-4 w-4" />
-            {progress > 0 ? '继续阅读' : '开始阅读'}
+            <BlinkingBot className="h-4 w-4" />
+            AI 问答
           </button>
         </div>
       </div>

@@ -1,32 +1,43 @@
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { TabBar } from './TabBar'
 import { useUiStore } from '@/store/ui'
-import ScrollToTop from '@/components/ScrollToTop'
+import { useEffect, useRef } from 'react'
 
-/**
- * 应用主布局 - 包含底部TabBar
- */
 export function AppLayout() {
   const tabBarVisible = useUiStore((s) => s.tabBarVisible)
+  const location = useLocation()
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0
+    }
+  }, [location.pathname])
 
   return (
-    <div className="relative min-h-screen bg-background">
-      <ScrollToTop />
-      <main className={tabBarVisible ? 'pb-20' : ''}>
-        <Outlet />
-      </main>
-      {tabBarVisible && <TabBar />}
-    </div>
+    <>
+      <style>{`
+        .app-layout-container {
+          height: 100vh;
+          height: 100dvh;
+        }
+      `}</style>
+      <div className="app-layout-container relative flex flex-col overflow-hidden bg-background">
+        <main 
+          ref={scrollRef}
+          className={`flex-1 overflow-y-auto overscroll-contain ${tabBarVisible ? 'pb-20' : ''}`}
+        >
+          <Outlet />
+        </main>
+        {tabBarVisible && <TabBar />}
+      </div>
+    </>
   )
 }
 
-/**
- * 空白布局 - 无TabBar（用于登录、阅读器等全屏页面）
- */
 export function BlankLayout() {
   return (
     <div className="min-h-screen bg-background">
-      <ScrollToTop />
       <Outlet />
     </div>
   )

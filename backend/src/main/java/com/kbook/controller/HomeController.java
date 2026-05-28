@@ -132,7 +132,7 @@ public class HomeController {
      */
     @GetMapping("/categories")
     public Result<List<TagStat>> getCategories() {
-        return Result.ok(getTopTags(50));
+        return Result.ok(getTopTags(20));
     }
 
     /**

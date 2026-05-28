@@ -16,16 +16,18 @@ public class UpdateTraitsRequest {
     private String gender;
     /** 是否已婚 */
     private Boolean married;
-    /** 是否有子女 */
+    /** 是否有子女（旧字段，保留兼容） */
     private Boolean hasChildren;
+    /** 孩子年龄区间（逗号分隔）：0_2,3_6,7_12,13_17,18_plus,no_children */
+    private String childrenAgeRanges;
     /** MBTI人格类型 */
     private String mbti;
     /** 职业 */
     private String occupation;
-    /** 学历 */
-    private String education;
+    /** 期望学历 */
+    private String aspirationEducation;
     /** 创业状态 */
     private String entrepreneurship;
-    /** 年收入范围 */
-    private String annualIncome;
+    /** 期望年收入范围 */
+    private String aspirationIncome;
 }

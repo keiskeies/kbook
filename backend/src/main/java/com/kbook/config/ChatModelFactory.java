@@ -2,8 +2,7 @@ package com.kbook.config;
 
 import com.kbook.config.properties.AiModelProperties;
 import com.kbook.entity.AiProviderConfig;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
-import dev.langchain4j.model.chat.response.ChatResponse;
+import com.kbook.repository.AiProviderConfigRepository;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -26,538 +25,605 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * AI 模型工厂 — 统一封装模型构建逻辑
+ * AI 聊天模型工厂类
  * <p>
- * 支持两种构建来源：
- * 1. 从 application.yml 静态配置（AiModelProperties）— 用于标签评分/OCR/Embedding 等固定场景
- * 2. 从数据库 AiProviderConfig 实体动态构建 — 用于管理员可配置的对话场景
+ * 负责根据数据库配置或 yml 配置文件构建不同类型的 AI 聊天模型，包括：
+ * <ul>
+ *   <li>普通聊天模型（ChatModel）</li>
+ *   <li>流式聊天模型（StreamingChatModel）</li>
+ *   <li>视觉模型（用于 OCR/PDF 处理）</li>
+ *   <li>嵌入模型（用于向量生成）</li>
+ * </ul>
  * <p>
- * 支持 Ollama 和 OpenAI 兼容 API 两种提供商。
+ * 配置优先级：
+ * 1. 优先从数据库 {@link AiProviderConfig} 中获取配置
+ * 2. 如果数据库中未找到配置，则回退到 {@link AiModelProperties} yml 配置
  * <p>
- * 重要：所有模型构建必须设置 customHeaders 携带 Content-Type: application/json;charset=utf-8，
- * 否则 LangChain4j 默认请求头缺少字符集声明，Ollama 返回的中文内容会被按 iso-8859-1 解码导致乱码。
+ * 支持的 AI 提供商：
+ * - Ollama：本地或远程 Ollama 服务
+ * - OpenAI：OpenAI 兼容 API（包括 DeepSeek、通义千问等）
  * <p>
- * Ollama KV 缓存管理：
- * 所有 Ollama ChatModel/StreamingChatModel 都会添加请求计数监听器，
- * 每隔 100 次请求自动发送空消息软重置清除 KV 缓存，防止性能下降。
+ * 特性：
+ * - 支持启用/禁用模型的思考过程（thinking）
+ * - 自动重试机制（通过 {@link RetryableChatModel} 包装）
+ * - Ollama KV 缓存自动管理（每 50 次请求自动重置缓存）
+ * - 请求诊断和监听
  */
+
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class ChatModelFactory {
 
+    /** AI 模型配置属性（从 yml 配置文件注入） */
     private final AiModelProperties aiProps;
+
+    /** AI 提供商配置仓库（用于从数据库读取配置） */
+    private final AiProviderConfigRepository configRepository;
+
+    /** Redis 模板（用于 Ollama 缓存管理） */
     private final StringRedisTemplate redisTemplate;
 
-    /** Redis 计数器 key */
+    /** Ollama 请求计数器在 Redis 中的键名 */
     private static final String OLLAMA_COUNTER_KEY = "ollama:request_count";
 
-    /** 每隔多少次请求触发一次缓存重置 */
+    /** Ollama 缓存重置间隔（每 50 次请求重置一次缓存） */
     private static final long OLLAMA_RESET_INTERVAL = 50;
 
-    /**
-     * Ollama 请求计数监听器 — 每次响应成功后通过 Redis 计数
-     * <p>
-     * 实现逻辑：
-     * 1. onRequest: 请求开始时不做处理
-     * 2. onResponse: 响应成功后递增计数器，达到阈值时触发缓存重置
-     * 3. onError: 错误时不做处理
-     */
-    private ChatModelListener ollamaCounterListener() {
-        return new ChatModelListener() {
-            /**
-             * 请求开始时的回调（空实现）
-             */
-            @Override
-            public void onRequest(ChatModelRequestContext ctx) {}
+    // ======================== 8 个无参公开方法 ========================
 
-            /**
-             * 响应成功后的回调
-             * 通过 Redis 原子递增计数器，达到重置间隔时触发 KV 缓存清理
-             *
-             * @param ctx 响应上下文，包含模型响应信息
-             */
-            @Override
-            public void onResponse(ChatModelResponseContext ctx) {
-                // 原子递增 Redis 计数器
-                long count = redisTemplate.opsForValue().increment(OLLAMA_COUNTER_KEY);
-                
-                // 判断是否达到重置阈值（每 100 次请求）
-                if (count > 0 && count % OLLAMA_RESET_INTERVAL == 0) {
-                    performOllamaSoftReset(count);
-                }
-            }
-
-            /**
-             * 请求出错时的回调（空实现）
-             */
-            @Override
-            public void onError(ChatModelErrorContext ctx) {}
-        };
-    }
+    // ---- DB 配置（优先 DB，无 DB 时回退 yml）----
 
     /**
-     * 发送空消息软重置 Ollama KV 缓存
+     * 构建普通聊天模型。
      * <p>
-     * 背景：Ollama 随着同一类问题问多了会越来越慢（KV 缓存膨胀），
-     * 发送空消息可以软重置清除 KV 缓存，恢复性能。
+     * 优先从数据库配置中获取 AI 提供商配置并构建聊天模型；
+     * 如果数据库中未找到相关配置，则回退到 yml 配置文件构建。
      * <p>
-     * 实现步骤：
-     * 1. 构建 ChatModel 并发送空消息触发缓存清理
-     * 2. 构建 StreamingChatModel 并发送空消息触发缓存清理
-     * 3. 阻塞等待异步请求完成
+     * 该模型包含思考过程，适用于需要展示模型推理过程的场景。
      *
-     * @param count 当前请求计数，用于日志记录
-     */
-    private void performOllamaSoftReset(long count) {
-        try {
-            // 记录缓存重置开始日志
-            log.info("========== Ollama KV 缓存软重置 (#{}) ==========", count);
-
-            // ==================== 重置 ChatModel ====================
-            try {
-                // 构建标准的 ChatModel 实例
-                ChatModel chatModel = buildChatModel();
-                
-                // 仅对 Ollama 模型执行缓存重置
-                if (chatModel instanceof OllamaChatModel) {
-                    // 发送空消息触发 KV 缓存清理
-                    chatModel.chat(List.of(UserMessage.from("")));
-                    log.info("Ollama ChatModel 缓存已重置");
-                }
-            } catch (Exception e) {
-                // 捕获异常但不中断流程，继续尝试重置 StreamingChatModel
-                log.warn("ChatModel 缓存重置失败: {}", e.getMessage());
-            }
-
-            // 记录缓存重置完成日志
-            log.info("========== Ollama 缓存重置完成 ==========");
-        } catch (Exception e) {
-            // 捕获所有未处理的异常，防止影响正常业务流程
-            log.error("Ollama 缓存重置异常: {}", e.getMessage());
-        }
-    }
-
-    // ==================== 从 yml 配置构建（原有逻辑） ====================
-
-    /**
-     * 构建关闭思考模式的 ChatModel
-     * <p>
-     * 用途：用于生成追问等不需要深度推理的场景，减少响应时间。
-     * <p>
-     * 实现逻辑：
-     * - OpenAI/DeepSeek: 通过 returnThinking(false)/sendThinking(false) 关闭思考过程输出
-     * - Ollama: 直接构建标准模型（Ollama 无思考模式参数）
-     *
-     * @param config AI 提供商配置，包含 baseUrl、modelName、temperature 等
-     * @return ChatModel 实例，已关闭思考模式
-     */
-    public ChatModel buildChatModelWithoutThinking(AiProviderConfig config) {
-        // 如果配置为空，回退到 yml 默认配置
-        if (config == null) {
-            return buildChatModel(); // 无配置时回退到 yml 默认
-        }
-
-        // 计算超时时间，默认 120 秒
-        Duration timeout = Duration.ofSeconds(config.getTimeout() != null ? config.getTimeout() : 120);
-        
-        // 获取提供商类型
-        String provider = config.getProvider();
-
-        // 记录构建日志
-        log.info("构建 ChatModel 关闭思考模式: provider={}, model={}, baseUrl={}",
-                provider, config.getModelName(), config.getBaseUrl());
-
-        // 根据提供商类型选择构建方式
-        if (AiProviderConfig.Provider.OPENAI.name().equalsIgnoreCase(provider)) {
-            // OpenAI 兼容 API：构建关闭思考模式的模型
-            return buildOpenAiChatModelNoThinking(config, timeout);
-        } else {
-            // Ollama：构建标准模型
-            return buildOllamaChatModel(config, timeout);
-        }
-    }
-
-    /**
-     * 构建默认的 ChatModel（从 yml 配置）
-     * <p>
-     * 使用 application.yml 中的 chat-model 配置构建 Ollama 模型，
-     * 并附加请求计数监听器用于 KV 缓存管理。
-     *
-     * @return ChatModel 实例
+     * @return 聊天模型实例，已包装重试机制
      */
     public ChatModel buildChatModel() {
-        // 获取 yml 中的 chat-model 配置
-        var chat = aiProps.getChatModel();
-        
-        // 构建 Ollama ChatModel
-        return OllamaChatModel.builder()
-                .baseUrl(chat.getBaseUrl())              // 设置 Ollama 服务地址
-                .modelName(chat.getModelName())          // 设置模型名称
-                .temperature(chat.getTemperature())      // 设置温度参数（控制随机性）
-                .timeout(chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(120))  // 设置超时时间
-                .customHeaders(AiModelProperties.UTF8_HEADERS)  // 设置 UTF-8 编码头，防止中文乱码
-                .listeners(List.of(ollamaCounterListener()))    // 添加请求计数监听器
-                .build();
+        AiProviderConfig config = resolveChatConfig();
+        return config != null
+                ? wrap(buildChat(config, true))
+                : buildChatModelFromYml();
     }
 
     /**
-     * 构建视觉 ChatModel（用于 OCR 图片识别）
+     * 构建不包含思考过程的普通聊天模型。
      * <p>
-     * 特点：
-     * 1. 优先使用 vision 配置，未配置则回退到 chat-model
-     * 2. 固定 temperature=0.3，保证 OCR 结果的准确性
-     * 3. 默认超时 600 秒，适应大图片处理
+     * 优先从数据库配置中获取 AI 提供商配置并构建聊天模型；
+     * 如果数据库中未找到相关配置，则回退到 yml 配置文件构建。
+     * <p>
+     * 该模型不包含思考过程，适用于快速响应场景。
      *
-     * @return ChatModel 实例，专用于 OCR 任务
+     * @return 聊天模型实例，已包装重试机制
      */
-    public ChatModel buildVisionChatModel() {
-        // 获取 chat-model 和 vision 配置
-        var chat = aiProps.getChatModel();
-        var vision = aiProps.getVision();
-
-        // 确定模型名称：优先使用 vision 配置，否则使用 chat-model
-        String modelName = (vision.getModelName() != null && !vision.getModelName().isBlank())
-                ? vision.getModelName()
-                : chat.getModelName();
-
-        // 设置超时时间，默认 600 秒（OCR 任务可能较慢）
-        Duration timeout = vision.getTimeout() != null ? vision.getTimeout() : Duration.ofSeconds(600);
-        
-        // 固定温度为 0.3，降低随机性，提高 OCR 准确性
-        double temperature = 0.3;
-
-        // 记录构建日志
-        log.info("构建 OCR 视觉 ChatModel (Ollama): baseUrl={}, model={}, timeout={}s",
-                chat.getBaseUrl(), modelName, timeout.getSeconds());
-        
-        // 构建 Ollama ChatModel
-        return OllamaChatModel.builder()
-                .baseUrl(chat.getBaseUrl())              // 设置 Ollama 服务地址
-                .modelName(modelName)                    // 设置模型名称
-                .temperature(temperature)                // 设置低温参数（0.3）
-                .timeout(timeout)                        // 设置长超时时间
-                .customHeaders(AiModelProperties.UTF8_HEADERS)  // 设置 UTF-8 编码头
-                .build();
+    public ChatModel buildChatModelWithoutThinking() {
+        AiProviderConfig config = resolveChatConfig();
+        return config != null
+                ? wrap(buildChat(config, false))
+                : buildChatModelWithoutThinkingFromYml();
     }
 
     /**
-     * 构建默认的流式 ChatModel（从 yml 配置）
+     * 构建流式聊天模型。
      * <p>
-     * 用于 SSE 流式响应场景，支持逐 token 输出。
-     * 附加请求计数监听器用于 KV 缓存管理。
+     * 优先从数据库配置中获取 AI 提供商配置并构建流式聊天模型；
+     * 如果数据库中未找到相关配置，则回退到 yml 配置文件构建。
+     * <p>
+     * 该模型包含思考过程，支持实时流式响应，适用于需要展示模型推理过程的对话场景。
      *
-     * @return StreamingChatModel 实例
+     * @return 流式聊天模型实例
      */
     public StreamingChatModel buildStreamingChatModel() {
-        // 获取 yml 中的 chat-model 配置
-        var chat = aiProps.getChatModel();
-        
-        // 构建 Ollama 流式 ChatModel
-        return OllamaStreamingChatModel.builder()
-                .baseUrl(chat.getBaseUrl())              // 设置 Ollama 服务地址
-                .modelName(chat.getModelName())          // 设置模型名称
-                .temperature(chat.getTemperature())      // 设置温度参数
-                .timeout(chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(120))  // 设置超时时间
-                .customHeaders(AiModelProperties.UTF8_HEADERS)  // 设置 UTF-8 编码头
-                .listeners(List.of(ollamaCounterListener()))    // 添加请求计数监听器
-                .build();
+        AiProviderConfig config = resolveChatConfig();
+        return config != null
+                ? buildStreaming(config, true)
+                : buildStreamingChatModelFromYml();
     }
 
     /**
-     * 构建 Ollama Embedding 模型
+     * 构建不包含思考过程的流式聊天模型。
      * <p>
-     * 用于文本向量化，支持自定义 baseUrl 和 modelName。
+     * 优先从数据库配置中获取AI提供商配置并构建流式聊天模型；
+     * 如果数据库中未找到相关配置，则回退到yml配置文件构建。
+     *
+     * @return 流式聊天模型实例，支持流式响应但不包含模型的思考过程
+     */
+    public StreamingChatModel buildStreamingChatModelWithoutThinking() {
+        AiProviderConfig config = resolveChatConfig();
+        return config != null
+                ? buildStreaming(config, false)
+                : buildStreamingChatModelWithoutThinkingFromYml();
+    }
+
+    // ---- yml 配置 ----
+
+    /**
+     * 基于 yml 配置构建普通聊天模型（包含思考过程）。
+     * <p>
+     * 直接从 application.yml 中的 langchain4j.chat-model 配置读取参数构建模型。
+     *
+     * @return 聊天模型实例，已包装重试机制
+     */
+    public ChatModel buildChatModelFromYml() {
+        AiModelProperties.ChatModelConfig chat = aiProps.getChatModel();
+        return wrap(chat.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? buildOpenAiChat(chat, true)
+                : buildOllamaChat(chat, true));
+    }
+
+    /**
+     * 基于 yml 配置构建普通聊天模型（不包含思考过程）。
+     * <p>
+     * 直接从 application.yml 中的 langchain4j.chat-model 配置读取参数构建模型。
+     *
+     * @return 聊天模型实例，已包装重试机制
+     */
+    public ChatModel buildChatModelWithoutThinkingFromYml() {
+        AiModelProperties.ChatModelConfig chat = aiProps.getChatModel();
+        return wrap(chat.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? buildOpenAiChat(chat, false)
+                : buildOllamaChat(chat, false));
+    }
+
+    /**
+     * 基于 yml 配置构建流式聊天模型（包含思考过程）。
+     * <p>
+     * 直接从 application.yml 中的 langchain4j.chat-model 配置读取参数构建模型。
+     *
+     * @return 流式聊天模型实例
+     */
+    public StreamingChatModel buildStreamingChatModelFromYml() {
+        AiModelProperties.ChatModelConfig chat = aiProps.getChatModel();
+        return chat.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? buildOpenAiStreaming(chat, true)
+                : buildOllamaStreaming(chat, true);
+    }
+
+    /**
+     * 基于 yml 配置构建流式聊天模型（不包含思考过程）。
+     * <p>
+     * 直接从 application.yml 中的 langchain4j.chat-model 配置读取参数构建模型。
+     *
+     * @return 流式聊天模型实例
+     */
+    public StreamingChatModel buildStreamingChatModelWithoutThinkingFromYml() {
+        AiModelProperties.ChatModelConfig chat = aiProps.getChatModel();
+        return chat.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? buildOpenAiStreaming(chat, false)
+                : buildOllamaStreaming(chat, false);
+    }
+
+    // ======================== 其他公开方法 ========================
+
+        /**
+     * 构建视觉模型（用于 OCR/PDF 处理）。
+     * <p>
+     * 使用 Ollama 视觉模型处理包含图片的内容，如 PDF 文档的 OCR 识别。
+     * 优先使用 vision 配置中的模型名称和超时时间，如果未配置则回退到 chat-model 配置。
+     *
+     * @return 聊天模型实例，已包装重试机制，专门用于视觉任务
+     */
+    public ChatModel buildVisionChatModel() {
+        AiModelProperties.ChatModelConfig chat = aiProps.getChatModel();
+        AiModelProperties.VisionConfig vision = aiProps.getVision();
+        String modelName = (vision.getModelName() != null && !vision.getModelName().isBlank())
+                ? vision.getModelName() : chat.getModelName();
+        Duration timeout = vision.getTimeout() != null ? vision.getTimeout() : Duration.ofSeconds(600);
+        log.info("构建 OCR 视觉 ChatModel (Ollama): baseUrl={}, model={}, timeout={}s",
+                chat.getBaseUrl(), modelName, timeout.getSeconds());
+        return wrap(OllamaChatModel.builder()
+                .baseUrl(chat.getBaseUrl()).modelName(modelName)
+                .temperature(0.3).timeout(timeout)
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
+                .build());
+    }
+
+    /**
+     * 根据指定的配置 ID 构建聊天模型（用于测试）。
+     * <p>
+     * 直接从数据库中读取指定 ID 的配置并构建模型，忽略默认配置逻辑。
+     *
+     * @param configId AI 提供商配置的 ID
+     * @return 聊天模型实例，已包装重试机制
+     * @throws IllegalArgumentException 如果指定的配置不存在
+     */
+    public ChatModel buildChatModelForTest(Long configId) {
+        AiProviderConfig config = configRepository.findById(configId)
+                .orElseThrow(() -> new IllegalArgumentException("配置不存在: " + configId));
+        return wrap(buildChat(config, true));
+    }
+
+    /**
+     * 构建 Ollama 嵌入模型。
+     * <p>
+     * 用于生成文本向量表示，支持自定义服务地址、模型名称和超时时间。
      *
      * @param baseUrl   Ollama 服务地址
      * @param modelName 嵌入模型名称
-     * @param timeout   超时时间（优先使用 yml 配置，默认 300 秒）
-     * @return EmbeddingModel 实例
+     * @param timeout   请求超时时间，如果为 null 则使用默认 300 秒
+     * @return 嵌入模型实例
      */
     public EmbeddingModel buildOllamaEmbeddingModel(String baseUrl, String modelName, Duration timeout) {
         return OllamaEmbeddingModel.builder()
-                .baseUrl(baseUrl)
-                .modelName(modelName)
+                .baseUrl(baseUrl).modelName(modelName)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(300))
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .build();
     }
 
     /**
-     * 构建默认的 Embedding 模型（从 yml 配置）
+     * 构建默认的嵌入模型。
+     * <p>
+     * 从 yml 配置中读取嵌入模型参数并构建模型。
      *
-     * @return EmbeddingModel 实例
+     * @return 嵌入模型实例
      */
     public EmbeddingModel buildDefaultEmbeddingModel() {
-        var embedding = aiProps.getEmbeddingModel();
-        return buildOllamaEmbeddingModel(embedding.getBaseUrl(), embedding.getModelName(), embedding.getTimeout());
+        AiModelProperties.EmbeddingModelConfig emb = aiProps.getEmbeddingModel();
+        return buildOllamaEmbeddingModel(emb.getBaseUrl(), emb.getModelName(), emb.getTimeout());
     }
 
     /**
-     * 获取默认 Embedding 模型名称
+     * 判断当前配置的聊天模型是否支持 Tool Calling 功能。
+     * <p>
+     * 从 yml 配置中读取设置并判断。
      *
-     * @return 模型名称字符串
+     * @return true 如果支持工具调用，false 否则
      */
-    public String getEmbeddingModelName() {
-        return aiProps.getEmbeddingModel().getModelName();
+    public boolean isToolsSupported() {
+        return aiProps.isToolsSupported();
     }
 
     /**
-     * 获取默认 ChatModel 的 baseUrl
+     * 判断指定的 AI 提供商配置是否支持 Tool Calling 功能。
+     * <p>
+     * 优先级：
+     * 1. 如果配置为 null，则回退到 yml 配置
+     * 2. 如果配置中明确设置了 toolsEnabled，则使用该值
+     * 3. 否则根据模型名称自动检测（已知 gemma3n 不支持）
      *
-     * @return baseUrl 字符串
+     * @param config AI 提供商配置
+     * @return true 如果支持工具调用，false 否则
+     */
+    public boolean isToolsSupported(AiProviderConfig config) {
+        if (config == null) return isToolsSupported();
+        if (config.getToolsEnabled() != null) return config.getToolsEnabled();
+        return !config.getModelName().toLowerCase().startsWith("gemma3n");
+    }
+
+    /**
+     * 获取默认的 AI 服务基础地址。
+     * <p>
+     * 从 yml 配置的聊天模型中读取。
+     *
+     * @return 默认的基础 URL
      */
     public String getDefaultBaseUrl() {
         return aiProps.getChatModel().getBaseUrl();
     }
 
     /**
-     * 获取默认 ChatModel 的模型名称
+     * 获取当前配置的聊天模型名称。
+     * <p>
+     * 从 yml 配置的聊天模型中读取。
      *
-     * @return 模型名称字符串
+     * @return 模型名称
      */
     public String getModelName() {
         return aiProps.getChatModel().getModelName();
     }
 
     /**
-     * 判断默认配置是否支持 Tool Calling（函数调用）
+     * 获取当前配置的嵌入模型名称。
+     * <p>
+     * 从 yml 配置的嵌入模型中读取。
      *
-     * @return true-支持, false-不支持
+     * @return 嵌入模型名称
      */
-    public boolean isToolsSupported() {
-        return aiProps.isToolsSupported();
+    public String getEmbeddingModelName() {
+        return aiProps.getEmbeddingModel().getModelName();
     }
 
-    // ==================== 从数据库配置动态构建 ====================
+    // ======================== 内部：维度组合器 ========================
 
     /**
-     * 从 AiProviderConfig 实体构建 ChatModel
+     * 解析聊天配置。
      * <p>
-     * 用途：支持管理员在后台动态配置 AI 模型，无需重启服务。
-     * <p>
-     * 实现逻辑：
-     * 1. 根据 provider 字段自动选择 Ollama 或 OpenAI 兼容 API 构建
-     * 2. 使用配置中的 baseUrl、modelName、temperature、timeout 等参数
-     * 3. 如果配置为空，回退到 yml 默认配置
+     * 从数据库中查询用途为 CHAT 且已启用的默认配置。
      *
-     * @param config AI 提供商配置实体（从数据库读取）
-     * @return ChatModel 实例
+     * @return AI 提供商配置，如果未找到则返回 null
      */
-    public ChatModel buildChatModel(AiProviderConfig config) {
-        // 如果配置为空，回退到 yml 默认配置
-        if (config == null) {
-            return buildChatModel(); // 无配置时回退到 yml 默认
-        }
-
-        // 计算超时时间，默认 120 秒
-        Duration timeout = Duration.ofSeconds(config.getTimeout() != null ? config.getTimeout() : 120);
-        
-        // 获取提供商类型
-        String provider = config.getProvider();
-
-        // 记录构建日志，包含所有关键参数
-        log.info("构建 ChatModel (from DB): provider={}, model={}, baseUrl={}, temperature={}, timeout={}s",
-                provider, config.getModelName(), config.getBaseUrl(), config.getTemperature(), timeout.getSeconds());
-
-        // 根据提供商类型选择构建方式
-        if (AiProviderConfig.Provider.OPENAI.name().equalsIgnoreCase(provider)) {
-            // OpenAI 兼容 API：构建带思考模式的模型
-            return buildOpenAiChatModel(config, timeout);
-        } else {
-            // Ollama：构建标准模型
-            return buildOllamaChatModel(config, timeout);
-        }
+    private AiProviderConfig resolveChatConfig() {
+        return configRepository.findByPurposeAndIsDefaultTrueAndEnabledTrue(
+                AiProviderConfig.Purpose.CHAT.name()).orElse(null);
     }
 
     /**
-     * 从 AiProviderConfig 实体构建 StreamingChatModel
+     * 创建超时时间对象。
      * <p>
-     * 用于 SSE 流式响应场景，支持逐 token 输出。
+     * 如果传入的秒数为 null，则使用默认值 120 秒。
      *
-     * @param config AI 提供商配置实体（从数据库读取）
-     * @return StreamingChatModel 实例
+     * @param seconds 超时秒数
+     * @return Duration 对象
      */
-    public StreamingChatModel buildStreamingChatModel(AiProviderConfig config) {
-        // 如果配置为空，回退到 yml 默认配置
-        if (config == null) {
-            return buildStreamingChatModel(); // 无配置时回退到 yml 默认
-        }
-
-        // 计算超时时间，默认 120 秒
-        Duration timeout = Duration.ofSeconds(config.getTimeout() != null ? config.getTimeout() : 120);
-        
-        // 获取提供商类型
-        String provider = config.getProvider();
-
-        // 记录构建日志
-        log.info("构建 StreamingChatModel (from DB): provider={}, model={}, baseUrl={}",
-                provider, config.getModelName(), config.getBaseUrl());
-
-        // 根据提供商类型选择构建方式
-        if (AiProviderConfig.Provider.OPENAI.name().equalsIgnoreCase(provider)) {
-            // OpenAI 兼容 API：构建流式模型
-            return buildOpenAiStreamingChatModel(config, timeout);
-        } else {
-            // Ollama：构建流式模型
-            return buildOllamaStreamingChatModel(config, timeout);
-        }
+    private Duration timeout(Integer seconds) {
+        return Duration.ofSeconds(seconds != null ? seconds : 120);
     }
 
     /**
-     * 判断指定配置是否支持 Tool Calling（函数调用）
+     * 包装聊天模型，添加重试机制。
      * <p>
-     * 优先级：
-     * 1. 显式配置 toolsEnabled 字段（最高优先级）
-     * 2. 未配置则按模型名自动检测（gemma3n 不支持）
+     * 将原始模型包装为 {@link RetryableChatModel}，提供自动重试功能。
      *
-     * @param config AI 提供商配置实体
-     * @return true-支持 Tool Calling, false-不支持
+     * @param model 原始聊天模型
+     * @return 包装后的聊天模型
      */
-    public boolean isToolsSupported(AiProviderConfig config) {
-        // 如果配置为空，回退到 yml 默认配置
-        if (config == null) {
-            return isToolsSupported(); // 无配置时回退到 yml 默认
-        }
-        
-        // 优先使用显式配置的 toolsEnabled 字段
-        if (config.getToolsEnabled() != null) {
-            return config.getToolsEnabled();
-        }
-        
-        // 自动检测：已知不支持 tools 的模型
-        String model = config.getModelName().toLowerCase();
-        return !model.startsWith("gemma3n");  // gemma3n 系列不支持工具调用
+    private ChatModel wrap(ChatModel model) {
+        return new RetryableChatModel(model);
     }
 
-    // ==================== 内部构建方法 ====================
+    // ---- DB config 组合器 ----
 
     /**
-     * 构建 Ollama ChatModel（内部方法）
+     * 基于数据库配置构建聊天模型。
+     * <p>
+     * 根据提供商类型（OpenAI 或 Ollama）调用相应的构建方法。
      *
-     * @param config  AI 提供商配置
-     * @param timeout 超时时间
-     * @return OllamaChatModel 实例，带请求计数监听器
+     * @param config   AI 提供商配置
+     * @param thinking 是否启用思考过程
+     * @return 聊天模型实例
      */
-    private ChatModel buildOllamaChatModel(AiProviderConfig config, Duration timeout) {
+    private ChatModel buildChat(AiProviderConfig config, boolean thinking) {
+        Duration t = timeout(config.getTimeout());
+        log.info("构建 ChatModel (from DB): provider={}, model={}, baseUrl={}, thinking={}",
+                config.getProvider(), config.getModelName(), config.getBaseUrl(), thinking);
+        return config.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
+                        config.getTemperature(), t, config.getApiKey(), thinking)
+                : buildOllamaChat(config.getBaseUrl(), config.getModelName(),
+                        config.getTemperature(), t, thinking);
+    }
+
+    /**
+     * 基于数据库配置构建流式聊天模型。
+     * <p>
+     * 根据提供商类型（OpenAI 或 Ollama）调用相应的构建方法。
+     *
+     * @param config   AI 提供商配置
+     * @param thinking 是否启用思考过程
+     * @return 流式聊天模型实例
+     */
+    private StreamingChatModel buildStreaming(AiProviderConfig config, boolean thinking) {
+        Duration t = timeout(config.getTimeout());
+        log.info("构建 StreamingChatModel (from DB): provider={}, model={}, baseUrl={}, thinking={}",
+                config.getProvider(), config.getModelName(), config.getBaseUrl(), thinking);
+        return config.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? buildOpenAiStreaming(config.getBaseUrl(), config.getModelName(),
+                        config.getTemperature(), t, config.getApiKey(), thinking)
+                : buildOllamaStreaming(config.getBaseUrl(), config.getModelName(),
+                        config.getTemperature(), t, thinking);
+    }
+
+    // ---- yml config 组合器（解包为原始参数）----
+
+    /**
+     * 基于 yml 配置构建 Ollama 聊天模型。
+     * <p>
+     * 从配置对象中提取参数并调用底层构建器。
+     *
+     * @param chat     yml 聊天模型配置
+     * @param thinking 是否启用思考过程
+     * @return Ollama 聊天模型实例
+     */
+    private OllamaChatModel buildOllamaChat(AiModelProperties.ChatModelConfig chat, boolean thinking) {
+        return buildOllamaChat(chat.getBaseUrl(), chat.getModelName(),
+                chat.getTemperature(), chat.getTimeout(), thinking);
+    }
+
+    /**
+     * 基于 yml 配置构建 Ollama 流式聊天模型。
+     * <p>
+     * 从配置对象中提取参数并调用底层构建器。
+     *
+     * @param chat     yml 聊天模型配置
+     * @param thinking 是否启用思考过程
+     * @return Ollama 流式聊天模型实例
+     */
+    private OllamaStreamingChatModel buildOllamaStreaming(AiModelProperties.ChatModelConfig chat, boolean thinking) {
+        return buildOllamaStreaming(chat.getBaseUrl(), chat.getModelName(),
+                chat.getTemperature(), chat.getTimeout(), thinking);
+    }
+
+    /**
+     * 基于 yml 配置构建 OpenAI 聊天模型。
+     * <p>
+     * 从配置对象中提取参数并调用底层构建器，记录日志。
+     *
+     * @param chat     yml 聊天模型配置
+     * @param thinking 是否启用思考过程
+     * @return OpenAI 聊天模型实例
+     */
+    private OpenAiChatModel buildOpenAiChat(AiModelProperties.ChatModelConfig chat, boolean thinking) {
+        Duration t = chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(120);
+        log.info("构建 OpenAI ChatModel (yml): baseUrl={}, model={}, timeout={}s",
+                chat.getBaseUrl(), chat.getModelName(), t.getSeconds());
+        return buildOpenAiChat(chat.getBaseUrl(), chat.getModelName(),
+                chat.getTemperature(), t, chat.getApiKey(), thinking);
+    }
+
+    /**
+     * 基于 yml 配置构建 OpenAI 流式聊天模型。
+     * <p>
+     * 从配置对象中提取参数并调用底层构建器，记录日志。
+     *
+     * @param chat     yml 聊天模型配置
+     * @param thinking 是否启用思考过程
+     * @return OpenAI 流式聊天模型实例
+     */
+    private OpenAiStreamingChatModel buildOpenAiStreaming(AiModelProperties.ChatModelConfig chat, boolean thinking) {
+        Duration t = chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(120);
+        log.info("构建 OpenAI StreamingChatModel (yml): baseUrl={}, model={}",
+                chat.getBaseUrl(), chat.getModelName());
+        return buildOpenAiStreaming(chat.getBaseUrl(), chat.getModelName(),
+                chat.getTemperature(), t, chat.getApiKey(), thinking);
+    }
+
+    // ======================== 底层构建器（纯参数，无配置对象）=======================
+
+    /**
+     * 构建 Ollama 聊天模型（底层方法）。
+     * <p>
+     * 使用纯参数构建，不依赖配置对象，设置默认值并启用思考过程控制。
+     *
+     * @param baseUrl    Ollama 服务地址
+     * @param modelName  模型名称
+     * @param temperature 温度参数（0.0-2.0），如果为 null 则使用 0.7
+     * @param timeout    超时时间，如果为 null 则使用 120 秒
+     * @param thinking   是否启用思考过程
+     * @return Ollama 聊天模型实例
+     */
+    private OllamaChatModel buildOllamaChat(String baseUrl, String modelName,
+                                            Double temperature, Duration timeout, boolean thinking) {
         return OllamaChatModel.builder()
-                .baseUrl(config.getBaseUrl())                                    // 设置 Ollama 服务地址
-                .modelName(config.getModelName())                                // 设置模型名称
-                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)  // 设置温度，默认 0.7
-                .timeout(timeout)                                                // 设置超时时间
-                .customHeaders(AiModelProperties.UTF8_HEADERS)                   // 设置 UTF-8 编码头，防止中文乱码
-                .listeners(List.of(ollamaCounterListener()))                     // 添加请求计数监听器
+                .baseUrl(baseUrl).modelName(modelName)
+                .temperature(temperature != null ? temperature : 0.7)
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
+                .listeners(List.of(ollamaCounterListener()))
+                .returnThinking(thinking).think(thinking)
                 .build();
     }
 
     /**
-     * 构建 Ollama StreamingChatModel（内部方法）
+     * 构建 Ollama 流式聊天模型（底层方法）。
+     * <p>
+     * 使用纯参数构建，不依赖配置对象，设置默认值并启用思考过程控制。
      *
-     * @param config  AI 提供商配置
-     * @param timeout 超时时间
-     * @return OllamaStreamingChatModel 实例，带请求计数监听器
+     * @param baseUrl    Ollama 服务地址
+     * @param modelName  模型名称
+     * @param temperature 温度参数（0.0-2.0），如果为 null 则使用 0.7
+     * @param timeout    超时时间，如果为 null 则使用 120 秒
+     * @param thinking   是否启用思考过程
+     * @return Ollama 流式聊天模型实例
      */
-    private StreamingChatModel buildOllamaStreamingChatModel(AiProviderConfig config, Duration timeout) {
+    private OllamaStreamingChatModel buildOllamaStreaming(String baseUrl, String modelName,
+                                                          Double temperature, Duration timeout, boolean thinking) {
         return OllamaStreamingChatModel.builder()
-                .baseUrl(config.getBaseUrl())                                    // 设置 Ollama 服务地址
-                .modelName(config.getModelName())                                // 设置模型名称
-                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)  // 设置温度，默认 0.7
-                .timeout(timeout)                                                // 设置超时时间
-                .customHeaders(AiModelProperties.UTF8_HEADERS)                   // 设置 UTF-8 编码头
-                .listeners(List.of(ollamaCounterListener()))                     // 添加请求计数监听器
+                .baseUrl(baseUrl).modelName(modelName)
+                .temperature(temperature != null ? temperature : 0.7)
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
+                .customHeaders(AiModelProperties.UTF8_HEADERS)
+                .listeners(List.of(ollamaCounterListener()))
+                .returnThinking(thinking).think(thinking)
                 .build();
     }
 
     /**
-     * 构建 OpenAI 兼容 API ChatModel（带思考模式）
+     * 构建 OpenAI 聊天模型（底层方法）。
      * <p>
-     * 特点：
-     * - returnThinking(true): 返回模型的思考过程
-     * - sendThinking(true): 发送思考过程给前端
-     * - 使用 DiagnosticChatListener 进行诊断日志记录
+     * 使用纯参数构建，不依赖配置对象，设置默认值、API Key 和诊断监听器。
      *
-     * @param config  AI 提供商配置
-     * @param timeout 超时时间
-     * @return OpenAiChatModel 实例
+     * @param baseUrl    OpenAI API 基础地址
+     * @param modelName  模型名称
+     * @param temperature 温度参数（0.0-2.0），如果为 null 则使用 0.7
+     * @param timeout    超时时间，如果为 null 则使用 120 秒
+     * @param apiKey     API Key，如果为空则使用占位符
+     * @param thinking   是否启用思考过程
+     * @return OpenAI 聊天模型实例
      */
-    private ChatModel buildOpenAiChatModel(AiProviderConfig config, Duration timeout) {
-        // 构建器初始化，设置基础参数
+    private OpenAiChatModel buildOpenAiChat(String baseUrl, String modelName,
+                                            Double temperature, Duration timeout, String apiKey, boolean thinking) {
         var builder = OpenAiChatModel.builder()
-                .baseUrl(config.getBaseUrl())                                    // 设置 API 地址
-                .modelName(config.getModelName())                                // 设置模型名称
-                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)  // 设置温度，默认 0.7
-                .timeout(timeout)                                                // 设置超时时间
-                .returnThinking(true)                                            // 启用返回思考过程
-                .sendThinking(true)                                              // 启用发送思考过程
-                .listeners(List.of(new DiagnosticChatListener()));               // 添加诊断监听器
-        
-        // 设置 API Key：优先使用配置的 key，否则使用占位符
-        if (config.getApiKey() != null && !config.getApiKey().isBlank()) {
-            builder.apiKey(config.getApiKey());
-        } else {
-            builder.apiKey("sk-placeholder");  // 本地 Ollama 等不需要真实 key
-        }
-        
+                .baseUrl(baseUrl).modelName(modelName)
+                .temperature(temperature != null ? temperature : 0.7)
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
+                .returnThinking(thinking).sendThinking(thinking)
+                .listeners(List.of(new DiagnosticChatListener()));
+        builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
     }
 
     /**
-     * 构建 OpenAI 兼容 API ChatModel（关闭思考模式）
+     * 构建 OpenAI 流式聊天模型（底层方法）。
      * <p>
-     * 用于不需要深度推理的场景，减少响应时间。
+     * 使用纯参数构建，不依赖配置对象，设置默认值、API Key 和诊断监听器。
      *
-     * @param config  AI 提供商配置
-     * @param timeout 超时时间
-     * @return OpenAiChatModel 实例，已关闭思考模式
+     * @param baseUrl    OpenAI API 基础地址
+     * @param modelName  模型名称
+     * @param temperature 温度参数（0.0-2.0），如果为 null 则使用 0.7
+     * @param timeout    超时时间，如果为 null 则使用 120 秒
+     * @param apiKey     API Key，如果为空则使用占位符
+     * @param thinking   是否启用思考过程
+     * @return OpenAI 流式聊天模型实例
      */
-    private ChatModel buildOpenAiChatModelNoThinking(AiProviderConfig config, Duration timeout) {
-        // 构建器初始化，设置基础参数
-        var builder = OpenAiChatModel.builder()
-                .baseUrl(config.getBaseUrl())                                    // 设置 API 地址
-                .modelName(config.getModelName())                                // 设置模型名称
-                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)  // 设置温度，默认 0.7
-                .timeout(timeout)                                                // 设置超时时间
-                .returnThinking(false)                                           // 禁用返回思考过程
-                .sendThinking(false)                                             // 禁用发送思考过程
-                .listeners(List.of(new DiagnosticChatListener()));               // 添加诊断监听器
-        
-        // 设置 API Key：优先使用配置的 key，否则使用占位符
-        if (config.getApiKey() != null && !config.getApiKey().isBlank()) {
-            builder.apiKey(config.getApiKey());
-        } else {
-            builder.apiKey("sk-placeholder");
-        }
-        
-        return builder.build();
-    }
-
-    /**
-     * 构建 OpenAI 兼容 API StreamingChatModel（带思考模式）
-     * <p>
-     * 用于 SSE 流式响应场景，支持逐 token 输出思考过程。
-     *
-     * @param config  AI 提供商配置
-     * @param timeout 超时时间
-     * @return OpenAiStreamingChatModel 实例
-     */
-    private StreamingChatModel buildOpenAiStreamingChatModel(AiProviderConfig config, Duration timeout) {
-        // 构建器初始化，设置基础参数
+    private OpenAiStreamingChatModel buildOpenAiStreaming(String baseUrl, String modelName,
+                                                          Double temperature, Duration timeout, String apiKey, boolean thinking) {
         var builder = OpenAiStreamingChatModel.builder()
-                .baseUrl(config.getBaseUrl())                                    // 设置 API 地址
-                .modelName(config.getModelName())                                // 设置模型名称
-                .temperature(config.getTemperature() != null ? config.getTemperature() : 0.7)  // 设置温度，默认 0.7
-                .timeout(timeout)                                                // 设置超时时间
-                .returnThinking(true)                                            // 启用返回思考过程
-                .sendThinking(true)                                              // 启用发送思考过程
-                .listeners(List.of(new DiagnosticChatListener()));               // 添加诊断监听器
-        
-        // 设置 API Key：优先使用配置的 key，否则使用占位符
-        if (config.getApiKey() != null && !config.getApiKey().isBlank()) {
-            builder.apiKey(config.getApiKey());
-        } else {
-            builder.apiKey("sk-placeholder");
-        }
-        
+                .baseUrl(baseUrl).modelName(modelName)
+                .temperature(temperature != null ? temperature : 0.7)
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
+                .returnThinking(thinking).sendThinking(thinking)
+                .listeners(List.of(new DiagnosticChatListener()));
+        builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
+    }
+
+    // ======================== Ollama KV 缓存管理 ========================
+
+    /**
+     * 创建 Ollama 请求计数器监听器。
+     * <p>
+     * 监听每次请求完成后的响应事件，在 Redis 中递增计数器。
+     * 当请求次数达到重置间隔（50次）时，触发 Ollama 缓存软重置。
+     *
+     * @return 聊天模型监听器实例
+     */
+    private ChatModelListener ollamaCounterListener() {
+        return new ChatModelListener() {
+            @Override
+            public void onRequest(ChatModelRequestContext ctx) {}
+
+            @Override
+            public void onResponse(ChatModelResponseContext ctx) {
+                long count = redisTemplate.opsForValue().increment(OLLAMA_COUNTER_KEY);
+                if (count > 0 && count % OLLAMA_RESET_INTERVAL == 0) {
+                    performOllamaSoftReset(count);
+                }
+            }
+
+            @Override
+            public void onError(ChatModelErrorContext ctx) {}
+        };
+    }
+
+    /**
+     * 执行 Ollama 缓存软重置。
+     * <p>
+     * 通过发送一个空请求来触发 Ollama 服务的缓存清理，避免长时间运行后出现性能下降或缓存问题。
+     * 包含完整的异常处理，确保重置失败不影响正常服务。
+     *
+     * @param count 当前请求计数
+     */
+    private void performOllamaSoftReset(long count) {
+        try {
+            log.info("========== Ollama KV 缓存软重置 (#{}) ==========", count);
+            try {
+                ChatModel chatModel = buildChatModel();
+                if (chatModel instanceof OllamaChatModel) {
+                    chatModel.chat(List.of(UserMessage.from("")));
+                    log.info("Ollama ChatModel 缓存已重置");
+                }
+            } catch (Exception e) {
+                log.warn("ChatModel 缓存重置失败: {}", e.getMessage());
+            }
+            log.info("========== Ollama 缓存重置完成 ==========");
+        } catch (Exception e) {
+            log.error("Ollama 缓存重置异常: {}", e.getMessage());
+        }
     }
 }

@@ -33,6 +33,7 @@ export default function AiConfigPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
+  const [isCustomModel, setIsCustomModel] = useState(false)
   const [form, setForm] = useState<AiProviderConfig>({
     name: '',
     purpose: CHAT_PURPOSE,
@@ -94,6 +95,7 @@ export default function AiConfigPage() {
     })
     setEditingId(null)
     setShowApiKey(false)
+    setIsCustomModel(false)
   }
 
   const openCreateForm = () => {
@@ -106,6 +108,7 @@ export default function AiConfigPage() {
       ...config,
     })
     setEditingId(config.id ?? null)
+    setIsCustomModel(false)
     setShowForm(true)
   }
 
@@ -119,6 +122,7 @@ export default function AiConfigPage() {
       apiKey: f.provider !== preset.provider ? '' : f.apiKey,
     }))
     setShowPresets(false)
+    setIsCustomModel(false)
     toast.success(`已选择 ${preset.name}`, { description: '请填写名称和 API Key 后保存' })
   }
 
@@ -207,16 +211,16 @@ export default function AiConfigPage() {
   )
   configs.find((c) => c.isDefault);
   return (
-    <div className="min-h-screen bg-background">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background overscroll-contain">
       {/* Header */}
-      <header className="sticky top-0 z-50 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="shrink-0 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-20">
         <button onClick={() => navigate(-1)} className="rounded-full p-1.5 active:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-bold">AI 配置管理</h1>
       </header>
 
-      <main className="mx-auto max-w-lg space-y-4 p-4">
+      <main className="flex-1 overflow-y-auto overscroll-contain mx-auto w-full max-w-lg space-y-4 p-4">
         {/* 说明卡片 */}
         <section className="rounded-xl bg-card p-4 shadow-xs">
           <div className="flex items-start gap-3">
@@ -392,7 +396,7 @@ export default function AiConfigPage() {
                             <div className="flex items-center gap-1.5">
                               <span className="text-sm font-medium">{preset.name}</span>
                               {preset.region === 'CN' ? (
-                                <span className="rounded bg-blue-100 px-1 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">国内</span>
+                                <span className="rounded bg-info/10 px-1 py-0.5 text-[10px] font-medium text-info dark:bg-info/10 dark:text-info">国内</span>
                               ) : (
                                 <span className="rounded bg-purple-100 px-1 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">国际</span>
                               )}
@@ -400,7 +404,7 @@ export default function AiConfigPage() {
                             <p className="mt-0.5 text-xs text-muted-foreground">{preset.description}</p>
                             <div className="mt-1.5 flex flex-wrap gap-1">
                               {preset.models.slice(0, 3).map((m) => (
-                                <span key={m.name} className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${m.free ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-muted text-muted-foreground'}`}>
+                                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${m.free ? 'bg-success/10 text-success dark:bg-success/10 dark:text-success' : 'bg-muted text-muted-foreground'}`}>
                                   {m.label}{m.free && ' (免费)'}
                                 </span>
                               ))}
@@ -455,8 +459,18 @@ export default function AiConfigPage() {
               {currentPreset && currentPreset.models.length > 0 ? (
                 <div className="space-y-2">
                   <select
-                    value={currentPreset.models.some((m) => m.name === form.modelName) ? form.modelName : '__custom__'}
-                    onChange={(e) => { if (e.target.value !== '__custom__') setForm((f) => ({ ...f, modelName: e.target.value })) }}
+                    value={isCustomModel ? '__custom__' : (
+                      currentPreset.models.some((m) => m.name === form.modelName) ? form.modelName : '__custom__'
+                    )}
+                    onChange={(e) => {
+                      if (e.target.value === '__custom__') {
+                        setIsCustomModel(true)
+                        setForm((f) => ({ ...f, modelName: '' }))
+                      } else {
+                        setIsCustomModel(false)
+                        setForm((f) => ({ ...f, modelName: e.target.value }))
+                      }
+                    }}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
                   >
                     {currentPreset.models.map((m) => (
@@ -464,7 +478,7 @@ export default function AiConfigPage() {
                     ))}
                     <option value="__custom__">自定义模型名...</option>
                   </select>
-                  {!currentPreset.models.some((m) => m.name === form.modelName) && (
+                  {isCustomModel && (
                     <input
                       type="text"
                       value={form.modelName}

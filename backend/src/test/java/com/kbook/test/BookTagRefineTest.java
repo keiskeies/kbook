@@ -3,6 +3,7 @@ package com.kbook.test;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.service.AiProviderConfigService;
@@ -66,7 +67,7 @@ public class BookTagRefineTest {
     private BookService bookService;
 
     @Autowired
-    private AiProviderConfigService aiProviderConfigService;
+    private ChatModelFactory chatModelFactory;
     @Autowired
     private BookParserService bookParserService;
 
@@ -75,7 +76,7 @@ public class BookTagRefineTest {
 
     @Test
     public void refineBookTags() {
-        ChatModel chatModel = aiProviderConfigService.buildTagChatModel();
+        ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
         if (chatModel == null) {
             System.err.println("AI 模型不可用，跳过测试");
             return;

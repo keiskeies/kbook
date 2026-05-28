@@ -407,7 +407,7 @@ export default function AdminBooksPage() {
   const formatIcon = (fmt: string) => {
     switch (fmt) {
       case 'PDF': return <File className="h-5 w-5 text-red-500" />
-      case 'EPUB': return <BookOpen className="h-5 w-5 text-blue-500" />
+      case 'EPUB': return <BookOpen className="h-5 w-5 text-info" />
       case 'TXT': return <FileText className="h-5 w-5 text-green-500" />
       default: return <File className="h-5 w-5" />
     }
@@ -445,7 +445,7 @@ export default function AdminBooksPage() {
           </div>
           <div className="flex gap-2 text-xs text-muted-foreground mb-3">
             <span className="rounded bg-red-50 px-2 py-1 text-red-600">EPUB</span>
-            <span className="rounded bg-blue-50 px-2 py-1 text-blue-600">PDF</span>
+            <span className="rounded bg-info/10 px-2 py-1 text-info">PDF</span>
             <span className="rounded bg-green-50 px-2 py-1 text-green-600">TXT</span>
           </div>
 
@@ -479,7 +479,7 @@ export default function AdminBooksPage() {
               </div>
               <div className="flex gap-3 text-xs text-muted-foreground">
                 <span className="text-green-600">+{progress.added} 新增</span>
-                <span className="text-blue-600">↑{progress.updated} 更新</span>
+                <span className="text-info">↑{progress.updated} 更新</span>
                 <span>○{progress.skipped} 跳过</span>
                 {progress.failed > 0 && <span className="text-red-600">✕{progress.failed} 失败</span>}
               </div>
@@ -618,8 +618,8 @@ export default function AdminBooksPage() {
         {/* 向量管理 */}
         <section className="rounded-xl bg-card p-4 shadow-xs">
           <div className="flex items-center gap-3 mb-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
-              <Database className="h-5 w-5 text-emerald-500" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-success/10">
+              <Database className="h-5 w-5 text-success" />
             </div>
             <div>
               <h3 className="text-sm font-semibold">向量管理</h3>
@@ -634,9 +634,9 @@ export default function AdminBooksPage() {
                 <div className="text-lg font-bold text-foreground">{embedStats.totalBooks}</div>
                 <div className="text-muted-foreground">总书籍</div>
               </div>
-              <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/20 p-2.5 text-center">
-                <div className="text-lg font-bold text-emerald-600">{embedStats.embeddedBooks}</div>
-                <div className="text-emerald-600/80">已嵌入</div>
+              <div className="rounded-lg bg-success/10 dark:bg-success/10 p-2.5 text-center">
+                <div className="text-lg font-bold text-success">{embedStats.embeddedBooks}</div>
+                <div className="text-success/80">已嵌入</div>
               </div>
               <div className="rounded-lg bg-muted/50 p-2.5 text-center">
                 <div className="text-lg font-bold text-foreground">{embedStats.totalContentVectors.toLocaleString()}</div>
@@ -672,8 +672,8 @@ export default function AdminBooksPage() {
         {/* ES 索引管理 */}
         <section className="rounded-xl bg-card p-4 shadow-xs">
           <div className="flex items-center gap-3 mb-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50">
-              <Search className="h-5 w-5 text-amber-500" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10">
+              <Search className="h-5 w-5 text-warning" />
             </div>
             <div>
               <h3 className="text-sm font-semibold">ES 索引管理</h3>
@@ -690,7 +690,7 @@ export default function AdminBooksPage() {
               </div>
               <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-amber-500 transition-all duration-300 ease-out"
+                  className="h-full rounded-full bg-warning transition-all duration-300 ease-out"
                   style={{ width: `${esProgress.total > 0 ? (esProgress.current / esProgress.total) * 100 : 0}%` }}
                 />
               </div>
@@ -714,7 +714,7 @@ export default function AdminBooksPage() {
             <button
               onClick={handleEsReindex}
               disabled={esReindexing}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-warning py-2.5 text-sm font-medium text-white disabled:opacity-50"
             >
               <RefreshCw className={`h-4 w-4 ${esReindexing ? 'animate-spin' : ''}`} />
               {esReindexing ? '重建中...' : '全量刷新 ES'}

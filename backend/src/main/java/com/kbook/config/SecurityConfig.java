@@ -128,6 +128,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/recommend/**").authenticated()
                         .requestMatchers("/api/chat/**").authenticated()
                         .requestMatchers("/api/home/**").authenticated()
+                        .requestMatchers("/api/tts/**").authenticated()
                         
                         .anyRequest().authenticated()
                 )

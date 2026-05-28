@@ -73,9 +73,9 @@ export default function FollowListPage() {
   const currentList = activeTab === 'followings' ? followings : followers
 
   return (
-    <div className="min-h-screen bg-background page-enter pb-20">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       {/* 顶部 */}
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
+      <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
         <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -83,7 +83,7 @@ export default function FollowListPage() {
       </header>
 
       {/* Tab 切换 */}
-      <div className="flex border-b border-border/50">
+      <div className="flex shrink-0 border-b border-border/50">
         <button
           onClick={() => setActiveTab('followings')}
           className={`flex-1 py-3 text-sm font-semibold transition-colors border-b-2 ${
@@ -103,7 +103,7 @@ export default function FollowListPage() {
       </div>
 
       {/* 列表内容 */}
-      <div className="px-4 py-3">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="h-6 w-6 animate-spin rounded-full border-3 border-primary border-t-transparent" />

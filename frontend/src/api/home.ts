@@ -27,6 +27,7 @@ export interface RecommendedBook {
   format: string
   rating: number
   description: string | null
+  formatTags: string | null
   matchScore: number
   readCount: number
 }
