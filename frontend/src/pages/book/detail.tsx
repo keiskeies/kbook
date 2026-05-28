@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import {
   getBook, rateBook, updateBookCover, updateBookTitle, updateBookAuthor,
-  updateBookDescription, updateFormatTags, getMatchScoreDetail, getBookSpeedRead,
+  updateBookDescription, updateFormatTags, getMatchScoreDetail,
 } from '@/api/book'
 import type { MatchScoreDetail, DimensionScore, BookSpeedRead } from '@/api/book'
 import { checkInBookshelf, addToBookshelf, removeFromBookshelf } from '@/api/bookshelf'
@@ -29,6 +29,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useMatchScores } from '@/hooks/useMatchScores'
 import { useAuthStore } from '@/store/auth'
 import { toast } from 'sonner'
+import { createSsePostConnection } from '@/utils/sse-request'
 
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating < 0) return null
@@ -223,20 +224,92 @@ function MatchScoreCard({ bookId, ms }: { bookId: number; ms: number | undefined
 
 function SpeedReadCard({ bookId }: { bookId: number }) {
   const [data, setData] = useState<BookSpeedRead | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(true)
+  const bufferRef = useRef('')
+  const currentSectionRef = useRef('')
+  const currentItemRef = useRef('')
+
+  const flushCurrentItem = useCallback(() => {
+    const item = currentItemRef.current.trim()
+    const section = currentSectionRef.current
+    currentItemRef.current = ''
+    if (!item || !section) return
+
+    setData(prev => {
+      const next = { ...prev! }
+      if (section === '核心观点') {
+        next.corePoints = [...(next.corePoints || []), item]
+      } else if (section === '适合谁读') {
+        next.suitableFor = [...(next.suitableFor || []), item]
+      } else if (section === '不适合谁读') {
+        next.notSuitableFor = [...(next.notSuitableFor || []), item]
+      } else if (section === '读完能收获什么') {
+        next.takeaways = [...(next.takeaways || []), item]
+      } else if (section === '难度') {
+        next.difficulty = item
+      }
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     if (!bookId) return
     setLoading(true)
-    getBookSpeedRead(bookId)
-      .then((res: any) => {
-        const d = res?.data ?? res
-        if (d) setData(d)
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [bookId])
+    setData({ bookId, corePoints: [], suitableFor: [], notSuitableFor: [], takeaways: [], difficulty: '' })
+    bufferRef.current = ''
+    currentSectionRef.current = ''
+    currentItemRef.current = ''
+
+    const controller = createSsePostConnection(
+      `/books/${bookId}/speed-read/stream`,
+      {},
+      {
+        onChunk: (text) => {
+          if (!text) return
+          bufferRef.current += text
+          const lines = bufferRef.current.split('\n')
+          bufferRef.current = lines.pop() || ''
+
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('### ')) {
+              flushCurrentItem()
+              currentSectionRef.current = trimmed.slice(4).trim()
+            } else if (trimmed) {
+              if (currentItemRef.current) {
+                currentItemRef.current += trimmed
+              } else {
+                currentItemRef.current = trimmed
+              }
+              flushCurrentItem()
+            }
+          }
+        },
+        onDone: () => {
+          if (bufferRef.current.trim()) {
+            const trimmed = bufferRef.current.trim()
+            if (trimmed.startsWith('### ')) {
+              flushCurrentItem()
+              currentSectionRef.current = trimmed.slice(4).trim()
+            } else if (trimmed) {
+              currentItemRef.current = trimmed
+              flushCurrentItem()
+            }
+          } else {
+            flushCurrentItem()
+          }
+          setLoading(false)
+        },
+        onError: () => {
+          flushCurrentItem()
+          setLoading(false)
+        },
+      },
+    )
+
+    return () => controller.abort()
+  }, [bookId, flushCurrentItem])
 
   const getDifficultyBadge = (difficulty: string) => {
     const d = difficulty?.toLowerCase() || ''
@@ -258,6 +331,7 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
       icon: <Target className="h-3.5 w-3.5 text-primary" />,
       title: '核心观点',
       titleClass: 'text-foreground',
+      hasData: () => data?.corePoints && data.corePoints.length > 0,
       renderItems: () =>
         data?.corePoints && data.corePoints.length > 0 ? (
           <div className="border-l-2 border-primary/30 pl-3 space-y-2">
@@ -276,9 +350,9 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
           {[0, 1, 2].map((i) => (
             <div key={i} className="flex items-start gap-2">
               <span className="mt-0.5 flex h-5 w-5 shrink-0 animate-pulse rounded-full bg-primary/10" />
-              <div className="flex-1 space-y-1.5">
-                <div className="h-3 animate-pulse rounded bg-muted" style={{ width: `${90 - i * 5}%` }} />
-                <div className="h-3 animate-pulse rounded bg-muted" style={{ width: `${70 - i * 10}%` }} />
+              <div className="flex-1 space-y-1">
+                <div className="h-[20px] animate-pulse rounded bg-muted" style={{ width: `${90 - i * 5}%` }} />
+                <div className="h-[20px] animate-pulse rounded bg-muted" style={{ width: `${70 - i * 10}%` }} />
               </div>
             </div>
           ))}
@@ -290,6 +364,7 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
       icon: <Users className="h-3.5 w-3.5 text-success" />,
       title: '适合谁读',
       titleClass: 'text-success dark:text-success',
+      hasData: () => data?.suitableFor && data.suitableFor.length > 0,
       renderItems: () =>
         data?.suitableFor && data.suitableFor.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
@@ -304,12 +379,13 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
           </div>
         ) : null,
       skeleton: (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="space-y-1.5">
-              <div className="h-3 animate-pulse rounded bg-muted" style={{ width: `${60 + i * 8}%` }} />
-              <div className="h-3 animate-pulse rounded bg-muted" style={{ width: `${45 + i * 5}%` }} />
-            </div>
+            <div
+              key={i}
+              className="h-[24px] animate-pulse rounded-full bg-success/10"
+              style={{ width: `${55 + i * 8}%` }}
+            />
           ))}
         </div>
       ),
@@ -319,6 +395,7 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
       icon: <UserX className="h-3.5 w-3.5 text-danger" />,
       title: '不适合谁读',
       titleClass: 'text-danger dark:text-danger',
+      hasData: () => data?.notSuitableFor && data.notSuitableFor.length > 0,
       renderItems: () =>
         data?.notSuitableFor && data.notSuitableFor.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
@@ -333,12 +410,13 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
           </div>
         ) : null,
       skeleton: (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="space-y-1.5">
-              <div className="h-3 animate-pulse rounded bg-muted" style={{ width: `${60 + i * 8}%` }} />
-              <div className="h-3 animate-pulse rounded bg-muted" style={{ width: `${45 + i * 5}%` }} />
-            </div>
+            <div
+              key={i}
+              className="h-[24px] animate-pulse rounded-full bg-danger/10"
+              style={{ width: `${55 + i * 8}%` }}
+            />
           ))}
         </div>
       ),
@@ -348,6 +426,7 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
       icon: <Lightbulb className="h-3.5 w-3.5 text-warning" />,
       title: '读完能收获什么',
       titleClass: 'text-warning dark:text-warning',
+      hasData: () => data?.takeaways && data.takeaways.length > 0,
       renderItems: () =>
         data?.takeaways && data.takeaways.length > 0 ? (
           <div className="border-l-2 border-warning/30 pl-3 space-y-1.5">
@@ -364,9 +443,9 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
           {[0, 1, 2].map((i) => (
             <div key={i} className="flex items-start gap-2">
               <div className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-pulse rounded bg-warning/10" />
-              <div className="flex-1 space-y-1.5">
-                <div className="h-3 animate-pulse rounded bg-muted" style={{ width: `${85 - i * 5}%` }} />
-                <div className="h-3 animate-pulse rounded bg-muted" style={{ width: `${65 - i * 10}%` }} />
+              <div className="flex-1 space-y-1">
+                <div className="h-[20px] animate-pulse rounded bg-muted" style={{ width: `${85 - i * 5}%` }} />
+                <div className="h-[20px] animate-pulse rounded bg-muted" style={{ width: `${65 - i * 10}%` }} />
               </div>
             </div>
           ))}
@@ -400,8 +479,9 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
       {expanded && (
         <div className="mt-3 space-y-4">
           {sections.map((section) => {
-            const content = loading ? section.skeleton : section.renderItems()
-            if (!loading && !content) return null
+            const hasData = section.hasData()
+            const content = hasData ? section.renderItems() : (loading ? section.skeleton : null)
+            if (!content) return null
             return (
               <div key={section.key} className="space-y-2">
                 <div className={`flex items-center gap-1.5 text-xs font-semibold ${section.titleClass}`}>

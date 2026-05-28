@@ -22,9 +22,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -240,6 +242,19 @@ public class BookController {
                 .takeaways(List.of())
                 .difficulty("未知")
                 .build());
+    }
+
+    @PostMapping(value = "/{id}/speed-read/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamSpeedRead(@PathVariable Long id, Authentication authentication) {
+        Long userId = null;
+        if (authentication != null && authentication.getPrincipal() != null) {
+            try {
+                userId = (Long) authentication.getPrincipal();
+            } catch (Exception e) {
+                log.debug("获取当前用户ID失败: {}", e.getMessage());
+            }
+        }
+        return bookParserService.streamSpeedRead(id, userId);
     }
 
 }
