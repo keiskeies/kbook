@@ -59,6 +59,14 @@ const ANNUAL_INCOME_OPTIONS = [
   { value: 'PREFER_NOT_TO_SAY', label: '不方便说' },
 ]
 
+const CHILDREN_AGE_RANGE_OPTIONS = [
+  { value: '0_2', label: '0-2岁' },
+  { value: '3_6', label: '3-6岁' },
+  { value: '7_12', label: '7-12岁' },
+  { value: '13_17', label: '13-17岁' },
+  { value: '18_plus', label: '18岁以上' },
+]
+
 const MOOD_OPTIONS = [
   { value: 'HAPPY', label: '开心', emoji: '😊' },
   { value: 'CALM', label: '平静', emoji: '😌' },
@@ -96,6 +104,10 @@ export default function ProfilePage() {
   const [traitGender, setTraitGender] = useState(userInfo?.gender ?? '')
   const [traitMarried, setTraitMarried] = useState(userInfo?.married === true ? 'yes' : userInfo?.married === false ? 'no' : '')
   const [traitHasChildren, setTraitHasChildren] = useState(userInfo?.hasChildren === true ? 'yes' : userInfo?.hasChildren === false ? 'no' : '')
+  const [traitChildrenAgeRanges, setTraitChildrenAgeRanges] = useState<string[]>(() => {
+    const ranges = userInfo?.childrenAgeRanges
+    return ranges ? ranges.split(',').filter(Boolean) : []
+  })
   const [traitMbti, setTraitMbti] = useState(userInfo?.mbti ?? '')
   const [traitOccupations, setTraitOccupations] = useState<string[]>(() => {
     const occ = userInfo?.occupation
@@ -137,6 +149,13 @@ export default function ProfilePage() {
     else if (userInfo?.gender === 'FEMALE') parts.push('女')
     if (userInfo?.married != null) parts.push(userInfo.married ? '已婚' : '未婚')
     if (userInfo?.hasChildren != null) parts.push(userInfo.hasChildren ? '有孩子' : '无孩子')
+    if (userInfo?.childrenAgeRanges) {
+      const rangeLabels = userInfo.childrenAgeRanges.split(',').filter(Boolean).map((v: string) => {
+        const found = CHILDREN_AGE_RANGE_OPTIONS.find(o => o.value === v)
+        return found ? found.label : v
+      })
+      if (rangeLabels.length > 0) parts.push(rangeLabels.join('/'))
+    }
     if (userInfo?.mbti) parts.push(userInfo.mbti)
     if (userInfo?.occupation) {
       const occLabels = userInfo.occupation.split(',').filter(Boolean).map((v: string) => {
@@ -198,6 +217,8 @@ export default function ProfilePage() {
       setTraitGender(userInfo?.gender ?? '')
       setTraitMarried(userInfo?.married === true ? 'yes' : userInfo?.married === false ? 'no' : '')
       setTraitHasChildren(userInfo?.hasChildren === true ? 'yes' : userInfo?.hasChildren === false ? 'no' : '')
+      const ranges = userInfo?.childrenAgeRanges
+      setTraitChildrenAgeRanges(ranges ? ranges.split(',').filter(Boolean) : [])
       setTraitMbti(userInfo?.mbti ?? '')
       const occ = userInfo?.occupation
       setTraitOccupations(occ ? occ.split(',').filter(Boolean) : [])
@@ -347,6 +368,9 @@ export default function ProfilePage() {
         gender: traitGender || null,
         married: traitMarried ? traitMarried === 'yes' : null,
         hasChildren: traitHasChildren ? traitHasChildren === 'yes' : null,
+        childrenAgeRanges: traitHasChildren === 'yes' && traitChildrenAgeRanges.length > 0
+          ? traitChildrenAgeRanges.join(',')
+          : (traitHasChildren === 'no' ? 'no_children' : null),
         mbti: traitMbti || null,
         occupation: traitOccupations.length > 0 ? traitOccupations.join(',') : null,
         aspirationEducation: traitEducation || null,
@@ -611,11 +635,13 @@ export default function ProfilePage() {
       <FooterVersion />
 
       <Sheet open={showProfileModal} onOpenChange={setShowProfileModal}>
-        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto overscroll-y-contain rounded-t-3xl bg-card p-5 space-y-4">
-          <SheetHeader className="p-0">
+        <SheetContent side="bottom" className="max-h-[85vh] flex flex-col rounded-t-3xl bg-card p-5 gap-0">
+          <SheetHeader className="p-0 shrink-0 pb-4">
             <SheetTitle className="text-base font-bold">编辑个人信息</SheetTitle>
             <SheetDescription className="sr-only">编辑你的昵称、头像、简介和心情</SheetDescription>
           </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto overscroll-y-contain space-y-4 -mx-5 px-5">
 
           <div className="flex flex-col items-center gap-2">
             <button
@@ -694,22 +720,28 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <button
-            onClick={handleSaveProfile}
-            disabled={savingProfile || !editNickname.trim()}
-            className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
-          >
-            {savingProfile ? '保存中...' : (croppedAvatarBlob ? '保存（含新头像）' : '保存')}
-          </button>
+          </div>
+
+          <div className="shrink-0 pt-4">
+            <button
+              onClick={handleSaveProfile}
+              disabled={savingProfile || !editNickname.trim()}
+              className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
+            >
+              {savingProfile ? '保存中...' : (croppedAvatarBlob ? '保存（含新头像）' : '保存')}
+            </button>
+          </div>
         </SheetContent>
       </Sheet>
 
       <Sheet open={showTraitsModal} onOpenChange={setShowTraitsModal}>
-        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto overscroll-y-contain rounded-t-3xl bg-card p-5 space-y-4">
-          <SheetHeader className="p-0">
+        <SheetContent side="bottom" className="max-h-[85vh] flex flex-col rounded-t-3xl bg-card p-5 gap-0">
+          <SheetHeader className="p-0 shrink-0 pb-4">
             <SheetTitle className="text-base font-bold">编辑我的画像</SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</SheetDescription>
           </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto overscroll-y-contain space-y-4 -mx-5 px-5">
 
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">出生日期</label>
@@ -790,13 +822,46 @@ export default function ProfilePage() {
 
           <select
             value={traitHasChildren}
-            onChange={(e) => setTraitHasChildren(e.target.value)}
+            onChange={(e) => {
+              setTraitHasChildren(e.target.value)
+              if (e.target.value !== 'yes') setTraitChildrenAgeRanges([])
+            }}
             className="w-full max-w-full min-w-0 box-border rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 -webkit-appearance:none appearance-none"
           >
             <option value="">是否有孩子</option>
             <option value="yes">有孩子</option>
             <option value="no">无孩子</option>
           </select>
+
+          {traitHasChildren === 'yes' && (
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">孩子年龄（可多选）</label>
+              <div className="flex flex-wrap gap-2">
+                {CHILDREN_AGE_RANGE_OPTIONS.map(r => {
+                  const selected = traitChildrenAgeRanges.includes(r.value)
+                  return (
+                    <button
+                      key={r.value}
+                      type="button"
+                      onClick={() => {
+                        setTraitChildrenAgeRanges(prev =>
+                          selected ? prev.filter(v => v !== r.value) : [...prev, r.value]
+                        )
+                      }}
+                      className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors border ${
+                        selected
+                          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                          : 'bg-background text-muted-foreground border-border hover:border-primary/40'
+                      }`}
+                    >
+                      {selected && <Check className="h-3 w-3" />}
+                      {r.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <select
             value={traitMbti}
@@ -870,41 +935,45 @@ export default function ProfilePage() {
             ))}
           </select>
 
-          <button
-            onClick={handleSaveTraits}
-            disabled={savingTraits}
-            className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
-          >
-            {savingTraits ? '保存中...' : '保存'}
-          </button>
+          </div>
+
+          <div className="shrink-0 pt-4">
+            <button
+              onClick={handleSaveTraits}
+              disabled={savingTraits}
+              className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
+            >
+              {savingTraits ? '保存中...' : '保存'}
+            </button>
+          </div>
         </SheetContent>
       </Sheet>
 
       <Sheet open={showPreferenceModal} onOpenChange={setShowPreferenceModal}>
-        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto overscroll-y-contain rounded-t-3xl bg-card p-5 space-y-4">
-          <SheetHeader className="p-0">
+        <SheetContent side="bottom" className="max-h-[85vh] flex flex-col rounded-t-3xl bg-card p-5 gap-0">
+          <SheetHeader className="p-0 shrink-0 pb-4">
             <SheetTitle className="text-lg font-bold">阅读偏好</SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">
               设置你的阅读偏好，让推荐更懂你。喜欢的类型会优先推荐，不想看的会自动排除。
             </SheetDescription>
           </SheetHeader>
 
-          <div className="flex rounded-lg bg-muted p-1">
-            <button
-              onClick={() => { setPrefTab('include'); setPrefValue('') }}
-              className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'include' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
-            >
-              ❤️ 想看
-            </button>
-            <button
-              onClick={() => { setPrefTab('exclude'); setPrefValue('') }}
-              className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'exclude' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
-            >
-              🚫 不想看
-            </button>
-          </div>
+          <div className="shrink-0 space-y-3">
+            <div className="flex rounded-lg bg-muted p-1">
+              <button
+                onClick={() => { setPrefTab('include'); setPrefValue('') }}
+                className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'include' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+              >
+                ❤️ 想看
+              </button>
+              <button
+                onClick={() => { setPrefTab('exclude'); setPrefValue('') }}
+                className={`flex-1 whitespace-nowrap rounded-md py-1.5 text-sm font-medium transition-colors ${prefTab === 'exclude' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'}`}
+              >
+                🚫 不想看
+              </button>
+            </div>
 
-          <div className="space-y-2">
             <div className="flex gap-2">
               <select
                 value={prefCategory}
@@ -935,6 +1004,8 @@ export default function ProfilePage() {
               </button>
             </div>
           </div>
+
+          <div className="flex-1 overflow-y-auto overscroll-y-contain -mx-5 px-5 pt-3">
 
           {prefTab === 'include' ? (
             <div>
@@ -997,9 +1068,10 @@ export default function ProfilePage() {
             </div>
           )}
 
-          <p className="text-xs text-muted-foreground text-center">
+          <p className="text-xs text-muted-foreground text-center pb-2">
             {prefTab === 'include' ? '取消后，该类书籍不再获得优先推荐' : '恢复后，该类书籍将重新出现在推荐中'}
           </p>
+          </div>
         </SheetContent>
       </Sheet>
 

@@ -3,6 +3,7 @@ package com.kbook.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.PageResult;
+import com.kbook.constants.SemanticExpansionConstants;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.dto.RecommendedItem;
@@ -82,19 +83,35 @@ public class AiToolService {
         log.debug("[AI Tool] searchBooks: keyword={}, format={}", keyword, format);
         try {
             String fmt = (format == null || format.isBlank()) ? null : format.toUpperCase();
-            // 混合搜索：Qdrant 向量 + ES/MySQL 关键词加权融合
             PageResult<BookDocument> result =
-                    bookService.searchBooksEs(keyword, fmt, null,1, 5);
+                    bookService.searchBooksEs(keyword, fmt, null,1, 10);
             if (result.getList().isEmpty()) {
                 return "没有找到相关图书。";
             }
-            return result.getList().stream()
+            List<BookDocument> sorted = new ArrayList<>(result.getList());
+            sorted.sort((a, b) -> {
+                double ra = a.getRating() != null ? a.getRating() : 0.0;
+                double rb = b.getRating() != null ? b.getRating() : 0.0;
+                return Double.compare(rb, ra);
+            });
+            return sorted.stream()
                     .peek(b -> recordBook(b.getTitle(), b.getId()))
-                    .map(b -> String.format("ID: %s 《%s》 作者:%s 评分:%.1f",
-                            b.getId(),
-                            b.getTitle(),
-                            b.getAuthor() != null ? b.getAuthor() : "未知",
-                            b.getRating() != null ? b.getRating() : 0.0))
+                    .map(b -> {
+                        StringBuilder entry = new StringBuilder();
+                        entry.append(String.format("[BOOK:id=%s]《%s》 作者:%s 评分:%.1f",
+                                b.getId(),
+                                b.getTitle(),
+                                b.getAuthor() != null ? b.getAuthor() : "未知",
+                                b.getRating() != null ? b.getRating() : 0.0));
+                        if (b.getFormatTags() != null && !b.getFormatTags().isBlank()) {
+                            String tags = b.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+                            entry.append(" 标签:").append(tags);
+                        }
+                        if (b.getDescription() != null && !b.getDescription().isBlank()) {
+                            entry.append(" 简介:").append(truncate(b.getDescription(), 120));
+                        }
+                        return entry.toString();
+                    })
                     .collect(Collectors.joining("\n"));
         } catch (Exception e) {
             log.error("[AI Tool] searchBooks error", e);
@@ -360,13 +377,13 @@ public class AiToolService {
                 if (title != null && bookIdObj != null) {
                     recordBook(title, Long.valueOf(bookIdObj.toString()));
                 }
-                sb.append(String.format("%d. 《%s》 作者:%s 格式:%s 评分:%s 推荐原因:%s\n",
+                sb.append(String.format("%d. [BOOK:id=%s]《%s》 作者:%s 评分:%s\n",
                         i + 1,
+                        bookIdObj,
                         r.get("title"),
                         r.get("author"),
-                        r.get("format"),
-                        r.get("rating"),
-                        r.get("reason")));
+                        r.get("rating")));
+                sb.append("> 推荐理由：").append(r.get("reason")).append("\n\n");
             }
             return sb.toString();
         } catch (Exception e) {
@@ -508,16 +525,20 @@ public class AiToolService {
             for (int i = 0; i < items.size(); i++) {
                 RecommendedItem item = items.get(i);
                 recordBook(item.getTitle(), item.getBookId());
-                sb.append(String.format("%d. 《%s》 作者:%s 格式:%s 评分:%.1f 匹配度:%.0f%%\n",
+                sb.append(String.format("%d. [BOOK:id=%d]《%s》 作者:%s 评分:%.1f 匹配度:%.0f%%\n",
                         i + 1,
+                        item.getBookId(),
                         item.getTitle(),
                         item.getAuthor() != null ? item.getAuthor() : "未知",
-                        item.getFormat(),
                         item.getRating() != null ? item.getRating() : 0,
                         item.getMatchScore() * 100));
+                sb.append("> 推荐理由：");
                 if (item.getDescription() != null) {
-                    sb.append("   简介：").append(truncate(item.getDescription(), 80)).append("\n");
+                    sb.append(truncate(item.getDescription(), 80));
+                } else {
+                    sb.append("与您的阅读偏好高度匹配");
                 }
+                sb.append("\n\n");
             }
             return sb.toString();
         } catch (Exception e) {
@@ -527,6 +548,221 @@ public class AiToolService {
     }
 
     // ==================== 辅助方法 ====================
+
+    @Tool("深度推荐：根据用户的需求描述，从多个语义角度搜索并推荐高质量书籍。适用于用户提出宽泛或深层次的阅读需求（如'提升思维''自我成长''了解历史'等），比 searchBooks 更有深度和广度。")
+    public String deepRecommend(
+            @P("用户的需求描述，如'提升思维能力'、'想了解中国历史'、'适合职场新人的书'") String needDescription,
+            @P("推荐数量，默认5") Integer count
+    ) {
+        log.debug("[AI Tool] deepRecommend: needDescription={}", needDescription);
+        try {
+            int limit = (count != null && count > 0 && count <= 20) ? count : 5;
+
+            if (!embeddingService.isAvailable()) {
+                return deepRecommendFallback(needDescription, limit);
+            }
+
+            List<String> queries = expandRecommendQueries(needDescription);
+            Map<Long, DeepRecommendCandidate> candidates = new LinkedHashMap<>();
+
+            for (String query : queries) {
+                try {
+                    List<EmbeddingMatch<TextSegment>> matches =
+                            embeddingService.searchSimilarBooks(query, 20, 0.3, List.of());
+                    for (EmbeddingMatch<TextSegment> match : matches) {
+                        if (match.embedded() == null || match.embedded().metadata() == null) continue;
+                        Long bookId = match.embedded().metadata().getLong("bookId");
+                        if (bookId == null) continue;
+
+                        candidates.merge(bookId,
+                                new DeepRecommendCandidate(bookId, match.score(), query),
+                                (existing, incoming) -> {
+                                    existing.addScore(incoming.vectorScoreSum, incoming.matchedQueries.get(0));
+                                    return existing;
+                                });
+                    }
+                } catch (Exception e) {
+                    log.debug("deepRecommend 向量查询失败: query={} - {}", query, e.getMessage());
+                }
+            }
+
+            try {
+                PageResult<BookDocument> keywordResults =
+                        bookService.searchBooksEs(needDescription, null, null, 1, 10);
+                for (BookDocument doc : keywordResults.getList()) {
+                    candidates.merge(doc.getId(),
+                            new DeepRecommendCandidate(doc.getId(), 0.5, needDescription),
+                            (existing, incoming) -> {
+                                existing.addScore(0.3, "关键词匹配");
+                                return existing;
+                            });
+                }
+            } catch (Exception e) {
+                log.debug("deepRecommend 关键词搜索失败: {}", e.getMessage());
+            }
+
+            if (candidates.isEmpty()) {
+                return deepRecommendFallback(needDescription, limit);
+            }
+
+            List<DeepRecommendCandidate> sorted = new ArrayList<>(candidates.values());
+            sorted.sort((a, b) -> Double.compare(b.combinedScore(), a.combinedScore()));
+
+            List<DeepRecommendCandidate> top = sorted.stream().limit(limit * 2).toList();
+
+            List<DeepRecommendCandidate> enriched = new ArrayList<>();
+            for (DeepRecommendCandidate c : top) {
+                try {
+                    Book book = bookService.getBookById(c.bookId);
+                    if (book != null) {
+                        c.setBook(book);
+                        enriched.add(c);
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            enriched.sort((a, b) -> {
+                double scoreA = a.combinedScore() + qualityBoost(a.getBook());
+                double scoreB = b.combinedScore() + qualityBoost(b.getBook());
+                return Double.compare(scoreB, scoreA);
+            });
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("基于「").append(needDescription).append("」的深度推荐：\n\n");
+
+            int shown = 0;
+            for (DeepRecommendCandidate c : enriched) {
+                if (shown >= limit) break;
+                Book book = c.getBook();
+                if (book == null) continue;
+
+                recordBook(book.getTitle(), book.getId());
+
+                sb.append(String.format("%d. [BOOK:id=%d]《%s》 作者:%s 评分:%.1f\n",
+                        shown + 1, book.getId(), book.getTitle(),
+                        book.getAuthor() != null ? book.getAuthor() : "未知",
+                        book.getRating() != null ? book.getRating() : 0.0));
+
+                String reason = buildRecommendReason(c, needDescription);
+                sb.append("> 推荐理由：").append(reason).append("\n\n");
+                shown++;
+            }
+
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("[AI Tool] deepRecommend error", e);
+            return "深度推荐时发生错误，请尝试使用 searchBooks 搜索。";
+        }
+    }
+
+    private String deepRecommendFallback(String needDescription, int limit) {
+        try {
+            PageResult<BookDocument> result =
+                    bookService.searchBooksEs(needDescription, null, null, 1, limit);
+            if (result.getList().isEmpty()) {
+                return "没有找到与「" + needDescription + "」相关的书籍。";
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("基于「").append(needDescription).append("」的推荐：\n\n");
+            for (int i = 0; i < result.getList().size(); i++) {
+                BookDocument b = result.getList().get(i);
+                recordBook(b.getTitle(), b.getId());
+                sb.append(String.format("%d. [BOOK:id=%s]《%s》 作者:%s 评分:%.1f\n",
+                        i + 1, b.getId(), b.getTitle(),
+                        b.getAuthor() != null ? b.getAuthor() : "未知",
+                        b.getRating() != null ? b.getRating() : 0.0));
+                if (b.getDescription() != null && !b.getDescription().isBlank()) {
+                    sb.append("> 推荐理由：").append(truncate(b.getDescription(), 120)).append("\n\n");
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "搜索书籍时发生错误。";
+        }
+    }
+
+    private List<String> expandRecommendQueries(String needDescription) {
+        List<String> queries = new ArrayList<>();
+        queries.add(needDescription);
+
+        for (SemanticExpansionConstants.Expansion expansion :
+                SemanticExpansionConstants.findByCategory(SemanticExpansionConstants.Category.DOMAIN)) {
+            if (needDescription.contains(expansion.keyword())) {
+                for (String syn : expansion.synonyms().split(" ")) {
+                    String expandedQuery = needDescription.replace(expansion.keyword(), syn);
+                    queries.add(expandedQuery);
+                }
+                queries.add(needDescription + " " + expansion.synonyms());
+            }
+        }
+
+        if (queries.size() > 8) {
+            queries = queries.subList(0, 8);
+        }
+
+        return queries;
+    }
+
+    private double qualityBoost(Book book) {
+        if (book == null || book.getRating() == null) return 0;
+        double rating = book.getRating();
+        if (rating >= 4.0) return 0.15;
+        if (rating >= 3.5) return 0.08;
+        if (rating >= 3.0) return 0.0;
+        return -0.05;
+    }
+
+    private String buildRecommendReason(DeepRecommendCandidate c, String needDescription) {
+        List<String> reasons = new ArrayList<>();
+        if (c.hitCount >= 3) {
+            reasons.add("多角度语义匹配度高");
+        } else if (c.hitCount >= 2) {
+            reasons.add("语义相关度较高");
+        }
+        Book book = c.getBook();
+        if (book != null && book.getRating() != null && book.getRating() >= 4.0) {
+            reasons.add("高分佳作");
+        }
+        if (c.matchedQueries.stream().anyMatch(q -> !q.equals(needDescription))) {
+            reasons.add("与" + needDescription + "的延伸领域相关");
+        }
+        if (reasons.isEmpty()) {
+            reasons.add("与您的需求相关");
+        }
+        return String.join("，", reasons);
+    }
+
+    private static class DeepRecommendCandidate {
+        final Long bookId;
+        double vectorScoreSum;
+        int hitCount;
+        final List<String> matchedQueries = new ArrayList<>();
+        Book book;
+
+        DeepRecommendCandidate(Long bookId, double vectorScore, String matchedQuery) {
+            this.bookId = bookId;
+            this.vectorScoreSum = vectorScore;
+            this.hitCount = 1;
+            this.matchedQueries.add(matchedQuery);
+        }
+
+        void addScore(double score, String query) {
+            this.vectorScoreSum += score;
+            this.hitCount++;
+            if (!matchedQueries.contains(query)) {
+                matchedQueries.add(query);
+            }
+        }
+
+        double combinedScore() {
+            double avgVectorScore = hitCount > 0 ? vectorScoreSum / hitCount : 0;
+            double hitBonus = Math.min(hitCount * 0.1, 0.3);
+            return avgVectorScore + hitBonus;
+        }
+
+        Book getBook() { return book; }
+        void setBook(Book book) { this.book = book; }
+    }
 
     private String truncate(String text, int maxLen) {
         return CommonUtils.truncateText(text, maxLen);

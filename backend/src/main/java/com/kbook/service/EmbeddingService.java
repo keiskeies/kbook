@@ -1,5 +1,6 @@
 package com.kbook.service;
 
+import com.kbook.constants.SemanticExpansionConstants;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
@@ -542,7 +543,8 @@ public class EmbeddingService {
         }
 
         try {
-            Embedding queryEmbedding = embeddingModel.embed(queryText).content();
+            String expandedQuery = expandBookSearchQuery(queryText);
+            Embedding queryEmbedding = embeddingModel.embed(expandedQuery).content();
 
             EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
                     .queryEmbedding(queryEmbedding)
@@ -1057,26 +1059,75 @@ public class EmbeddingService {
     }
 
     /**
-     * 查询扩展：拼接书籍标题和作者信息，提升短查询与长段落的语义匹配度
-     * 原因：用户问题通常很短（如"主角的成长"），而内容分块是 800 字长段落，
-     * 直接 embed 短文本 vs 长文本的余弦相似度天然偏低。
-     * 拼接书名/作者后，query embedding 会更接近该书的主题向量空间。
+     * RAG 查询扩展：用书籍领域上下文 + 语义同义词扩展短查询，提升与长段落的匹配度
+     *
+     * 原理：用户问题通常很短（如"主角的成长"），而内容分块是 800 字长段落，
+     * 短文本 vs 长文本的余弦相似度天然偏低。扩展策略：
+     * 1. 语义同义词扩展：将核心关键词扩展为近义词，覆盖更多表达方式
+     * 2. 书籍领域上下文：用标签/简介中的领域词汇锚定查询到该书的主题向量空间
+     *
+     * 注意：不再拼接书名/作者，因为：
+     * - 内容 chunk 不包含书名/作者，拼接后反而引入噪声
+     * - bookId filter 已精确限定搜索范围，书名/作者信息冗余
      */
     private String expandQueryWithContext(String query, Book book) {
-        if (book == null) return query;
+        if (query == null || query.isBlank()) return query;
         try {
-            StringBuilder expanded = new StringBuilder();
-            if (book.getTitle() != null && !book.getTitle().isBlank()) {
-                expanded.append("《").append(book.getTitle()).append("》");
+            StringBuilder expanded = new StringBuilder(query);
+
+            String semanticExpanded = expandRagQuerySemantics(query);
+            if (semanticExpanded != null && !semanticExpanded.equals(query)) {
+                expanded.append(" ").append(semanticExpanded);
             }
-            if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
-                expanded.append(" ").append(book.getAuthor());
+
+            if (book != null) {
+                String domainContext = extractDomainContext(book);
+                if (!domainContext.isBlank()) {
+                    expanded.append(" ").append(domainContext);
+                }
             }
-            expanded.append(" ").append(query);
+
             return expanded.toString();
         } catch (Exception e) {
             return query;
         }
+    }
+
+    private String expandRagQuerySemantics(String query) {
+        if (query.length() > 30) return query;
+        return SemanticExpansionConstants.expandQuery(query, SemanticExpansionConstants.Category.LITERARY, 2);
+    }
+
+    private String extractDomainContext(Book book) {
+        StringBuilder context = new StringBuilder();
+
+        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+            String tags = book.getFormatTags()
+                    .replaceAll("[\\[\\]\"]", "")
+                    .replace(",", " ");
+            String[] tagArr = tags.split("\\s+");
+            int limit = Math.min(tagArr.length, 5);
+            for (int i = 0; i < limit; i++) {
+                if (!tagArr[i].isBlank()) {
+                    context.append(tagArr[i]).append(" ");
+                }
+            }
+        }
+
+        if (book.getDescription() != null && !book.getDescription().isBlank()) {
+            String desc = book.getDescription().length() > 100
+                    ? book.getDescription().substring(0, 100)
+                    : book.getDescription();
+            context.append(desc);
+        }
+
+        return context.toString().trim();
+    }
+
+    private String expandBookSearchQuery(String query) {
+        if (query == null || query.isBlank()) return query;
+        if (query.length() > 20) return query;
+        return SemanticExpansionConstants.expandQuery(query, SemanticExpansionConstants.Category.DOMAIN, 1);
     }
 
     /**
@@ -1517,7 +1568,7 @@ public class EmbeddingService {
      * 优化版本：使用预编译正则 + StringBuilder 预分配
      */
     private String buildBookMetadataText(Book book) {
-        StringBuilder sb = new StringBuilder(2000);
+        StringBuilder sb = new StringBuilder(3000);
 
         sb.append("书名:").append(book.getTitle() != null ? book.getTitle() : "").append(";");
         sb.append("作者:").append(book.getAuthor() != null ? book.getAuthor() : "").append(";");
@@ -1539,6 +1590,19 @@ public class EmbeddingService {
             sb.append("简介:;");
         }
 
+        if (book.getToc() != null && !book.getToc().isBlank()) {
+            String toc = book.getToc().length() > 800
+                    ? book.getToc().substring(0, 800)
+                    : book.getToc();
+            sb.append("目录:").append(toc).append(";");
+        }
+
+        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            String summary = book.getChapterSummary().length() > 500
+                    ? book.getChapterSummary().substring(0, 500)
+                    : book.getChapterSummary();
+            sb.append("章节摘要:").append(summary).append(";");
+        }
 
         return sb.toString();
     }

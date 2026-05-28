@@ -14,15 +14,12 @@ interface MarkdownRendererProps {
 }
 
 /**
- * 解析图书块数据 — 主格式为 《书名》(bid:数字)，兼容旧 [BOOK:id=数字]
- * 支持多种 AI 工具输出：
- *   《书名》(bid:123) 作者:xxx 格式:EPUB 评分:4.5 阅读:100次
- *   《书名》(bid:123) 作者:xxx 阅读:100次 评分:4.5          （排行榜）
- *   《书名》(bid:123) 作者:xxx 格式:EPUB 评分:4.5 匹配度:85%（推荐）
- *   《书名》(bid:123)                                         （最简）
+ * 解析图书块数据 — 主格式 《书名》(bid:数字)，兼容 [BOOK:id=数字]
+ * 新格式（AI推荐输出）：序号. [BOOK:id=数字]《书名》
+ * 旧格式（工具原始输出）：[BOOK:id=数字]《书名》 作者:xxx 评分:4.5 ...
+ * 作者/评分等详情由 InlineBookCard 通过 API 获取，解析仅提取 bookId 和书名
  */
 function parseBookData(blockText: string): InlineBookCardData | null {
-  // 提取 bookId — 主格式 (bid:123)，备选 [BOOK:id=123]
   let idMatch = blockText.match(/\(bid:(\d+)\)/)
   if (!idMatch) {
     idMatch = blockText.match(/\[BOOK:id=(\d+)\]/)
@@ -31,38 +28,10 @@ function parseBookData(blockText: string): InlineBookCardData | null {
 
   const bookId = parseInt(idMatch[1], 10)
 
-  // 提取书名
   const titleMatch = blockText.match(/《(.+?)》/)
   const title = titleMatch ? titleMatch[1] : '未知'
 
-  // 提取作者
-  const authorMatch = blockText.match(/作者[：:]\s*(.+?)(?:\s+格式|\s+评分|\s+阅读|\s+匹配度|\s+推荐原因|\s*$)/)
-  const author = authorMatch ? authorMatch[1].trim() : null
-
-  // 提取格式
-  const formatMatch = blockText.match(/格式[：:]\s*(\S+)/)
-  const format = formatMatch ? formatMatch[1] : ''
-
-  // 提取评分
-  const ratingMatch = blockText.match(/评分[：:]\s*([\d.]+)/)
-  const rating = ratingMatch ? parseFloat(ratingMatch[1]) : 0
-
-  // 提取阅读次数
-  const readCountMatch = blockText.match(/阅读[：:]\s*(\d+)次/)
-  const readCount = readCountMatch ? parseInt(readCountMatch[1], 10) : 0
-
-  // 提取推荐理由 / 简介 / 匹配度
-  const reasonMatch = blockText.match(/推荐原因[：:]\s*(.+?)(?:\s*$)/)
-  const descMatch = blockText.match(/简介[：:]\s*(.+?)(?:\s*$)/)
-  const matchScoreMatch = blockText.match(/匹配度[：:]\s*([\d.]+)%/)
-  const aiReason = blockText.match(/👉\s*(.+?)(?:\s*$)/)
-  const description = aiReason ? aiReason[1].trim()
-    : reasonMatch ? reasonMatch[1].trim()
-    : descMatch ? descMatch[1].trim()
-    : null
-  const matchScore = matchScoreMatch ? parseFloat(matchScoreMatch[1]) : undefined
-
-  return { bookId, title, author, format, rating, readCount, description, matchScore }
+  return { bookId, title, author: null, format: '', rating: 0, readCount: 0, description: null }
 }
 
 /**
@@ -117,35 +86,15 @@ function segmentContent(content: string): Array<
       // 先输出积攒的文本
       flushText()
 
-      // 收集图书块：当前行 + 可选续行（👉推荐理由 / 缩进"简介："）
-      let bookBlock = line
+      // 图书行直接作为 book segment，后续的 > 引用行由 ReactMarkdown 渲染
+      const bookLine = line
       i++
-      while (i < lines.length) {
-        const nextLine = lines[i]
-        // 👉 推荐理由续行（AI 系统提示词要求格式）
-        if (/^\s*👉\s/.test(nextLine)) {
-          bookBlock += '\n' + nextLine
-          i++
-          break
-        }
-        // 缩进的简介续行（personalizeRecommend 格式）
-        if (/^\s{2,}简介[：:]/.test(nextLine)) {
-          bookBlock += '\n' + nextLine
-          i++
-        } else if (/《.+?》\(bid:\d+\)/.test(nextLine) || /\[BOOK:id=\d+\]/.test(nextLine)) {
-          break
-        } else if (nextLine.trim() === '') {
-          break
-        } else {
-          break
-        }
-      }
 
-      const book = parseBookData(bookBlock)
+      const book = parseBookData(bookLine)
       if (book) {
-        segments.push({ type: 'book', content: bookBlock, book })
+        segments.push({ type: 'book', content: bookLine, book })
       } else {
-        textBuffer.push(bookBlock)
+        textBuffer.push(bookLine)
       }
     } else {
       textBuffer.push(line)

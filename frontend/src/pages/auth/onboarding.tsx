@@ -48,6 +48,14 @@ const ANNUAL_INCOME_OPTIONS = [
   { value: 'PREFER_NOT_TO_SAY', label: '不方便说' },
 ]
 
+const CHILDREN_AGE_RANGE_OPTIONS = [
+  { value: '0_2', label: '0-2岁' },
+  { value: '3_6', label: '3-6岁' },
+  { value: '7_12', label: '7-12岁' },
+  { value: '13_17', label: '13-17岁' },
+  { value: '18_plus', label: '18岁以上' },
+]
+
 type Step = {
   id: string
   title: string
@@ -75,6 +83,7 @@ export default function OnboardingPage() {
   const [gender, setGender] = useState('')
   const [married, setMarried] = useState('')
   const [hasChildren, setHasChildren] = useState('')
+  const [childrenAgeRanges, setChildrenAgeRanges] = useState<string[]>([])
   const [mbti, setMbti] = useState('')
   const [occupations, setOccupations] = useState<string[]>([])
   const [education, setEducation] = useState('')
@@ -115,6 +124,9 @@ export default function OnboardingPage() {
         gender: gender || undefined,
         married: married ? married === 'yes' : undefined,
         hasChildren: hasChildren ? hasChildren === 'yes' : undefined,
+        childrenAgeRanges: hasChildren === 'yes' && childrenAgeRanges.length > 0
+          ? childrenAgeRanges.join(',')
+          : (hasChildren === 'no' ? 'no_children' : undefined),
         mbti: mbti || undefined,
         occupation: occupations.length > 0 ? occupations.join(',') : undefined,
         aspirationEducation: education || undefined,
@@ -127,6 +139,7 @@ export default function OnboardingPage() {
         gender: (data.gender as 'MALE' | 'FEMALE' | 'OTHER') ?? null,
         married: data.married ?? null,
         hasChildren: data.hasChildren ?? null,
+        childrenAgeRanges: data.childrenAgeRanges ?? null,
         mbti: data.mbti ?? null,
         occupation: data.occupation ?? null,
         aspirationEducation: data.aspirationEducation ?? null,
@@ -255,7 +268,10 @@ export default function OnboardingPage() {
                 ].map((c) => (
                   <button
                     key={c.value}
-                    onClick={() => setHasChildren(c.value)}
+                    onClick={() => {
+                      setHasChildren(c.value)
+                      if (c.value !== 'yes') setChildrenAgeRanges([])
+                    }}
                     className={`flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-medium transition-all border ${
                       hasChildren === c.value
                         ? 'bg-info/10 text-info border-info/20 dark:bg-info/10 dark:text-info dark:border-info/20'
@@ -268,6 +284,35 @@ export default function OnboardingPage() {
                 ))}
               </div>
             </div>
+
+            {hasChildren === 'yes' && (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">孩子年龄（可多选）</label>
+                <div className="flex flex-wrap gap-2">
+                  {CHILDREN_AGE_RANGE_OPTIONS.map((r) => {
+                    const selected = childrenAgeRanges.includes(r.value)
+                    return (
+                      <button
+                        key={r.value}
+                        onClick={() => {
+                          setChildrenAgeRanges(prev =>
+                            selected ? prev.filter(v => v !== r.value) : [...prev, r.value]
+                          )
+                        }}
+                        className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all border ${
+                          selected
+                            ? 'bg-info/10 text-info border-info/20 dark:bg-info/10 dark:text-info dark:border-info/20'
+                            : 'bg-background text-muted-foreground border-border hover:border-info/10'
+                        }`}
+                      >
+                        {selected && <CheckCircle2 className="h-3 w-3" />}
+                        {r.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )
 

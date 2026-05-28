@@ -5,6 +5,7 @@ import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.constants.SemanticExpansionConstants;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.entity.Book;
@@ -511,8 +512,11 @@ public class BookChatService {
         return messages;
     }
 
+    private static final int MAX_RAG_CONTEXT_LENGTH = 12000;
+
     /**
      * RAG 语义检索：从书籍内容向量中检索与问题相关的片段
+     * 优化策略：多查询检索 + 相邻片段合并 + 关键词重排序 + 自适应 topK
      *
      * @param book     书籍实体
      * @param question 用户问题
@@ -526,10 +530,32 @@ public class BookChatService {
         }
 
         try {
-            List<EmbeddingMatch<TextSegment>> matches =
-                    embeddingService.searchContent(question, topK, book);
+            int effectiveTopK = adjustTopK(question, topK);
 
-            if (matches.isEmpty()) {
+            List<String> subQueries = decomposeQuery(question);
+            Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
+
+            for (String subQuery : subQueries) {
+                try {
+                    List<EmbeddingMatch<TextSegment>> matches =
+                            embeddingService.searchContent(subQuery, effectiveTopK, book);
+                    for (EmbeddingMatch<TextSegment> match : matches) {
+                        String chunkText = match.embedded() != null ? match.embedded().text() : "";
+                        if (chunkText.isBlank()) continue;
+                        String dedupeKey = chunkText.length() > 80
+                                ? chunkText.substring(0, 80)
+                                : chunkText;
+                        dedupedMatches.merge(dedupeKey, match, (existing, incoming) ->
+                                incoming.score() > existing.score() ? incoming : existing);
+                    }
+                } catch (Exception e) {
+                    log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
+                }
+            }
+
+            List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>(dedupedMatches.values());
+
+            if (allMatches.isEmpty()) {
                 log.debug("RAG 检索无结果: bookId={}, question={}", book.getId(), question.substring(0, Math.min(30, question.length())));
                 ragHitStatisticsService.recordMiss(book.getId());
                 return "";
@@ -537,18 +563,29 @@ public class BookChatService {
 
             ragHitStatisticsService.recordHit(book.getId());
 
+            allMatches.sort((a, b) -> {
+                double scoreA = a.score() + keywordRelevanceBonus(a, question);
+                double scoreB = b.score() + keywordRelevanceBonus(b, question);
+                return Double.compare(scoreB, scoreA);
+            });
+
+            List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(allMatches);
+
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < matches.size(); i++) {
-                EmbeddingMatch<TextSegment> match = matches.get(i);
+            int totalLen = 0;
+            for (int i = 0; i < merged.size(); i++) {
+                EmbeddingMatch<TextSegment> match = merged.get(i);
                 String chunkText = match.embedded() != null ? match.embedded().text() : "";
-                if (!chunkText.isBlank()) {
-                    sb.append("【参考片段").append(i + 1).append("】\n");
-                    sb.append(chunkText).append("\n\n");
-                }
+                if (chunkText.isBlank()) continue;
+                if (totalLen + chunkText.length() > MAX_RAG_CONTEXT_LENGTH) break;
+                sb.append("【参考片段").append(i + 1).append("】\n");
+                sb.append(chunkText).append("\n\n");
+                totalLen += chunkText.length();
             }
 
             String ragContext = sb.toString();
-            log.info("RAG 检索命中: bookId={}, hits={}, contextLen={}", book.getId(), matches.size(), ragContext.length());
+            log.info("RAG 检索命中: bookId={}, rawHits={}, afterDedup={}, afterMerge={}, contextLen={}",
+                    book.getId(), dedupedMatches.size(), allMatches.size(), merged.size(), ragContext.length());
 
             long questionMarkCount = ragContext.chars().filter(c -> c == '?').count();
             if (questionMarkCount > ragContext.length() * 0.1) {
@@ -564,6 +601,117 @@ public class BookChatService {
             ragHitStatisticsService.recordMiss(book.getId());
             return "";
         }
+    }
+
+    private List<String> decomposeQuery(String question) {
+        List<String> queries = new ArrayList<>();
+        queries.add(question);
+
+        for (SemanticExpansionConstants.Expansion expansion :
+                SemanticExpansionConstants.findByCategory(SemanticExpansionConstants.Category.LITERARY)) {
+            if (question.contains(expansion.keyword())) {
+                queries.add(expansion.synonyms());
+                break;
+            }
+        }
+
+        if (question.length() >= 6 && question.length() <= 20) {
+            queries.add(question + "是什么");
+            queries.add(question + "怎样 如何");
+        }
+
+        if (queries.size() > 4) {
+            queries = queries.subList(0, 4);
+        }
+
+        return queries;
+    }
+
+    private int adjustTopK(String question, int defaultTopK) {
+        String[] specificIndicators = {"叫什么", "是谁", "什么时候", "在哪里", "多少",
+                "名字", "第几", "哪一", "具体", "什么意思"};
+        for (String indicator : specificIndicators) {
+            if (question.contains(indicator)) {
+                return Math.min(defaultTopK, 5);
+            }
+        }
+
+        String[] broadIndicators = {"核心", "主题", "主要", "整体", "总结", "概括",
+                "所有", "哪些", "分别", "梳理", "全面"};
+        for (String indicator : broadIndicators) {
+            if (question.contains(indicator)) {
+                return Math.min(defaultTopK, 15);
+            }
+        }
+
+        return Math.min(defaultTopK, 10);
+    }
+
+    private double keywordRelevanceBonus(EmbeddingMatch<TextSegment> match, String question) {
+        if (match.embedded() == null || match.embedded().text() == null) return 0;
+        String chunkText = match.embedded().text();
+        String[] questionWords = question.replaceAll("[的了是在有和与及或吗呢吧啊]", "").split("");
+        long hitCount = 0;
+        for (String word : questionWords) {
+            if (!word.isBlank() && chunkText.contains(word)) {
+                hitCount++;
+            }
+        }
+        return hitCount * 0.01;
+    }
+
+    private List<EmbeddingMatch<TextSegment>> mergeAdjacentChunks(List<EmbeddingMatch<TextSegment>> matches) {
+        if (matches.size() <= 1) return matches;
+
+        List<EmbeddingMatch<TextSegment>> sortedByIndex = new ArrayList<>(matches);
+        sortedByIndex.sort((a, b) -> {
+            int indexA = getChunkIndex(a);
+            int indexB = getChunkIndex(b);
+            return Integer.compare(indexA, indexB);
+        });
+
+        List<EmbeddingMatch<TextSegment>> merged = new ArrayList<>();
+        EmbeddingMatch<TextSegment> current = sortedByIndex.get(0);
+        StringBuilder mergedText = new StringBuilder(current.embedded() != null ? current.embedded().text() : "");
+        double bestScore = current.score();
+
+        for (int i = 1; i < sortedByIndex.size(); i++) {
+            EmbeddingMatch<TextSegment> next = sortedByIndex.get(i);
+            int currentIndex = getChunkIndex(current);
+            int nextIndex = getChunkIndex(next);
+
+            if (nextIndex <= currentIndex + 2 && nextIndex > currentIndex) {
+                String nextText = next.embedded() != null ? next.embedded().text() : "";
+                if (mergedText.length() + nextText.length() <= 2000) {
+                    mergedText.append("\n\n").append(nextText);
+                    if (next.score() > bestScore) bestScore = next.score();
+                    current = next;
+                    continue;
+                }
+            }
+
+            merged.add(createMergedMatch(mergedText.toString(), current, bestScore));
+            mergedText = new StringBuilder(next.embedded() != null ? next.embedded().text() : "");
+            bestScore = next.score();
+            current = next;
+        }
+        merged.add(createMergedMatch(mergedText.toString(), current, bestScore));
+
+        return merged;
+    }
+
+    private int getChunkIndex(EmbeddingMatch<TextSegment> match) {
+        if (match.embedded() != null && match.embedded().metadata() != null) {
+            Long idx = match.embedded().metadata().getLong("chunkIndex");
+            return idx != null ? idx.intValue() : 0;
+        }
+        return 0;
+    }
+
+    private EmbeddingMatch<TextSegment> createMergedMatch(String text, EmbeddingMatch<TextSegment> template, double score) {
+        TextSegment segment = TextSegment.from(text,
+                template.embedded() != null ? template.embedded().metadata() : new dev.langchain4j.data.document.Metadata());
+        return new EmbeddingMatch<>(score, template.embeddingId(), template.embedding(), segment);
     }
 
     /**
