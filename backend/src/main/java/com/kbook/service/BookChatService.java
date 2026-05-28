@@ -530,7 +530,6 @@ public class BookChatService {
         }
 
         try {
-            int effectiveTopK = adjustTopK(question, topK);
 
             List<String> subQueries = decomposeQuery(question);
             Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
@@ -538,7 +537,7 @@ public class BookChatService {
             for (String subQuery : subQueries) {
                 try {
                     List<EmbeddingMatch<TextSegment>> matches =
-                            embeddingService.searchContent(subQuery, effectiveTopK, book);
+                            embeddingService.searchContent(subQuery, topK, book);
                     for (EmbeddingMatch<TextSegment> match : matches) {
                         String chunkText = match.embedded() != null ? match.embedded().text() : "";
                         if (chunkText.isBlank()) continue;
@@ -625,26 +624,6 @@ public class BookChatService {
         }
 
         return queries;
-    }
-
-    private int adjustTopK(String question, int defaultTopK) {
-        String[] specificIndicators = {"叫什么", "是谁", "什么时候", "在哪里", "多少",
-                "名字", "第几", "哪一", "具体", "什么意思"};
-        for (String indicator : specificIndicators) {
-            if (question.contains(indicator)) {
-                return Math.min(defaultTopK, 5);
-            }
-        }
-
-        String[] broadIndicators = {"核心", "主题", "主要", "整体", "总结", "概括",
-                "所有", "哪些", "分别", "梳理", "全面"};
-        for (String indicator : broadIndicators) {
-            if (question.contains(indicator)) {
-                return Math.min(defaultTopK, 15);
-            }
-        }
-
-        return Math.min(defaultTopK, 10);
     }
 
     private double keywordRelevanceBonus(EmbeddingMatch<TextSegment> match, String question) {

@@ -108,7 +108,11 @@ export default function AiConfigPage() {
       ...config,
     })
     setEditingId(config.id ?? null)
-    setIsCustomModel(false)
+    const preset = presets.find((p) => p.baseUrl === config.baseUrl)
+    const isCustom = preset
+      ? !preset.models.some((m) => m.name === config.modelName)
+      : !!config.modelName
+    setIsCustomModel(isCustom)
     setShowForm(true)
   }
 
@@ -465,7 +469,6 @@ export default function AiConfigPage() {
                     onChange={(e) => {
                       if (e.target.value === '__custom__') {
                         setIsCustomModel(true)
-                        setForm((f) => ({ ...f, modelName: '' }))
                       } else {
                         setIsCustomModel(false)
                         setForm((f) => ({ ...f, modelName: e.target.value }))
@@ -476,7 +479,7 @@ export default function AiConfigPage() {
                     {currentPreset.models.map((m) => (
                       <option key={m.name} value={m.name}>{m.label} ({m.name})</option>
                     ))}
-                    <option value="__custom__">自定义模型名...</option>
+                    <option value="__custom__">{isCustomModel && form.modelName ? `自定义: ${form.modelName}` : '自定义模型名...'}</option>
                   </select>
                   {isCustomModel && (
                     <input
