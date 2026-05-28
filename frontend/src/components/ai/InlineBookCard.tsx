@@ -66,7 +66,7 @@ function BookDescription({ description }: { description: string }) {
   return (
     <div className="border-t border-border/30 px-3 pb-2.5 pt-1.5">
       <p
-        className={`text-[11px] text-muted-foreground/60 leading-snug transition-all duration-200 ${
+        className={`text-[11px] text-muted-foreground leading-snug transition-all duration-200 ${
           expanded ? '' : 'line-clamp-2'
         }`}
       >

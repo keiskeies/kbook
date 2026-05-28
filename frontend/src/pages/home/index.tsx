@@ -107,7 +107,7 @@ function ContinueReadingCarousel({ books, onReadClick }: {
     if (timerRef.current) clearInterval(timerRef.current)
     timerRef.current = setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % totalRef.current)
-    }, 3000)
+    }, 5000)
   }, [])
 
   const stopAutoPlay = useCallback(() => {
@@ -172,7 +172,7 @@ function ContinueReadingCarousel({ books, onReadClick }: {
                 <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/10" />
                 <div className="absolute -right-2 top-8 h-16 w-16 rounded-full bg-white/5" />
                 <div className="relative flex items-center gap-3.5 h-full">
-                  <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} size="sm" className="flex-shrink-0 h-14 w-14 rounded-xl shadow-md" />
+                  <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} size="sm" className="flex-shrink-0 h-24 w-[66px] rounded-[2px] shadow-md" />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-white/80">继续阅读</p>
                     <p className="mt-0.5 truncate text-base font-bold text-white">{book.title}</p>
@@ -268,7 +268,7 @@ function VerticalBookList({ books, onBookClick, matchScores }: {
         return (
           <div
             key={book.id}
-            className="rounded-2xl bg-card/90 shadow-sm border border-border/50 cursor-pointer btn-press list-item-enter"
+            className="rounded-2xl bg-muted shadow-sm border border-border/50 cursor-pointer btn-press list-item-enter"
             style={{ animationDelay: `${index * 50}ms` }}
             onClick={() => onBookClick(book.id)}
           >

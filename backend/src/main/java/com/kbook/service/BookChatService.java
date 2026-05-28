@@ -141,7 +141,7 @@ public class BookChatService {
         }
         List<String> shuffled = new ArrayList<>(questions);
         java.util.Collections.shuffle(shuffled);
-        return shuffled.subList(0, 6);
+        return shuffled.subList(0, 10);
     }
 
     /**
