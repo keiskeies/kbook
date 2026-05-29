@@ -45,33 +45,62 @@ public class RecommendComputeService {
 
     private static final String SORTED_KEY_PREFIX = "kbook:recommend:sorted:"; // Redis有序集合键前缀
     private static final String SORTED_TEMP_SUFFIX = ":temp"; // 临时键后缀，用于原子性更新
+    private static final String RESTART_KEY_PREFIX = "kbook:recommend:restart:"; // 重算标识键前缀
 
     /**
      * 计算并保存用户推荐列表（带分布式锁）
      * 使用Redis分布式锁确保同一用户同时只有一个推荐计算任务在执行
+     *
      * @param userId 用户ID
      * @return 计算后的评分书籍列表
      */
     @RedisLock(key = "'kbook:lock:recommend:' + #userId", leaseTime = 600) // 分布式锁，锁定600秒
     public List<ScoredBook> computeAndSave(Long userId) {
-        log.info("获取锁成功，开始计算推荐: userId={}", userId); // 记录开始计算日志
-        long startTime = System.currentTimeMillis(); // 记录开始时间用于性能监控
+        log.info("获取锁成功，开始计算推荐: userId={}", userId);
+        long startTime = System.currentTimeMillis();
 
-        List<ScoredBook> scoredBooks = computeScoredBooks(userId); // 执行核心推荐计算逻辑
-        saveToSortedSetWithTemp(userId, scoredBooks); // 将计算结果保存到Redis有序集合
+        String restartKey = RESTART_KEY_PREFIX + userId;
+        List<ScoredBook> scoredBooks;
+        int restartCount = 0;
+        do {
+            // 清除重算标识，开始新一轮计算
+            redisTemplate.delete(restartKey);
+            if (restartCount > 0) {
+                log.info("检测到画像更新，重新计算: userId={}, restartCount={}", userId, restartCount);
+            }
 
-        long elapsed = System.currentTimeMillis() - startTime; // 计算耗时
-        log.info("推荐计算完成: userId={}, count={}, elapsed={}ms", userId, scoredBooks.size(), elapsed); // 记录完成日志
-        return scoredBooks; // 返回计算结果
+            scoredBooks = computeScoredBooks(userId, restartKey);
+            // computeScoredBooks 返回 null 表示中途检测到重算标识，需要重新计算
+            if (scoredBooks == null) {
+                restartCount++;
+            }
+        } while (scoredBooks == null && restartCount < 5); // 最多重算5次防止死循环
+
+        if (scoredBooks == null) {
+            log.warn("推荐计算放弃(重算次数过多): userId={}", userId);
+            return null;
+        }
+
+        saveToSortedSetWithTemp(userId, scoredBooks);
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("推荐计算完成: userId={}, count={}, elapsed={}ms, restarts={}",
+                userId, scoredBooks.size(), elapsed, restartCount);
+        return scoredBooks;
     }
 
     /**
      * 核心推荐计算逻辑（带进度回调）
-     * @param userId 用户ID
+     *
+     * @param userId             用户ID
      * @param onMatchingProgress 匹配阶段进度回调，参数为已处理书籍数
      * @return 按最终分数降序排列的评分书籍列表
      */
     public List<ScoredBook> computeScoredBooks(Long userId, IntConsumer onMatchingProgress) {
+        return computeScoredBooksWithRestart(userId, null, onMatchingProgress);
+    }
+
+    private List<ScoredBook> computeScoredBooksWithRestart(Long userId, String restartKey, IntConsumer onMatchingProgress) {
         User user = userService.getUserById(userId);
         List<Long> readBookIds = getReadBookIds(userId);
         Set<Long> excludeSet = new HashSet<>(readBookIds);
@@ -93,6 +122,15 @@ public class RecommendComputeService {
         int processed = 0;
         Page<BookProjection> bookPage;
         do {
+            // 每处理完一页（500本），检查是否需要重算
+            if (restartKey != null) {
+                Boolean hasRestart = redisTemplate.hasKey(restartKey);
+                if (Boolean.TRUE.equals(hasRestart)) {
+                    log.info("检测到重算标识，中断当前计算: userId={}, processed={}", userId, processed);
+                    return null;
+                }
+            }
+
             Pageable pageable = PageRequest.of(pageNumber, pageSize);
             bookPage = bookRepository.findAllProjectedByOrderByIdAsc(pageable);
 
@@ -110,10 +148,12 @@ public class RecommendComputeService {
                 double finalScore = RecommendMatchCalculator.normalizeScore(rawFinalScore);
 
                 scoredBooks.add(new ScoredBook(book, finalScore, matchScore, qualityBonus, "RULE"));
-                processed++;
             }
+            processed += bookPage.getContent().size();
             pageNumber++;
-            onMatchingProgress.accept(processed);
+            if (onMatchingProgress != null) {
+                onMatchingProgress.accept(processed);
+            }
         } while (bookPage.hasNext());
 
         addExploreBooks(user, excludeSet, scoredBooks);
@@ -123,17 +163,18 @@ public class RecommendComputeService {
     }
 
     /**
-     * 核心推荐计算逻辑（无进度回调，内部调用带回调版本）
+     * 核心推荐计算逻辑（无进度回调，带重算标识检查）
      */
-    private List<ScoredBook> computeScoredBooks(Long userId) {
-        return computeScoredBooks(userId, p -> {});
+    private List<ScoredBook> computeScoredBooks(Long userId, String restartKey) {
+        return computeScoredBooksWithRestart(userId, restartKey, null);
     }
 
     /**
      * 添加探索性书籍到推荐列表
      * 探索性书籍包括随机书籍和热门书籍，用于增加推荐的多样性和发现新内容
-     * @param user 用户对象
-     * @param excludeSet 需要排除的书籍ID集合
+     *
+     * @param user        用户对象
+     * @param excludeSet  需要排除的书籍ID集合
      * @param scoredBooks 当前评分书籍列表（会被修改）
      */
     private void addExploreBooks(User user, Set<Long> excludeSet, List<ScoredBook> scoredBooks) {
@@ -176,7 +217,8 @@ public class RecommendComputeService {
     /**
      * 使用临时键策略将推荐结果保存到Redis有序集合
      * 采用先写入临时键再重命名的方式实现原子性更新，避免读取到不完整的数据
-     * @param userId 用户ID
+     *
+     * @param userId      用户ID
      * @param scoredBooks 评分书籍列表
      */
     private void saveToSortedSetWithTemp(Long userId, List<ScoredBook> scoredBooks) {
@@ -199,7 +241,8 @@ public class RecommendComputeService {
     /**
      * 直接将推荐结果保存到Redis有序集合（不使用临时键策略）
      * 适用于不需要原子性保证的场景
-     * @param userId 用户ID
+     *
+     * @param userId      用户ID
      * @param scoredBooks 评分书籍列表
      */
     void saveToSortedSetDirect(Long userId, List<ScoredBook> scoredBooks) {
@@ -218,6 +261,7 @@ public class RecommendComputeService {
     /**
      * 计算书籍质量加分
      * 根据书籍评分给予不同的质量加分，高分书籍获得更多加分，低分书籍可能被扣分
+     *
      * @param rating 书籍评分（1-5分）
      * @return 质量加分值
      */
@@ -232,6 +276,7 @@ public class RecommendComputeService {
     /**
      * 计算书籍新鲜度加分
      * 新书籍获得更高的新鲜度加分，随着时间推移加分逐渐递减
+     *
      * @param createdAt 书籍创建时间
      * @return 新鲜度加分值
      */
@@ -247,14 +292,15 @@ public class RecommendComputeService {
     /**
      * 计算用户包含偏好加分
      * 当书籍符合用户的包含偏好（标签、作者、格式）时给予额外加分
-     * @param book 书籍对象
-     * @param includedTags 用户包含的标签列表
+     *
+     * @param book            书籍对象
+     * @param includedTags    用户包含的标签列表
      * @param includedAuthors 用户包含的作者列表
      * @param includedFormats 用户包含的格式列表
      * @return 偏好加分值
      */
     private double calculateIncludeBonus(BookProjection book, List<String> includedTags,
-                                          List<String> includedAuthors, List<String> includedFormats) {
+                                         List<String> includedAuthors, List<String> includedFormats) {
         // 从配置服务获取各类偏好的加分系数
         double tagBonus = coefficientService.getCoefficient("PREFERENCE", "tag_bonus", 0.12); // 标签加分系数，默认0.12
         double authorBonus = coefficientService.getCoefficient("PREFERENCE", "author_bonus", 0.15); // 作者加分系数，默认0.15
@@ -273,14 +319,20 @@ public class RecommendComputeService {
         if (!includedAuthors.isEmpty() && book.getAuthor() != null) {
             for (String author : includedAuthors) {
                 // 如果书籍作者是用户喜欢的作者，则累加作者加分（只加一次）
-                if (author.equalsIgnoreCase(book.getAuthor())) { bonus += authorBonus; break; }
+                if (author.equalsIgnoreCase(book.getAuthor())) {
+                    bonus += authorBonus;
+                    break;
+                }
             }
         }
         // 检查格式匹配情况
         if (!includedFormats.isEmpty() && book.getFormat() != null) {
             for (String format : includedFormats) {
                 // 如果书籍格式是用户喜欢的格式，则累加格式加分（只加一次）
-                if (format.equalsIgnoreCase(book.getFormat())) { bonus += formatBonus; break; }
+                if (format.equalsIgnoreCase(book.getFormat())) {
+                    bonus += formatBonus;
+                    break;
+                }
             }
         }
         return bonus; // 返回总偏好加分
@@ -288,14 +340,15 @@ public class RecommendComputeService {
 
     /**
      * 检查书籍是否被用户排除偏好所排除
-     * @param book 待检查的书籍
-     * @param excludedTags 用户排除的标签列表
+     *
+     * @param book            待检查的书籍
+     * @param excludedTags    用户排除的标签列表
      * @param excludedAuthors 用户排除的作者列表
      * @param excludedFormats 用户排除的格式列表
      * @return true表示应被排除，false表示不应被排除
      */
     private boolean isExcludedByPreference(BookProjection book, List<String> excludedTags,
-                                            List<String> excludedAuthors, List<String> excludedFormats) {
+                                           List<String> excludedAuthors, List<String> excludedFormats) {
         // 检查格式是否在排除列表中
         if (!excludedFormats.isEmpty() && book.getFormat() != null
                 && excludedFormats.contains(book.getFormat().toUpperCase())) return true;
@@ -316,6 +369,7 @@ public class RecommendComputeService {
     /**
      * 获取用户已读或交互过的书籍ID列表
      * 合并阅读历史和阅读进度中的书籍ID，去重后返回
+     *
      * @param userId 用户ID
      * @return 已读/交互过的书籍ID列表
      */
@@ -328,6 +382,7 @@ public class RecommendComputeService {
 
     /**
      * 获取用户排除的标签列表
+     *
      * @param userId 用户ID
      * @return 排除的标签列表
      */
@@ -338,6 +393,7 @@ public class RecommendComputeService {
 
     /**
      * 获取用户排除的作者列表
+     *
      * @param userId 用户ID
      * @return 排除的作者列表
      */
@@ -348,6 +404,7 @@ public class RecommendComputeService {
 
     /**
      * 获取用户排除的格式列表
+     *
      * @param userId 用户ID
      * @return 排除的格式列表
      */
@@ -358,6 +415,7 @@ public class RecommendComputeService {
 
     /**
      * 获取用户包含的标签列表
+     *
      * @param userId 用户ID
      * @return 包含的标签列表
      */
@@ -368,6 +426,7 @@ public class RecommendComputeService {
 
     /**
      * 获取用户包含的作者列表
+     *
      * @param userId 用户ID
      * @return 包含的作者列表
      */
@@ -378,6 +437,7 @@ public class RecommendComputeService {
 
     /**
      * 获取用户包含的格式列表
+     *
      * @param userId 用户ID
      * @return 包含的格式列表
      */
@@ -389,6 +449,7 @@ public class RecommendComputeService {
     /**
      * 解析书籍标签字符串为标签集合
      * 支持多种分隔符和格式，如JSON数组格式或逗号分隔格式
+     *
      * @param formatTags 标签字符串，可能包含方括号、引号等字符
      * @return 解析后的标签集合
      */
@@ -404,12 +465,14 @@ public class RecommendComputeService {
     /**
      * 评分书籍记录类
      * 封装书籍及其各项评分信息，用于推荐结果传输
-     * @param book 书籍对象
-     * @param finalScore 最终综合分数
-     * @param matchScore 基础匹配分数
+     *
+     * @param book         书籍对象
+     * @param finalScore   最终综合分数
+     * @param matchScore   基础匹配分数
      * @param qualityBonus 质量加分
-     * @param recallPath 召回路径标识（RULE=规则推荐，EXPLORE=探索推荐）
+     * @param recallPath   召回路径标识（RULE=规则推荐，EXPLORE=探索推荐）
      */
-    public record ScoredBook(BookProjection book, double finalScore, double matchScore, double qualityBonus, String recallPath) {
+    public record ScoredBook(BookProjection book, double finalScore, double matchScore, double qualityBonus,
+                             String recallPath) {
     }
 }

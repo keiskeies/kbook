@@ -207,20 +207,44 @@ public class RecommendService {
         }
     }
 
+    /** 重算标识键前缀 */
+    private static final String RESTART_KEY_PREFIX = "kbook:recommend:restart:";
+
     /**
      * 异步重新计算用户推荐
+     * <p>
+     * 设置重算标识后调用 computeAndSave。
+     * 如果当前有正在进行的计算，它会检测到重算标识并立即中断重来；
+     * 如果没有，直接开始计算。
+     * 如果锁被占用，等待后重试。
+     *
      * @param userId 用户ID
      */
     @Async
     public void asyncRecompute(Long userId) {
         try {
             log.info("异步重新计算推荐: userId={}", userId);
-            List<RecommendComputeService.ScoredBook> scoredBooks = computeService.computeAndSave(userId);
-            if (scoredBooks != null) {
-                log.info("异步重新计算完成: userId={}, count={}", userId, scoredBooks.size());
-            } else {
-                log.info("异步重新计算跳过(锁被占用): userId={}", userId);
+            // 设置重算标识 — 如果正在计算中，会触发其中断并重来
+            String restartKey = RESTART_KEY_PREFIX + userId;
+            redisTemplate.opsForValue().set(restartKey, "1", 10, java.util.concurrent.TimeUnit.MINUTES);
+
+            int maxRetries = 10;
+            for (int attempt = 1; attempt <= maxRetries; attempt++) {
+                List<RecommendComputeService.ScoredBook> scoredBooks = computeService.computeAndSave(userId);
+                if (scoredBooks != null) {
+                    log.info("异步重新计算完成: userId={}, count={}, attempt={}",
+                            userId, scoredBooks.size(), Math.max(attempt, 1));
+                    return;
+                }
+                log.info("锁被占用(已有计算在进行)，等待后重试: userId={}, attempt={}/{}", userId, attempt, maxRetries);
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
             }
+            log.warn("异步重新计算最终放弃(超过{}次重试): userId={}", maxRetries, userId);
         } catch (Exception e) {
             log.error("异步重新计算失败: userId={}", userId, e);
         }
