@@ -31,7 +31,7 @@ public class BookScanService {
     private final BookParserService bookParserService;
     private final ObjectMapper objectMapper;
     private final BookStorageProperties storageProps;
-    private final MatchScoreCacheService matchScoreCacheService;
+
 
     /**
      * 扫描进行中标记，防止重复扫描
@@ -268,7 +268,6 @@ public class BookScanService {
         bookParserService.generateAllAiData(book);
         bookService.setAiRating(book.getId(), book.getRating());
         bookService.updateBook(book.getId(), book);
-        matchScoreCacheService.evictBook(book.getId());
         CompletableFuture.runAsync(() -> bookParserService.generateBookEmbedding(book));
         return book;
     }
@@ -289,7 +288,6 @@ public class BookScanService {
         bookParserService.generateAllAiData(saved);
         bookService.setAiRating(saved.getId(), saved.getRating());
         bookService.updateBook(saved.getId(), saved);
-        matchScoreCacheService.evictBook(saved.getId());
         CompletableFuture.runAsync(() -> bookParserService.generateBookEmbedding(saved));
         return saved;
     }

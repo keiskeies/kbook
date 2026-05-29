@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Sparkles, Star, RefreshCw, Tag, Trash2 } from 'lucide-react'
+import { ArrowLeft, Sparkles, Star, RefreshCw, Tag, Trash2, Loader2 } from 'lucide-react'
+import { useInView } from 'react-intersection-observer'
 import { getRecommendationsPage, generateRecommendationsStream } from '@/api/book'
 import { moveToTrash } from '@/api/bookTrash'
 import type { RecommendedItem, RecommendProgress } from '@/api/book'
@@ -9,7 +10,7 @@ import { parseFormatTags } from '@/types/book'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 20
 
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating < 0) return null
@@ -121,8 +122,11 @@ function SwipeableBookCard({
   return (
     <div className="relative overflow-hidden rounded-2xl">
       <div
-        className="absolute right-0 top-0 bottom-0 flex items-center justify-center bg-red-500 text-white"
-        style={{ width: SWIPE_MAX }}
+        className="absolute right-0 top-0 bottom-0 flex items-center justify-center bg-red-500 text-white transition-opacity duration-200"
+        style={{ 
+          width: SWIPE_MAX,
+          opacity: offsetX < -10 ? 1 : 0
+        }}
       >
         <button
           onClick={onTrash}
@@ -215,49 +219,46 @@ export default function RecommendPage() {
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState<RecommendProgress | null>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const fetchingRef = useRef(false)
   const hasMoreRef = useRef(true)
-  const loadingRef = useRef(false)
   const pageRef = useRef(0)
+
+  const { ref: sentinelRef, inView } = useInView({
+    root: document.body,
+    rootMargin: '1000px',
+  })
 
   const [trashDialogOpen, setTrashDialogOpen] = useState(false)
   const [trashTarget, setTrashTarget] = useState<RecommendedItem | null>(null)
   const [trashing, setTrashing] = useState(false)
 
-  const fetchPage = useCallback(async (pageNum: number, append: boolean) => {
-    if (loadingRef.current) return
-    loadingRef.current = true
-
-    if (append) setLoadingMore(true)
-    else setLoading(true)
-
+  const loadPage = useCallback(async (pageNum: number) => {
+    if (fetchingRef.current) return
+    fetchingRef.current = true
+    if (pageNum === 0) {
+      setLoading(true)
+    } else {
+      setLoadingMore(true)
+    }
     try {
-      const res = await getRecommendationsPage(pageNum, PAGE_SIZE) as any
+      const res = await getRecommendationsPage(pageNum + 1, PAGE_SIZE) as any
       const data = res?.data || res
       const list: RecommendedItem[] = data?.list || []
       const totalCount: number = data?.total || 0
 
-      if (append) {
-        setBooks(prev => [...prev, ...list])
-      } else {
-        setBooks(list)
-      }
+      setBooks((prev) => pageNum === 0 ? list : [...prev, ...list])
       setTotal(totalCount)
+      const hasNext = list.length >= PAGE_SIZE && (pageNum + 1) * PAGE_SIZE < totalCount
+      hasMoreRef.current = hasNext
       pageRef.current = pageNum
-      hasMoreRef.current = list.length >= PAGE_SIZE && (pageNum * PAGE_SIZE) < totalCount
     } catch {
-      if (!append) setBooks([])
+      if (pageNum === 0) setBooks([])
     } finally {
+      fetchingRef.current = false
       setLoading(false)
       setLoadingMore(false)
-      loadingRef.current = false
     }
   }, [])
-
-  const loadNextPage = useCallback(() => {
-    if (loadingRef.current || !hasMoreRef.current) return
-    fetchPage(pageRef.current + 1, true)
-  }, [fetchPage])
 
   const startGenerate = useCallback(() => {
     if (abortRef.current) {
@@ -279,44 +280,28 @@ export default function RecommendPage() {
         setGenerating(false)
         setProgress(null)
         abortRef.current = null
-        fetchPage(1, false)
+        loadPage(0)
       },
       (error) => {
         console.error('推荐生成失败:', error)
         setGenerating(false)
         setProgress(null)
         abortRef.current = null
-        fetchPage(1, false)
+        loadPage(0)
       },
     )
     abortRef.current = controller
-  }, [fetchPage])
+  }, [loadPage])
 
   useEffect(() => {
-    fetchPage(1, false)
-  }, [fetchPage])
+    loadPage(0)
+  }, [loadPage])
 
   useEffect(() => {
-    const sentinel = sentinelRef.current
-    if (!sentinel) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
-          loadNextPage()
-        }
-      },
-      { rootMargin: '300px' },
-    )
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [loadNextPage, books.length, generating])
-
-  useEffect(() => {
-    return () => {
-      if (abortRef.current) abortRef.current.abort()
+    if (inView && hasMoreRef.current && !fetchingRef.current && !loading) {
+      loadPage(pageRef.current + 1)
     }
-  }, [])
+  }, [inView, books.length, loadPage, loading])
 
   const handleTrashClick = (book: RecommendedItem) => {
     setTrashTarget(book)
@@ -414,11 +399,10 @@ export default function RecommendPage() {
               ))}
             </div>
 
-            <div ref={sentinelRef} className="h-4" />
-
             {loadingMore && (
-              <div className="flex justify-center py-4">
-                <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-xs text-muted-foreground">加载中...</span>
               </div>
             )}
 
@@ -427,6 +411,8 @@ export default function RecommendPage() {
                 <span className="text-xs text-muted-foreground">— 已展示全部推荐 —</span>
               </div>
             )}
+
+            {hasMoreRef.current && <div ref={sentinelRef} className="h-1" />}
           </>
         ) : (
           <div className="flex h-[50vh] flex-col items-center justify-center">

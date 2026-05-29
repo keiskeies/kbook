@@ -10,8 +10,8 @@ import com.kbook.entity.BookTrash;
 import com.kbook.entity.User;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.BookTrashRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,15 +30,29 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class BookTrashService {
 
     private final BookTrashRepository bookTrashRepository;
     private final BookRepository bookRepository;
     private final UserService userService;
-    private final MatchScoreCacheService matchScoreCacheService;
     private final BookService bookService;
     private final ObjectMapper objectMapper;
+    private final RecommendService recommendService;
+
+    public BookTrashService(
+            BookTrashRepository bookTrashRepository,
+            BookRepository bookRepository,
+            UserService userService,
+            BookService bookService,
+            ObjectMapper objectMapper,
+            @Lazy RecommendService recommendService) {
+        this.bookTrashRepository = bookTrashRepository;
+        this.bookRepository = bookRepository;
+        this.userService = userService;
+        this.bookService = bookService;
+        this.objectMapper = objectMapper;
+        this.recommendService = recommendService;
+    }
 
     private static final int BASE_RATER_COUNT = 1000;
     private static final double TRASH_PENALTY_CONTRIBUTION = -0.5;
@@ -80,8 +94,8 @@ public class BookTrashService {
         // 保存更新后的图书信息
         bookRepository.save(book);
 
-        // 清除用户匹配分数缓存
-        matchScoreCacheService.evictUser(userId);
+        // 从推荐有序集合中移除该图书，避免已丢弃的图书仍出现在推荐中
+        recommendService.removeSingleBook(userId, bookId);
 
         // 记录日志
         log.info("图书丢入垃圾桶: userId={}, bookId={}, dimensionRatingCount={}", userId, bookId, newCount);
@@ -116,8 +130,8 @@ public class BookTrashService {
         // 保存更新后的图书信息
         bookRepository.save(book);
 
-        // 清除用户匹配分数缓存
-        matchScoreCacheService.evictUser(userId);
+        // 单独计算该图书的匹配得分并加入推荐有序集合
+        recommendService.computeAndAddSingleBook(userId, bookId);
 
         // 记录日志
         log.info("图书移出垃圾桶: userId={}, bookId={}, dimensionRatingCount={}", userId, bookId, newCount);

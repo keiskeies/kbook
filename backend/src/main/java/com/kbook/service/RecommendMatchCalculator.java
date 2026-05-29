@@ -358,38 +358,35 @@ public class RecommendMatchCalculator {
             if (user.getBirthday() != null) {
                 int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
                 String ageGroup = getAgeGroup(age);
-                double dev = getDeviation(statsService, ageGroup, scores);
+                double rawScore = scores.has(ageGroup) ? scores.get(ageGroup).asDouble() : 0.0;
                 double w = coefficientService.getCoefficient("MATCH", "age_weight", 1.5);
-                double normalizedDev = normalizeScore(dev);
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                         .dimension("age").label("年龄: " + ageGroup)
-                        .score(normalizedDev)
-                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .score(Math.round(rawScore * 10000.0) / 10000.0)
+                        .weight(w).weightedScore(Math.round(rawScore * w * 10000.0) / 10000.0)
                         .build());
             }
 
             if (user.getGender() != null) {
                 String genderKey = "MALE".equals(user.getGender()) ? "male" : "female";
-                double dev = getDeviation(statsService, genderKey, scores);
-                double normalizedDev = normalizeScore(dev);
+                double rawScore = scores.has(genderKey) ? scores.get(genderKey).asDouble() : 0.0;
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                         .dimension("gender").label("性别: " + ("MALE".equals(user.getGender()) ? "男" : "女"))
-                        .score(normalizedDev)
-                        .weight(1.0).weightedScore(normalizedDev)
+                        .score(Math.round(rawScore * 10000.0) / 10000.0)
+                        .weight(1.0).weightedScore(Math.round(rawScore * 10000.0) / 10000.0)
                         .build());
             }
 
             if (user.getMarried() != null) {
                 String marryKey = user.getMarried() ? "married" : "unmarried";
-                double dev = getDeviation(statsService, marryKey, scores);
-                double normalizedDev = normalizeScore(dev);
+                double rawScore = scores.has(marryKey) ? scores.get(marryKey).asDouble() : 0.0;
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                         .dimension("married").label(user.getMarried() ? "已婚" : "未婚")
-                        .score(normalizedDev)
-                        .weight(1.0).weightedScore(normalizedDev)
+                        .score(Math.round(rawScore * 10000.0) / 10000.0)
+                        .weight(1.0).weightedScore(Math.round(rawScore * 10000.0) / 10000.0)
                         .build());
             }
 
@@ -400,37 +397,34 @@ public class RecommendMatchCalculator {
                 for (String range : ranges) {
                     String childKey = range.trim().toLowerCase();
                     if (childKey.isEmpty()) continue;
-                    double dev = getDeviation(statsService, childKey, scores);
-                    double normalizedDev = normalizeScore(dev);
+                    double rawScore = scores.has(childKey) ? scores.get(childKey).asDouble() : 0.0;
                     dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                             .dimension("children").label("子女: " + getChildRangeLabel(childKey))
-                            .score(normalizedDev)
-                            .weight(childWeight).weightedScore(Math.round(normalizedDev * childWeight * 10000.0) / 10000.0)
+                            .score(Math.round(rawScore * 10000.0) / 10000.0)
+                            .weight(childWeight).weightedScore(Math.round(rawScore * childWeight * 10000.0) / 10000.0)
                             .build());
                 }
                 matchedDimensions++;
             } else if (user.getHasChildren() != null) {
                 String childKey = user.getHasChildren() ? "hasChildren" : "noChildren";
-                double dev = getDeviation(statsService, childKey, scores);
-                double normalizedDev = normalizeScore(dev);
+                double rawScore = scores.has(childKey) ? scores.get(childKey).asDouble() : 0.0;
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                         .dimension("hasChildren").label(user.getHasChildren() ? "有孩子" : "无孩子")
-                        .score(normalizedDev)
-                        .weight(1.0).weightedScore(normalizedDev)
+                        .score(Math.round(rawScore * 10000.0) / 10000.0)
+                        .weight(1.0).weightedScore(Math.round(rawScore * 10000.0) / 10000.0)
                         .build());
             }
 
             if (user.getMbti() != null) {
                 String mbtiKey = user.getMbti().toUpperCase();
-                double dev = getDeviation(statsService, mbtiKey, scores);
+                double rawScore = scores.has(mbtiKey) ? scores.get(mbtiKey).asDouble() : 0.0;
                 double w = coefficientService.getCoefficient("MATCH", "mbti_weight", 1.3);
-                double normalizedDev = normalizeScore(dev);
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                         .dimension("mbti").label("MBTI: " + mbtiKey)
-                        .score(normalizedDev)
-                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .score(Math.round(rawScore * 10000.0) / 10000.0)
+                        .weight(w).weightedScore(Math.round(rawScore * w * 10000.0) / 10000.0)
                         .build());
             }
 
@@ -440,13 +434,12 @@ public class RecommendMatchCalculator {
                 for (String userOcc : userOccList) {
                     String occKey = userOcc.trim().toLowerCase();
                     if (occKey.isEmpty()) continue;
-                    double dev = getDeviation(statsService, occKey, scores);
-                    double normalizedDev = normalizeScore(dev);
+                    double rawScore = scores.has(occKey) ? scores.get(occKey).asDouble() : 0.0;
                     matchedDimensions++;
                     dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                             .dimension("occupation").label("职业: " + getOccupationLabel(occKey))
-                            .score(normalizedDev)
-                            .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                            .score(Math.round(rawScore * 10000.0) / 10000.0)
+                            .weight(w).weightedScore(Math.round(rawScore * w * 10000.0) / 10000.0)
                             .build());
                 }
             }
@@ -454,26 +447,24 @@ public class RecommendMatchCalculator {
             if (user.getAspirationEducation() != null) {
                 String eduKey = user.getAspirationEducation().toLowerCase();
                 double w = coefficientService.getCoefficient("MATCH", "education_weight", 0.8);
-                double dev = getDeviation(statsService, eduKey, scores);
-                double normalizedDev = normalizeScore(dev);
+                double rawScore = scores.has(eduKey) ? scores.get(eduKey).asDouble() : 0.0;
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                         .dimension("education").label("学历: " + getEducationLabel(user.getAspirationEducation()))
-                        .score(normalizedDev)
-                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .score(Math.round(rawScore * 10000.0) / 10000.0)
+                        .weight(w).weightedScore(Math.round(rawScore * w * 10000.0) / 10000.0)
                         .build());
             }
 
             if (user.getEntrepreneurship() != null && !user.getEntrepreneurship().isBlank()) {
                 String entreKey = user.getEntrepreneurship().toLowerCase();
                 double w = coefficientService.getCoefficient("MATCH", "entrepreneurship_weight", 0.6);
-                double dev = getDeviation(statsService, entreKey, scores);
-                double normalizedDev = normalizeScore(dev);
+                double rawScore = scores.has(entreKey) ? scores.get(entreKey).asDouble() : 0.0;
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                         .dimension("entrepreneurship").label(getEntrepreneurshipLabel(user.getEntrepreneurship()))
-                        .score(normalizedDev)
-                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .score(Math.round(rawScore * 10000.0) / 10000.0)
+                        .weight(w).weightedScore(Math.round(rawScore * w * 10000.0) / 10000.0)
                         .build());
             }
 
@@ -481,13 +472,12 @@ public class RecommendMatchCalculator {
                     && !"PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAspirationIncome())) {
                 String incomeKey = user.getAspirationIncome().toLowerCase();
                 double w = coefficientService.getCoefficient("MATCH", "income_weight", 0.5);
-                double dev = getDeviation(statsService, incomeKey, scores);
-                double normalizedDev = normalizeScore(dev);
+                double rawScore = scores.has(incomeKey) ? scores.get(incomeKey).asDouble() : 0.0;
                 matchedDimensions++;
                 dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                         .dimension("income").label(getAnnualIncomeLabel(user.getAspirationIncome()))
-                        .score(normalizedDev)
-                        .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                        .score(Math.round(rawScore * 10000.0) / 10000.0)
+                        .weight(w).weightedScore(Math.round(rawScore * w * 10000.0) / 10000.0)
                         .build());
             }
 
@@ -506,25 +496,23 @@ public class RecommendMatchCalculator {
 
                 if (intentKey != null && !intentKey.isEmpty()) {
                     double w = coefficientService.getCoefficient("MATCH", "intent_weight", 0.5);
-                    double dev = getDeviation(statsService, intentKey, scores);
-                    double normalizedDev = normalizeScore(dev);
+                    double rawScore = scores.has(intentKey) ? scores.get(intentKey).asDouble() : 0.0;
                     matchedDimensions++;
                     dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                             .dimension("intent").label("意图: " + getIntentLabel(intentKey))
-                            .score(normalizedDev)
-                            .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                            .score(Math.round(rawScore * 10000.0) / 10000.0)
+                            .weight(w).weightedScore(Math.round(rawScore * w * 10000.0) / 10000.0)
                             .build());
                 }
 
                 if (moodKey != null && !moodKey.isEmpty()) {
                     double w = coefficientService.getCoefficient("MATCH", "mood_weight", 0.3);
-                    double dev = getDeviation(statsService, moodKey, scores);
-                    double normalizedDev = normalizeScore(dev);
+                    double rawScore = scores.has(moodKey) ? scores.get(moodKey).asDouble() : 0.0;
                     matchedDimensions++;
                     dimensions.add(MatchScoreDetailVO.DimensionScore.builder()
                             .dimension("mood").label("心情: " + getMoodLabel(moodKey))
-                            .score(normalizedDev)
-                            .weight(w).weightedScore(Math.round(normalizedDev * w * 10000.0) / 10000.0)
+                            .score(Math.round(rawScore * 10000.0) / 10000.0)
+                            .weight(w).weightedScore(Math.round(rawScore * w * 10000.0) / 10000.0)
                             .build());
                 }
             }

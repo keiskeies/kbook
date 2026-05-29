@@ -122,8 +122,11 @@ public class RecommendController {
         if (book == null) {
             return Result.fail("图书不存在");
         }
+        BookProjection bp = BookProjection.from(book);
         MatchScoreDetailVO detail = RecommendMatchCalculator.calculateMatchScoreDetail(
-                user, BookProjection.from(book), coefficientService, objectMapper, dimensionStatsService);
+                user, bp, coefficientService, objectMapper, dimensionStatsService);
+        double fullScore = recommendService.computeFullScore(user, bp, userId);
+        detail.setOverallScore(fullScore);
         return Result.ok(detail);
     }
 

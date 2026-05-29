@@ -46,7 +46,8 @@ public class BookChatController extends BaseController {
         Long userId = extractUserId();
         String message = body.get("message");
         String sessionId = body.get("sessionId");
-        boolean regenerate = Boolean.parseBoolean(body.get("regenerate"));
+//        boolean regenerate = Boolean.parseBoolean(body.get("regenerate"));
+        boolean regenerate = true;
 
         if (message == null || message.isBlank()) {
             SseEmitter emitter = new SseEmitter();

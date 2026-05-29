@@ -37,7 +37,7 @@ public class ReadingProgressService {
 
     private final ReadingProgressRepository progressRepository; // 阅读进度数据访问层
     private final BookRepository bookRepository; // 书籍数据访问层
-    private final MatchScoreCacheService matchScoreCacheService; // 匹配分数缓存服务
+
 
     /**
      * 上报阅读进度
@@ -68,7 +68,6 @@ public class ReadingProgressService {
 
         try {
             ReadingProgress saved = progressRepository.save(rp);
-            matchScoreCacheService.evictUser(userId);
             log.debug("阅读进度保存成功: userId={}, bookId={}, progress={}, isNew={}", userId, bookId, saved.getProgress(), isNew);
             return new ProgressResult(saved, isNew);
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
@@ -81,7 +80,6 @@ public class ReadingProgressService {
                     existing.setProgress(clampProgress(progress));
                     existing.setCurrentPosition(currentPosition);
                     ReadingProgress saved = progressRepository.save(existing);
-                    matchScoreCacheService.evictUser(userId);
                     return new ProgressResult(saved, false);
                 }
             }
@@ -156,7 +154,6 @@ public class ReadingProgressService {
         log.info("批量上报进度完成: userId={}, created={}, updated={}, skipped={}", userId, created, updated, skipped); // 记录完成日志
         // 如果有创建或更新操作，则清除用户缓存
         if (created > 0 || updated > 0) {
-            matchScoreCacheService.evictUser(userId); // 清除用户画像缓存
         }
         return new BatchProgressResult(created, updated, skipped, newBookIds); // 返回批量处理结果
     }

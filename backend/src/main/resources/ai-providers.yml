@@ -147,7 +147,7 @@ providers:
     provider: OPENAI
     baseUrl: "https://api.xiaomimimo.com/v1"
     region: CN
-    description: "V2.5 Flash 输入 $0.1/M 全网最低，Pro 1T参数 1M上下文"
+    description: "V2.5 输入¥1/M 输出¥2/M，V2.5 Pro 输入¥3/M 输出¥6/M，缓存命中低至¥0.02/M"
     apiKeyUrl: "https://platform.xiaomimimo.com/"
     tokenPlanUrl: "https://platform.xiaomimimo.com/"
     codingPlanUrl: "https://platform.xiaomimimo.com/"
@@ -155,13 +155,14 @@ providers:
     models:
       - name: "mimo-v2.5-pro"
         label: "MiMo V2.5 Pro (推荐)"
-      - name: "mimo-v2.5-flash"
-        label: "MiMo V2.5 Flash 极速"
+      - name: "mimo-v2.5"
+        label: "MiMo V2.5 均衡"
       - name: "mimo-v2-pro"
         label: "MiMo V2 Pro"
+      - name: "mimo-v2-omni"
+        label: "MiMo V2 Omni"
       - name: "mimo-v2-flash"
-        label: "MiMo V2 Flash 免费"
-        free: true
+        label: "MiMo V2 Flash"
 
   - id: minimax
     name: "MiniMax"

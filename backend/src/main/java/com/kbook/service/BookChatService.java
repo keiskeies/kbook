@@ -707,7 +707,7 @@ public class BookChatService {
         }
 
         if (!ragContext.isBlank()) {
-            sb.append("\n【书籍参考内容】（以下是从原著中检索到的与问题相关的片段，引用时请标注序号 [1][2]...）\n");
+            sb.append("\n【书籍参考内容】（以下是从原著中检索到的与问题相关的片段）\n");
             sb.append(ragContext);
             sb.append("\n【核心主题提取】\n");
             sb.append("请先根据上述参考内容提炼本书的 3~5 个核心主题，然后再回答用户的问题。\n");

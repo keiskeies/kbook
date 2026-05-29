@@ -47,7 +47,6 @@ public class BookService {
     private final BookSearchService bookSearchService;
     private final EmbeddingService embeddingService;
     private final StringRedisTemplate redisTemplate;
-    private final MatchScoreCacheService matchScoreCacheService;
     private final ObjectMapper objectMapper;
     private final UserReadHistoryRepository userReadHistoryRepository;
 
@@ -73,15 +72,13 @@ public class BookService {
                        @Lazy EmbeddingService embeddingService,
                        StringRedisTemplate redisTemplate,
                        BookStorageProperties storageProps,
-                       MatchScoreCacheService matchScoreCacheService,
-                       ObjectMapper objectMapper,
+                        ObjectMapper objectMapper,
                        UserReadHistoryRepository userReadHistoryRepository) {
         this.bookRepository = bookRepository;
         this.bookSearchService = bookSearchService;
         this.embeddingService = embeddingService;
         this.redisTemplate = redisTemplate;
         this.storageProps = storageProps;
-        this.matchScoreCacheService = matchScoreCacheService;
         this.objectMapper = objectMapper;
         this.userReadHistoryRepository = userReadHistoryRepository;
     }
@@ -547,7 +544,6 @@ public class BookService {
         bookSearchService.indexBook(saved);
         // 事务提交后清除缓存，防止事务回滚导致数据不一致
         TransactionUtils.afterCommit(() -> {
-            matchScoreCacheService.evictBook(bookId);
             evictBookCache(bookId);
         });
         log.info("用户评分: bookId={}, newRating={}, userCount={}", bookId, saved.getRating(), saved.getRatingCount());
@@ -594,7 +590,6 @@ public class BookService {
         // 5. 事务提交后清除相关 Redis 缓存（推荐/榜单/详情/匹配度）
         TransactionUtils.afterCommit(() -> {
             clearBookRelatedCache();
-            matchScoreCacheService.evictBook(id);
             evictBookCache(id);
         });
 
