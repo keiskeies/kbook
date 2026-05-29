@@ -147,6 +147,9 @@ public interface BookRepository extends JpaRepository<Book, Long> {
     @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.id")
     Page<BookProjection> findAllProjectedByOrderByIdAsc(Pageable pageable);
 
+    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.id")
+    List<BookProjection> findAllProjectedByOrderByIdAsc();
+
     /**
      * 按ID查询投影
      */

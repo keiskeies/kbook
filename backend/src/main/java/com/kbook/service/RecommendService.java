@@ -446,12 +446,12 @@ public class RecommendService {
 
         List<ScoredBook> scoredBooks = new ArrayList<>();
 
-        int pageSize = 500;
-        int pageNumber = 0;
+        List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
+        int total = allBooks.size();
         int processed = 0;
-        Page<BookProjection> bookPage;
-        do {
-            if (restartKey != null) {
+
+        for (BookProjection book : allBooks) {
+            if (restartKey != null && processed % 500 == 0) {
                 Boolean hasRestart = redisTemplate.hasKey(restartKey);
                 if (Boolean.TRUE.equals(hasRestart)) {
                     log.info("检测到重算标识，中断当前计算: userId={}, processed={}", userId, processed);
@@ -459,23 +459,21 @@ public class RecommendService {
                 }
             }
 
-            Pageable pageable = PageRequest.of(pageNumber, pageSize);
-            bookPage = bookRepository.findAllProjectedByOrderByIdAsc(pageable);
-
-            for (BookProjection book : bookPage.getContent()) {
-                ScoredBook sb = scoreBook(user, book, excludeSet,
-                        excludedTags, excludedAuthors, excludedFormats,
-                        includedTags, includedAuthors, includedFormats, ruleMinScore);
-                if (sb != null) {
-                    scoredBooks.add(sb);
-                }
+            ScoredBook sb = scoreBook(user, book, excludeSet,
+                    excludedTags, excludedAuthors, excludedFormats,
+                    includedTags, includedAuthors, includedFormats, ruleMinScore);
+            if (sb != null) {
+                scoredBooks.add(sb);
             }
-            processed += bookPage.getContent().size();
-            pageNumber++;
-            if (onMatchingProgress != null) {
+            processed++;
+            if (onMatchingProgress != null && processed % 100 == 0) {
                 onMatchingProgress.accept(processed);
             }
-        } while (bookPage.hasNext());
+        }
+
+        if (onMatchingProgress != null) {
+            onMatchingProgress.accept(total);
+        }
 
         addExploreBooks(user, excludeSet, scoredBooks);
 
@@ -596,12 +594,11 @@ public class RecommendService {
         List<String> includedFormats = getIncludedFormats(userId);
 
         double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, null, dimensionStatsService);
-        double qualityBonus = calculateQualityBonus(book.getRating());
         double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());
         double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
 
-        // 以 matchScore 为主，其他项作为辅助微调，确保 matchScore 决定排序
-        double finalScore = (matchScore * 0.85) + (qualityBonus * 0.05) + (freshnessBonus * 0.05) + (preferenceBonus * 0.05);
+        // matchScore 已包含评分维度（权重0.6），新鲜度和偏好作为辅助微调
+        double finalScore = (matchScore * 0.90) + (freshnessBonus * 0.05) + (preferenceBonus * 0.05);
         if (finalScore > 1.0) finalScore = 1.0;
         if (finalScore < 0.0) finalScore = 0.0;
         return finalScore;
@@ -618,14 +615,13 @@ public class RecommendService {
         double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, null, dimensionStatsService);
         if (matchScore <= ruleMinScore) return null;
 
-        double qualityBonus = calculateQualityBonus(book.getRating());
         double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());
         double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
-        double finalScore = (matchScore * 0.85) + (qualityBonus * 0.05) + (freshnessBonus * 0.05) + (preferenceBonus * 0.05);
+        double finalScore = (matchScore * 0.90) + (freshnessBonus * 0.05) + (preferenceBonus * 0.05);
         if (finalScore > 1.0) finalScore = 1.0;
         if (finalScore < 0.0) finalScore = 0.0;
 
-        return new ScoredBook(book, finalScore, matchScore, qualityBonus, "RULE");
+        return new ScoredBook(book, finalScore, matchScore, 0.0, "RULE");
     }
 
     private double calculateQualityBonus(Double rating) {

@@ -60,11 +60,11 @@ const ANNUAL_INCOME_OPTIONS = [
 ]
 
 const CHILDREN_AGE_RANGE_OPTIONS = [
-  { value: '0_2', label: '0-2岁' },
-  { value: '3_6', label: '3-6岁' },
-  { value: '7_12', label: '7-12岁' },
-  { value: '13_17', label: '13-17岁' },
-  { value: '18_plus', label: '18岁以上' },
+  { value: 'children_0_2', label: '0-2岁' },
+  { value: 'children_3_6', label: '3-6岁' },
+  { value: 'children_7_12', label: '7-12岁' },
+  { value: 'children_13_17', label: '13-17岁' },
+  { value: 'children_18_plus', label: '18岁以上' },
 ]
 
 const MOOD_OPTIONS = [
@@ -106,7 +106,11 @@ export default function ProfilePage() {
   const [traitHasChildren, setTraitHasChildren] = useState(userInfo?.hasChildren === true ? 'yes' : userInfo?.hasChildren === false ? 'no' : '')
   const [traitChildrenAgeRanges, setTraitChildrenAgeRanges] = useState<string[]>(() => {
     const ranges = userInfo?.childrenAgeRanges
-    return ranges ? ranges.split(',').filter(Boolean) : []
+    if (!ranges) return []
+    return ranges.split(',').filter(Boolean).map((v: string) => {
+      if (v.startsWith('children_')) return v
+      return 'children_' + v
+    })
   })
   const [traitMbti, setTraitMbti] = useState(userInfo?.mbti ?? '')
   const [traitOccupations, setTraitOccupations] = useState<string[]>(() => {
@@ -218,7 +222,7 @@ export default function ProfilePage() {
       setTraitMarried(userInfo?.married === true ? 'yes' : userInfo?.married === false ? 'no' : '')
       setTraitHasChildren(userInfo?.hasChildren === true ? 'yes' : userInfo?.hasChildren === false ? 'no' : '')
       const ranges = userInfo?.childrenAgeRanges
-      setTraitChildrenAgeRanges(ranges ? ranges.split(',').filter(Boolean) : [])
+      setTraitChildrenAgeRanges(ranges ? ranges.split(',').filter(Boolean).map((v: string) => v.startsWith('children_') ? v : 'children_' + v) : [])
       setTraitMbti(userInfo?.mbti ?? '')
       const occ = userInfo?.occupation
       setTraitOccupations(occ ? occ.split(',').filter(Boolean) : [])
