@@ -1,6 +1,6 @@
 package com.kbook.service;
 
-import com.kbook.entity.Book;
+import com.kbook.dto.BookProjection;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -270,8 +270,10 @@ public class RagHitStatisticsService {
             }
 
             // 前置校验 1：图书是否存在
-            Book book = bookService.getBookById(bookId);
-            if (book == null) {
+            BookProjection book;
+            try {
+                book = bookService.getBookProjectionById(bookId);
+            } catch (Exception e) {
                 log.warn("风控重建跳过（图书不存在）: bookId={}", bookId);
                 return;
             }

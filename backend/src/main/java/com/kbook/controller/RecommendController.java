@@ -1,6 +1,7 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.dto.BookProjection;
 import com.kbook.dto.MatchScoreDetailVO;
 import com.kbook.dto.RecommendedItem;
 import com.kbook.entity.Book;
@@ -122,7 +123,7 @@ public class RecommendController {
             return Result.fail("图书不存在");
         }
         MatchScoreDetailVO detail = RecommendMatchCalculator.calculateMatchScoreDetail(
-                user, book, coefficientService, objectMapper, dimensionStatsService);
+                user, BookProjection.from(book), coefficientService, objectMapper, dimensionStatsService);
         return Result.ok(detail);
     }
 

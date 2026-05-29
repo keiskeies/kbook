@@ -2,8 +2,8 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.dto.BookProjection;
 import com.kbook.dto.MatchScoreDetailVO;
-import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import lombok.extern.slf4j.Slf4j;
 
@@ -32,10 +32,10 @@ public class RecommendMatchCalculator {
      * @param statsService 维度统计服务
      * @return 匹配度得分（0~1+），0 表示无匹配
      */
-    public static double calculateMatchScore(User user, Book book,
-                                             RecommendCoefficientService coefficientService,
-                                             ObjectMapper objectMapper,
-                                             DimensionStatsService statsService) {
+    public static double calculateMatchScore(User user, BookProjection book,
+                                              RecommendCoefficientService coefficientService,
+                                              ObjectMapper objectMapper,
+                                              DimensionStatsService statsService) {
         if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
             return 0.0;
         }
@@ -60,60 +60,66 @@ public class RecommendMatchCalculator {
             if (user.getBirthday() != null) {
                 int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
                 String ageGroup = getAgeGroup(age);
-                double dev = getDeviation(statsService, ageGroup, scores);
-                totalDeviation += dev * ageWeight;
-                totalWeight += ageWeight;
-                logDetail.append(String.format("年龄[%s]: dev=%.4f*%.2f=%.4f", ageGroup, dev, ageWeight, dev * ageWeight));
+                if (scores.has(ageGroup)) {
+                    double dev = getDeviation(statsService, ageGroup, scores);
+                    totalDeviation += dev * ageWeight;
+                    totalWeight += ageWeight;
+                    logDetail.append(String.format("年龄[%s]: dev=%.4f*%.2f=%.4f", ageGroup, dev, ageWeight, dev * ageWeight));
 
-                String prevGroup = getAdjacentAgeGroup(age, -1);
-                String nextGroup = getAdjacentAgeGroup(age, 1);
-                if (prevGroup != null && !prevGroup.equals(ageGroup)) {
-                    double adjDev = getDeviation(statsService, prevGroup, scores);
-                    totalDeviation += adjDev * ageWeight * adjacentDecay;
-                    totalWeight += ageWeight * adjacentDecay;
-                    logDetail.append(String.format(" + 邻近年龄[%s]: dev=%.4f*%.2f*%.2f=%.4f", prevGroup, adjDev, ageWeight, adjacentDecay, adjDev * ageWeight * adjacentDecay));
+                    String prevGroup = getAdjacentAgeGroup(age, -1);
+                    String nextGroup = getAdjacentAgeGroup(age, 1);
+                    if (prevGroup != null && !prevGroup.equals(ageGroup)) {
+                        double adjDev = getDeviation(statsService, prevGroup, scores);
+                        totalDeviation += adjDev * ageWeight * adjacentDecay;
+                        totalWeight += ageWeight * adjacentDecay;
+                        logDetail.append(String.format(" + 邻近年龄[%s]: dev=%.4f*%.2f*%.2f=%.4f", prevGroup, adjDev, ageWeight, adjacentDecay, adjDev * ageWeight * adjacentDecay));
+                    }
+                    if (nextGroup != null && !nextGroup.equals(ageGroup)) {
+                        double adjDev = getDeviation(statsService, nextGroup, scores);
+                        totalDeviation += adjDev * ageWeight * adjacentDecay;
+                        totalWeight += ageWeight * adjacentDecay;
+                        logDetail.append(String.format(" + 邻近年龄[%s]: dev=%.4f*%.2f*%.2f=%.4f", nextGroup, adjDev, ageWeight, adjacentDecay, adjDev * ageWeight * adjacentDecay));
+                    }
+                    matchedDimensions++;
                 }
-                if (nextGroup != null && !nextGroup.equals(ageGroup)) {
-                    double adjDev = getDeviation(statsService, nextGroup, scores);
-                    totalDeviation += adjDev * ageWeight * adjacentDecay;
-                    totalWeight += ageWeight * adjacentDecay;
-                    logDetail.append(String.format(" + 邻近年龄[%s]: dev=%.4f*%.2f*%.2f=%.4f", nextGroup, adjDev, ageWeight, adjacentDecay, adjDev * ageWeight * adjacentDecay));
-                }
-                matchedDimensions++;
                 logDetail.append(" | ");
             }
 
             if (user.getGender() != null) {
                 String genderKey = "MALE".equals(user.getGender()) ? "male" : "female";
-                double dev = getDeviation(statsService, genderKey, scores);
-                totalDeviation += dev * 1.0;
-                totalWeight += 1.0;
-                logDetail.append(String.format("性别[%s]: dev=%.4f*1.0=%.4f", genderKey, dev, dev * 1.0));
+                if (scores.has(genderKey)) {
+                    double dev = getDeviation(statsService, genderKey, scores);
+                    totalDeviation += dev * 1.0;
+                    totalWeight += 1.0;
+                    logDetail.append(String.format("性别[%s]: dev=%.4f*1.0=%.4f", genderKey, dev, dev * 1.0));
 
-                String oppositeKey = "MALE".equals(user.getGender()) ? "female" : "male";
-                double oppDev = getDeviation(statsService, oppositeKey, scores);
-                if (oppDev > 0) {
-                    totalDeviation -= oppDev * 0.5;
-                    logDetail.append(String.format(" - 相反[%s]: dev=%.4f*0.5=%.4f", oppositeKey, oppDev, oppDev * 0.5));
+                    String oppositeKey = "MALE".equals(user.getGender()) ? "female" : "male";
+                    double oppDev = getDeviation(statsService, oppositeKey, scores);
+                    if (oppDev > 0) {
+                        totalDeviation -= oppDev * 0.5;
+                        logDetail.append(String.format(" - 相反[%s]: dev=%.4f*0.5=%.4f", oppositeKey, oppDev, oppDev * 0.5));
+                    }
+                    matchedDimensions++;
                 }
-                matchedDimensions++;
                 logDetail.append(" | ");
             }
 
             if (user.getMarried() != null) {
                 String marryKey = user.getMarried() ? "married" : "unmarried";
-                double dev = getDeviation(statsService, marryKey, scores);
-                totalDeviation += dev * 1.0;
-                totalWeight += 1.0;
-                logDetail.append(String.format("婚姻[%s]: dev=%.4f*1.0=%.4f", marryKey, dev, dev * 1.0));
+                if (scores.has(marryKey)) {
+                    double dev = getDeviation(statsService, marryKey, scores);
+                    totalDeviation += dev * 1.0;
+                    totalWeight += 1.0;
+                    logDetail.append(String.format("婚姻[%s]: dev=%.4f*1.0=%.4f", marryKey, dev, dev * 1.0));
 
-                String oppositeKey = user.getMarried() ? "unmarried" : "married";
-                double oppDev = getDeviation(statsService, oppositeKey, scores);
-                if (oppDev > 0) {
-                    totalDeviation -= oppDev * 0.5;
-                    logDetail.append(String.format(" - 相反[%s]: dev=%.4f*0.5=%.4f", oppositeKey, oppDev, oppDev * 0.5));
+                    String oppositeKey = user.getMarried() ? "unmarried" : "married";
+                    double oppDev = getDeviation(statsService, oppositeKey, scores);
+                    if (oppDev > 0) {
+                        totalDeviation -= oppDev * 0.5;
+                        logDetail.append(String.format(" - 相反[%s]: dev=%.4f*0.5=%.4f", oppositeKey, oppDev, oppDev * 0.5));
+                    }
+                    matchedDimensions++;
                 }
-                matchedDimensions++;
                 logDetail.append(" | ");
             }
 
@@ -122,10 +128,13 @@ public class RecommendMatchCalculator {
                 String[] ranges = user.getChildrenAgeRanges().split(",");
                 double childWeight = 1.0;
                 double childDecay = 0.4;
+                boolean hasChildData = false;
                 logDetail.append("子女");
                 for (String range : ranges) {
                     String childKey = range.trim().toLowerCase();
                     if (childKey.isEmpty()) continue;
+                    if (!scores.has(childKey)) continue;
+                    hasChildData = true;
                     double dev = getDeviation(statsService, childKey, scores);
                     totalDeviation += dev * childWeight;
                     totalWeight += childWeight;
@@ -139,39 +148,43 @@ public class RecommendMatchCalculator {
                         logDetail.append(String.format(" + 邻近子女[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, childWeight, childDecay, adjDev * childWeight * childDecay));
                     }
                 }
-                matchedDimensions++;
+                if (hasChildData) matchedDimensions++;
                 logDetail.append(" | ");
             } else if (user.getHasChildren() != null) {
                 String childKey = user.getHasChildren() ? "hasChildren" : "noChildren";
-                double dev = getDeviation(statsService, childKey, scores);
-                totalDeviation += dev * 1.0;
-                totalWeight += 1.0;
-                logDetail.append(String.format("子女(旧)[%s]: dev=%.4f*1.0=%.4f", childKey, dev, dev * 1.0));
-                String oppositeKey = user.getHasChildren() ? "noChildren" : "hasChildren";
-                double oppDev = getDeviation(statsService, oppositeKey, scores);
-                if (oppDev > 0) {
-                    totalDeviation -= oppDev * 0.5;
-                    logDetail.append(String.format(" - 相反[%s]: dev=%.4f*0.5=%.4f", oppositeKey, oppDev, oppDev * 0.5));
+                if (scores.has(childKey)) {
+                    double dev = getDeviation(statsService, childKey, scores);
+                    totalDeviation += dev * 1.0;
+                    totalWeight += 1.0;
+                    logDetail.append(String.format("子女(旧)[%s]: dev=%.4f*1.0=%.4f", childKey, dev, dev * 1.0));
+                    String oppositeKey = user.getHasChildren() ? "noChildren" : "hasChildren";
+                    double oppDev = getDeviation(statsService, oppositeKey, scores);
+                    if (oppDev > 0) {
+                        totalDeviation -= oppDev * 0.5;
+                        logDetail.append(String.format(" - 相反[%s]: dev=%.4f*0.5=%.4f", oppositeKey, oppDev, oppDev * 0.5));
+                    }
+                    matchedDimensions++;
                 }
-                matchedDimensions++;
                 logDetail.append(" | ");
             }
 
             if (user.getMbti() != null) {
                 String mbtiKey = user.getMbti().toUpperCase();
-                double dev = getDeviation(statsService, mbtiKey, scores);
-                totalDeviation += dev * mbtiWeight;
-                totalWeight += mbtiWeight;
-                logDetail.append(String.format("MBTI[%s]: dev=%.4f*%.2f=%.4f", mbtiKey, dev, mbtiWeight, dev * mbtiWeight));
-
-                List<String> adjacentMbti = getAdjacentMbti(mbtiKey);
-                for (String adj : adjacentMbti) {
-                    double adjDev = getDeviation(statsService, adj, scores);
-                    totalDeviation += adjDev * mbtiWeight * adjacentDecay;
-                    totalWeight += mbtiWeight * adjacentDecay;
-                    logDetail.append(String.format(" + 邻近MBTI[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, mbtiWeight, adjacentDecay, adjDev * mbtiWeight * adjacentDecay));
+                if (scores.has(mbtiKey)) {
+                    double dev = getDeviation(statsService, mbtiKey, scores);
+                    totalDeviation += dev * mbtiWeight;
+                    totalWeight += mbtiWeight;
+                    logDetail.append(String.format("MBTI[%s]: dev=%.4f*%.2f=%.4f", mbtiKey, dev, mbtiWeight, dev * mbtiWeight));
+//
+//                    List<String> adjacentMbti = getAdjacentMbti(mbtiKey);
+//                    for (String adj : adjacentMbti) {
+//                        double adjDev = getDeviation(statsService, adj, scores);
+//                        totalDeviation += adjDev * mbtiWeight * adjacentDecay;
+//                        totalWeight += mbtiWeight * adjacentDecay;
+//                        logDetail.append(String.format(" + 邻近MBTI[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, mbtiWeight, adjacentDecay, adjDev * mbtiWeight * adjacentDecay));
+//                    }
+                    matchedDimensions++;
                 }
-                matchedDimensions++;
                 logDetail.append(" | ");
             }
 
@@ -179,10 +192,13 @@ public class RecommendMatchCalculator {
                 String[] userOccList = user.getOccupation().split(",");
                 double occWeight = coefficientService.getCoefficient("MATCH", "occupation_weight", 1.0);
                 double occDecay = coefficientService.getCoefficient("MATCH", "occupation_decay", 0.40);
+                boolean hasOccData = false;
                 logDetail.append("职业");
                 for (String userOcc : userOccList) {
                     String occKey = userOcc.trim().toLowerCase();
                     if (occKey.isEmpty()) continue;
+                    if (!scores.has(occKey)) continue;
+                    hasOccData = true;
                     double dev = getDeviation(statsService, occKey, scores);
                     totalDeviation += dev * occWeight;
                     totalWeight += occWeight;
@@ -196,7 +212,7 @@ public class RecommendMatchCalculator {
                         logDetail.append(String.format(" + 邻近职业[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, occWeight, occDecay, adjDev * occWeight * occDecay));
                     }
                 }
-                matchedDimensions++;
+                if (hasOccData) matchedDimensions++;
                 logDetail.append(" | ");
             }
 
@@ -204,30 +220,34 @@ public class RecommendMatchCalculator {
                 String eduKey = user.getAspirationEducation().toLowerCase();
                 double eduWeight = coefficientService.getCoefficient("MATCH", "education_weight", 0.8);
                 double eduDecay = coefficientService.getCoefficient("MATCH", "education_decay", 0.40);
-                double dev = getDeviation(statsService, eduKey, scores);
-                totalDeviation += dev * eduWeight;
-                totalWeight += eduWeight;
-                logDetail.append(String.format("学历[%s]: dev=%.4f*%.2f=%.4f", eduKey, dev, eduWeight, dev * eduWeight));
+                if (scores.has(eduKey)) {
+                    double dev = getDeviation(statsService, eduKey, scores);
+                    totalDeviation += dev * eduWeight;
+                    totalWeight += eduWeight;
+                    logDetail.append(String.format("学历[%s]: dev=%.4f*%.2f=%.4f", eduKey, dev, eduWeight, dev * eduWeight));
 
-                List<String> adjacentEdu = getAdjacentEducations(eduKey);
-                for (String adj : adjacentEdu) {
-                    double adjDev = getDeviation(statsService, adj, scores);
-                    totalDeviation += adjDev * eduWeight * eduDecay;
-                    totalWeight += eduWeight * eduDecay;
-                    logDetail.append(String.format(" + 邻近学历[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, eduWeight, eduDecay, adjDev * eduWeight * eduDecay));
+                    List<String> adjacentEdu = getAdjacentEducations(eduKey);
+                    for (String adj : adjacentEdu) {
+                        double adjDev = getDeviation(statsService, adj, scores);
+                        totalDeviation += adjDev * eduWeight * eduDecay;
+                        totalWeight += eduWeight * eduDecay;
+                        logDetail.append(String.format(" + 邻近学历[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, eduWeight, eduDecay, adjDev * eduWeight * eduDecay));
+                    }
+                    matchedDimensions++;
                 }
-                matchedDimensions++;
                 logDetail.append(" | ");
             }
 
             if (user.getEntrepreneurship() != null && !user.getEntrepreneurship().isBlank()) {
                 String entreKey = user.getEntrepreneurship().toLowerCase();
                 double entreWeight = coefficientService.getCoefficient("MATCH", "entrepreneurship_weight", 0.6);
-                double dev = getDeviation(statsService, entreKey, scores);
-                totalDeviation += dev * entreWeight;
-                totalWeight += entreWeight;
-                logDetail.append(String.format("创业[%s]: dev=%.4f*%.2f=%.4f", entreKey, dev, entreWeight, dev * entreWeight));
-                matchedDimensions++;
+                if (scores.has(entreKey)) {
+                    double dev = getDeviation(statsService, entreKey, scores);
+                    totalDeviation += dev * entreWeight;
+                    totalWeight += entreWeight;
+                    logDetail.append(String.format("创业[%s]: dev=%.4f*%.2f=%.4f", entreKey, dev, entreWeight, dev * entreWeight));
+                    matchedDimensions++;
+                }
                 logDetail.append(" | ");
             }
 
@@ -236,19 +256,21 @@ public class RecommendMatchCalculator {
                 String incomeKey = user.getAspirationIncome().toLowerCase();
                 double incomeWeight = coefficientService.getCoefficient("MATCH", "income_weight", 0.5);
                 double incomeDecay = coefficientService.getCoefficient("MATCH", "income_decay", 0.40);
-                double dev = getDeviation(statsService, incomeKey, scores);
-                totalDeviation += dev * incomeWeight;
-                totalWeight += incomeWeight;
-                logDetail.append(String.format("收入[%s]: dev=%.4f*%.2f=%.4f", incomeKey, dev, incomeWeight, dev * incomeWeight));
+                if (scores.has(incomeKey)) {
+                    double dev = getDeviation(statsService, incomeKey, scores);
+                    totalDeviation += dev * incomeWeight;
+                    totalWeight += incomeWeight;
+                    logDetail.append(String.format("收入[%s]: dev=%.4f*%.2f=%.4f", incomeKey, dev, incomeWeight, dev * incomeWeight));
 
-                List<String> adjacentIncome = getAdjacentIncomes(incomeKey);
-                for (String adj : adjacentIncome) {
-                    double adjDev = getDeviation(statsService, adj, scores);
-                    totalDeviation += adjDev * incomeWeight * incomeDecay;
-                    totalWeight += incomeWeight * incomeDecay;
-                    logDetail.append(String.format(" + 邻近收入[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, incomeWeight, incomeDecay, adjDev * incomeWeight * incomeDecay));
+                    List<String> adjacentIncome = getAdjacentIncomes(incomeKey);
+                    for (String adj : adjacentIncome) {
+                        double adjDev = getDeviation(statsService, adj, scores);
+                        totalDeviation += adjDev * incomeWeight * incomeDecay;
+                        totalWeight += incomeWeight * incomeDecay;
+                        logDetail.append(String.format(" + 邻近收入[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, incomeWeight, incomeDecay, adjDev * incomeWeight * incomeDecay));
+                    }
+                    matchedDimensions++;
                 }
-                matchedDimensions++;
                 logDetail.append(" | ");
             }
 
@@ -265,40 +287,44 @@ public class RecommendMatchCalculator {
                     moodKey = moodRaw.toLowerCase().trim();
                 }
 
-                // 意图维度（权重 0.5）
+                // 意图维度（权重 0.8）
                 if (intentKey != null && !intentKey.isEmpty()) {
-                    double intentWeight = coefficientService.getCoefficient("MATCH", "intent_weight", 0.5);
+                    double intentWeight = coefficientService.getCoefficient("MATCH", "intent_weight", 0.8);
                     double intentDecay = coefficientService.getCoefficient("MATCH", "intent_decay", 0.40);
-                    double dev = getDeviation(statsService, intentKey, scores);
-                    totalDeviation += dev * intentWeight;
-                    totalWeight += intentWeight;
-                    logDetail.append(String.format("意图[%s]: dev=%.4f*%.2f=%.4f", intentKey, dev, intentWeight, dev * intentWeight));
-                    List<String> relatedIntents = getRelatedIntents(intentKey);
-                    for (String adj : relatedIntents) {
-                        double adjDev = getDeviation(statsService, adj, scores);
-                        totalDeviation += adjDev * intentWeight * intentDecay;
-                        totalWeight += intentWeight * intentDecay;
-                        logDetail.append(String.format(" + 相关意图[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, intentWeight, intentDecay, adjDev * intentWeight * intentDecay));
+                    if (scores.has(intentKey)) {
+                        double dev = getDeviation(statsService, intentKey, scores);
+                        totalDeviation += dev * intentWeight;
+                        totalWeight += intentWeight;
+                        logDetail.append(String.format("意图[%s]: dev=%.4f*%.2f=%.4f", intentKey, dev, intentWeight, dev * intentWeight));
+                        List<String> relatedIntents = getRelatedIntents(intentKey);
+                        for (String adj : relatedIntents) {
+                            double adjDev = getDeviation(statsService, adj, scores);
+                            totalDeviation += adjDev * intentWeight * intentDecay;
+                            totalWeight += intentWeight * intentDecay;
+                            logDetail.append(String.format(" + 相关意图[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, intentWeight, intentDecay, adjDev * intentWeight * intentDecay));
+                        }
+                        matchedDimensions++;
                     }
-                    matchedDimensions++;
                 }
 
-                // 情绪维度（权重 0.3）
+                // 情绪维度（权重 0.8）
                 if (moodKey != null && !moodKey.isEmpty()) {
-                    double moodWeight = coefficientService.getCoefficient("MATCH", "mood_weight", 0.3);
+                    double moodWeight = coefficientService.getCoefficient("MATCH", "mood_weight", 0.8);
                     double moodDecay = coefficientService.getCoefficient("MATCH", "mood_decay", 0.40);
-                    double dev = getDeviation(statsService, moodKey, scores);
-                    totalDeviation += dev * moodWeight;
-                    totalWeight += moodWeight;
-                    logDetail.append(String.format("心情[%s]: dev=%.4f*%.2f=%.4f", moodKey, dev, moodWeight, dev * moodWeight));
-                    List<String> relatedMoods = getRelatedMoods(moodKey);
-                    for (String adj : relatedMoods) {
-                        double adjDev = getDeviation(statsService, adj, scores);
-                        totalDeviation += adjDev * moodWeight * moodDecay;
-                        totalWeight += moodWeight * moodDecay;
-                        logDetail.append(String.format(" + 相关心情[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, moodWeight, moodDecay, adjDev * moodWeight * moodDecay));
+                    if (scores.has(moodKey)) {
+                        double dev = getDeviation(statsService, moodKey, scores);
+                        totalDeviation += dev * moodWeight;
+                        totalWeight += moodWeight;
+                        logDetail.append(String.format("心情[%s]: dev=%.4f*%.2f=%.4f", moodKey, dev, moodWeight, dev * moodWeight));
+                        List<String> relatedMoods = getRelatedMoods(moodKey);
+                        for (String adj : relatedMoods) {
+                            double adjDev = getDeviation(statsService, adj, scores);
+                            totalDeviation += adjDev * moodWeight * moodDecay;
+                            totalWeight += moodWeight * moodDecay;
+                            logDetail.append(String.format(" + 相关心情[%s]: dev=%.4f*%.2f*%.2f=%.4f", adj, adjDev, moodWeight, moodDecay, adjDev * moodWeight * moodDecay));
+                        }
+                        matchedDimensions++;
                     }
-                    matchedDimensions++;
                 }
                 logDetail.append(" | ");
             }
@@ -311,14 +337,14 @@ public class RecommendMatchCalculator {
                 case 10 -> 1.0;
                 case 9 -> 0.98;
                 case 8 -> 0.96;
-                case 7 -> 0.93;
-                case 6 -> 0.89;
-                case 5 -> 0.84;
-                case 4 -> 0.78;
-                case 3 -> 0.70;
-                case 2 -> 0.60;
-                case 1 -> 0.60;
-                default -> 0.60;
+                case 7 -> 0.94;
+                case 6 -> 0.91;
+                case 5 -> 0.88;
+                case 4 -> 0.84;
+                case 3 -> 0.85;
+                case 2 -> 0.75;
+                case 1 -> 0.65;
+                default -> 0.50;
             };
 
             double finalScore = normalizeScore(avgDeviation * coverageFactor);
@@ -333,7 +359,7 @@ public class RecommendMatchCalculator {
         }
     }
 
-    public static MatchScoreDetailVO calculateMatchScoreDetail(User user, Book book,
+    public static MatchScoreDetailVO calculateMatchScoreDetail(User user, BookProjection book,
                                                                 RecommendCoefficientService coefficientService,
                                                                 ObjectMapper objectMapper,
                                                                 DimensionStatsService statsService) {
@@ -558,14 +584,14 @@ public class RecommendMatchCalculator {
             case 10 -> 1.0;
             case 9 -> 0.98;
             case 8 -> 0.96;
-            case 7 -> 0.93;
-            case 6 -> 0.89;
-            case 5 -> 0.84;
-            case 4 -> 0.78;
-            case 3 -> 0.70;
-            case 2 -> 0.58;
-            case 1 -> 0.42;
-            default -> 0.35;
+            case 7 -> 0.94;
+            case 6 -> 0.91;
+            case 5 -> 0.88;
+            case 4 -> 0.84;
+            case 3 -> 0.85;
+            case 2 -> 0.75;
+            case 1 -> 0.65;
+            default -> 0.50;
         };
     }
 

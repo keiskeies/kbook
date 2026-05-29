@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.dto.BookProjection;
 import com.kbook.dto.CommentVO;
 import com.kbook.entity.*;
 import com.kbook.repository.CommentFavoriteRepository;
@@ -69,7 +70,7 @@ public class CommentService {
 
             // 获取回复者信息（用于后续邮件通知）
             User replier = userRepository.findById(userId).orElse(null); // 查询回复者用户信息
-            Book book = bookService.getBookById(bookId); // 查询书籍信息
+            BookProjection book = bookService.getBookProjectionById(bookId); // 查询书籍信息
 
             // 如果回复的不是自己的评论，则发送通知给父评论作者
             if (!parent.getUserId().equals(userId)) {
@@ -287,7 +288,7 @@ public class CommentService {
 
             // 发送点赞邮件通知给评论作者
             User liker = userRepository.findById(userId).orElse(null); // 查询点赞者信息
-            Book book = bookService.getBookById(comment.getBookId()); // 查询书籍信息
+            BookProjection book = bookService.getBookProjectionById(comment.getBookId()); // 查询书籍信息
             User commentOwner = userRepository.findById(comment.getUserId()).orElse(null); // 查询评论作者
             // 如果点赞者、书籍、评论作者都存在且评论作者有邮箱
             if (liker != null && book != null && commentOwner != null && commentOwner.getEmail() != null) {
@@ -313,7 +314,7 @@ public class CommentService {
 
         // 检查点赞数是否达到阈值，如果达到则发送达标邮件通知
         User commentOwner = userRepository.findById(comment.getUserId()).orElse(null); // 查询评论作者
-        Book book = bookService.getBookById(comment.getBookId()); // 查询书籍信息
+        BookProjection book = bookService.getBookProjectionById(comment.getBookId()); // 查询书籍信息
         // 如果评论作者存在且有邮箱，且书籍信息存在
         if (commentOwner != null && commentOwner.getEmail() != null && book != null) {
             // 截取评论内容前50字符作为预览

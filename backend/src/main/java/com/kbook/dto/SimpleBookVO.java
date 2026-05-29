@@ -43,4 +43,16 @@ public class SimpleBookVO {
                 .readCount(book.getReadCount())
                 .build();
     }
+
+    public static SimpleBookVO from(BookProjection book) {
+        return SimpleBookVO.builder()
+                .id(book.getId())
+                .title(book.getTitle())
+                .author(book.getAuthor())
+                .coverUrl(book.getCoverUrl())
+                .format(book.getFormat())
+                .rating(book.getRating())
+                .readCount(book.getReadCount())
+                .build();
+    }
 }

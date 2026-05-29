@@ -1,6 +1,7 @@
 package com.kbook.service;
 
 import com.kbook.config.annotation.RedisLock;
+import com.kbook.dto.BookProjection;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.repository.BookRepository;
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntConsumer;
 import java.util.stream.Collectors;
 
 /**
@@ -64,47 +66,43 @@ public class RecommendComputeService {
     }
 
     /**
-     * 核心推荐计算逻辑：计算所有候选书籍的推荐分数
+     * 核心推荐计算逻辑（带进度回调）
      * @param userId 用户ID
+     * @param onMatchingProgress 匹配阶段进度回调，参数为已处理书籍数
      * @return 按最终分数降序排列的评分书籍列表
      */
-    private List<ScoredBook> computeScoredBooks(Long userId) {
+    public List<ScoredBook> computeScoredBooks(Long userId, IntConsumer onMatchingProgress) {
         User user = userService.getUserById(userId);
         List<Long> readBookIds = getReadBookIds(userId);
         Set<Long> excludeSet = new HashSet<>(readBookIds);
         excludeSet.addAll(bookTrashService.getTrashedBookIds(userId));
 
-        // 获取用户的排除偏好设置
-        List<String> excludedTags = getExcludedTags(userId); // 排除的标签
-        List<String> excludedAuthors = getExcludedAuthors(userId); // 排除的作者
-        List<String> excludedFormats = getExcludedFormats(userId); // 排除的格式
-        // 获取用户的包含偏好设置
-        List<String> includedTags = getIncludedTags(userId); // 包含的标签
-        List<String> includedAuthors = getIncludedAuthors(userId); // 包含的作者
-        List<String> includedFormats = getIncludedFormats(userId); // 包含的格式
+        List<String> excludedTags = getExcludedTags(userId);
+        List<String> excludedAuthors = getExcludedAuthors(userId);
+        List<String> excludedFormats = getExcludedFormats(userId);
+        List<String> includedTags = getIncludedTags(userId);
+        List<String> includedAuthors = getIncludedAuthors(userId);
+        List<String> includedFormats = getIncludedFormats(userId);
 
-        // 获取规则最小分数阈值，低于此分数的书籍将被过滤
         double ruleMinScore = coefficientService.getCoefficient("OTHER", "rule_min_score", -0.5);
 
-        List<ScoredBook> scoredBooks = new ArrayList<>(); // 存储评分结果的列表
+        List<ScoredBook> scoredBooks = new ArrayList<>();
 
-        // 分页查询书籍，避免 findAll() 全量加载导致内存和 CPU 压力
         int pageSize = 500;
         int pageNumber = 0;
-        Page<Book> bookPage;
+        int processed = 0;
+        Page<BookProjection> bookPage;
         do {
             Pageable pageable = PageRequest.of(pageNumber, pageSize);
-            bookPage = bookRepository.findAllByOrderByIdAsc(pageable);
+            bookPage = bookRepository.findAllProjectedByOrderByIdAsc(pageable);
 
-            for (Book book : bookPage.getContent()) {
-                if (excludeSet.contains(book.getId())) continue; // 跳过已读/交互过的书籍
-                if (isExcludedByPreference(book, excludedTags, excludedAuthors, excludedFormats)) continue; // 跳过被用户排除偏好的书籍
+            for (BookProjection book : bookPage.getContent()) {
+                if (excludeSet.contains(book.getId())) continue;
+                if (isExcludedByPreference(book, excludedTags, excludedAuthors, excludedFormats)) continue;
 
-                // 计算基础匹配分数（基于用户画像与书籍特征的相似度）
                 double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, null, dimensionStatsService);
-                if (matchScore <= ruleMinScore) continue; // 如果匹配分数低于阈值则跳过
+                if (matchScore <= ruleMinScore) continue;
 
-                // 计算各项加分项
                 double qualityBonus = calculateQualityBonus(book.getRating());
                 double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());
                 double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
@@ -112,14 +110,23 @@ public class RecommendComputeService {
                 double finalScore = RecommendMatchCalculator.normalizeScore(rawFinalScore);
 
                 scoredBooks.add(new ScoredBook(book, finalScore, matchScore, qualityBonus, "RULE"));
+                processed++;
             }
             pageNumber++;
+            onMatchingProgress.accept(processed);
         } while (bookPage.hasNext());
 
-        addExploreBooks(user, excludeSet, scoredBooks); // 添加探索性书籍（随机+热门）
+        addExploreBooks(user, excludeSet, scoredBooks);
 
-        scoredBooks.sort((a, b) -> Double.compare(b.finalScore, a.finalScore)); // 按最终分数降序排序
-        return scoredBooks; // 返回排序后的结果
+        scoredBooks.sort((a, b) -> Double.compare(b.finalScore, a.finalScore));
+        return scoredBooks;
+    }
+
+    /**
+     * 核心推荐计算逻辑（无进度回调，内部调用带回调版本）
+     */
+    private List<ScoredBook> computeScoredBooks(Long userId) {
+        return computeScoredBooks(userId, p -> {});
     }
 
     /**
@@ -143,9 +150,9 @@ public class RecommendComputeService {
         int added = 0; // 已添加计数器
         for (Book book : randomBooks) {
             if (excludeSet.contains(book.getId()) || existingIds.contains(book.getId())) continue; // 跳过已存在或需排除的书籍
-            // 计算基础分数：固定基数0.3 + 匹配分数*0.3的权重
-            double baseScore = 0.3 + RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, null, dimensionStatsService) * 0.3;
-            scoredBooks.add(new ScoredBook(book, baseScore, baseScore, 0.0, "EXPLORE")); // 添加探索书籍，标记为EXPLORE类型
+            BookProjection bp = BookProjection.from(book);
+            double baseScore = 0.15 + RecommendMatchCalculator.calculateMatchScore(user, bp, coefficientService, null, dimensionStatsService) * 0.4;
+            scoredBooks.add(new ScoredBook(bp, baseScore, baseScore, 0.0, "EXPLORE")); // 添加探索书籍，标记为EXPLORE类型
             existingIds.add(book.getId()); // 添加到已存在集合
             added++; // 计数器递增
             if (added >= randomCount) break; // 达到目标数量后退出
@@ -157,9 +164,9 @@ public class RecommendComputeService {
         added = 0; // 重置计数器
         for (Book book : hotBooks) {
             if (excludeSet.contains(book.getId()) || existingIds.contains(book.getId())) continue; // 跳过已存在或需排除的书籍
-            // 计算基础分数：固定基数0.3 + 匹配分数*0.3的权重
-            double baseScore = 0.3 + RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, null, dimensionStatsService) * 0.3;
-            scoredBooks.add(new ScoredBook(book, baseScore, baseScore, 0.0, "EXPLORE")); // 添加探索书籍，标记为EXPLORE类型
+            BookProjection bp = BookProjection.from(book);
+            double baseScore = 0.15 + RecommendMatchCalculator.calculateMatchScore(user, bp, coefficientService, null, dimensionStatsService) * 0.4;
+            scoredBooks.add(new ScoredBook(bp, baseScore, baseScore, 0.0, "EXPLORE")); // 添加探索书籍，标记为EXPLORE类型
             existingIds.add(book.getId()); // 添加到已存在集合
             added++; // 计数器递增
             if (added >= hotCount) break; // 达到目标数量后退出
@@ -246,7 +253,7 @@ public class RecommendComputeService {
      * @param includedFormats 用户包含的格式列表
      * @return 偏好加分值
      */
-    private double calculateIncludeBonus(Book book, List<String> includedTags,
+    private double calculateIncludeBonus(BookProjection book, List<String> includedTags,
                                           List<String> includedAuthors, List<String> includedFormats) {
         // 从配置服务获取各类偏好的加分系数
         double tagBonus = coefficientService.getCoefficient("PREFERENCE", "tag_bonus", 0.12); // 标签加分系数，默认0.12
@@ -287,7 +294,7 @@ public class RecommendComputeService {
      * @param excludedFormats 用户排除的格式列表
      * @return true表示应被排除，false表示不应被排除
      */
-    private boolean isExcludedByPreference(Book book, List<String> excludedTags,
+    private boolean isExcludedByPreference(BookProjection book, List<String> excludedTags,
                                             List<String> excludedAuthors, List<String> excludedFormats) {
         // 检查格式是否在排除列表中
         if (!excludedFormats.isEmpty() && book.getFormat() != null
@@ -403,6 +410,6 @@ public class RecommendComputeService {
      * @param qualityBonus 质量加分
      * @param recallPath 召回路径标识（RULE=规则推荐，EXPLORE=探索推荐）
      */
-    public record ScoredBook(Book book, double finalScore, double matchScore, double qualityBonus, String recallPath) {
+    public record ScoredBook(BookProjection book, double finalScore, double matchScore, double qualityBonus, String recallPath) {
     }
 }

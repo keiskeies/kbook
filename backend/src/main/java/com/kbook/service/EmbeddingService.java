@@ -1,12 +1,13 @@
 package com.kbook.service;
 
-import com.kbook.constants.SemanticExpansionConstants;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
@@ -1060,12 +1061,12 @@ public class EmbeddingService {
 
     /**
      * RAG 查询扩展：用书籍领域上下文 + 语义同义词扩展短查询，提升与长段落的匹配度
-     *
+     * <p>
      * 原理：用户问题通常很短（如"主角的成长"），而内容分块是 800 字长段落，
      * 短文本 vs 长文本的余弦相似度天然偏低。扩展策略：
      * 1. 语义同义词扩展：将核心关键词扩展为近义词，覆盖更多表达方式
      * 2. 书籍领域上下文：用标签/简介中的领域词汇锚定查询到该书的主题向量空间
-     *
+     * <p>
      * 注意：不再拼接书名/作者，因为：
      * - 内容 chunk 不包含书名/作者，拼接后反而引入噪声
      * - bookId filter 已精确限定搜索范围，书名/作者信息冗余
@@ -1074,11 +1075,6 @@ public class EmbeddingService {
         if (query == null || query.isBlank()) return query;
         try {
             StringBuilder expanded = new StringBuilder(query);
-
-            String semanticExpanded = expandRagQuerySemantics(query);
-            if (semanticExpanded != null && !semanticExpanded.equals(query)) {
-                expanded.append(" ").append(semanticExpanded);
-            }
 
             if (book != null) {
                 String domainContext = extractDomainContext(book);
@@ -1093,9 +1089,47 @@ public class EmbeddingService {
         }
     }
 
-    private String expandRagQuerySemantics(String query) {
-        if (query.length() > 30) return query;
-        return SemanticExpansionConstants.expandQuery(query, SemanticExpansionConstants.Category.LITERARY, 2);
+    /**
+     * 使用 LLM 生成查询改写（Multi-Query Retrieval）
+     *
+     * @param query   原始查询
+     * @param context 上下文提示（比如用于区分 RAG 场景和书籍推荐场景）
+     * @return 改写后的查询列表，包含原始查询
+     */
+    public List<String> generateQueryRewrites(String query, String context) {
+        List<String> rewrites = new ArrayList<>();
+        rewrites.add(query);
+
+        try {
+            var model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            String prompt = String.format("""
+                    请为以下用户查询生成 2 个语义相似的改写版本，用于向量检索召回。
+                    要求：
+                    1. 不要改变查询的核心意图
+                    2. 可以从不同角度表达同一问题
+                    3. 改写版本要自然，像真实用户会问的问题
+                    4. 每行一个，不要带序号，不要带引号
+                    
+                    %s
+                    用户查询: %s
+                    """, context, query);
+
+            ChatResponse response = model.chat(List.of(UserMessage.from(prompt)));
+            if (response != null && response.aiMessage() != null && response.aiMessage().text() != null) {
+                String[] lines = response.aiMessage().text().split("\n");
+                for (String line : lines) {
+                    line = line.trim();
+                    if (!line.isBlank() && !line.equals(query)) {
+                        rewrites.add(line);
+                        if (rewrites.size() >= 3) break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("LLM 查询改写失败，使用原始查询: {}", e.getMessage());
+        }
+
+        return rewrites;
     }
 
     private String extractDomainContext(Book book) {
@@ -1125,9 +1159,7 @@ public class EmbeddingService {
     }
 
     private String expandBookSearchQuery(String query) {
-        if (query == null || query.isBlank()) return query;
-        if (query.length() > 20) return query;
-        return SemanticExpansionConstants.expandQuery(query, SemanticExpansionConstants.Category.DOMAIN, 1);
+        return query; // LLM 改写在搜索相关服务中处理
     }
 
     /**
@@ -1325,20 +1357,6 @@ public class EmbeddingService {
             log.warn("删除旧内容向量超时，跳过: bookId={} - {}", bookId, e.getMessage());
         } catch (Exception e) {
             log.debug("删除旧内容向量失败（可能不存在）: bookId={} - {}", bookId, e.getMessage());
-        }
-    }
-
-    /**
-     * 获取指定书籍的内容向量数量
-     */
-    public long getContentEmbeddingCount(Long bookId) {
-        try {
-            if (qdrantClient == null) return 0;
-            Long count = qdrantClient.countAsync(qdrantProps.getContentCollection(), buildBookIdFilter(bookId), true).get(15, java.util.concurrent.TimeUnit.SECONDS);
-            return count != null ? count : 0;
-        } catch (Exception e) {
-            log.debug("获取内容向量数量失败: bookId={} - {}", bookId, e.getMessage());
-            return 0;
         }
     }
 

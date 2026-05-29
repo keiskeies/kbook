@@ -5,7 +5,6 @@ import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.constants.AiPromptConstants;
-import com.kbook.constants.SemanticExpansionConstants;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.entity.Book;
@@ -336,7 +335,7 @@ public class BookChatService {
 
                                 ensureSession(userId, finalSessionId, question, bookId);
                                 saveMessage(userId, finalSessionId, "user", question, bookId, null, null);
-                                String thinkingText = fullThinking.length() > 0 ? fullThinking.toString() : null;
+                                String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
                                 saveMessage(userId, finalSessionId, "assistant", answer, bookId, thinkingText, null);
                                 updateSessionTimestamp(finalSessionId);
 
@@ -603,27 +602,8 @@ public class BookChatService {
     }
 
     private List<String> decomposeQuery(String question) {
-        List<String> queries = new ArrayList<>();
-        queries.add(question);
-
-        for (SemanticExpansionConstants.Expansion expansion :
-                SemanticExpansionConstants.findByCategory(SemanticExpansionConstants.Category.LITERARY)) {
-            if (question.contains(expansion.keyword())) {
-                queries.add(expansion.synonyms());
-                break;
-            }
-        }
-
-        if (question.length() >= 6 && question.length() <= 20) {
-            queries.add(question + "是什么");
-            queries.add(question + "怎样 如何");
-        }
-
-        if (queries.size() > 4) {
-            queries = queries.subList(0, 4);
-        }
-
-        return queries;
+        // 使用 LLM 生成查询改写
+        return embeddingService.generateQueryRewrites(question, "这是一个关于书籍内容的 RAG 查询，需要搜索相关的书籍内容段落");
     }
 
     private double keywordRelevanceBonus(EmbeddingMatch<TextSegment> match, String question) {
@@ -727,8 +707,12 @@ public class BookChatService {
         }
 
         if (!ragContext.isBlank()) {
-            sb.append("\n【书籍参考内容】（以下是从原著中检索到的与问题相关的片段）\n");
+            sb.append("\n【书籍参考内容】（以下是从原著中检索到的与问题相关的片段，引用时请标注序号 [1][2]...）\n");
             sb.append(ragContext);
+            sb.append("\n【核心主题提取】\n");
+            sb.append("请先根据上述参考内容提炼本书的 3~5 个核心主题，然后再回答用户的问题。\n");
+            sb.append("核心主题是指这本书真正在探讨的深层议题（如「存在感、自我重塑、安全感」），\n");
+            sb.append("而不是分类标签（如「心理学、励志」）。每个主题用 2~3 个字概括。\n");
         } else {
             sb.append("\n【注意】未从原著中检索到直接相关的内容片段，请根据书籍基本信息谨慎回答。\n");
         }

@@ -3,6 +3,7 @@ package com.kbook.controller;
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
 import com.kbook.document.BookDocument;
+import com.kbook.dto.BookProjection;
 import com.kbook.dto.BookSpeedReadVO;
 import com.kbook.entity.Book;
 import com.kbook.service.BookParserService;
@@ -105,7 +106,7 @@ public class BookController {
      * 阅读排行
      */
     @GetMapping("/rank/read")
-    public Result<PageResult<Book>> getReadRank(
+    public Result<PageResult<BookProjection>> getReadRank(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.ok(rankService.getReadRank(page, size));
@@ -115,7 +116,7 @@ public class BookController {
      * 评分排行
      */
     @GetMapping("/rank/rating")
-    public Result<PageResult<Book>> getRatingRank(
+    public Result<PageResult<BookProjection>> getRatingRank(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.ok(rankService.getRatingRank(page, size));
@@ -125,7 +126,7 @@ public class BookController {
      * 新书榜
      */
     @GetMapping("/rank/new")
-    public Result<PageResult<Book>> getNewBooksRank(
+    public Result<PageResult<BookProjection>> getNewBooksRank(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.ok(rankService.getNewBooksRank(page, size));
@@ -135,7 +136,7 @@ public class BookController {
      * 按格式筛选
      */
     @GetMapping("/format/{format}")
-    public Result<PageResult<Book>> getBooksByFormat(
+    public Result<PageResult<BookProjection>> getBooksByFormat(
             @PathVariable String format,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -146,7 +147,7 @@ public class BookController {
      * 按标签筛选
      */
     @GetMapping("/tag/{tag}")
-    public Result<PageResult<Book>> getBooksByTag(
+    public Result<PageResult<BookProjection>> getBooksByTag(
             @PathVariable String tag,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {

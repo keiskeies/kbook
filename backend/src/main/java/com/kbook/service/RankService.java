@@ -1,7 +1,7 @@
 package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
-import com.kbook.entity.Book;
+import com.kbook.dto.BookProjection;
 import com.kbook.repository.BookRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,13 +49,13 @@ public class RankService {
     /**
      * 获取高分佳作（4分以上随机6本，优先读缓存）
      */
-    public List<Book> getHighRatedRandom() {
+    public List<BookProjection> getHighRatedRandom() {
         String cachedIds = redisTemplate.opsForValue().get(HIGH_RATED_RANDOM_KEY);
         if (cachedIds != null && !cachedIds.isEmpty()) {
             try {
                 List<Long> ids = parseIdList(cachedIds);
                 if (!ids.isEmpty()) {
-                    return fetchBooksByIds(ids);
+                    return bookRepository.findProjectedByIdIn(ids);
                 }
             } catch (Exception e) {
                 log.warn("高分佳作缓存解析失败，重新生成", e);
@@ -67,13 +67,13 @@ public class RankService {
     /**
      * 获取新书速递（全部书籍随机12本，优先读缓存）
      */
-    public List<Book> getNewArrivalsRandom() {
+    public List<BookProjection> getNewArrivalsRandom() {
         String cachedIds = redisTemplate.opsForValue().get(NEW_ARRIVALS_RANDOM_KEY);
         if (cachedIds != null && !cachedIds.isEmpty()) {
             try {
                 List<Long> ids = parseIdList(cachedIds);
                 if (!ids.isEmpty()) {
-                    return fetchBooksByIds(ids);
+                    return bookRepository.findProjectedByIdIn(ids);
                 }
             } catch (Exception e) {
                 log.warn("新书速递缓存解析失败，重新生成", e);
@@ -82,24 +82,6 @@ public class RankService {
         return generateNewArrivalsRandom();
     }
 
-
-    /**
-     * 根据 ID 列表查询图书数据，使用 BookService.getBookById 走缓存
-     */
-    private List<Book> fetchBooksByIds(List<Long> ids) {
-        List<Book> books = new ArrayList<>();
-        for (Long id : ids) {
-            try {
-                Book book = bookService.getBookById(id);
-                if (book != null) {
-                    books.add(book);
-                }
-            } catch (Exception e) {
-                log.warn("查询图书失败: id={}", id);
-            }
-        }
-        return books;
-    }
 
     /**
      * 解析 ID 列表字符串（逗号分隔）
@@ -118,29 +100,30 @@ public class RankService {
     /**
      * 生成高分佳作随机列表
      */
-    private List<Book> generateHighRatedRandom() {
-        List<Book> candidates = bookRepository.findByRatingGreaterThan((double) HIGH_RATED_MIN_SCORE);
+    private List<BookProjection> generateHighRatedRandom() {
+        List<BookProjection> candidates = bookRepository.findAllProjectedByOrderByRatingDesc(PageRequest.of(0, 100)).getContent()
+                .stream().filter(b -> b.getRating() != null && b.getRating() >= HIGH_RATED_MIN_SCORE).toList();
         if (candidates.isEmpty()) {
             return List.of();
         }
-        Collections.shuffle(candidates);
-        List<Book> result = candidates.stream().limit(HIGH_RATED_COUNT).toList();
+        List<BookProjection> shuffled = new ArrayList<>(candidates);
+        Collections.shuffle(shuffled);
+        List<BookProjection> result = shuffled.stream().limit(HIGH_RATED_COUNT).toList();
         cacheBookIds(HIGH_RATED_RANDOM_KEY, result);
         return result;
     }
 
     /**
      * 生成新书速递随机列表
-     * 使用 findRandomBooks 替代 findAll()，避免全量加载
      */
-    private List<Book> generateNewArrivalsRandom() {
-        // 直接随机采样，不需要加载所有书籍
-        List<Book> randomBooks = bookRepository.findRandomBooks(NEW_ARRIVALS_COUNT * 3);
-        if (randomBooks.isEmpty()) {
+    private List<BookProjection> generateNewArrivalsRandom() {
+        List<BookProjection> allProjected = bookRepository.findAllProjectedByOrderByIdAsc(PageRequest.of(0, 1000)).getContent();
+        if (allProjected.isEmpty()) {
             return List.of();
         }
-        Collections.shuffle(randomBooks);
-        List<Book> result = randomBooks.stream().limit(NEW_ARRIVALS_COUNT).toList();
+        List<BookProjection> shuffled = new ArrayList<>(allProjected);
+        Collections.shuffle(shuffled);
+        List<BookProjection> result = shuffled.stream().limit(NEW_ARRIVALS_COUNT).toList();
         cacheBookIds(NEW_ARRIVALS_RANDOM_KEY, result);
         return result;
     }
@@ -148,7 +131,7 @@ public class RankService {
     /**
      * 缓存图书 ID 列表（逗号分隔，如 "1,5,8,12"）
      */
-    private void cacheBookIds(String key, List<Book> books) {
+    private void cacheBookIds(String key, List<BookProjection> books) {
         try {
             String idsStr = books.stream()
                     .map(b -> String.valueOf(b.getId()))
@@ -165,7 +148,7 @@ public class RankService {
      */
     private void refreshReadRankCache() {
         Pageable top50 = PageRequest.of(0, 50);
-        Page<Book> readRank = bookRepository.findAllByOrderByReadCountDesc(top50);
+        Page<BookProjection> readRank = bookRepository.findAllProjectedByOrderByReadCountDesc(top50);
         cacheBookIds(READ_RANK_KEY, readRank.getContent());
         log.debug("阅读榜缓存刷新完成: {}本", readRank.getContent().size());
     }
@@ -175,7 +158,7 @@ public class RankService {
      */
     private void refreshRatingRankCache() {
         Pageable top50 = PageRequest.of(0, 50);
-        Page<Book> ratingRank = bookRepository.findAllByOrderByRatingDesc(top50);
+        Page<BookProjection> ratingRank = bookRepository.findAllProjectedByOrderByRatingDesc(top50);
         cacheBookIds(RATING_RANK_KEY, ratingRank.getContent());
         log.debug("评分榜缓存刷新完成: {}本", ratingRank.getContent().size());
     }
@@ -185,7 +168,7 @@ public class RankService {
      */
     private void refreshNewBooksRankCache() {
         Pageable top50 = PageRequest.of(0, 50);
-        Page<Book> newBooks = bookRepository.findAllByOrderByCreatedAtDesc(top50);
+        Page<BookProjection> newBooks = bookRepository.findAllProjectedByOrderByCreatedAtDesc(top50);
         cacheBookIds(NEW_BOOKS_RANK_KEY, newBooks.getContent());
         log.debug("新书榜缓存刷新完成: {}本", newBooks.getContent().size());
     }
@@ -193,21 +176,21 @@ public class RankService {
     /**
      * 从缓存读取指定页码的阅读榜
      */
-    public PageResult<Book> getReadRank(int page, int size) {
+    public PageResult<BookProjection> getReadRank(int page, int size) {
         return getCachedPage(READ_RANK_KEY, page, size);
     }
 
     /**
      * 从缓存读取指定页码的评分榜
      */
-    public PageResult<Book> getRatingRank(int page, int size) {
+    public PageResult<BookProjection> getRatingRank(int page, int size) {
         return getCachedPage(RATING_RANK_KEY, page, size);
     }
 
     /**
      * 从缓存读取指定页码的新书榜
      */
-    public PageResult<Book> getNewBooksRank(int page, int size) {
+    public PageResult<BookProjection> getNewBooksRank(int page, int size) {
         return getCachedPage(NEW_BOOKS_RANK_KEY, page, size);
     }
 
@@ -215,7 +198,7 @@ public class RankService {
      * 从缓存的 top 50 ID 列表中截取分页。
      * 缓存不存在时降级到数据库查询；缓存存在但超出范围则返回空列表，不再查数据库。
      */
-    private PageResult<Book> getCachedPage(String cacheKey, int page, int size) {
+    private PageResult<BookProjection> getCachedPage(String cacheKey, int page, int size) {
         String cachedIds = redisTemplate.opsForValue().get(cacheKey);
         if (cachedIds == null || cachedIds.isEmpty()) {
             return loadFromDb(cacheKey, page, size);
@@ -229,7 +212,7 @@ public class RankService {
             }
             int toIndex = Math.min(fromIndex + size, totalCached);
             List<Long> pageIds = ids.subList(fromIndex, toIndex);
-            List<Book> books = fetchBooksByIds(pageIds);
+            List<BookProjection> books = bookRepository.findProjectedByIdIn(pageIds);
             return PageResult.of(books, totalCached, page, size);
         } catch (Exception e) {
             log.warn("缓存读取失败，降级到数据库: key={}", cacheKey, e);
@@ -237,18 +220,18 @@ public class RankService {
         }
     }
 
-    private PageResult<Book> loadFromDb(String cacheKey, int page, int size) {
+    private PageResult<BookProjection> loadFromDb(String cacheKey, int page, int size) {
         Pageable pb = PageRequest.of(page - 1, size);
         if (READ_RANK_KEY.equals(cacheKey)) {
-            Page<Book> pg = bookRepository.findAllByOrderByReadCountDesc(pb);
+            Page<BookProjection> pg = bookRepository.findAllProjectedByOrderByReadCountDesc(pb);
             return PageResult.of(pg.getContent(), pg.getTotalElements(), page, size);
         }
         if (RATING_RANK_KEY.equals(cacheKey)) {
-            Page<Book> pg = bookRepository.findAllByOrderByRatingDesc(pb);
+            Page<BookProjection> pg = bookRepository.findAllProjectedByOrderByRatingDesc(pb);
             return PageResult.of(pg.getContent(), pg.getTotalElements(), page, size);
         }
         // NEW_BOOKS_RANK_KEY
-        Page<Book> pg = bookRepository.findAllByOrderByCreatedAtDesc(pb);
+        Page<BookProjection> pg = bookRepository.findAllProjectedByOrderByCreatedAtDesc(pb);
         return PageResult.of(pg.getContent(), pg.getTotalElements(), page, size);
     }
 

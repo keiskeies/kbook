@@ -9,6 +9,7 @@ import com.kbook.common.util.TransactionUtils;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.document.BookDocument;
+import com.kbook.dto.BookProjection;
 import com.kbook.dto.TagStat;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
@@ -63,6 +64,7 @@ public class BookService {
     private static final long CACHE_TTL_HOURS = 72;
 
     private static final String BOOK_CACHE_KEY_PREFIX = "book:detail:";
+    private static final String BOOK_PROJ_CACHE_KEY_PREFIX = "book:proj:";
     private static final long CACHE_BASE_TTL_MINUTES = 30;
     private static final long CACHE_RANDOM_TTL_MINUTES = 10; // 防雪崩随机范围
 
@@ -101,10 +103,10 @@ public class BookService {
 
         // 3. 计算数据
         log.info("缓存未命中，开始计算热门标签");
-        List<Book> all = this.getRatingRank(1, 5000).getList();
+        List<BookProjection> all = this.getRatingRank(1, 5000).getList();
         Map<String, Long> tagCount = new HashMap<>();
 
-        for (Book book : all) {
+        for (BookProjection book : all) {
             if (book.getFormatTags() == null || book.getFormatTags().isBlank()) continue;
             // 移除 JSON 数组符号和引号: ["a","b"] -> a,b
             String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "");
@@ -118,6 +120,7 @@ public class BookService {
 
         List<TagStat> result = tagCount.entrySet().stream()
                 .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .limit(120)
                 .map(e -> TagStat.builder()
                         .name(e.getKey())
                         .count(e.getValue())
@@ -174,11 +177,37 @@ public class BookService {
     }
 
     /**
+     * 获取图书投影（仅常用字段，带独立缓存，key更小）
+     */
+    public BookProjection getBookProjectionById(Long bookId) {
+        String cacheKey = BOOK_PROJ_CACHE_KEY_PREFIX + bookId;
+        try {
+            String cachedJson = redisTemplate.opsForValue().get(cacheKey);
+            if (cachedJson != null) {
+                if ("NULL".equals(cachedJson)) throw new BusinessException("图书不存在");
+                return objectMapper.readValue(cachedJson, BookProjection.class);
+            }
+            BookProjection book = bookRepository.findProjectedById(bookId)
+                    .orElseThrow(() -> new BusinessException("图书不存在"));
+            long ttl = CACHE_BASE_TTL_MINUTES + ThreadLocalRandom.current().nextLong(CACHE_RANDOM_TTL_MINUTES);
+            redisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(book), ttl, TimeUnit.MINUTES);
+            return book;
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("获取图书投影缓存失败，降级查库: bookId={}", bookId, e);
+            return bookRepository.findProjectedById(bookId)
+                    .orElseThrow(() -> new BusinessException("图书不存在"));
+        }
+    }
+
+    /**
      * 清除图书详情缓存
      */
     private void evictBookCache(Long bookId) {
         try {
             redisTemplate.delete(BOOK_CACHE_KEY_PREFIX + bookId);
+            redisTemplate.delete(BOOK_PROJ_CACHE_KEY_PREFIX + bookId);
         } catch (Exception e) {
             log.warn("清除图书缓存失败: bookId={}", bookId, e);
         }
@@ -220,9 +249,6 @@ public class BookService {
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
-        if (updates.getSpeedRead() != null) book.setSpeedRead(updates.getSpeedRead());
-        if (updates.getSpeedReadGenerated() != null) book.setSpeedReadGenerated(updates.getSpeedReadGenerated());
-
         Book saved = bookRepository.save(book);
         // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
         TransactionUtils.afterCommit(() -> {
@@ -250,9 +276,6 @@ public class BookService {
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
-        if (updates.getSpeedRead() != null) book.setSpeedRead(updates.getSpeedRead());
-        if (updates.getSpeedReadGenerated() != null) book.setSpeedReadGenerated(updates.getSpeedReadGenerated());
-
         Book saved = bookRepository.save(book);
         // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
         TransactionUtils.afterCommit(() -> {
@@ -260,17 +283,6 @@ public class BookService {
             evictBookCache(saved.getId());
         });
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
-    }
-
-    @Transactional
-    public void clearSpeedRead(Long bookId) {
-        Book book = getBookById(bookId);
-        if (book == null) return;
-        if (book.getSpeedRead() == null && !Boolean.TRUE.equals(book.getSpeedReadGenerated())) return;
-        book.setSpeedRead(null);
-        book.setSpeedReadGenerated(false);
-        bookRepository.save(book);
-        log.info("清除速读缓存: bookId={}", bookId);
     }
 
     /**
@@ -352,9 +364,9 @@ public class BookService {
      * 注意：此方法仅走 MySQL LIKE，不经过 Qdrant/ES。
      * 需要混合搜索请使用 {@link #searchBooksEs}。
      */
-    public PageResult<Book> searchBooks(String keyword, String format, int page, int size) {
+    public PageResult<BookProjection> searchBooks(String keyword, String format, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<Book> pageData = bookRepository.searchBooks(keyword, format, pageable);
+        Page<BookProjection> pageData = bookRepository.searchProjectedBooks(keyword, format, pageable);
         return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
     }
 
@@ -368,45 +380,45 @@ public class BookService {
     /**
      * 阅读排行
      */
-    public PageResult<Book> getReadRank(int page, int size) {
+    public PageResult<BookProjection> getReadRank(int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size);
-        Page<Book> pageData = bookRepository.findAllByOrderByReadCountDesc(pageable);
+        Page<BookProjection> pageData = bookRepository.findAllProjectedByOrderByReadCountDesc(pageable);
         return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
     }
 
     /**
      * 评分排行
      */
-    public PageResult<Book> getRatingRank(int page, int size) {
+    public PageResult<BookProjection> getRatingRank(int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size);
-        Page<Book> pageData = bookRepository.findAllByOrderByRatingDesc(pageable);
+        Page<BookProjection> pageData = bookRepository.findAllProjectedByOrderByRatingDesc(pageable);
         return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
     }
 
     /**
      * 新书榜
      */
-    public PageResult<Book> getNewBooksRank(int page, int size) {
+    public PageResult<BookProjection> getNewBooksRank(int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size);
-        Page<Book> pageData = bookRepository.findAllByOrderByCreatedAtDesc(pageable);
+        Page<BookProjection> pageData = bookRepository.findAllProjectedByOrderByCreatedAtDesc(pageable);
         return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
     }
 
     /**
      * 按格式筛选
      */
-    public PageResult<Book> getBooksByFormat(String format, int page, int size) {
+    public PageResult<BookProjection> getBooksByFormat(String format, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<Book> pageData = bookRepository.findByFormat(format, pageable);
+        Page<BookProjection> pageData = bookRepository.findProjectedByFormat(format, pageable);
         return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
     }
 
     /**
      * 按标签筛选
      */
-    public PageResult<Book> getBooksByTag(String tag, int page, int size) {
+    public PageResult<BookProjection> getBooksByTag(String tag, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<Book> pageData = bookRepository.findByTag(tag, pageable);
+        Page<BookProjection> pageData = bookRepository.findProjectedByTag(tag, pageable);
         return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
     }
 

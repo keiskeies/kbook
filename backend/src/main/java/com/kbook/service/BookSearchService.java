@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.document.BookDocument;
+import com.kbook.dto.BookProjection;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.BookSearchRepository;
@@ -129,8 +130,8 @@ public class BookSearchService {
      */
     private PageResult<BookDocument> mysqlKeywordSearch(String keyword, String format, String tag, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<Book> jpaResult = bookRepository.searchBooks(keyword, format, pageable);
-        List<Book> books = jpaResult.getContent();
+        Page<BookProjection> jpaResult = bookRepository.searchProjectedBooks(keyword, format, pageable);
+        List<BookProjection> books = jpaResult.getContent();
 
         // 转换为 BookDocument
         List<BookDocument> docs = books.stream().map(this::toDocument).toList();
@@ -209,12 +210,12 @@ public class BookSearchService {
         List<ScoredBook> paged = scored.subList(start, end);
 
         List<Long> pagedIds = paged.stream().map(s -> s.bookId).toList();
-        Map<Long, Book> bookMap = bookRepository.findAllById(pagedIds).stream()
-                .collect(Collectors.toMap(Book::getId, b -> b, (a, b) -> a));
+        Map<Long, BookProjection> bookMap = bookRepository.findProjectedByIdIn(pagedIds).stream()
+                .collect(Collectors.toMap(BookProjection::getId, b -> b, (a, b) -> a));
 
         List<BookDocument> docs = paged.stream()
                 .map(sb -> {
-                    Book book = bookMap.get(sb.bookId);
+                    BookProjection book = bookMap.get(sb.bookId);
                     if (book == null) return null;
                     return toDocument(book);
                 })
@@ -409,7 +410,7 @@ public class BookSearchService {
         }
         // MySQL 降级
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<Book> jpaResult = bookRepository.findByFormat(format, pageable);
+        Page<BookProjection> jpaResult = bookRepository.findProjectedByFormat(format, pageable);
         List<BookDocument> docs = jpaResult.getContent().stream()
                 .map(this::toDocument)
                 .collect(Collectors.toList());
@@ -422,7 +423,7 @@ public class BookSearchService {
     private PageResult<BookDocument> searchByTag(String tag, int page, int size) {
         // MySQL 标签筛选（formatTags 存储的是 JSON 字符串，用 LIKE 匹配）
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<Book> jpaResult = bookRepository.findByTag(tag, pageable);
+        Page<BookProjection> jpaResult = bookRepository.findProjectedByTag(tag, pageable);
         List<BookDocument> docs = jpaResult.getContent().stream()
                 .map(this::toDocument)
                 .collect(Collectors.toList());
@@ -483,7 +484,7 @@ public class BookSearchService {
 
         while (true) {
             Pageable pageable = PageRequest.of(page++, pageSize);
-            List<Book> books = bookRepository.findAll(pageable).getContent();
+            List<BookProjection> books = bookRepository.findAllProjectedByOrderByIdAsc(pageable).getContent();
             if (books.isEmpty()) break;
 
             List<BookDocument> docs = books.stream()
@@ -512,7 +513,7 @@ public class BookSearchService {
 
         while (true) {
             Pageable pageable = PageRequest.of(page++, pageSize);
-            List<Book> books = bookRepository.findAll(pageable).getContent();
+            List<BookProjection> books = bookRepository.findAllProjectedByOrderByIdAsc(pageable).getContent();
             if (books.isEmpty()) break;
 
             List<BookDocument> docs = books.stream()
@@ -541,6 +542,24 @@ public class BookSearchService {
      * Entity → Document
      */
     private BookDocument toDocument(Book book) {
+        return BookDocument.builder()
+                .id(book.getId())
+                .title(book.getTitle())
+                .author(book.getAuthor())
+                .description(book.getDescription())
+                .format(book.getFormat())
+                .formatTags(book.getFormatTags())
+                .coverUrl(book.getCoverUrl())
+                .fileSize(book.getFileSize())
+                .readCount(book.getReadCount())
+                .rating(book.getRating())
+                .totalUnits(book.getTotalUnits())
+                .fileUrl(book.getFileUrl())
+                .createdAt(book.getCreatedAt() != null ? book.getCreatedAt().toEpochSecond(java.time.ZoneOffset.of("+8")) : 0L)
+                .build();
+    }
+
+    private BookDocument toDocument(BookProjection book) {
         return BookDocument.builder()
                 .id(book.getId())
                 .title(book.getTitle())

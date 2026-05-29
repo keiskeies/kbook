@@ -61,7 +61,6 @@ public class BookshelfService {
         bookshelfRepository.save(item);
         bookTrashService.updateDimensionScoresOnBookshelf(userId, bookId);
         matchScoreCacheService.evictUser(userId);
-        bookService.clearSpeedRead(bookId);
         log.info("加入书架: userId={}, bookId={}", userId, bookId);
     }
 
@@ -73,7 +72,6 @@ public class BookshelfService {
         bookshelfRepository.deleteByUserIdAndBookId(userId, bookId);
         bookTrashService.reverseDimensionScoresOnBookshelf(userId, bookId);
         matchScoreCacheService.evictUser(userId);
-        bookService.clearSpeedRead(bookId);
         log.info("移出书架: userId={}, bookId={}", userId, bookId);
     }
 

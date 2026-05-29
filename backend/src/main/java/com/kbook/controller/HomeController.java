@@ -67,7 +67,7 @@ public class HomeController {
         List<ReadingProgress> recentProgress = progressService.getRecentReading(userId, 4);
         List<RecentBookVO> recentBooks = recentProgress.stream()
                 .map(rp -> {
-                    Book book = bookService.getBookById(rp.getBookId());
+                    var book = bookService.getBookProjectionById(rp.getBookId());
                     return RecentBookVO.builder()
                             .bookId(book.getId())
                             .title(book.getTitle())
@@ -105,7 +105,7 @@ public class HomeController {
      */
     @GetMapping("/top-rated")
     public Result<List<SimpleBookVO>> getTopRated() {
-        List<Book> topRated = rankService.getHighRatedRandom();
+        var topRated = rankService.getHighRatedRandom();
         return Result.ok(topRated.stream().map(SimpleBookVO::from).toList());
     }
 
@@ -114,7 +114,7 @@ public class HomeController {
      */
     @GetMapping("/new-books")
     public Result<List<SimpleBookVO>> getNewBooks() {
-        List<Book> newBooks = rankService.getNewArrivalsRandom();
+        var newBooks = rankService.getNewArrivalsRandom();
         return Result.ok(newBooks.stream().map(SimpleBookVO::from).toList());
     }
 
@@ -123,7 +123,7 @@ public class HomeController {
      */
     @GetMapping("/popular")
     public Result<List<SimpleBookVO>> getPopular() {
-        List<Book> popular = rankService.getReadRank(1, 6).getList();
+        var popular = rankService.getReadRank(1, 6).getList();
         return Result.ok(popular.stream().map(SimpleBookVO::from).toList());
     }
 

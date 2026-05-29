@@ -1236,8 +1236,6 @@ public class BookParserService {
             // 填充8维度相关度得分（JSON字符串）
             if (result.relevanceScoresJson != null && !result.relevanceScoresJson.isBlank()) {
                 book.setRelevanceScores(result.relevanceScoresJson);
-                book.setSpeedRead(null);
-                book.setSpeedReadGenerated(false);
             }
 
             // 填充AI生成的简介

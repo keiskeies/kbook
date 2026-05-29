@@ -3,9 +3,9 @@ package com.kbook.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.PageResult;
-import com.kbook.constants.SemanticExpansionConstants;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.QdrantProperties;
+import com.kbook.dto.BookProjection;
 import com.kbook.dto.RecommendedItem;
 import com.kbook.document.BookDocument;
 import com.kbook.entity.Book;
@@ -151,13 +151,13 @@ public class AiToolService {
     public String getReadRank() {
         log.debug("[AI Tool] getReadRank");
         try {
-            PageResult<Book> result = bookService.getReadRank(1, 10);
+            PageResult<BookProjection> result = bookService.getReadRank(1, 10);
             if (result.getList().isEmpty()) {
                 return "暂无排行数据。";
             }
             StringBuilder sb = new StringBuilder("阅读排行榜 TOP 10:\n");
             for (int i = 0; i < result.getList().size(); i++) {
-                Book b = result.getList().get(i);
+                BookProjection b = result.getList().get(i);
                 recordBook(b.getTitle(), b.getId());
                 sb.append(String.format("%d. 《%s》 作者:%s 阅读:%d次 评分:%.1f\n",
                         i + 1, b.getTitle(),
@@ -175,13 +175,13 @@ public class AiToolService {
     public String getRatingRank() {
         log.debug("[AI Tool] getRatingRank");
         try {
-            PageResult<Book> result = bookService.getRatingRank(1, 10);
+            PageResult<BookProjection> result = bookService.getRatingRank(1, 10);
             if (result.getList().isEmpty()) {
                 return "暂无排行数据。";
             }
             StringBuilder sb = new StringBuilder("评分排行榜 TOP 10:\n");
             for (int i = 0; i < result.getList().size(); i++) {
-                Book b = result.getList().get(i);
+                BookProjection b = result.getList().get(i);
                 recordBook(b.getTitle(), b.getId());
                 sb.append(String.format("%d. 《%s》 作者:%s 评分:%.1f 阅读:%d次\n",
                         i + 1, b.getTitle(),
@@ -347,7 +347,7 @@ public class AiToolService {
             // 3. 同作者推荐
             if (sourceBook.getAuthor() != null && !sourceBook.getAuthor().isBlank()) {
                 var sameAuthorBooks = bookService.searchBooks(sourceBook.getAuthor(), null, 1, 5);
-                for (Book b : sameAuthorBooks.getList()) {
+                for (BookProjection b : sameAuthorBooks.getList()) {
                     if (b.getId().equals(bookId)) continue;
                     if (recommendations.stream().anyMatch(r -> r.get("bookId").equals(b.getId()))) continue;
                     recommendations.add(Map.of(
@@ -682,25 +682,8 @@ public class AiToolService {
     }
 
     private List<String> expandRecommendQueries(String needDescription) {
-        List<String> queries = new ArrayList<>();
-        queries.add(needDescription);
-
-        for (SemanticExpansionConstants.Expansion expansion :
-                SemanticExpansionConstants.findByCategory(SemanticExpansionConstants.Category.DOMAIN)) {
-            if (needDescription.contains(expansion.keyword())) {
-                for (String syn : expansion.synonyms().split(" ")) {
-                    String expandedQuery = needDescription.replace(expansion.keyword(), syn);
-                    queries.add(expandedQuery);
-                }
-                queries.add(needDescription + " " + expansion.synonyms());
-            }
-        }
-
-        if (queries.size() > 8) {
-            queries = queries.subList(0, 8);
-        }
-
-        return queries;
+        // 使用 LLM 生成查询改写，用于书籍推荐
+        return embeddingService.generateQueryRewrites(needDescription, "这是一个用户想要寻找的书籍推荐查询，需要搜索相关的书籍");
     }
 
     private double qualityBoost(Book book) {
@@ -794,10 +777,10 @@ public class AiToolService {
             JsonNode sourceScores = objectMapper.readTree(sourceBook.getRelevanceScores());
 
             // 获取所有书籍（限制候选集大小）
-            PageResult<Book> candidates = bookService.searchBooks("", null, 1, 200);
+            PageResult<BookProjection> candidates = bookService.searchBooks("", null, 1, 200);
             List<ScoredBook> scoredBooks = new ArrayList<>();
 
-            for (Book candidate : candidates.getList()) {
+            for (BookProjection candidate : candidates.getList()) {
                 if (candidate.getId().equals(sourceBook.getId())) continue;
                 if (candidate.getRelevanceScores() == null || candidate.getRelevanceScores().isBlank()) continue;
 
@@ -858,6 +841,6 @@ public class AiToolService {
         return denominator > 0 ? dotProduct / denominator : 0.0;
     }
 
-    private record ScoredBook(Book book, double score) {
+    private record ScoredBook(BookProjection book, double score) {
     }
 }

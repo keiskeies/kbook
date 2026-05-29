@@ -115,15 +115,6 @@ public class Book {
     @Builder.Default
     private Boolean contentEmbedded = false;
 
-    /** AI 生成的3分钟速读摘要（JSON格式，包含核心观点、适合谁读、不适合谁读、收获、难度） */
-    @Column(name = "speed_read", columnDefinition = "TEXT")
-    private String speedRead;
-
-    /** 速读摘要是否已生成 */
-    @Column(name = "speed_read_generated")
-    @Builder.Default
-    private Boolean speedReadGenerated = false;
-
     /** 创建时间 */
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

@@ -82,7 +82,6 @@ public class BookTrashService {
 
         // 清除用户匹配分数缓存
         matchScoreCacheService.evictUser(userId);
-        bookService.clearSpeedRead(bookId);
 
         // 记录日志
         log.info("图书丢入垃圾桶: userId={}, bookId={}, dimensionRatingCount={}", userId, bookId, newCount);
@@ -119,7 +118,6 @@ public class BookTrashService {
 
         // 清除用户匹配分数缓存
         matchScoreCacheService.evictUser(userId);
-        bookService.clearSpeedRead(bookId);
 
         // 记录日志
         log.info("图书移出垃圾桶: userId={}, bookId={}, dimensionRatingCount={}", userId, bookId, newCount);
@@ -301,17 +299,6 @@ public class BookTrashService {
         }
     }
 
-    /**
-     * 反向计算图书的维度评分（用于移除操作）
-     *
-     * @param book      图书对象
-     * @param user      用户对象
-     * @param oldCount  旧的评分计数
-     * @param newCount  新的评分计数
-     */
-    private void reverseCalculateDimensionScores(Book book, User user, int oldCount, int newCount) {
-        reverseCalculateDimensionScores(book, user, oldCount, newCount, 0.0);
-    }
 
     /**
      * 反向计算图书的维度评分（带默认贡献值）

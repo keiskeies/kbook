@@ -2,6 +2,7 @@ package com.kbook.test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.dto.BookProjection;
 import com.kbook.entity.Book;
 import com.kbook.entity.Comment;
 import com.kbook.entity.User;
@@ -110,7 +111,7 @@ public class CommentDataGeneratorTest {
 
 
 
-                double score = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, objectMapper, dimensionStatsService);
+                double score = RecommendMatchCalculator.calculateMatchScore(user, BookProjection.from(book), coefficientService, objectMapper, dimensionStatsService);
                 if (score < 0.85) {
                     continue;
                 }
