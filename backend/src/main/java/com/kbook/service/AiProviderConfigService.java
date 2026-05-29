@@ -80,6 +80,12 @@ public class AiProviderConfigService {
         return config != null ? config.getRagTopK() : null;
     }
 
+    /** 获取当前激活对话配置的上下文长度（token 数），未配置返回 null */
+    public Integer getActiveMaxTokens() {
+        AiProviderConfig config = getChatConfig();
+        return config != null ? config.getMaxTokens() : null;
+    }
+
     /**
      * 获取指定用途的所有配置列表
      */

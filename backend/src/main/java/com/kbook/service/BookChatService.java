@@ -17,6 +17,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
@@ -57,7 +58,6 @@ public class BookChatService {
     private final AiConversationRepository conversationRepository;
     private final AiSessionRepository sessionRepository;
     private final BookSuggestedQuestionRepository suggestedQuestionRepository;
-    private final BookQuestionGenService questionGenService;
     private final QdrantProperties qdrantProperties;
     private final RagHitStatisticsService ragHitStatisticsService;
 
@@ -153,7 +153,7 @@ public class BookChatService {
      * @param sessionId 会话ID（可为空，自动生成）
      * @return SseEmitter 流式发射器
      */
-    public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId, boolean regenerate) {
+    public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId) {
         log.info("========== 图书问答请求 ==========");
         log.info("userId={}, bookId={}, question={}", userId, bookId, question);
 
@@ -181,61 +181,61 @@ public class BookChatService {
                     return;
                 }
 
-                // 检查是否有相同问题的缓存回答（跨用户），重新生成时跳过缓存
-                if (!regenerate) {
-                    try {
-                        Optional<AiConversation> cachedAnswer = conversationRepository.findCachedAnswer(bookId, question);
-                        if (cachedAnswer.isPresent()) {
-                            AiConversation answer = cachedAnswer.get();
-                            log.info("命中缓存回答: bookId={}, question={}", bookId, question);
-
-                            // 逐块输出思考内容
-                            if (answer.getThinkingContent() != null && !answer.getThinkingContent().isEmpty()) {
-                                String thinking = answer.getThinkingContent();
-                                for (int i = 0; i < thinking.length(); ) {
-                                    int end = Math.min(i + 5, thinking.length());
-                                    emitter.send(SseEmitter.event().name("thinking_content").data(thinking.substring(i, end)));
-                                    i = end;
-                                    try {
-                                        Thread.sleep(15);
-                                    } catch (InterruptedException ignored) {
-                                        Thread.currentThread().interrupt();
-                                    }
-                                }
-                            }
-
-                            // 逐块输出回答
-                            String content = answer.getContent();
-                            for (int i = 0; i < content.length(); ) {
-                                int end = Math.min(i + 3, content.length());
-                                emitter.send(SseEmitter.event().name("message").data(content.substring(i, end)));
-                                i = end;
-                                try {
-                                    Thread.sleep(25);
-                                } catch (InterruptedException ignored) {
-                                    Thread.currentThread().interrupt();
-                                }
-                            }
-
-                            if (answer.getFollowUpQuestions() != null && !answer.getFollowUpQuestions().isEmpty()) {
-                                emitter.send(SseEmitter.event().name("follow_up_questions").data(answer.getFollowUpQuestions()));
-                            }
-                            emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                            emitter.complete();
-
-                            ensureSession(userId, finalSessionId, question, bookId);
-                            saveMessage(userId, finalSessionId, "user", question, bookId, null, null);
-                            saveMessage(userId, finalSessionId, "assistant", answer.getContent(), bookId,
-                                    answer.getThinkingContent(), answer.getFollowUpQuestions());
-                            updateSessionTimestamp(finalSessionId);
-
-                            log.info("缓存回答发送完成: bookId={}", bookId);
-                            return;
-                        }
-                    } catch (Exception e) {
-                        log.warn("查询缓存回答失败，继续调用AI: {}", e.getMessage());
-                    }
-                }
+//                // 检查是否有相同问题的缓存回答（跨用户），重新生成时跳过缓存
+//                if (!regenerate) {
+//                    try {
+//                        Optional<AiConversation> cachedAnswer = conversationRepository.findCachedAnswer(bookId, question);
+//                        if (cachedAnswer.isPresent()) {
+//                            AiConversation answer = cachedAnswer.get();
+//                            log.info("命中缓存回答: bookId={}, question={}", bookId, question);
+//
+//                            // 逐块输出思考内容
+//                            if (answer.getThinkingContent() != null && !answer.getThinkingContent().isEmpty()) {
+//                                String thinking = answer.getThinkingContent();
+//                                for (int i = 0; i < thinking.length(); ) {
+//                                    int end = Math.min(i + 5, thinking.length());
+//                                    emitter.send(SseEmitter.event().name("thinking_content").data(thinking.substring(i, end)));
+//                                    i = end;
+//                                    try {
+//                                        Thread.sleep(15);
+//                                    } catch (InterruptedException ignored) {
+//                                        Thread.currentThread().interrupt();
+//                                    }
+//                                }
+//                            }
+//
+//                            // 逐块输出回答
+//                            String content = answer.getContent();
+//                            for (int i = 0; i < content.length(); ) {
+//                                int end = Math.min(i + 3, content.length());
+//                                emitter.send(SseEmitter.event().name("message").data(content.substring(i, end)));
+//                                i = end;
+//                                try {
+//                                    Thread.sleep(25);
+//                                } catch (InterruptedException ignored) {
+//                                    Thread.currentThread().interrupt();
+//                                }
+//                            }
+//
+//                            if (answer.getFollowUpQuestions() != null && !answer.getFollowUpQuestions().isEmpty()) {
+//                                emitter.send(SseEmitter.event().name("follow_up_questions").data(answer.getFollowUpQuestions()));
+//                            }
+//                            emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+//                            emitter.complete();
+//
+//                            ensureSession(userId, finalSessionId, question, bookId);
+//                            saveMessage(userId, finalSessionId, "user", question, bookId, null, null);
+//                            saveMessage(userId, finalSessionId, "assistant", answer.getContent(), bookId,
+//                                    answer.getThinkingContent(), answer.getFollowUpQuestions());
+//                            updateSessionTimestamp(finalSessionId);
+//
+//                            log.info("缓存回答发送完成: bookId={}", bookId);
+//                            return;
+//                        }
+//                    } catch (Exception e) {
+//                        log.warn("查询缓存回答失败，继续调用AI: {}", e.getMessage());
+//                    }
+//                }
 
                 if (!Boolean.TRUE.equals(book.getContentEmbedded())) {
                     log.info("图书未生成内容向量，尝试按需生成: bookId={}", bookId);
@@ -257,7 +257,8 @@ public class BookChatService {
 
                 int ragTopK = Optional.ofNullable(aiProviderConfigService.getActiveRagTopK())
                         .orElse(qdrantProperties.getRagTopK());
-                String ragContext = retrieveRagContext(book, question, ragTopK);
+                int ragMaxChars = getRagMaxChars();
+                String ragContext = retrieveRagContext(book, question, ragTopK, ragMaxChars);
                 log.debug("RAG 检索结果长度: {}", ragContext.length());
 
                 try {
@@ -334,9 +335,9 @@ public class BookChatService {
                                 }
 
                                 ensureSession(userId, finalSessionId, question, bookId);
-                                saveMessage(userId, finalSessionId, "user", question, bookId, null, null);
+                                saveMessage(userId, finalSessionId, "user", question, bookId, null);
                                 String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
-                                saveMessage(userId, finalSessionId, "assistant", answer, bookId, thinkingText, null);
+                                saveMessage(userId, finalSessionId, "assistant", answer, bookId, thinkingText);
                                 updateSessionTimestamp(finalSessionId);
 
                                 CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
@@ -417,22 +418,22 @@ public class BookChatService {
 
             String prompt = String.format(
                     """
-                            你正在和读者讨论《%s》这本书。你刚给出了一个回答。
-                    
-                            读者问：%s
-                            你回答：%s
-                    
-                            现在，审视你刚才的回答，找出其中3个最可能引发读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
-                            - 你说了一个结论，但没有给出这个结论成立的条件或前提
-                            - 你使用了一个关键概念，但它的含义在语境中可能被误解
-                            - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
-                            - 你提出了一个判断，但没有说明它适用的边界或反例
-                    
-                            要求：
-                            - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
-                            - 问题的提问对象是你这个AI，问题本身你必须能回答
-                            - 每行一个，不超25字，无序号
-                    """,
+                                    你正在和读者讨论《%s》这本书。你刚给出了一个回答。
+                            
+                                    读者问：%s
+                                    你回答：%s
+                            
+                                    现在，审视你刚才的回答，找出其中3个最可能引发读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
+                                    - 你说了一个结论，但没有给出这个结论成立的条件或前提
+                                    - 你使用了一个关键概念，但它的含义在语境中可能被误解
+                                    - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
+                                    - 你提出了一个判断，但没有说明它适用的边界或反例
+                            
+                                    要求：
+                                    - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
+                                    - 问题的提问对象是你这个AI，问题本身你必须能回答
+                                    - 每行一个，不超25字，无序号
+                            """,
                     title,
                     question,
                     answer
@@ -467,12 +468,8 @@ public class BookChatService {
     }
 
     /**
-     * 历史对话最大轮数（一轮 = 一问一答）
-     */
-    private static final int MAX_HISTORY_TURNS = AiPromptConstants.MAX_HISTORY_TURNS;
-
-    /**
      * 构建包含系统提示词、历史对话和当前问题的完整消息列表
+     * 历史消息数量由压缩机制动态控制，不硬限轮数
      *
      * @param sessionId     会话ID
      * @param userId        用户ID
@@ -484,24 +481,25 @@ public class BookChatService {
         messages.add(SystemMessage.from(AiPromptConstants.BOOK_CHAT_SYSTEM_PROMPT));
 
         try {
+            // 先压缩历史（如有需要），确保 LLM 收到的上下文不超限
+            int currentOverhead = AiPromptConstants.BOOK_CHAT_SYSTEM_PROMPT.length()
+                    + currentPrompt.length()
+                    + 2000; // AI 回复预留
+            compressHistoryIfNeeded(userId, sessionId, currentOverhead);
+
             List<AiConversation> history = conversationRepository
                     .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
             if (!history.isEmpty()) {
-                int startIndex = Math.max(0, history.size() - MAX_HISTORY_TURNS * 2);
-                for (int i = startIndex; i < history.size(); i++) {
-                    AiConversation conv = history.get(i);
-                    String content = conv.getContent();
+                for (AiConversation conv : history) {
+                    String content = conv.getCompressedContent();
                     if (content == null || content.isBlank()) continue;
-                    if (content.length() > AiPromptConstants.MAX_HISTORY_MESSAGE_LENGTH) {
-                        content = content.substring(0, AiPromptConstants.MAX_HISTORY_MESSAGE_LENGTH) + "...";
-                    }
                     if ("user".equals(conv.getRole())) {
                         messages.add(UserMessage.from(content));
                     } else if ("assistant".equals(conv.getRole())) {
                         messages.add(AiMessage.from(content));
                     }
                 }
-                log.debug("加载图书问答历史: sessionId={}, totalRecords={}, loadedFrom={}", sessionId, history.size(), startIndex);
+                log.debug("加载图书问答历史: sessionId={}, totalRecords={}", sessionId, history.size());
             }
         } catch (Exception e) {
             log.warn("加载图书问答历史失败，继续无历史对话: {}", e.getMessage());
@@ -511,10 +509,9 @@ public class BookChatService {
         return messages;
     }
 
-    private static final int MAX_RAG_CONTEXT_LENGTH = 12000;
-
     /**
      * RAG 语义检索：从书籍内容向量中检索与问题相关的片段
+     * RAG 长度上限由模型上下文动态决定：maxTokens × 1.5 × 0.6（留 40% 给系统和对话）
      * 优化策略：多查询检索 + 相邻片段合并 + 关键词重排序 + 自适应 topK
      *
      * @param book     书籍实体
@@ -522,7 +519,7 @@ public class BookChatService {
      * @param topK     返回的最大结果数
      * @return 拼接后的 RAG 上下文文本
      */
-    private String retrieveRagContext(Book book, String question, int topK) {
+    private String retrieveRagContext(Book book, String question, int topK, int maxChars) {
         if (!embeddingService.isAvailable()) {
             log.debug("Embedding 不可用，跳过 RAG 检索");
             return "";
@@ -532,6 +529,7 @@ public class BookChatService {
 
             List<String> subQueries = decomposeQuery(question);
             Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
+            int rawCount = 0, rawChars = 0;
 
             for (String subQuery : subQueries) {
                 try {
@@ -540,6 +538,8 @@ public class BookChatService {
                     for (EmbeddingMatch<TextSegment> match : matches) {
                         String chunkText = match.embedded() != null ? match.embedded().text() : "";
                         if (chunkText.isBlank()) continue;
+                        rawCount++;
+                        rawChars += chunkText.length();
                         String dedupeKey = chunkText.length() > 80
                                 ? chunkText.substring(0, 80)
                                 : chunkText;
@@ -552,6 +552,8 @@ public class BookChatService {
             }
 
             List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>(dedupedMatches.values());
+            int dedupChars = allMatches.stream()
+                    .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
 
             if (allMatches.isEmpty()) {
                 log.debug("RAG 检索无结果: bookId={}, question={}", book.getId(), question.substring(0, Math.min(30, question.length())));
@@ -568,6 +570,8 @@ public class BookChatService {
             });
 
             List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(allMatches);
+            int mergeChars = merged.stream()
+                    .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
 
             StringBuilder sb = new StringBuilder();
             int totalLen = 0;
@@ -575,15 +579,19 @@ public class BookChatService {
                 EmbeddingMatch<TextSegment> match = merged.get(i);
                 String chunkText = match.embedded() != null ? match.embedded().text() : "";
                 if (chunkText.isBlank()) continue;
-                if (totalLen + chunkText.length() > MAX_RAG_CONTEXT_LENGTH) break;
+                if (totalLen + chunkText.length() > maxChars) break;
                 sb.append("【参考片段").append(i + 1).append("】\n");
                 sb.append(chunkText).append("\n\n");
                 totalLen += chunkText.length();
             }
 
             String ragContext = sb.toString();
-            log.info("RAG 检索命中: bookId={}, rawHits={}, afterDedup={}, afterMerge={}, contextLen={}",
-                    book.getId(), dedupedMatches.size(), allMatches.size(), merged.size(), ragContext.length());
+            log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重{}条{}字 → 合并{}条{}字 → 最终{}字",
+                    book.getId(),
+                    rawCount, rawChars,
+                    dedupedMatches.size(), dedupChars,
+                    merged.size(), mergeChars,
+                    ragContext.length());
 
             long questionMarkCount = ragContext.chars().filter(c -> c == '?').count();
             if (questionMarkCount > ragContext.length() * 0.1) {
@@ -763,7 +771,7 @@ public class BookChatService {
      * 保存图书问答消息记录
      */
     private void saveMessage(Long userId, String sessionId, String role, String content, Long bookId,
-                             String thinkingContent, String followUpQuestions) {
+                             String thinkingContent) {
         try {
             AiConversation record = AiConversation.builder()
                     .userId(userId)
@@ -772,13 +780,132 @@ public class BookChatService {
                     .bookId(bookId)
                     .role(role)
                     .content(content)
+                    .compressedContent(content) // 初始等于原始内容
                     .thinkingContent(thinkingContent)
-                    .followUpQuestions(followUpQuestions)
+                    .followUpQuestions(null)
                     .build();
             conversationRepository.save(record);
         } catch (Exception e) {
             log.warn("保存图书问答记录失败: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 默认上下文长度（32K tokens）
+     */
+    private static final int DEFAULT_MAX_TOKENS = 32768;
+    /**
+     * token → 中文字符换算比例
+     */
+    private static final double TOKEN_TO_CHAR_RATIO = 1.5;
+    /**
+     * 压缩触发阈值：历史占比超过此比例开始压缩
+     */
+    private static final double COMPRESS_TRIGGER_RATIO = 0.8;
+    /**
+     * 压缩目标：历史占比降到该比例以下停止
+     */
+    private static final double COMPRESS_TARGET_RATIO = 0.6;
+
+    /**
+     * 按需压缩会话历史消息，防止超出模型 token 限制
+     * <p>
+     * 当会话历史总字符数（含当前开销）超过触发阈值时，从最老的未压缩 AI 回复开始逐条压缩，
+     * 直到总字符数降至目标值以下。压缩通过 AI 模型将原始内容总结为更简短的版本，
+     * 并保存到 compressed_content 字段中。
+     *
+     * @param userId               用户ID，用于定位会话记录
+     * @param sessionId            会话ID，标识需要压缩的具体会话
+     * @param currentOverheadChars 当前请求的系统开销字符数（包括系统提示词、RAG 上下文等固定部分）
+     */
+    private void compressHistoryIfNeeded(Long userId, String sessionId, int currentOverheadChars) {
+        // 计算字符数限制和压缩目标值
+        Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
+        int tokenLimit = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
+        int charLimit = (int) (tokenLimit * TOKEN_TO_CHAR_RATIO);
+        long compressTarget = (long) (charLimit * COMPRESS_TARGET_RATIO) - currentOverheadChars;
+        try {
+            // 检查是否需要压缩：总字符数未达到触发阈值则直接返回
+            long totalChars = conversationRepository.sumCompressedContentLength(userId, sessionId);
+            long totalWithCurrent = totalChars + currentOverheadChars;
+            log.debug("压缩检查: sessionId={}, history={}, current={}, total={}/{} ({}%)",
+                    sessionId, totalChars, currentOverheadChars,
+                    totalWithCurrent, charLimit,
+                    charLimit > 0 ? totalWithCurrent * 100 / charLimit : 0);
+            if (totalWithCurrent < charLimit * COMPRESS_TRIGGER_RATIO) return;
+
+            // 循环压缩最老的未压缩 AI 回复，直到总量降至目标线以下
+            int compressed = 0;
+            while (totalChars >= Math.max(compressTarget, 0)) {
+                // 查找最老的未压缩 AI 回复，若无则退出
+                AiConversation target = conversationRepository
+                        .findFirstUncompressedAssistant(userId, sessionId)
+                        .orElse(null);
+                if (target == null) {
+                    log.info("无可压缩的 AI 回复: sessionId={}, compressed={}", sessionId, compressed);
+                    return;
+                }
+
+                // 调用 AI 模型压缩内容，失败则跳过
+                String original = target.getContent();
+                String summary = compressContent(original);
+                if (summary == null) {
+                    log.warn("压缩失败(跳过): sessionId={}, convId={}", sessionId, target.getId());
+                    break;
+                }
+
+                // 保存压缩结果并更新累计字符数统计
+                target.setCompressedContent(summary);
+                conversationRepository.save(target);
+                totalChars = totalChars - CHAR_LENGTH_ESTIMATE.apply(original) + CHAR_LENGTH_ESTIMATE.apply(summary);
+                compressed++;
+                log.info("压缩历史消息: sessionId={}, convId={}, {}→{} chars, totalChars={}",
+                        sessionId, target.getId(), original.length(), summary.length(), totalChars);
+            }
+            // 输出压缩完成统计信息
+            if (compressed > 0) {
+                log.info("压缩完成: sessionId={}, compressed={}条", sessionId, compressed);
+            }
+        } catch (Exception e) {
+            log.warn("压缩历史消息失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 估算字符数（优先 CHAR_LENGTH，兜底用 Java length）
+     */
+    private static final java.util.function.Function<String, Integer> CHAR_LENGTH_ESTIMATE =
+            s -> s != null ? s.length() : 0;
+
+    /**
+     * RAG 上下文最大字符数：maxTokens × 1.5 × 0.6（留 40% 给系统和对话）
+     */
+    private int getRagMaxChars() {
+        Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
+        int tokens = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
+        return (int) (tokens * TOKEN_TO_CHAR_RATIO * 0.6);
+    }
+
+    /**
+     * 将 AI 回复压缩到 200 字以内
+     */
+    private String compressContent(String original) {
+        if (original == null || original.length() <= 200) return original;
+        try {
+            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            if (chatModel == null) return null;
+
+            String prompt = String.format(
+                    "将以下内容压缩到200字以内，保留核心观点和信息：\n\n%s", original);
+            ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
+            String compressed = response.aiMessage().text();
+            if (compressed != null && !compressed.isBlank()) {
+                return compressed.trim();
+            }
+        } catch (Exception e) {
+            log.warn("调用AI压缩内容失败: {}", e.getMessage());
+        }
+        return null;
     }
 
     /**

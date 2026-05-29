@@ -12,24 +12,14 @@ providers:
     description: "本地部署，无需 API Key，完全免费"
     websiteUrl: "https://ollama.com"
     models:
-      - name: "qwen3:8b"
-        label: "Qwen3 8B"
+      - name: "gemma4:e2b"
+        label: "gemma4:e2b"
         free: true
-      - name: "qwen3:14b"
-        label: "Qwen3 14B"
+        maxTokens: 131072
+      - name: "gemma4:e4b"
+        label: "gemma4:e4b"
         free: true
-      - name: "deepseek-r1:8b"
-        label: "DeepSeek R1 8B"
-        free: true
-      - name: "llama3.3:8b"
-        label: "Llama3.3 8B"
-        free: true
-      - name: "gemma3:4b"
-        label: "Gemma3 4B"
-        free: true
-      - name: "mistral:7b"
-        label: "Mistral 7B"
-        free: true
+        maxTokens: 131072
 
   # ==================== 国内云服务 ====================
   - id: deepseek
@@ -44,8 +34,10 @@ providers:
     models:
       - name: "deepseek-v4-flash"
         label: "V4 Flash 极速 (推荐)"
+        maxTokens: 1048576
       - name: "deepseek-v4-pro"
         label: "V4 Pro 旗舰"
+        maxTokens: 1048576
 
   - id: qwen
     name: "通义千问 Qwen"
@@ -60,14 +52,19 @@ providers:
     models:
       - name: "qwen3.6-max-preview"
         label: "Qwen3.6 Max 旗舰 (推荐)"
+        maxTokens: 1048576
       - name: "qwen3.6-plus"
         label: "Qwen3.6 Plus 均衡"
+        maxTokens: 1048576
       - name: "qwen3.6-flash"
         label: "Qwen3.6 Flash 极速"
+        maxTokens: 1048576
       - name: "qwq-plus"
         label: "QwQ Plus 推理"
+        maxTokens: 1048576
       - name: "qwen-coder-turbo"
         label: "Qwen Coder 代码"
+        maxTokens: 1048576
 
   - id: zhipu
     name: "智谱 GLM"
@@ -82,25 +79,34 @@ providers:
     models:
       - name: "glm-5.1"
         label: "GLM-5.1 最新旗舰 (推荐)"
+        maxTokens: 128000
       - name: "glm-5"
         label: "GLM-5 旗舰"
+        maxTokens: 128000
       - name: "glm-5-turbo"
         label: "GLM-5 Turbo 极速"
+        maxTokens: 128000
       - name: "glm-4.7"
         label: "GLM-4.7 均衡"
+        maxTokens: 128000
       - name: "glm-4.5-air"
         label: "GLM-4.5 Air 经济"
+        maxTokens: 128000
       - name: "glm-4.7-flashx"
         label: "GLM-4.7 FlashX 极速"
+        maxTokens: 128000
       - name: "glm-4.7-flash"
         label: "GLM-4.7 Flash 免费"
         free: true
+        maxTokens: 128000
       - name: "glm-4-flash"
         label: "GLM-4 Flash 免费"
         free: true
+        maxTokens: 128000
       - name: "glm-z1-flash"
         label: "GLM-Z1-Flash 免费"
         free: true
+        maxTokens: 128000
 
   - id: moonshot
     name: "Kimi 月之暗面"
@@ -115,12 +121,16 @@ providers:
     models:
       - name: "k2.6"
         label: "Kimi K2.6 最新 (推荐)"
+        maxTokens: 131072
       - name: "k2.5"
         label: "Kimi K2.5 旗舰"
+        maxTokens: 131072
       - name: "k2"
         label: "Kimi K2"
+        maxTokens: 131072
       - name: "moonshot-v1-128k"
         label: "Moonshot V1 128K"
+        maxTokens: 131072
 
   - id: doubao
     name: "豆包 火山引擎"
@@ -135,12 +145,16 @@ providers:
     models:
       - name: "doubao-seed-2.0-pro"
         label: "Seed 2.0 Pro 旗舰 (推荐)"
+        maxTokens: 262144
       - name: "doubao-seed-2.0-code"
         label: "Seed 2.0 Code 代码"
+        maxTokens: 262144
       - name: "doubao-seed-2.0-lite"
         label: "Seed 2.0 Lite 轻量"
+        maxTokens: 262144
       - name: "doubao-seed-2.0-mini"
         label: "Seed 2.0 Mini 最经济"
+        maxTokens: 262144
 
   - id: mimo
     name: "小米 MiMo"
@@ -155,14 +169,19 @@ providers:
     models:
       - name: "mimo-v2.5-pro"
         label: "MiMo V2.5 Pro (推荐)"
+        maxTokens: 131072
       - name: "mimo-v2.5"
         label: "MiMo V2.5 均衡"
+        maxTokens: 131072
       - name: "mimo-v2-pro"
         label: "MiMo V2 Pro"
+        maxTokens: 131072
       - name: "mimo-v2-omni"
         label: "MiMo V2 Omni"
+        maxTokens: 131072
       - name: "mimo-v2-flash"
         label: "MiMo V2 Flash"
+        maxTokens: 131072
 
   - id: minimax
     name: "MiniMax"
@@ -177,10 +196,13 @@ providers:
     models:
       - name: "MiniMax-M2.7"
         label: "M2.7 最新旗舰 (推荐)"
+        maxTokens: 1048576
       - name: "MiniMax-M2.7-Highspeed"
         label: "M2.7 高速版"
+        maxTokens: 1048576
       - name: "MiniMax-M2.5"
         label: "M2.5 开源经济"
+        maxTokens: 1048576
 
   - id: siliconflow
     name: "硅基流动 SiliconFlow"
@@ -195,13 +217,17 @@ providers:
       - name: "deepseek-ai/DeepSeek-V4-Flash"
         label: "DeepSeek V4 Flash"
         free: true
+        maxTokens: 1048576
       - name: "Qwen/Qwen3-8B"
         label: "Qwen3 8B 免费"
         free: true
+        maxTokens: 131072
       - name: "deepseek-ai/DeepSeek-V4-Pro"
         label: "DeepSeek V4 Pro"
+        maxTokens: 1048576
       - name: "Pro/deepseek-ai/DeepSeek-R1"
         label: "DeepSeek R1"
+        maxTokens: 131072
 
   - id: stepfun
     name: "阶跃星辰 StepFun"
@@ -216,10 +242,13 @@ providers:
     models:
       - name: "step-3.5-flash"
         label: "Step 3.5 Flash (推荐)"
+        maxTokens: 1048576
       - name: "step-3.5-flash-2603"
         label: "Step 3.5 Flash 2603 最新"
+        maxTokens: 1048576
       - name: "step-2"
         label: "Step 2 旗舰"
+        maxTokens: 1048576
 
   - id: baichuan
     name: "百川 Baichuan"
@@ -233,8 +262,10 @@ providers:
     models:
       - name: "Baichuan4"
         label: "Baichuan4 旗舰"
+        maxTokens: 1048576
       - name: "Baichuan3-Turbo"
         label: "Baichuan3 Turbo"
+        maxTokens: 131072
 
   - id: spark
     name: "讯飞星火 Spark"
@@ -248,11 +279,14 @@ providers:
     models:
       - name: "4.0Ultra"
         label: "Spark 4.0 Ultra (推荐)"
+        maxTokens: 131072
       - name: "max-3"
         label: "Spark Max"
+        maxTokens: 32768
       - name: "lite"
         label: "Spark Lite 免费"
         free: true
+        maxTokens: 8192
 
   - id: hunyuan
     name: "腾讯混元 Hunyuan"
@@ -266,11 +300,14 @@ providers:
     models:
       - name: "hunyuan-turbo-s"
         label: "混元 Turbo S 最新 (推荐)"
+        maxTokens: 262144
       - name: "hunyuan-turbo"
         label: "混元 Turbo"
+        maxTokens: 262144
       - name: "hunyuan-lite"
         label: "混元 Lite 免费"
         free: true
+        maxTokens: 32768
 
   # ==================== 国际云服务 ====================
   - id: openai
@@ -286,16 +323,22 @@ providers:
     models:
       - name: "gpt-5.5"
         label: "GPT-5.5 最新旗舰 (推荐)"
+        maxTokens: 1050000
       - name: "gpt-5"
         label: "GPT-5"
+        maxTokens: 1050000
       - name: "gpt-4o"
         label: "GPT-4o"
+        maxTokens: 131072
       - name: "gpt-4o-mini"
         label: "GPT-4o Mini 经济"
+        maxTokens: 131072
       - name: "o3"
         label: "o3 推理"
+        maxTokens: 200000
       - name: "o3-mini"
         label: "o3-mini 推理经济"
+        maxTokens: 200000
 
   - id: anthropic
     name: "Anthropic Claude"
@@ -310,10 +353,13 @@ providers:
     models:
       - name: "claude-opus-4-6-20260401"
         label: "Claude Opus 4.6 旗舰 (推荐)"
+        maxTokens: 200000
       - name: "claude-sonnet-4-6-20260401"
         label: "Claude Sonnet 4.6 均衡"
+        maxTokens: 200000
       - name: "claude-haiku-4-5-20250514"
         label: "Claude Haiku 4.5 经济"
+        maxTokens: 200000
 
   - id: gemini
     name: "Google Gemini"
@@ -327,12 +373,16 @@ providers:
     models:
       - name: "gemini-3.1-pro"
         label: "Gemini 3.1 Pro 最新 (推荐)"
+        maxTokens: 2097152
       - name: "gemini-2.5-pro"
         label: "Gemini 2.5 Pro"
+        maxTokens: 2097152
       - name: "gemini-2.5-flash"
         label: "Gemini 2.5 Flash"
+        maxTokens: 2097152
       - name: "gemini-2.5-flash-lite"
         label: "Gemini 2.5 Flash Lite 最经济"
+        maxTokens: 2097152
 
   - id: xai
     name: "xAI Grok"
@@ -346,10 +396,13 @@ providers:
     models:
       - name: "grok-4"
         label: "Grok 4 旗舰 (推荐)"
+        maxTokens: 2097152
       - name: "grok-4-fast"
         label: "Grok 4 Fast 快速"
+        maxTokens: 2097152
       - name: "grok-3"
         label: "Grok 3"
+        maxTokens: 2097152
 
   - id: mistral
     name: "Mistral AI"
@@ -363,10 +416,13 @@ providers:
     models:
       - name: "mistral-large-3"
         label: "Mistral Large 3 (推荐)"
+        maxTokens: 131072
       - name: "mistral-small-3.1"
         label: "Mistral Small 3.1 经济"
+        maxTokens: 131072
       - name: "codestral-latest"
         label: "Codestral 代码"
+        maxTokens: 262144
 
   - id: openrouter
     name: "OpenRouter"
@@ -380,12 +436,16 @@ providers:
     models:
       - name: "deepseek/deepseek-v4-flash"
         label: "DeepSeek V4 Flash"
+        maxTokens: 1048576
       - name: "anthropic/claude-sonnet-4-6"
         label: "Claude Sonnet 4.6"
+        maxTokens: 200000
       - name: "google/gemini-3.1-pro"
         label: "Gemini 3.1 Pro"
+        maxTokens: 2097152
       - name: "openai/gpt-5.5"
         label: "GPT-5.5"
+        maxTokens: 1050000
 
   - id: groq
     name: "Groq"
@@ -399,7 +459,10 @@ providers:
     models:
       - name: "llama-3.3-70b-versatile"
         label: "Llama 3.3 70B (推荐)"
+        maxTokens: 131072
       - name: "llama-3.1-8b-instant"
         label: "Llama 3.1 8B 快速"
+        maxTokens: 131072
       - name: "mixtral-8x7b-32768"
         label: "Mixtral 8x7B"
+        maxTokens: 32768

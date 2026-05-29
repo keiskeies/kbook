@@ -47,7 +47,6 @@ public class BookChatController extends BaseController {
         String message = body.get("message");
         String sessionId = body.get("sessionId");
 //        boolean regenerate = Boolean.parseBoolean(body.get("regenerate"));
-        boolean regenerate = true;
 
         if (message == null || message.isBlank()) {
             SseEmitter emitter = new SseEmitter();
@@ -61,7 +60,7 @@ public class BookChatController extends BaseController {
         // 将图书加入最近阅读（已有记录则更新时间，无记录则设进度为 0%）
         readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
-        return bookChatService.streamBookChat(userId, bookId, message, sessionId, regenerate);
+        return bookChatService.streamBookChat(userId, bookId, message, sessionId);
     }
 
     /**

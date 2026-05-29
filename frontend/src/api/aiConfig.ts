@@ -5,7 +5,7 @@ export interface AiProviderPreset {
   id: string
   provider: 'OLLAMA' | 'OPENAI'
   baseUrl: string
-  models: { name: string; label: string; free?: boolean }[]
+  models: { name: string; label: string; free?: boolean; maxTokens?: number }[]
   apiKeyUrl?: string
   tokenPlanUrl?: string
   codingPlanUrl?: string
@@ -28,6 +28,7 @@ export interface AiProviderConfig {
   enabled?: boolean
   isDefault?: boolean
   ragTopK?: number
+  maxTokens?: number
   createdAt?: string
   updatedAt?: string
 }

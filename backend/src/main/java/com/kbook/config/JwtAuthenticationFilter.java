@@ -70,7 +70,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 List.of(new SimpleGrantedAuthority("ROLE_" + role))
                         );
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-                log.debug("JWT 认证成功: userId={}, role={}, uri={}", userId, role, request.getRequestURI());
+//                log.debug("JWT 认证成功: userId={}, role={}, uri={}", userId, role, request.getRequestURI());
             } catch (Exception e) {
                 log.warn("Token 解析失败: {} - {}", request.getRequestURI(), e.getMessage());
                 sendErrorResponse(response, "Token 无效或已过期");

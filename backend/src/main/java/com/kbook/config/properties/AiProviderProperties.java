@@ -59,6 +59,9 @@ public class AiProviderProperties {
                                 model.setName((String) m.get("name"));
                                 model.setLabel((String) m.get("label"));
                                 model.setFree((Boolean) m.get("free"));
+                                if (m.get("maxTokens") instanceof Number) {
+                                    model.setMaxTokens(((Number) m.get("maxTokens")).longValue());
+                                }
                                 preset.getModels().add(model);
                             }
                         }
@@ -108,5 +111,7 @@ public class AiProviderProperties {
         private String label;
         /** 是否免费 */
         private Boolean free;
+        /** 上下文长度（token 数），如 131072=128K, 1048576=1M */
+        private Long maxTokens;
     }
 }

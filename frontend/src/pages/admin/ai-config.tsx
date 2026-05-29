@@ -117,13 +117,15 @@ export default function AiConfigPage() {
   }
 
   const handleSelectPreset = (preset: AiProviderPreset) => {
+    const firstModel = preset.models[0]
     setForm((f) => ({
       ...f,
       name: preset.name,
       provider: preset.provider,
       baseUrl: preset.baseUrl,
-      modelName: preset.models[0]?.name || '',
+      modelName: firstModel?.name || '',
       apiKey: f.provider !== preset.provider ? '' : f.apiKey,
+      maxTokens: firstModel?.maxTokens,
     }))
     setShowPresets(false)
     setIsCustomModel(false)
@@ -469,9 +471,11 @@ export default function AiConfigPage() {
                     onChange={(e) => {
                       if (e.target.value === '__custom__') {
                         setIsCustomModel(true)
+                        setForm((f) => ({ ...f, modelName: '' }))
                       } else {
                         setIsCustomModel(false)
-                        setForm((f) => ({ ...f, modelName: e.target.value }))
+                        const selected = currentPreset.models.find(m => m.name === e.target.value)
+                        setForm((f) => ({ ...f, modelName: e.target.value, maxTokens: selected?.maxTokens }))
                       }
                     }}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
@@ -549,6 +553,33 @@ export default function AiConfigPage() {
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" 
               />
               <p className="mt-1 text-xs text-muted-foreground">每次问答从向量库检索的参考片段数量。大上下文模型可设为 50~100。</p>
+            </div>
+
+            {/* 上下文长度 */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">上下文长度 (tokens)</label>
+              <input 
+                type="number" 
+                value={form.maxTokens ?? ''} 
+                onChange={(e) => {
+                  const val = e.target.value
+                  setForm(f => ({ ...f, maxTokens: val === '' ? undefined : Number(val) }))
+                }} 
+                min={0} 
+                step={1000}
+                placeholder={(() => {
+                  const mt = currentPreset?.models.find(m => m.name === form.modelName)?.maxTokens
+                  return mt ? `默认 ${(mt / 1024).toFixed(0)}K` : '留空默认 32K'
+                })()}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" 
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                超过此长度的 {((form.maxTokens || 32768) * 1.5 / 10000).toFixed(1)} 万字符时自动压缩最早未压缩的 AI 回复。
+                当前选中模型上下文 {(() => {
+                  const mt = currentPreset?.models.find(m => m.name === form.modelName)?.maxTokens
+                  return mt ? `${(mt / 1024).toFixed(0)}K` : '未标注'
+                })()} tokens。
+              </p>
             </div>
 
             {/* Tool Calling */}

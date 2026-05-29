@@ -83,6 +83,9 @@ public class AiProviderConfig {
     /** RAG 检索返回的最大片段数（top-k），为空则使用全局默认值 */
     private Integer ragTopK;
 
+    /** 模型上下文长度（token 数），用于计算历史压缩阈值。为空则默认 32768 (32K) */
+    private Integer maxTokens;
+
     /** 创建时间 */
     @Column(updatable = false)
     private LocalDateTime createdAt;

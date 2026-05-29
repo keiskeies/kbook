@@ -444,30 +444,36 @@ public class RecommendService {
 
         double ruleMinScore = coefficientService.getCoefficient("OTHER", "rule_min_score", -0.5);
 
-        List<ScoredBook> scoredBooks = new ArrayList<>();
+        List<ScoredBook> scoredBooks = Collections.synchronizedList(new ArrayList<>());
 
         List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
         int total = allBooks.size();
-        int processed = 0;
 
-        for (BookProjection book : allBooks) {
-            if (restartKey != null && processed % 500 == 0) {
+        // 分块并行计算：每 2000 本一个块，块内并行，块间检查重算标识
+        int chunkSize = 2000;
+        for (int offset = 0; offset < total; offset += chunkSize) {
+            if (restartKey != null) {
                 Boolean hasRestart = redisTemplate.hasKey(restartKey);
                 if (Boolean.TRUE.equals(hasRestart)) {
-                    log.info("检测到重算标识，中断当前计算: userId={}, processed={}", userId, processed);
+                    log.info("检测到重算标识，中断当前计算: userId={}, processed={}", userId, offset);
                     return null;
                 }
             }
 
-            ScoredBook sb = scoreBook(user, book, excludeSet,
-                    excludedTags, excludedAuthors, excludedFormats,
-                    includedTags, includedAuthors, includedFormats, ruleMinScore);
-            if (sb != null) {
-                scoredBooks.add(sb);
-            }
-            processed++;
-            if (onMatchingProgress != null && processed % 100 == 0) {
-                onMatchingProgress.accept(processed);
+            int end = Math.min(offset + chunkSize, total);
+            List<BookProjection> chunk = allBooks.subList(offset, end);
+
+            List<ScoredBook> chunkResults = chunk.parallelStream()
+                    .map(book -> scoreBook(user, book, excludeSet,
+                            excludedTags, excludedAuthors, excludedFormats,
+                            includedTags, includedAuthors, includedFormats, ruleMinScore))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            scoredBooks.addAll(chunkResults);
+
+            if (onMatchingProgress != null) {
+                onMatchingProgress.accept(end);
             }
         }
 
@@ -505,7 +511,7 @@ public class RecommendService {
         for (Book book : randomBooks) {
             if (excludeSet.contains(book.getId()) || existingIds.contains(book.getId())) continue;
             BookProjection bp = BookProjection.from(book);
-            double matchScore = RecommendMatchCalculator.calculateMatchScore(user, bp, coefficientService, null, dimensionStatsService);
+            double matchScore = RecommendMatchCalculator.calculateMatchScore(user, bp, coefficientService, objectMapper, dimensionStatsService);
             double exploreScore = 0.05 + matchScore * exploreMaxScore * 0.9;
             scoredBooks.add(new ScoredBook(bp, exploreScore, matchScore, 0.0, "EXPLORE"));
             existingIds.add(book.getId());
@@ -519,7 +525,7 @@ public class RecommendService {
         for (Book book : hotBooks) {
             if (excludeSet.contains(book.getId()) || existingIds.contains(book.getId())) continue;
             BookProjection bp = BookProjection.from(book);
-            double matchScore = RecommendMatchCalculator.calculateMatchScore(user, bp, coefficientService, null, dimensionStatsService);
+            double matchScore = RecommendMatchCalculator.calculateMatchScore(user, bp, coefficientService, objectMapper, dimensionStatsService);
             double exploreScore = 0.06 + matchScore * exploreMaxScore * 0.94;
             scoredBooks.add(new ScoredBook(bp, exploreScore, matchScore, 0.0, "EXPLORE"));
             existingIds.add(book.getId());
@@ -593,7 +599,7 @@ public class RecommendService {
         List<String> includedAuthors = getIncludedAuthors(userId);
         List<String> includedFormats = getIncludedFormats(userId);
 
-        double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, null, dimensionStatsService);
+        double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, objectMapper, dimensionStatsService);
         double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());
         double preferenceBonus = calculateIncludeBonus(book, includedTags, includedAuthors, includedFormats);
 
@@ -612,7 +618,7 @@ public class RecommendService {
         if (excludeSet.contains(book.getId())) return null;
         if (isExcludedByPreference(book, excludedTags, excludedAuthors, excludedFormats)) return null;
 
-        double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, null, dimensionStatsService);
+        double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, objectMapper, dimensionStatsService);
         if (matchScore <= ruleMinScore) return null;
 
         double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());

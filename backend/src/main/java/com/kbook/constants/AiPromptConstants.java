@@ -194,14 +194,6 @@ public final class AiPromptConstants {
     public static final String BOOK_INFO_EXTRACT_SYSTEM_PROMPT =
             "你是一个专业的图书信息提取助手，擅长从文本内容中推断书籍的作者和简介。";
 
-    // ==================== 对话历史常量 ====================
-
-    /** 对话历史保留的最大轮数（1轮 = 1条user + 1条assistant） */
-    public static final int MAX_HISTORY_TURNS = 5;
-
-    /** 历史消息最大长度（超过则截断） */
-    public static final int MAX_HISTORY_MESSAGE_LENGTH = 2000;
-
     /** 管理员对话最大消息数 */
-    public static final int ADMIN_MAX_MESSAGES = 20;
+    public static final int ADMIN_MAX_MESSAGES = 40;
 }

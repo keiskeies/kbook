@@ -56,10 +56,17 @@ public class AiConversation {
     private String role;
 
     /**
-     * 消息内容
+     * 消息内容（原始）
      */
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
+
+    /**
+     * 压缩后的消息内容（初始等于 content；当上下文超限时 AI 回复会被压缩到200字以内）
+     * buildChatMessages 始终读取此字段而非 content
+     */
+    @Column(name = "compressed_content", columnDefinition = "TEXT")
+    private String compressedContent;
 
     /** 思考过程内容（支持思维链的模型返回） */
     @Column(name = "thinking_content", columnDefinition = "TEXT")

@@ -59,6 +59,25 @@ public interface AiConversationRepository extends JpaRepository<AiConversation, 
     long countDistinctSessionIdByUserId(@Param("userId") Long userId);
 
     /**
+     * 统计会话 compressed_content 总长度（字符数）
+     */
+    @Query(value = "SELECT COALESCE(SUM(CHAR_LENGTH(compressed_content)), 0) " +
+            "FROM ai_conversations WHERE user_id = :userId AND session_id = :sessionId",
+            nativeQuery = true)
+    long sumCompressedContentLength(@Param("userId") Long userId, @Param("sessionId") String sessionId);
+
+    /**
+     * 查找会话中最老的一条未压缩 assistant 消息
+     * 未压缩 = compressed_content 与 content 完全相同（创建时初始化为相等）
+     */
+    @Query(value = "SELECT * FROM ai_conversations " +
+            "WHERE user_id = :userId AND session_id = :sessionId AND role = 'assistant' " +
+            "AND COALESCE(compressed_content, content) = content " +
+            "ORDER BY created_at ASC LIMIT 1",
+            nativeQuery = true)
+    Optional<AiConversation> findFirstUncompressedAssistant(@Param("userId") Long userId, @Param("sessionId") String sessionId);
+
+    /**
      * 查询热门提示词：统计用户消息中出现频率最高的内容
      */
     @Query(value = "SELECT trimmed_content FROM (" +
