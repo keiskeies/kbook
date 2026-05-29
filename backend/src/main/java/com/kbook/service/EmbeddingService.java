@@ -1105,7 +1105,7 @@ public class EmbeddingService {
             long startTime = System.currentTimeMillis();
             var model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
             String prompt = String.format("""
-                    请基于下方的图书内容，为“用户查询”生成2个语义相似的改写版本，用于向量检索召回。不要输出原始查询，只输出2个改写版本。
+                    请为以下用户查询生成 2 个语义相似的改写版本，用于向量检索召回。
                     
                     要求：
                     1. 不改变查询的核心意图。
@@ -1113,7 +1113,6 @@ public class EmbeddingService {
                     3. 改写要自然，像真实用户会问的问题。
                     4. 每行输出一个改写版本，不带序号、不带引号、不输出任何额外文字（如“好的”“以下是”等）。
                     
-                    图书内容：
                     %s
                     
                     用户查询：%s
