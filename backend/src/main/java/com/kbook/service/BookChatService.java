@@ -892,15 +892,26 @@ public class BookChatService {
     private String compressContent(String original) {
         if (original == null || original.length() <= 200) return original;
         try {
+            long startTime = System.currentTimeMillis();
             ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
             if (chatModel == null) return null;
 
             String prompt = String.format(
                     "将以下内容压缩到200字以内，保留核心观点和信息：\n\n%s", original);
             ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
+                    ? response.tokenUsage().inputTokenCount() : 0;
+            int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
+                    ? response.tokenUsage().outputTokenCount() : 0;
+
             String compressed = response.aiMessage().text();
             if (compressed != null && !compressed.isBlank()) {
-                return compressed.trim();
+                compressed = compressed.trim();
+                CommonUtils.logAiCall("历史压缩", elapsed, inputTokens, outputTokens,
+                        String.format("%d→%d chars", original.length(), compressed.length()));
+                return compressed;
             }
         } catch (Exception e) {
             log.warn("调用AI压缩内容失败: {}", e.getMessage());

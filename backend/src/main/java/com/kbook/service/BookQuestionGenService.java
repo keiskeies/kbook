@@ -1,5 +1,6 @@
 package com.kbook.service;
 
+import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.entity.Book;
@@ -87,6 +88,7 @@ public class BookQuestionGenService {
             ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
 
             // 使用Future实现超时控制
+            long startTime = System.currentTimeMillis();
             Future<ChatResponse> future = executor.submit(() -> chatModel.chat(List.of(UserMessage.from(prompt))));
             ChatResponse response;
             try {
@@ -100,7 +102,13 @@ public class BookQuestionGenService {
             } catch (ExecutionException e) {
                 throw new RuntimeException("AI调用执行异常", e.getCause());
             }
+            long elapsed = System.currentTimeMillis() - startTime;
             String aiText = response.aiMessage().text();
+
+            int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
+                    ? response.tokenUsage().inputTokenCount() : 0;
+            int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
+                    ? response.tokenUsage().outputTokenCount() : 0;
 
             if (aiText != null && !aiText.isBlank()) {
                 List<String> generated = parseQuestions(aiText);
@@ -115,7 +123,12 @@ public class BookQuestionGenService {
                             .collect(Collectors.toList());
                     suggestedQuestionRepository.saveAll(toSave);
                     log.info("AI 生成并保存预设问题成功: bookId={}, count={}", bookId, toSave.size());
+                    CommonUtils.logAiCall("生成预设问题", elapsed, inputTokens, outputTokens,
+                            String.format("bookId=%d, questions=%d", bookId, toSave.size()));
                 }
+            } else {
+                CommonUtils.logAiCall("生成预设问题", elapsed, inputTokens, outputTokens,
+                        String.format("bookId=%d, questions=0(空)", bookId));
             }
         } catch (Exception e) {
             log.error("AI 生成预设任务失败: bookId={}, error={}", bookId, e.getMessage());

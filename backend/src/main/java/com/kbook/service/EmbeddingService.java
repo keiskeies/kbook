@@ -1,5 +1,6 @@
 package com.kbook.service;
 
+import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
@@ -1101,30 +1102,50 @@ public class EmbeddingService {
         rewrites.add(query);
 
         try {
+            long startTime = System.currentTimeMillis();
             var model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
             String prompt = String.format("""
-                    请为以下用户查询生成 2 个语义相似的改写版本，用于向量检索召回。
-                    要求：
-                    1. 不要改变查询的核心意图
-                    2. 可以从不同角度表达同一问题
-                    3. 改写版本要自然，像真实用户会问的问题
-                    4. 每行一个，不要带序号，不要带引号
+                    请基于下方的图书内容，为“用户查询”生成2个语义相似的改写版本，用于向量检索召回。不要输出原始查询，只输出2个改写版本。
                     
+                    要求：
+                    1. 不改变查询的核心意图。
+                    2. 从不同角度表达同一问题（如同义词替换、句式变换、问法侧重不同）。
+                    3. 改写要自然，像真实用户会问的问题。
+                    4. 每行输出一个改写版本，不带序号、不带引号、不输出任何额外文字（如“好的”“以下是”等）。
+                    
+                    图书内容：
                     %s
-                    用户查询: %s
+                    
+                    用户查询：%s
                     """, context, query);
 
             ChatResponse response = model.chat(List.of(UserMessage.from(prompt)));
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            int parsedCount = 0;
             if (response != null && response.aiMessage() != null && response.aiMessage().text() != null) {
                 String[] lines = response.aiMessage().text().split("\n");
                 for (String line : lines) {
                     line = line.trim();
                     if (!line.isBlank() && !line.equals(query)) {
                         rewrites.add(line);
+                        parsedCount++;
                         if (rewrites.size() >= 3) break;
                     }
                 }
             }
+
+            int inputTokens = 0;
+            int outputTokens = 0;
+            if (response != null) {
+                inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
+                        ? response.tokenUsage().inputTokenCount() : 0;
+                outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
+                        ? response.tokenUsage().outputTokenCount() : 0;
+            }
+            CommonUtils.logAiCall("查询改写", elapsed, inputTokens, outputTokens,
+                    String.format("query=%s, rewrites=%d", query.substring(0, Math.min(30, query.length())), parsedCount));
+            log.debug("LLM 向量检索相似改写结果: {} -> {}", query, rewrites);
         } catch (Exception e) {
             log.warn("LLM 查询改写失败，使用原始查询: {}", e.getMessage());
         }
