@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/auth'
 import { useTtsStore } from '@/store/tts'
 import { initTokenSyncListener } from '@/utils/token-sync'
 import { getActiveTtsConfig } from '@/api/adminTts'
+import { useTokenRefresh } from '@/hooks/useTokenRefresh'
 import { router } from '@/router'
 import './index.css'
 import './App.css'
@@ -49,10 +50,15 @@ try {
   )
 } catch { /* ignore */ }
 
+function App() {
+  useTokenRefresh()
+  return <RouterProvider router={router} />
+}
+
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-      <RouterProvider router={router} />
+      <App />
       <Toaster position="top-center" richColors closeButton duration={4000} style={{ marginTop: '60px' }} />
       <TtsFloatPlayer />
     </ThemeProvider>

@@ -8,7 +8,6 @@ export interface SseHandlers<TProgress, TDone> {
   onError: (error: Error) => void
 }
 
-/** SSE 协议行解析器 */
 class SseParser {
   private buffer = ''
   private currentEvent = ''
@@ -53,10 +52,6 @@ function canUseFetchStream(): boolean {
   return typeof ReadableStream !== 'undefined' && typeof TextDecoder !== 'undefined'
 }
 
-/**
- * XHR 流式连接（当 ReadableStream 不可用时的回退方案）
- * 支持旧版 Safari、部分国产手机浏览器等
- */
 function createXhrSseStream(
   method: string,
   url: string,
@@ -101,10 +96,6 @@ function createXhrSseStream(
   }
 }
 
-/**
- * 创建 SSE GET 连接，支持 token 过期自动刷新
- * 自动降级：浏览器支持 ReadableStream 用 fetch，否则用 XHR
- */
 export function createSseConnection<TProgress, TDone>(
   url: string,
   handlers: SseHandlers<TProgress, TDone>,
@@ -169,6 +160,11 @@ export function createSseConnection<TProgress, TDone>(
 
       if ((response.status === 401 || response.status === 403) && autoRetryOnAuthError && !hasRetried) {
         hasRetried = true
+        const currentToken = getAccessToken()
+        if (currentToken && currentToken !== token) {
+          connect()
+          return
+        }
         const newToken = await refreshAccessToken()
         if (newToken) { connect(); return }
         clearAuthAndRedirect()
@@ -200,10 +196,6 @@ export function createSseConnection<TProgress, TDone>(
   return controller
 }
 
-/**
- * SSE POST 流式连接，支持 token 过期自动刷新
- * 自动降级：浏览器支持 ReadableStream 用 fetch，否则用 XHR
- */
 export function createSsePostConnection(
   url: string,
   body: unknown,
@@ -235,7 +227,6 @@ export function createSsePostConnection(
     }
     if (eventName === 'session_id') { onSessionId?.(data); return false }
     if (eventName === 'follow_up_questions') { onFollowUpQuestions?.(data); return false }
-    // 未明确处理的事件名（如 message）也作为消息块处理
     if (data === '[DONE]') { onDone(); return true }
     onChunk(data)
     return false
@@ -275,6 +266,11 @@ export function createSsePostConnection(
 
       if ((response.status === 401 || response.status === 403) && !hasRetried) {
         hasRetried = true
+        const currentToken = getAccessToken()
+        if (currentToken && currentToken !== token) {
+          connect()
+          return
+        }
         const newToken = await refreshAccessToken()
         if (newToken) { connect(); return }
         clearAuthAndRedirect()
