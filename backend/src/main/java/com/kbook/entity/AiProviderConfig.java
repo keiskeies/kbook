@@ -49,7 +49,7 @@ public class AiProviderConfig {
     @Column(nullable = false, length = 20)
     private Provider provider;
 
-    /** API 基础地址（如 http://localhost:11434 或 https://api.deepseek.com） */
+    /** API 基础地址（如 <a href="http://localhost:11434">...</a> 或 <a href="https://api.deepseek.com">...</a>） */
     @Column(nullable = false, length = 500)
     private String baseUrl;
 

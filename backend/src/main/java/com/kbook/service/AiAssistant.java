@@ -7,8 +7,8 @@ import dev.langchain4j.service.*;
  * <p>
  * 使用 @SystemMessage 定义系统提示词，@UserMessage 定义用户消息模板
  *
- * @MemoryId 自动关联 ChatMemory
- * @V("userId") 注入当前用户ID到系统提示词模板，让AI知道对话用户身份
+ * &#064;MemoryId  自动关联 ChatMemory
+ * &#064;V("userId")  注入当前用户ID到系统提示词模板，让AI知道对话用户身份
  */
 @SystemMessage("""
         你是 KBook 智能阅读平台的 AI 助理，名叫「小K」。你的核心职责是**推荐好书**和**解答阅读疑问**，而不是做心理咨询师或情感顾问。

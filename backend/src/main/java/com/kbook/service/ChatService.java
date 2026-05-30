@@ -8,23 +8,21 @@ import com.kbook.entity.ChatMessage;
 import com.kbook.entity.Conversation;
 import com.kbook.entity.UploadedFile;
 import com.kbook.entity.User;
-import com.kbook.repository.ChatMessageRepository;
-import com.kbook.repository.ConversationRepository;
-import com.kbook.repository.UploadedFileRepository;
-import com.kbook.repository.UserFollowRepository;
-import com.kbook.repository.UserRepository;
+import com.kbook.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.awt.Color;
-import java.awt.Graphics2D;
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.FileImageOutputStream;
+import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,12 +33,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
-import javax.imageio.IIOImage;
-import javax.imageio.ImageIO;
-import javax.imageio.ImageWriteParam;
-import javax.imageio.ImageWriter;
-import javax.imageio.stream.FileImageOutputStream;
 
 /**
  * 私信聊天服务

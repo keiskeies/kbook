@@ -90,7 +90,7 @@ function calcAge(birthday: string | null | undefined): number | null {
 }
 
 export default function ProfilePage() {
-  const { userInfo, updateUserInfo, logout } = useAuthStore()
+  const { userInfo, updateUserInfo, fetchUserInfo, logout } = useAuthStore()
   const { setUnreadCount } = useChatStore()
   const setTabBarVisible = useUiStore((s) => s.setTabBarVisible)
   const navigate = useNavigate()
@@ -98,6 +98,10 @@ export default function ProfilePage() {
   const [shelfCount, setShelfCount] = useState<number>(0)
   const [trashCount, setTrashCount] = useState<number>(0)
   const [chatUnreadCount, setChatUnreadCount] = useState<number>(0)
+
+  useEffect(() => {
+    fetchUserInfo()
+  }, [fetchUserInfo])
 
   const [showTraitsModal, setShowTraitsModal] = useState(false)
   const [traitBirthday, setTraitBirthday] = useState(userInfo?.birthday ?? '')

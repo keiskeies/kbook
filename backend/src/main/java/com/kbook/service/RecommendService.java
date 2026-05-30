@@ -14,9 +14,7 @@ import com.kbook.repository.UserBookPreferenceRepository;
 import com.kbook.repository.UserReadHistoryRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -279,10 +277,6 @@ public class RecommendService {
 
             sendProgress(emitter, "done", "推荐生成完成", 100, scoredBooks.size(), intTotalBooks);
 
-            List<RecommendedItem> topItems = buildTopItems(scoredBooks, 60);
-            emitter.send(SseEmitter.event()
-                    .name("done")
-                    .data(objectMapper.writeValueAsString(topItems)));
             emitter.complete();
 
             log.info("SSE推荐生成完成: userId={}, total={}", userId, scoredBooks.size());

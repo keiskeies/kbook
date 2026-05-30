@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.Result;
 import com.kbook.dto.*;
-import com.kbook.entity.Book;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.service.BookService;
 import com.kbook.service.RankService;

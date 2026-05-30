@@ -12,10 +12,10 @@ import org.springframework.web.servlet.ModelAndView;
 
 /**
  * SSE 异常解析器 — 处理 SSE 流式响应完成后的授权异常
- * 
+ * <p>
  * 问题：Spring Security 6.x 在 SSE 响应已提交后仍会执行权限检查，
  * 导致 AuthorizationDeniedException 被创建和记录（即使响应已成功发送）。
- * 
+ * <p>
  * 解决：在响应已提交时完全跳过异常处理，避免异常被 Spring MVC 记录。
  */
 @Slf4j

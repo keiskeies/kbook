@@ -2,8 +2,6 @@ package com.kbook.dto;
 
 import lombok.Data;
 
-import java.util.List;
-
 /**
  * 创建图书请求
  * 用于管理员手动创建或上传图书

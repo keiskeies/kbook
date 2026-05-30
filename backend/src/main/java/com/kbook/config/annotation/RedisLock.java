@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * 使用方式：
  * <pre>
- * @RedisLock(key = "'order:lock:' + #orderId", leaseTime = 30)
+ * &#064;RedisLock(key  = "'order:lock:' + #orderId", leaseTime = 30)
  * public void processOrder(Long orderId) { ... }
  * </pre>
  * 如果获取锁失败，方法将直接返回 null (或空集合/0)，不会执行方法体。

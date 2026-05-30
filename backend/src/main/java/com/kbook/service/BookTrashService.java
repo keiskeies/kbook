@@ -35,7 +35,6 @@ public class BookTrashService {
     private final BookTrashRepository bookTrashRepository;
     private final BookRepository bookRepository;
     private final UserService userService;
-    private final BookService bookService;
     private final ObjectMapper objectMapper;
     private final RecommendService recommendService;
 
@@ -43,13 +42,11 @@ public class BookTrashService {
             BookTrashRepository bookTrashRepository,
             BookRepository bookRepository,
             UserService userService,
-            BookService bookService,
             ObjectMapper objectMapper,
             @Lazy RecommendService recommendService) {
         this.bookTrashRepository = bookTrashRepository;
         this.bookRepository = bookRepository;
         this.userService = userService;
-        this.bookService = bookService;
         this.objectMapper = objectMapper;
         this.recommendService = recommendService;
     }

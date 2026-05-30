@@ -166,10 +166,6 @@ public class ChatController {
             return buildJpegResponse(filePath);
         }
 
-        if (isVideoThumb) {
-            return ResponseEntity.notFound().build();
-        }
-
         return ResponseEntity.notFound().build();
     }
 

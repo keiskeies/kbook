@@ -382,6 +382,7 @@ function ReadingStatsCompact({ stats }: { stats: ReadingStatsVO }) {
 export default function HomePage() {
   const navigate = useNavigate()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const fetchUserInfo = useAuthStore((s) => s.fetchUserInfo)
   const hasFetchedRef = useRef(false)
 
   const [stats, setStats] = useState<ReadingStatsVO | null>(null)
@@ -392,6 +393,12 @@ export default function HomePage() {
   const [personalizedLoading, setPersonalizedLoading] = useState(true)
   const [categories, setCategories] = useState<TagStat[]>([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchUserInfo()
+    }
+  }, [isAuthenticated, fetchUserInfo])
 
   useEffect(() => {
     if (!isAuthenticated || hasFetchedRef.current) {

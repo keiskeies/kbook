@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * AI 配置服务 — 支持从数据库动态读取对话 AI 配置，未配置时回退到 yml 默认模型
@@ -36,15 +36,17 @@ public class AiProviderConfigService {
     private final AiProviderConfigRepository configRepository;
     private final ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider;
 
-    /** 对话 AI 配置的缓存版本号，每次配置变更时递增 */
-    private volatile long chatConfigVersion = 0;
+    /**
+     * 对话 AI 配置的缓存版本号，每次配置变更时递增
+     */
+    private final AtomicLong chatConfigVersion = new AtomicLong(0);
 
-    /** 按版本号缓存的 AiAssistant 实例 */
+    /**
+     * 按版本号缓存的 AiAssistant 实例
+     */
     private volatile AiAssistant cachedChatAssistant;
     private volatile long cachedChatAssistantVersion = -1;
 
-    /** 旧版全局 Assistant 缓存（兼容保留） */
-    private final ConcurrentHashMap<String, AiAssistant> assistantCache = new ConcurrentHashMap<>();
 
     public AiProviderConfigService(
             AiChatMemory chatMemoryStore,
@@ -80,7 +82,9 @@ public class AiProviderConfigService {
         return config != null ? config.getRagTopK() : null;
     }
 
-    /** 获取当前激活对话配置的上下文长度（token 数），未配置返回 null */
+    /**
+     * 获取当前激活对话配置的上下文长度（token 数），未配置返回 null
+     */
     public Integer getActiveMaxTokens() {
         AiProviderConfig config = getChatConfig();
         return config != null ? config.getMaxTokens() : null;
@@ -126,7 +130,7 @@ public class AiProviderConfigService {
      * 下次获取时将重新构建 Assistant。
      */
     public AiAssistant getChatAssistant() {
-        long currentVersion = chatConfigVersion;
+        long currentVersion = chatConfigVersion.get();
         if (cachedChatAssistant != null && cachedChatAssistantVersion == currentVersion) {
             return cachedChatAssistant;
         }
@@ -146,7 +150,7 @@ public class AiProviderConfigService {
      * 使对话缓存失效（配置变更时调用）
      */
     public void invalidateChatCache() {
-        chatConfigVersion++;
+        chatConfigVersion.addAndGet(1L);
         cachedChatAssistant = null;
         // 同时清除 BookAdminChatService 的独立缓存
         bookAdminChatServiceProvider.ifAvailable(BookAdminChatService::clearCache);
@@ -157,7 +161,6 @@ public class AiProviderConfigService {
      * 清除所有缓存（兼容旧代码）
      */
     public void clearAssistantCache() {
-        assistantCache.clear();
         invalidateChatCache();
         log.debug("已清除所有 AI Assistant 缓存");
     }

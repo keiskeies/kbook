@@ -32,10 +32,10 @@ public class CorsConfig {
                 "https://localhost:*",
                 "http://192.168.*.*:*",
                 "https://192.168.*.*:*",
-                "http://*:*",
-                "https://*:*",
-                "http://*",
-                "https://*"
+                "http://cloud.keiskei.top:*",
+                "https://cloud.keiskei.top:*",
+                "http://book.keiskei.top:*",
+                "htts://book.keiskei.top:*"
         ));
 
         // 允许的请求方法

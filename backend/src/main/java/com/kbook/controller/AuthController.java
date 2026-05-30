@@ -1,23 +1,16 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
-import com.kbook.dto.LoginResult;
+import com.kbook.dto.*;
 import com.kbook.service.AuthService;
-import com.kbook.dto.AuthSendCodeRequest;
-import com.kbook.dto.ChangePasswordRequest;
-import com.kbook.dto.CodeLoginRequest;
-import com.kbook.dto.PasswordLoginRequest;
-import com.kbook.dto.RegisterRequest;
-import com.kbook.dto.ResetPasswordRequest;
-import com.kbook.dto.TokenRefreshRequest;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 认证控制器

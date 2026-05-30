@@ -1,12 +1,10 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
-import com.kbook.service.ClickCaptchaService;
 import com.kbook.dto.ClickVerifyRequest;
+import com.kbook.service.ClickCaptchaService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 /**
  * 点击验证码控制器

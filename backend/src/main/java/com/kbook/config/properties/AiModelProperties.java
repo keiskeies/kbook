@@ -28,7 +28,7 @@ public class AiModelProperties {
     public static class ChatModelConfig {
         /** 提供商类型：OLLAMA（默认）或 OPENAI */
         private AiProviderConfig.Provider provider = AiProviderConfig.Provider.OLLAMA;
-        /** 服务地址（Ollama 默认 http://localhost:11434，OpenAI 兼容 API 填对应地址） */
+        /** 服务地址（Ollama 默认 <a href="http://localhost:11434">...</a>，OpenAI 兼容 API 填对应地址） */
         private String baseUrl = "http://localhost:11434";
         /** 模型名称 */
         private String modelName = "gemma3n:e4b";

@@ -279,7 +279,7 @@ public class BookService {
             bookSearchService.indexBook(saved);
             evictBookCache(saved.getId());
         });
-        log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
+        log.info("图书ALL更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
 
     /**
@@ -543,9 +543,7 @@ public class BookService {
         Book saved = bookRepository.saveAndFlush(book);
         bookSearchService.indexBook(saved);
         // 事务提交后清除缓存，防止事务回滚导致数据不一致
-        TransactionUtils.afterCommit(() -> {
-            evictBookCache(bookId);
-        });
+        TransactionUtils.afterCommit(() -> evictBookCache(bookId));
         log.info("用户评分: bookId={}, newRating={}, userCount={}", bookId, saved.getRating(), saved.getRatingCount());
         return saved;
     }

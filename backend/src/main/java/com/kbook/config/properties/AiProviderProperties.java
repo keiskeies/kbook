@@ -1,12 +1,11 @@
 package com.kbook.config.properties;
 
+import jakarta.annotation.PostConstruct;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
 import org.yaml.snakeyaml.Yaml;
-import org.yaml.snakeyaml.constructor.Constructor;
 
-import jakarta.annotation.PostConstruct;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;

@@ -1,4 +1,6 @@
 package com.kbook.test;
+import org.jspecify.annotations.NonNull;
+
 import java.io.*;
 import java.nio.charset.*;
 import java.nio.file.*;
@@ -35,9 +37,10 @@ public class TxtToUtf8Converter {
         System.out.println("候选编码顺序: " + CANDIDATE_CHARSETS);
         System.out.println("开始处理...");
 
-        Files.walkFileTree(inputDir, new SimpleFileVisitor<Path>() {
+        Files.walkFileTree(inputDir, new SimpleFileVisitor<>() {
             @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+            @NonNull
+            public FileVisitResult visitFile(@NonNull Path file, @NonNull BasicFileAttributes attrs) throws IOException {
                 if (file.toString().endsWith(".txt")) {
                     processFile(inputDir, outputDir, file);
                 }
@@ -45,7 +48,8 @@ public class TxtToUtf8Converter {
             }
 
             @Override
-            public FileVisitResult visitFileFailed(Path file, IOException exc) {
+            @NonNull
+            public FileVisitResult visitFileFailed(@NonNull Path file, @NonNull IOException exc) {
                 System.err.println("无法访问: " + file);
                 return FileVisitResult.CONTINUE;
             }
@@ -74,7 +78,7 @@ public class TxtToUtf8Converter {
                 String content = new String(rawBytes, charset);
                 if (Arrays.equals(rawBytes, content.getBytes(charset))) {
                     // 验证通过，转为 UTF-8 写入
-                    Files.write(targetFile, content.getBytes(StandardCharsets.UTF_8));
+                    Files.writeString(targetFile, content);
                     System.out.println("已转换(" + charset.name() + "→UTF-8): " + relativePath);
                     return;
                 }

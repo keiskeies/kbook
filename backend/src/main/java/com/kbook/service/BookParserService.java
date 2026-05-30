@@ -16,6 +16,7 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import nl.siegmann.epublib.domain.MediaType;
 import nl.siegmann.epublib.domain.TOCReference;
 import nl.siegmann.epublib.epub.EpubReader;
 import org.apache.pdfbox.Loader;
@@ -70,7 +71,6 @@ import java.util.zip.ZipOutputStream;
 @RequiredArgsConstructor
 public class BookParserService {
 
-    private final AiProviderConfigService aiProviderConfigService; // AI提供者配置服务
     private final ChatModelFactory chatModelFactory; // AI模型工厂（yml配置）
     private final BookService bookService; // 书籍服务
     private final UserService userService; // 用户服务
@@ -110,7 +110,7 @@ public class BookParserService {
      * - PDF:  提取元数据 + 目录 + 核心章节摘要 + 首页渲染为封面图片
      * - TXT:  提取开头文本 + 章节目录 + AI推断作者和简介
      *
-     * @param book 图书实体对象
+     * @param book     图书实体对象
      * @param filePath 图书文件路径
      */
     public void parseAndFill(Book book, Path filePath) {
@@ -128,7 +128,7 @@ public class BookParserService {
      * 提取作者、简介、目录、核心章节摘要、封面图片等元数据
      * 支持标准EPUB解析和ZIP降级模式（针对不规范EPUB文件）
      *
-     * @param book 图书实体对象
+     * @param book     图书实体对象
      * @param filePath EPUB文件路径
      */
     public void parseEpub(Book book, Path filePath) {
@@ -175,12 +175,14 @@ public class BookParserService {
             if (fullText != null && !fullText.isBlank()) {
                 book.setRagContent(fullText); // 设置RAG全文内容
                 // 构建用于AI标签生成的内容（分层采样全文）
-                book.setParsedContent(buildContentForTags(book, stratifiedSample(fullText, MAX_CONTENT_FOR_AI)));
+                book.setParsedContent(buildContentForTags(book, stratifiedSample(fullText)));
             }
         }
     }
 
-    /** ZIP 降级提取全文 */
+    /**
+     * ZIP 降级提取全文
+     */
     private void fallbackToZipExtraction(Book book, Path filePath) {
         log.info("EPUB 降级模式: 尝试 ZIP 提取全文: bookId={}", book.getId());
         String fullText = extractEpubTextViaZip(filePath);
@@ -190,7 +192,9 @@ public class BookParserService {
         }
     }
 
-    /** 预验证 EPUB 结构：META-INF/container.xml 中引用的 OPF 文件是否存在 */
+    /**
+     * 预验证 EPUB 结构：META-INF/container.xml 中引用的 OPF 文件是否存在
+     */
     private boolean isValidEpubStructure(Path filePath) {
         try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(filePath))) {
             // 收集所有条目名称
@@ -234,7 +238,7 @@ public class BookParserService {
      * <p>
      * 提取EPUB元数据中的第一个作者，将名字和姓氏组合后设置到图书对象中
      *
-     * @param book 图书实体对象，用于存储提取的作者信息
+     * @param book     图书实体对象，用于存储提取的作者信息
      * @param epubBook EPUB图书对象，包含元数据信息
      */
     private void extractEpubMetadata(Book book, nl.siegmann.epublib.domain.Book epubBook) {
@@ -254,52 +258,80 @@ public class BookParserService {
      * <p>
      * 提取内容包括：
      * 1. 目录结构（TOC）
-     * 2. 核心章节摘要（前几章的关键内容）
-     * 3. 用于AI标签生成的正文内容（最多20000字符）
+     * 2. 核心章节摘要（目录 + 按章均匀分配）
+     * 3. 用于AI标签生成的正文内容（目录 + 按章均匀分配，上限 MAX_CONTENT_FOR_AI）
      * 4. 用于RAG的完整全文内容
      *
-     * @param book 图书实体对象，用于存储提取的文本内容
+     * @param book     图书实体对象，用于存储提取的文本内容
      * @param epubBook EPUB图书对象，包含所有章节和资源
      */
     private void extractEpubTextContent(Book book, nl.siegmann.epublib.domain.Book epubBook) {
-        // 提取目录结构
-        StringBuilder tocBuilder = new StringBuilder();
-        if (epubBook.getTableOfContents() != null) {
-            extractEpubTocChildren(epubBook.getTableOfContents().getTocReferences(), tocBuilder, 0);
-        }
-        if (!tocBuilder.isEmpty()) {
-            book.setToc(tocBuilder.toString().trim());
+        // 提取目录结构并保存到 book.toc
+        String toc = buildEpubToc(epubBook);
+        if (!toc.isEmpty()) {
+            book.setToc(toc);
         }
 
-        // 提取核心章节摘要
-        String chapterSummary = extractEpubChapterSummary(epubBook);
-        if (chapterSummary != null && !chapterSummary.isBlank()) {
-            book.setChapterSummary(chapterSummary);
-        }
+        // 提取核心章节摘要（目录 + 按章均匀分配）
+        book.setChapterSummary(extractEpubChapterSummary(epubBook));
 
-        // 提取用于AI标签生成的正文内容
-        StringBuilder epubBodyForTags = new StringBuilder(MAX_CONTENT_FOR_AI);
-        for (var spineRef : epubBook.getSpine().getSpineReferences()) {
-            try {
-                var resource = spineRef.getResource();
-                String html = new String(resource.getData(), StandardCharsets.UTF_8);
-                String text = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
-                if (!text.isBlank()) {
-                    epubBodyForTags.append(text).append("\n");
-                }
-            } catch (Exception e) {
-                log.debug("EPUB 章节解析失败: {}", e.getMessage());
-            }
-            if (epubBodyForTags.length() >= MAX_CONTENT_FOR_AI) break;
-        }
-        if (epubBodyForTags.length() > MAX_CONTENT_FOR_AI) {
-            book.setParsedContent(buildContentForTags(book, epubBodyForTags.substring(0, MAX_CONTENT_FOR_AI)));
-        } else {
-            book.setParsedContent(buildContentForTags(book, epubBodyForTags.toString()));
-        }
+        // 提取用于AI标签生成的正文内容（目录 + 按章均匀分配）
+        book.setParsedContent(buildContentForTags(book, buildChapterBasedContent(epubBook)));
 
         // 提取用于RAG的完整全文内容
         book.setRagContent(extractEpubFullTextFromEpubBook(epubBook));
+    }
+
+    /**
+     * 提取 EPUB 目录文本（供 buildChapterBasedContent / extractEpubChapterSummary 复用）
+     */
+    private String buildEpubToc(nl.siegmann.epublib.domain.Book epubBook) {
+        StringBuilder sb = new StringBuilder();
+        if (epubBook.getTableOfContents() != null) {
+            extractEpubTocChildren(epubBook.getTableOfContents().getTocReferences(), sb, 0);
+        }
+        return sb.toString().trim();
+    }
+
+    /**
+     * 按章均匀分配预算构建内容（目录 + 正文）
+     * 遍历 spine 去 HTML 标签后，将 maxChars 均分给每章，最后一章吃剩余
+     */
+    private String buildChapterBasedContent(nl.siegmann.epublib.domain.Book epubBook) {
+        String toc = buildEpubToc(epubBook);
+
+        java.util.List<String> chapters = new java.util.ArrayList<>();
+        for (var spineRef : epubBook.getSpine().getSpineReferences()) {
+            try {
+                var resource = spineRef.getResource();
+                if (resource == null || resource.getData() == null) continue;
+                String html = new String(resource.getData(), StandardCharsets.UTF_8);
+                String text = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+                if (text.length() >= 50) chapters.add(text);
+                if (chapters.size() >= 200) break;
+            } catch (Exception ignored) {
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (!toc.isEmpty()) {
+            sb.append("【目录】\n").append(toc).append("\n\n");
+        }
+        sb.append("【正文】\n");
+
+        int remaining = BookParserService.MAX_CONTENT_FOR_AI - sb.length();
+        int perChapter = chapters.isEmpty() || remaining <= 0 ? 0 : Math.max(1, remaining / chapters.size());
+
+        for (int i = 0; i < chapters.size() && sb.length() < BookParserService.MAX_CONTENT_FOR_AI; i++) {
+            String text = chapters.get(i);
+            int take = Math.min(text.length(), perChapter);
+            if (i == chapters.size() - 1) {
+                take = Math.min(text.length(), BookParserService.MAX_CONTENT_FOR_AI - sb.length());
+            }
+            sb.append(text, 0, take).append("\n\n");
+        }
+
+        return sb.toString();
     }
 
     /**
@@ -311,7 +343,7 @@ public class BookParserService {
      * <p>
      * 提取的封面会经过压缩处理并保存到指定目录
      *
-     * @param book 图书实体对象，用于存储封面URL
+     * @param book     图书实体对象，用于存储封面URL
      * @param epubBook EPUB图书对象，包含封面图片和资源信息
      */
     private void extractEpubCover(Book book, nl.siegmann.epublib.domain.Book epubBook) {
@@ -402,15 +434,9 @@ public class BookParserService {
     }
 
     /**
-     * 内部类：用于返回提取的图片数据和类型
-     */
-    private static class CoverExtractionResult {
-        final byte[] data;
-        final nl.siegmann.epublib.domain.MediaType mediaType;
-        CoverExtractionResult(byte[] data, nl.siegmann.epublib.domain.MediaType mediaType) {
-            this.data = data;
-            this.mediaType = mediaType;
-        }
+         * 内部类：用于返回提取的图片数据和类型
+         */
+        private record CoverExtractionResult(byte[] data, MediaType mediaType) {
     }
 
     /**
@@ -427,7 +453,7 @@ public class BookParserService {
         try {
             // 编译图片标签正则表达式，匹配 img 标签的 src 属性
             Pattern imgPattern = Pattern.compile("<img[^>]+src=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
-            
+
             // 遍历 EPUB 的 spine（阅读顺序）中的所有章节
             for (var spineRef : epubBook.getSpine().getSpineReferences()) {
                 try {
@@ -451,7 +477,7 @@ public class BookParserService {
                         var imageResource = epubBook.getResources().getByHref(imgPath);
                         if (imageResource != null && imageResource.getData() != null) {
                             byte[] imgData = imageResource.getData();
-                            
+
                             // 检查是否为非正常比例图片，符合条件则返回
                             if (imgData != null && imgData.length > 0 && isCoverImage(imgData)) {
                                 return new CoverExtractionResult(imgData, imageResource.getMediaType());
@@ -497,15 +523,20 @@ public class BookParserService {
     }
 
     /**
-     * 提取 EPUB 核心章节摘要：使用 Jsoup 解析 h 和 p 标签提取正文，最多2000字
+     * 提取 EPUB 核心章节摘要：使用 Jsoup 解析 h 和 p 标签提取正文，目录 + 按章均分，上限 MAX_CONTENT_FOR_AI
      */
     private String extractEpubChapterSummary(nl.siegmann.epublib.domain.Book epubBook) {
         try {
             var spineRefs = epubBook.getSpine().getSpineReferences();
-            StringBuilder summary = new StringBuilder(2000);
+            int totalBudget = MAX_CONTENT_FOR_AI;
 
+            // 1. 提取目录
+            String toc = buildEpubToc(epubBook);
+            int tocLen = toc.length();
+
+            // 2. 遍历所有章节，提取文本并记录有效章节的索引和内容
+            List<String> chapters = new java.util.ArrayList<>();
             for (var spineRef : spineRefs) {
-                if (summary.length() >= 2000) break;
                 try {
                     var resource = spineRef.getResource();
                     if (resource == null || resource.getData() == null) continue;
@@ -513,41 +544,50 @@ public class BookParserService {
                     String html = new String(resource.getData(), StandardCharsets.UTF_8);
                     org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(html);
 
-                    // 只保留 h1-h6 标题和 p 段落标签中的纯文本
                     StringBuilder chapterText = new StringBuilder();
-
-                    // 提取标题（h1-h6）
                     doc.select("h1, h2, h3, h4, h5, h6").forEach(el -> {
                         String text = el.text().trim();
-                        if (!text.isBlank()) {
-                            chapterText.append(text).append("\n\n");
-                        }
+                        if (!text.isBlank()) chapterText.append(text).append("\n\n");
                     });
-
-                    // 提取段落（p）
                     doc.select("p").forEach(el -> {
                         String text = el.text().trim();
-                        if (!text.isBlank()) {
-                            chapterText.append(text).append("\n\n");
-                        }
+                        if (!text.isBlank()) chapterText.append(text).append("\n\n");
                     });
 
                     String plainText = chapterText.toString().trim();
-
-                    // 跳过太短的章节（可能是封面页、版权页等）
-                    if (plainText.length() < 50) continue;
-
-                    // 每章取前500字
-                    int limit = Math.min(plainText.length(), 500);
-                    summary.append(plainText, 0, limit);
-                    summary.append("\n\n");
+                    if (plainText.length() >= 50) {
+                        chapters.add(plainText);
+                    }
                 } catch (Exception ignored) {
                 }
             }
 
-            // 总摘要限制在2000字以内
-            if (summary.length() > 2000) {
-                summary.setLength(2000);
+            // 3. 组装：目录 + 均分剩余字数给每章
+            StringBuilder summary = new StringBuilder(totalBudget);
+            if (tocLen > 0) {
+                summary.append("目录：\n").append(toc).append("\n\n");
+            }
+
+            int remaining = totalBudget - summary.length();
+            int perChapter = 0;
+            if (!chapters.isEmpty() && remaining > 0) {
+                perChapter = Math.max(1, remaining / chapters.size());
+            }
+
+            summary.append("章节内容：\n");
+            for (int i = 0; i < chapters.size() && summary.length() < totalBudget; i++) {
+                String text = chapters.get(i);
+                int take = Math.min(text.length(), perChapter);
+                // 最后一个章节尽量用完剩余预算
+                if (i == chapters.size() - 1 && summary.length() + take < totalBudget) {
+                    take = Math.min(text.length(), totalBudget - summary.length());
+                }
+                summary.append(text, 0, take);
+                summary.append("\n\n");
+            }
+
+            if (summary.length() > totalBudget) {
+                summary.setLength(totalBudget);
             }
             return summary.toString().trim();
         } catch (Exception e) {
@@ -562,16 +602,19 @@ public class BookParserService {
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]+>");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
 
-    /** AI 标签生成时送入大模型的正文最大字符数（128k 上下文窗口内留出提示词和输出空间） */
+    /**
+     * AI 标签生成时送入大模型的正文最大字符数（128k 上下文窗口内留出提示词和输出空间）
+     */
     private static final int MAX_CONTENT_FOR_AI = 15000;
 
-    /** 分层采样段数 — 从全书开头/25%/50%/75%/结尾各取一段 */
+    /**
+     * 分层采样段数 — 从全书开头/25%/50%/75%/结尾各取一段
+     */
     private static final int STRATIFIED_SEGMENTS = 5;
 
-    /** EPUB 全文字符收集上限（防 OOM），超出后只取前 N 字再做分层采样 */
-    private static final int FULL_TEXT_LIMIT = 500_000;
-
-    /** HTML 实体 → 数值字符引用映射，用于修复 EPUB 中未声明的实体 */
+    /**
+     * HTML 实体 → 数值字符引用映射，用于修复 EPUB 中未声明的实体
+     */
     private static final Map<String, String> HTML_ENTITIES = Map.ofEntries(
             Map.entry("&nbsp;", "&#160;"),
             Map.entry("&mdash;", "&#8212;"),
@@ -590,7 +633,26 @@ public class BookParserService {
 
     private static final Pattern BARE_AMPERSAND_PATTERN = Pattern.compile("&(?!((?:#\\d+|#x[\\da-fA-F]+|\\w+);))");
 
-    /** 修复 EPUB 中 XML/XHTML 文件内未声明的 HTML 实体及裸 & */
+    /**
+     * 清理 AI 输出中的 ```json / ``` 代码块标记
+     */
+    private static String stripCodeFence(String text) {
+        if (text == null) return null;
+        String result = text.trim();
+        if (result.startsWith("```json")) {
+            result = result.substring(7);
+        } else if (result.startsWith("```")) {
+            result = result.substring(3);
+        }
+        if (result.endsWith("```")) {
+            result = result.substring(0, result.length() - 3);
+        }
+        return result.trim();
+    }
+
+    /**
+     * 修复 EPUB 中 XML/XHTML 文件内未声明的 HTML 实体及裸 &
+     */
     private InputStream fixEpubEntities(Path filePath) throws IOException {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(filePath));
@@ -624,7 +686,7 @@ public class BookParserService {
      * 提取元数据、目录、核心章节摘要，并将首页渲染为封面图片
      * 支持文字型PDF和扫描版PDF（使用OCR识别）
      *
-     * @param book 图书实体对象
+     * @param book     图书实体对象
      * @param filePath PDF文件路径
      */
     private void parsePdf(Book book, Path filePath) {
@@ -780,10 +842,7 @@ public class BookParserService {
             ChatResponse response = chatModel.chat(List.of(systemMessage, userMessage));
             String result = response.aiMessage().text();
 
-            // 清理 markdown 格式
-            if (result != null) {
-                result = result.replaceAll("```json\\s*", "").replaceAll("```\\s*", "").trim();
-            }
+            result = stripCodeFence(result);
 
             // 解析 JSON 结果
             if (result != null && !result.isBlank()) {
@@ -902,7 +961,7 @@ public class BookParserService {
      * 解析 TXT 格式图书
      * 提取开头文本、章节目录，并使用AI推断作者和简介
      *
-     * @param book 图书实体对象
+     * @param book     图书实体对象
      * @param filePath TXT文件路径
      */
     private void parseTxt(Book book, Path filePath) {
@@ -924,9 +983,8 @@ public class BookParserService {
                 // 提取章节摘要并清理空白字符
                 String chapterSummary = content.substring(summaryStart, summaryEnd)
                         .replaceAll("\\s+", " ").trim();
-                // 限制摘要长度不超过2000字
-                book.setChapterSummary(chapterSummary.length() > 2000
-                        ? chapterSummary.substring(0, 2000) : chapterSummary);
+                book.setChapterSummary(chapterSummary.length() > MAX_CONTENT_FOR_AI
+                        ? chapterSummary.substring(0, MAX_CONTENT_FOR_AI) : chapterSummary);
             }
 
             // 尝试从内容中识别目录（匹配"第X章"或"Chapter X"格式）
@@ -963,9 +1021,8 @@ public class BookParserService {
                     UserMessage.from(prompt)
             ));
 
-            String result = response.aiMessage().text();
+            String result = stripCodeFence(response.aiMessage().text());
             if (result != null) {
-                result = result.replaceAll("```json\\s*", "").replaceAll("```\\s*", "").trim();
                 var node = objectMapper.readTree(result);
 
                 if ((book.getAuthor() == null || book.getAuthor().isBlank())
@@ -1029,18 +1086,16 @@ public class BookParserService {
      * 构建用于 AI 标签/评分/简介生成的内容摘要
      * 提供更多正文内容，帮助模型深度理解图书质量
      * 32k 上下文约 8-10 万字符，充分利用空间
-     */
-    /**
      * 分层采样：从全文中等距取 STRATIFIED_SEGMENTS 段，确保 AI 看到开头、中间、结尾。
      * 内容不足 totalChars 则原样返回，不做截断。
      */
-    private String stratifiedSample(String content, int totalChars) {
+    private String stratifiedSample(String content) {
         int len = content.length();
-        if (len <= totalChars) return content;
+        if (len <= BookParserService.MAX_CONTENT_FOR_AI) return content;
 
-        int segmentSize = totalChars / STRATIFIED_SEGMENTS;
-        int remaining = totalChars % STRATIFIED_SEGMENTS;
-        StringBuilder sb = new StringBuilder(totalChars + STRATIFIED_SEGMENTS * 30);
+        int segmentSize = BookParserService.MAX_CONTENT_FOR_AI / STRATIFIED_SEGMENTS;
+        int remaining = BookParserService.MAX_CONTENT_FOR_AI % STRATIFIED_SEGMENTS;
+        StringBuilder sb = new StringBuilder(BookParserService.MAX_CONTENT_FOR_AI + STRATIFIED_SEGMENTS * 30);
         int segments = STRATIFIED_SEGMENTS;
         for (int i = 0; i < segments; i++) {
             int posPercent = Math.round(100f * i / (segments - 1));
@@ -1100,39 +1155,13 @@ public class BookParserService {
     }
 
     /**
-     * 提取 EPUB 内容 — 分层采样全文 + 目录（用于评分和标签生成）
+     * 提取 EPUB 内容 — 重新读文件，委托给 buildChapterBasedContent（用于评分和标签生成）
      */
     private String extractEpubContent(Book book, Path filePath) {
         try (InputStream is = Files.newInputStream(filePath)) {
             EpubReader epubReader = new EpubReader();
             nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
-
-            // 收集正文（上限 FULL_TEXT_LIMIT，避免大书 OOM）
-            StringBuilder bodyBuilder = new StringBuilder(FULL_TEXT_LIMIT);
-            for (var spineRef : epubBook.getSpine().getSpineReferences()) {
-                try {
-                    var resource = spineRef.getResource();
-                    String html = new String(resource.getData(), java.nio.charset.StandardCharsets.UTF_8);
-                    String text = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
-                    if (!text.isBlank()) {
-                        bodyBuilder.append(text).append("\n");
-                    }
-                } catch (Exception ignored) {
-                }
-                if (bodyBuilder.length() >= FULL_TEXT_LIMIT) break;
-            }
-            // 分层采样：从全书各处取代表性片段
-            String sampledBody = stratifiedSample(bodyBuilder.toString(), MAX_CONTENT_FOR_AI);
-
-            // 提取目录
-            StringBuilder tocBuilder = new StringBuilder();
-            if (epubBook.getTableOfContents() != null) {
-                extractEpubTocChildren(epubBook.getTableOfContents().getTocReferences(), tocBuilder, 0);
-            }
-
-            String combined = (!tocBuilder.isEmpty() ? "【目录】\n" + tocBuilder + "\n\n【正文】\n" : "")
-                    + sampledBody;
-            return buildContentForTags(book, combined);
+            return buildContentForTags(book, buildChapterBasedContent(epubBook));
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("SAXParseException")) {
                 log.warn("EPUB XML 解析失败 (文件损坏或格式不规范): {} - {}", book.getTitle(), e.getMessage());
@@ -1168,7 +1197,7 @@ public class BookParserService {
                 }
             }
             // 再用分层采样压到预算
-            return buildContentForTags(book, stratifiedSample(sb.toString(), MAX_CONTENT_FOR_AI));
+            return buildContentForTags(book, stratifiedSample(sb.toString()));
         }
     }
 
@@ -1177,7 +1206,7 @@ public class BookParserService {
      */
     private String extractTxtContent(Book book, Path filePath) throws Exception {
         String content = Files.readString(filePath);
-        return buildContentForTags(book, stratifiedSample(content, MAX_CONTENT_FOR_AI));
+        return buildContentForTags(book, stratifiedSample(content));
     }
 
     // ======================== 合并 AI 请求（标签 + 评分 + 相关度，一次调用） ========================
@@ -1204,7 +1233,7 @@ public class BookParserService {
 
             // 合并调用 AI，一次性生成标签、评分、相关度和简介
             CombinedAiResult result = callAiCombined(content);
-            
+
             // 记录AI调用结果日志
             log.info("========== AI合并调用结果 start ==========");
             log.info("AI合并调用结果: bookId={}", bookId);
@@ -1214,7 +1243,7 @@ public class BookParserService {
             log.info("AI合并调用结果: description: {}", result != null ? result.description : "null");
             log.info("AI合并调用结果: description长度: {}", result != null && result.description != null ? result.description.length() : 0);
             log.info("========== AI合并调用结果 end ==========");
-            
+
             if (result == null) {
                 log.warn("合并AI调用返回空结果: bookId={}", bookId);
                 return;
@@ -1357,7 +1386,7 @@ public class BookParserService {
      * 优化版本：使用预分配 StringBuilder + 预编译正则
      * 增强：捕获 XML 解析异常，降级为直接解压 ZIP 提取文本，防止不规范 EPUB 导致向量化跳过
      */
-    private String extractEpubFullText(Book book, Path filePath) throws Exception {
+    private String extractEpubFullText(Book book, Path filePath) {
         try (InputStream is = Files.newInputStream(filePath)) {
             EpubReader epubReader = new EpubReader();
             nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
@@ -1386,7 +1415,8 @@ public class BookParserService {
                         if (!plain.isBlank()) {
                             text.append(plain).append("\n");
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                    }
                 }
             }
         } catch (Exception e) {
@@ -1621,7 +1651,7 @@ public class BookParserService {
             log.info("========== AI 合并请求（标签+评分+相关度） ==========");
             log.info("callAiCombined 输入内容: {}", content.replaceAll("\\n", " "));
 
-            ChatModel chatModel =  chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
             if (chatModel == null) {
                 log.debug("无可用的 AI 模型，跳过合并生成");
                 return null;
@@ -1769,104 +1799,22 @@ public class BookParserService {
                 return null;
             }
 
-            StringBuilder contentBuilder = new StringBuilder();
-            contentBuilder.append("书名：《").append(book.getTitle()).append("》\n");
-            if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
-                contentBuilder.append("作者：").append(book.getAuthor()).append("\n");
-            }
-            if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
-                String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
-                contentBuilder.append("标签：").append(tags).append("\n");
-            }
-            if (book.getDescription() != null && !book.getDescription().isBlank()) {
-                contentBuilder.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 2000)).append("\n");
-            }
-            if (book.getToc() != null && !book.getToc().isBlank()) {
-                contentBuilder.append("目录：\n").append(CommonUtils.truncateText(book.getToc(), 1500)).append("\n");
-            }
-            if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-                contentBuilder.append("章节摘要：\n").append(CommonUtils.truncateText(book.getChapterSummary(), 2000)).append("\n");
-            }
+            String bookContent = buildSpeedReadContent(book);
 
             // 构建用户画像描述
-            String userProfileDesc = "";
-            if (user != null) {
-                StringBuilder profileBuilder = new StringBuilder();
-                if (user.getBirthday() != null) {
-                    int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
-                    profileBuilder.append("年龄：").append(age).append("岁\n");
-                }
-                if (user.getGender() != null) {
-                    profileBuilder.append("性别：").append(switch (user.getGender()) {
-                        case "MALE" -> "男";
-                        case "FEMALE" -> "女";
-                        default -> "其他";
-                    }).append("\n");
-                }
-                if (user.getMarried() != null) {
-                    profileBuilder.append("婚姻：").append(user.getMarried() ? "已婚" : "未婚").append("\n");
-                }
-                if (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank()) {
-                    profileBuilder.append("子女年龄段：").append(user.getChildrenAgeRanges()).append("\n");
-                } else if (user.getHasChildren() != null) {
-                    profileBuilder.append("子女：").append(user.getHasChildren() ? "有孩子" : "无孩子").append("\n");
-                }
-                if (user.getMbti() != null) {
-                    profileBuilder.append("MBTI：").append(user.getMbti()).append("\n");
-                }
-                if (user.getOccupation() != null && !user.getOccupation().isBlank()) {
-                    profileBuilder.append("职业：").append(user.getOccupation()).append("\n");
-                }
-                if (user.getAspirationEducation() != null) {
-                    profileBuilder.append("期望学历：").append(user.getAspirationEducation()).append("\n");
-                }
-                if (user.getEntrepreneurship() != null) {
-                    profileBuilder.append("创业意向：").append(user.getEntrepreneurship()).append("\n");
-                }
-                if (user.getAspirationIncome() != null) {
-                    profileBuilder.append("期望年收入：").append(user.getAspirationIncome()).append("\n");
-                }
-                if (user.getMood() != null && !user.getMood().isBlank()) {
-                    String moodRaw = user.getMood();
-                    int pipeIdx = moodRaw.indexOf('|');
-                    if (pipeIdx > 0) {
-                        String intentKey = moodRaw.substring(0, pipeIdx);
-                        String moodKey = moodRaw.substring(pipeIdx + 1);
-                        profileBuilder.append("阅读意图：").append(switch (intentKey) {
-                            case "GROWTH" -> "充电成长";
-                            case "COMFORT" -> "共鸣陪伴";
-                            case "ESCAPE" -> "逃离放松";
-                            case "EXCITE" -> "新鲜刺激";
-                            case "INSIGHT" -> "答案解惑";
-                            default -> intentKey;
-                        }).append("\n");
-                        profileBuilder.append("当前心情：").append(switch (moodKey) {
-                            case "HAPPY" -> "开心";
-                            case "CALM" -> "平静";
-                            case "ANXIOUS" -> "焦虑";
-                            case "SAD" -> "低落";
-                            case "FRUSTRATED" -> "烦躁";
-                            case "TIRED" -> "疲惫";
-                            default -> moodKey;
-                        }).append("\n");
-                    }
-                }
-                if (profileBuilder.length() > 0) {
-                    userProfileDesc = profileBuilder.toString();
-                }
-            }
+            String userProfileDesc = buildUserProfileDesc(user);
 
             String prompt;
             if (!userProfileDesc.isBlank()) {
                 prompt = """
                         你是一位资深阅读顾问。请基于以下书籍信息，为特定读者生成一份「3分钟速读」摘要。
-
+                        
                         【读者画像】
                         %s
-
+                        
                         【书籍信息】
                         %s
-
+                        
                         请严格按照以下JSON格式输出（不要输出其他内容）：
                         {
                           "corePoints": ["核心观点1", "核心观点2", "核心观点3"],
@@ -1875,20 +1823,20 @@ public class BookParserService {
                           "takeaways": ["读完能收获什么1", "读完能收获什么2"],
                           "difficulty": "入门/中等/进阶"
                         }
-
+                        
                         要求：
                         - corePoints: 3个最核心的观点或主题，每个不超过30字。请结合读者画像，突出与其最相关的内容。
                         - suitableFor: 2-3类最适合阅读的人群描述，请特别说明为什么适合这位读者（如果匹配的话）。
                         - notSuitableFor: 2-3类不适合阅读的人群描述。
                         - takeaways: 2-3个读完能获得的具体收获，请结合读者的职业和人生阶段给出个性化收获。
                         - difficulty: 根据内容深度和读者的背景判断阅读难度。
-                        """.formatted(userProfileDesc, contentBuilder.toString());
+                        """.formatted(userProfileDesc, bookContent);
             } else {
                 prompt = """
                         你是一位资深阅读顾问。请基于以下书籍信息，生成一份「3分钟速读」摘要，帮助读者快速判断这本书是否值得阅读。
-
+                        
                         %s
-
+                        
                         请严格按照以下JSON格式输出（不要输出其他内容）：
                         {
                           "corePoints": ["核心观点1", "核心观点2", "核心观点3"],
@@ -1897,39 +1845,27 @@ public class BookParserService {
                           "takeaways": ["读完能收获什么1", "读完能收获什么2"],
                           "difficulty": "入门/中等/进阶"
                         }
-
+                        
                         要求：
                         - corePoints: 3个最核心的观点或主题，每个不超过30字
                         - suitableFor: 2-3类最适合阅读的人群描述
                         - notSuitableFor: 2-3类不适合阅读的人群描述
                         - takeaways: 2-3个读完能获得的具体收获
                         - difficulty: 根据内容深度判断阅读难度
-                        """.formatted(contentBuilder.toString());
+                        """.formatted(bookContent);
             }
 
             long startTime = System.currentTimeMillis();
             ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
             long elapsed = System.currentTimeMillis() - startTime;
 
-            String aiText = response.aiMessage().text();
+            String aiText = stripCodeFence(response.aiMessage().text());
             if (aiText == null || aiText.isBlank()) {
                 log.warn("AI 速读摘要为空: bookId={}", book.getId());
                 return null;
             }
 
-            String jsonStr = aiText.trim();
-            if (jsonStr.startsWith("```json")) {
-                jsonStr = jsonStr.substring(7);
-            }
-            if (jsonStr.startsWith("```")) {
-                jsonStr = jsonStr.substring(3);
-            }
-            if (jsonStr.endsWith("```")) {
-                jsonStr = jsonStr.substring(0, jsonStr.length() - 3);
-            }
-            jsonStr = jsonStr.trim();
-
-            com.kbook.dto.BookSpeedReadVO vo = objectMapper.readValue(jsonStr, com.kbook.dto.BookSpeedReadVO.class);
+            com.kbook.dto.BookSpeedReadVO vo = objectMapper.readValue(aiText, com.kbook.dto.BookSpeedReadVO.class);
             vo.setBookId(book.getId());
             vo.setRawContent(aiText);
 
@@ -1961,11 +1897,11 @@ public class BookParserService {
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
             contentBuilder.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 2000)).append("\n");
         }
-        if (book.getToc() != null && !book.getToc().isBlank()) {
-            contentBuilder.append("目录：\n").append(CommonUtils.truncateText(book.getToc(), 1500)).append("\n");
-        }
+
         if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-            contentBuilder.append("章节摘要：\n").append(CommonUtils.truncateText(book.getChapterSummary(), 2000)).append("\n");
+            contentBuilder.append("章节摘要：\n").append(CommonUtils.truncateText(book.getChapterSummary(), MAX_CONTENT_FOR_AI)).append("\n");
+        } else if (book.getToc() != null && !book.getToc().isBlank()) {
+            contentBuilder.append("目录：\n").append(CommonUtils.truncateText(book.getToc(), 1500)).append("\n");
         }
         return contentBuilder.toString();
     }
@@ -1988,7 +1924,11 @@ public class BookParserService {
             profileBuilder.append("婚姻：").append(user.getMarried() ? "已婚" : "未婚").append("\n");
         }
         if (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank()) {
-            profileBuilder.append("子女年龄段：").append(user.getChildrenAgeRanges()).append("\n");
+            String labels = java.util.Arrays.stream(user.getChildrenAgeRanges().split(","))
+                    .map(String::trim)
+                    .map(RecommendMatchCalculator::getChildRangeLabel)
+                    .collect(java.util.stream.Collectors.joining("、"));
+            profileBuilder.append("子女年龄段：").append(labels).append("\n");
         } else if (user.getHasChildren() != null) {
             profileBuilder.append("子女：").append(user.getHasChildren() ? "有孩子" : "无孩子").append("\n");
         }
@@ -1996,16 +1936,16 @@ public class BookParserService {
             profileBuilder.append("MBTI：").append(user.getMbti()).append("\n");
         }
         if (user.getOccupation() != null && !user.getOccupation().isBlank()) {
-            profileBuilder.append("职业：").append(user.getOccupation()).append("\n");
+            profileBuilder.append("职业：").append(RecommendMatchCalculator.getOccupationLabel(user.getOccupation())).append("\n");
         }
         if (user.getAspirationEducation() != null) {
-            profileBuilder.append("期望学历：").append(user.getAspirationEducation()).append("\n");
+            profileBuilder.append("期望学历：").append(RecommendMatchCalculator.getEducationLabel(user.getAspirationEducation())).append("\n");
         }
         if (user.getEntrepreneurship() != null) {
-            profileBuilder.append("创业意向：").append(user.getEntrepreneurship()).append("\n");
+            profileBuilder.append("创业意向：").append(RecommendMatchCalculator.getEntrepreneurshipLabel(user.getEntrepreneurship())).append("\n");
         }
         if (user.getAspirationIncome() != null) {
-            profileBuilder.append("期望年收入：").append(user.getAspirationIncome()).append("\n");
+            profileBuilder.append("期望年收入：").append(RecommendMatchCalculator.getAnnualIncomeLabel(user.getAspirationIncome())).append("\n");
         }
         if (user.getMood() != null && !user.getMood().isBlank()) {
             String moodRaw = user.getMood();
@@ -2013,23 +1953,8 @@ public class BookParserService {
             if (pipeIdx > 0) {
                 String intentKey = moodRaw.substring(0, pipeIdx);
                 String moodKey = moodRaw.substring(pipeIdx + 1);
-                profileBuilder.append("阅读意图：").append(switch (intentKey) {
-                    case "GROWTH" -> "充电成长";
-                    case "COMFORT" -> "共鸣陪伴";
-                    case "ESCAPE" -> "逃离放松";
-                    case "EXCITE" -> "新鲜刺激";
-                    case "INSIGHT" -> "答案解惑";
-                    default -> intentKey;
-                }).append("\n");
-                profileBuilder.append("当前心情：").append(switch (moodKey) {
-                    case "HAPPY" -> "开心";
-                    case "CALM" -> "平静";
-                    case "ANXIOUS" -> "焦虑";
-                    case "SAD" -> "低落";
-                    case "FRUSTRATED" -> "烦躁";
-                    case "TIRED" -> "疲惫";
-                    default -> moodKey;
-                }).append("\n");
+                profileBuilder.append("阅读意图：").append(RecommendMatchCalculator.getIntentLabel(intentKey)).append("\n");
+                profileBuilder.append("当前心情：").append(RecommendMatchCalculator.getMoodLabel(moodKey)).append("\n");
             }
         }
         return profileBuilder.toString();
@@ -2073,38 +1998,38 @@ public class BookParserService {
             if (!userProfileDesc.isBlank()) {
                 prompt = """
                         你是一位资深阅读顾问。请基于以下书籍信息，为特定读者生成一份「3分钟速读」摘要。
-
+                        
                         【读者画像】
                         %s
-
+                        
                         【书籍信息】
                         %s
-
+                        
                         请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行：
-
+                        
                         ### 核心观点
                         xxxxx
                         xxxxx
                         xxxxx
-
+                        
                         ### 适合谁读
                         xxxxx
                         xxxxx
                         xxxxx
-
+                        
                         ### 不适合谁读
                         xxxxx
                         xxxxx
                         xxxxx
-
+                        
                         ### 读完能收获什么
                         xxxxx
                         xxxxx
                         xxxxx
-
+                        
                         ### 难度
                         入门/中等/进阶
-
+                        
                         要求：
                         - 核心观点: 3个最核心的观点或主题，每个不超过30字。请结合读者画像，突出与其最相关的内容。
                         - 适合谁读: 2-3类最适合阅读的人群描述，请特别说明为什么适合这位读者（如果匹配的话）。
@@ -2116,34 +2041,34 @@ public class BookParserService {
             } else {
                 prompt = """
                         你是一位资深阅读顾问。请基于以下书籍信息，生成一份「3分钟速读」摘要，帮助读者快速判断这本书是否值得阅读。
-
+                        
                         %s
-
+                        
                         请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行：
-
+                        
                         ### 核心观点
                         xxxxx
                         xxxxx
                         xxxxx
-
+                        
                         ### 适合谁读
                         xxxxx
                         xxxxx
                         xxxxx
-
+                        
                         ### 不适合谁读
                         xxxxx
                         xxxxx
                         xxxxx
-
+                        
                         ### 读完能收获什么
                         xxxxx
                         xxxxx
                         xxxxx
-
+                        
                         ### 难度
                         入门/中等/进阶
-
+                        
                         要求：
                         - 核心观点: 3个最核心的观点或主题，每个不超过30字
                         - 适合谁读: 2-3类最适合阅读的人群描述
@@ -2155,7 +2080,6 @@ public class BookParserService {
             }
 
             long startTime = System.currentTimeMillis();
-            StringBuilder fullResponse = new StringBuilder();
 
             streamingChatModel.chat(
                     List.of(UserMessage.from(prompt)),
@@ -2163,7 +2087,6 @@ public class BookParserService {
                         @Override
                         public void onPartialResponse(String partialResponse) {
                             if (partialResponse != null && !partialResponse.isEmpty()) {
-                                fullResponse.append(partialResponse);
                                 SseHelper.safeSendEvent(emitter, "message", partialResponse);
                             }
                         }
@@ -2181,7 +2104,8 @@ public class BookParserService {
                             try {
                                 emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                                 emitter.complete();
-                            } catch (Exception ignored) {}
+                            } catch (Exception ignored) {
+                            }
                         }
 
                         @Override

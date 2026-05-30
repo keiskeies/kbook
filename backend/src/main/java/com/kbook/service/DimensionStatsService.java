@@ -2,7 +2,6 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;

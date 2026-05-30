@@ -1,6 +1,5 @@
 package com.kbook.test;
 
-import com.kbook.dto.TagStat;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.service.BookParserService;
@@ -12,7 +11,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;

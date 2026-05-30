@@ -1628,18 +1628,16 @@ public class EmbeddingService {
             sb.append("简介:;");
         }
 
-        if (book.getToc() != null && !book.getToc().isBlank()) {
-            String toc = book.getToc().length() > 800
-                    ? book.getToc().substring(0, 800)
-                    : book.getToc();
-            sb.append("目录:").append(toc).append(";");
-        }
-
         if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
             String summary = book.getChapterSummary().length() > 500
                     ? book.getChapterSummary().substring(0, 500)
                     : book.getChapterSummary();
             sb.append("章节摘要:").append(summary).append(";");
+        } else if (book.getToc() != null && !book.getToc().isBlank()) {
+            String toc = book.getToc().length() > 800
+                    ? book.getToc().substring(0, 800)
+                    : book.getToc();
+            sb.append("目录:").append(toc).append(";");
         }
 
         return sb.toString();

@@ -25,7 +25,7 @@ import java.util.Map;
 
 /**
  * 管理员控制器 - 用户审核 + 管理员绑定邮箱
- *
+ * <p>
  * 权限隔离逻辑：
  * - 类级别 @PreAuthorize("hasRole('ADMIN')") 确保所有接口仅管理员可访问
  * - SecurityConfig 中 /api/admin/** 路径要求 ADMIN 角色
@@ -66,6 +66,7 @@ public class AdminController {
 
     /**
      * 按状态筛选用户
+     *
      * @param statuses 状态列表，如 ?statuses=PENDING&statuses=BANNED
      */
     @GetMapping("/users")
@@ -151,7 +152,7 @@ public class AdminController {
      */
     @PostMapping("/bind-email/send-code")
     public Result<Void> sendBindEmailCode(Authentication authentication,
-                                           @RequestBody @jakarta.validation.Valid AdminSendCodeRequest req) {
+                                          @RequestBody @jakarta.validation.Valid AdminSendCodeRequest req) {
         Long userId = (Long) authentication.getPrincipal();
         User user = userService.getUserById(userId);
         if (Boolean.TRUE.equals(user.getEmailBound())) {
@@ -167,7 +168,7 @@ public class AdminController {
      */
     @PostMapping("/bind-email")
     public Result<UserInfo> bindEmail(Authentication authentication,
-                                                   @RequestBody @jakarta.validation.Valid BindEmailRequest req) {
+                                      @RequestBody @jakarta.validation.Valid BindEmailRequest req) {
         Long userId = (Long) authentication.getPrincipal();
 
         // 先校验验证码
@@ -184,7 +185,7 @@ public class AdminController {
      */
     @PostMapping("/invite")
     public Result<InviteResult> sendInvitation(Authentication authentication,
-                                                @RequestBody @jakarta.validation.Valid InviteRequest req) {
+                                               @RequestBody @jakarta.validation.Valid InviteRequest req) {
         Long adminId = (Long) authentication.getPrincipal();
         User admin = userService.getUserById(adminId);
 
@@ -199,9 +200,9 @@ public class AdminController {
 
         // 发送邀请邮件
         String inviteCode = emailNotificationService.sendInvitation(
-            req.getEmail(),
-            admin.getNickname(),
-            bookTitle
+                req.getEmail(),
+                admin.getNickname(),
+                bookTitle
         );
 
         return Result.ok(new InviteResult(req.getEmail(), inviteCode));

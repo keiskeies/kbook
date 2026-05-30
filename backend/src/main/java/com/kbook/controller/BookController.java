@@ -2,23 +2,12 @@ package com.kbook.controller;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
-import com.kbook.document.BookDocument;
-import com.kbook.dto.BookProjection;
-import com.kbook.dto.BookSpeedReadVO;
-import com.kbook.entity.Book;
-import com.kbook.service.BookParserService;
-import com.kbook.service.BookSearchService;
-import com.kbook.service.BookService;
-import com.kbook.service.RankService;
-import com.kbook.service.RecommendService;
-import com.kbook.service.UserService;
-import com.kbook.entity.User;
 import com.kbook.common.util.CommonUtils;
-import com.kbook.config.properties.BookStorageProperties;
-import com.kbook.dto.CreateBookRequest;
-import com.kbook.dto.RateRequest;
-import com.kbook.dto.UpdateTagsRequest;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.document.BookDocument;
+import com.kbook.dto.*;
+import com.kbook.entity.Book;
+import com.kbook.entity.User;
+import com.kbook.service.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,14 +38,16 @@ public class BookController {
     private final RecommendService recommendService;
     private final BookParserService bookParserService;
     private final UserService userService;
-    private final ObjectMapper objectMapper;
 
-    /** 封面图片存储路径 */
+    /**
+     * 封面图片存储路径
+     */
     @Value("${kbook.cover-path:./covers}")
     private String coverPath;
 
     /**
      * 获取封面图片
+     *
      * @param filename 封面文件名
      * @return 图片资源响应
      */
@@ -186,7 +177,7 @@ public class BookController {
      */
     @PostMapping("/{id}/rate")
     public Result<Book> rateBook(@PathVariable Long id, @RequestBody RateRequest req,
-                                  Authentication authentication) {
+                                 Authentication authentication) {
         Double rating = req.getRating();
         if (rating == null || rating < 1.0 || rating > 5.0) {
             return Result.fail("评分范围 1.0-5.0");

@@ -60,6 +60,7 @@ public class BookChatService {
     private final BookSuggestedQuestionRepository suggestedQuestionRepository;
     private final QdrantProperties qdrantProperties;
     private final RagHitStatisticsService ragHitStatisticsService;
+    private final BookQuestionGenService questionGenService;
 
     /**
      * SSE 异步执行线程池
@@ -109,7 +110,7 @@ public class BookChatService {
             return selected;
         }
 
-//        questionGenService.asyncGenerateQuestions(bookId);
+        questionGenService.asyncGenerateQuestions(bookId);
 
         Book book = bookService.getBookById(bookId);
         if (book == null) {

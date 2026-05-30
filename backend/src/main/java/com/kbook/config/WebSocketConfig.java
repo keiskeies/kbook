@@ -76,11 +76,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                         try {
                             // 解析 Token 获取用户信息
                             Map<String, Object> claims = jwtUtil.parseToken(token);
-                            Long userId = ((Number) claims.get("userId")).longValue();
+                            long userId = ((Number) claims.get("userId")).longValue();
                             
                             // 设置 WebSocket 会话的用户主体
                             accessor.setUser(new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
-                                    userId.toString(),
+                                    Long.toString(userId),
                                     null,
                                     List.of(new SimpleGrantedAuthority("ROLE_USER"))
                             ));

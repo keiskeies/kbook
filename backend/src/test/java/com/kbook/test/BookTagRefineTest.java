@@ -6,7 +6,6 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
-import com.kbook.service.AiProviderConfigService;
 import com.kbook.service.BookParserService;
 import com.kbook.service.BookService;
 import dev.langchain4j.data.message.SystemMessage;
@@ -148,11 +147,12 @@ public class BookTagRefineTest {
                 }
 
                 String jsonStr = result.substring(jsonStart, jsonEnd + 1);
-                List<String> tags = objectMapper.readValue(jsonStr, new TypeReference<List<String>>() {});
+                List<String> tags = objectMapper.readValue(jsonStr, new TypeReference<>() {
+                });
                 List<String> validTagList = Arrays.asList(VALID_TAGS_STRING.split(","));
                 List<String> refinedTags = tags.stream()
                         .map(String::trim)
-                        .filter(t -> validTagList.contains(t))
+                        .filter(validTagList::contains)
                         .collect(Collectors.toList());
 
                 if (refinedTags.isEmpty()) {
@@ -202,7 +202,8 @@ public class BookTagRefineTest {
     private String parseTagsForDisplay(String formatTags) {
         try {
             if (formatTags == null || formatTags.isBlank()) return "[]";
-            List<String> list = objectMapper.readValue(formatTags, new TypeReference<List<String>>() {});
+            List<String> list = objectMapper.readValue(formatTags, new TypeReference<>() {
+            });
             return list.toString();
         } catch (Exception e) {
             return formatTags;
@@ -211,8 +212,10 @@ public class BookTagRefineTest {
 
     private String diffTags(String oldJson, String newJson) {
         try {
-            List<String> oldList = objectMapper.readValue(oldJson, new TypeReference<List<String>>() {});
-            List<String> newList = objectMapper.readValue(newJson, new TypeReference<List<String>>() {});
+            List<String> oldList = objectMapper.readValue(oldJson, new TypeReference<>() {
+            });
+            List<String> newList = objectMapper.readValue(newJson, new TypeReference<>() {
+            });
             List<String> added = newList.stream().filter(t -> !oldList.contains(t)).toList();
             List<String> removed = oldList.stream().filter(t -> !newList.contains(t)).toList();
             StringBuilder sb = new StringBuilder();
