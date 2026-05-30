@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import {
   ArrowLeft, Bookmark, BookmarkCheck, BookOpen, Star, Eye, MessageSquare, Sparkles,
   Pencil, X, Plus, Trash2, Clock, Target, Users, UserX, Lightbulb, Gauge,
@@ -779,6 +780,7 @@ function EditTagsDialog({
 export default function BookDetailPage() {
   const { bookId } = useParams<{ bookId: string }>()
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const [book, setBook] = useState<Book | null>(null)
   const [inShelf, setInShelf] = useState(false)
   const [progress, setProgress] = useState<number>(0)
@@ -1075,7 +1077,7 @@ export default function BookDetailPage() {
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       {/* 顶部导航 */}
       <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
+        <button onClick={() => goBack()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="flex-1 truncate text-base font-bold">{book.title}</h1>

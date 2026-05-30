@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, UserPlus, UserMinus } from 'lucide-react'
 import { getFollowings, getFollowers, followUser, unfollowUser } from '@/api/follow'
 import type { FollowUserVO } from '@/api/follow'
@@ -9,6 +10,7 @@ import { toast } from 'sonner'
 export default function FollowListPage() {
   const { userId, tab = 'followings' } = useParams<{ userId: string; tab: string }>()
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const { userInfo } = useAuthStore()
   const [activeTab, setActiveTab] = useState<'followings' | 'followers'>(tab as 'followings' | 'followers')
   const [followings, setFollowings] = useState<FollowUserVO[]>([])
@@ -76,7 +78,7 @@ export default function FollowListPage() {
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       {/* 顶部 */}
       <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+        <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-base font-bold">{isSelf ? '我的关注' : 'TA的关注'}</h1>

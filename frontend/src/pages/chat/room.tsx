@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
 import { ArrowLeft, Send, Plus, Image, Paperclip, Mic, Smile, User, Loader2, ChevronDown, Keyboard, Delete, Video, RotateCcw } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { getMessages, sendMessage, markAsRead, uploadChatFile, getConversation } from '@/api/chat'
 import type { ChatMessageVO, ConversationVO } from '@/api/chat'
 import { useChatStore } from '@/store/chat'
@@ -28,6 +29,7 @@ const COMMON_EMOJIS = [
 export default function ChatRoomPage() {
   const { conversationId } = useParams<{ conversationId: string }>()
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const { userInfo } = useAuthStore()
   const { markMessagesAsRead, messages: storeMessages } = useChatStore()
   
@@ -685,7 +687,7 @@ export default function ChatRoomPage() {
     <div ref={containerRef} className="fixed inset-0 z-40 flex flex-col overscroll-none bg-background">
       {/* Header - 固定在顶部 */}
       <header className="flex-shrink-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 pt-safe-top pb-3 backdrop-blur-xl">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+        <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         {conversation ? (

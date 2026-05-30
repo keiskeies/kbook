@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ArrowLeft, Save, Trash2, RefreshCw, Zap, Eye, EyeOff, ExternalLink, ChevronDown, ChevronUp, Globe, MapPin, Plus, Star, StarOff, Pencil, X } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { toast } from 'sonner'
 import {
   listAiConfigsByPurpose,
@@ -21,7 +21,7 @@ const CHAT_PURPOSE = 'CHAT'
  * 支持多配置管理，可切换激活（默认）配置。
  */
 export default function AiConfigPage() {
-  const navigate = useNavigate()
+  const goBack = useGoBack()
   const [configs, setConfigs] = useState<AiProviderConfig[]>([])
   const [presets, setPresets] = useState<AiProviderPreset[]>([])
   const [loading, setLoading] = useState(true)
@@ -220,7 +220,7 @@ export default function AiConfigPage() {
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background overscroll-contain">
       {/* Header */}
       <header className="shrink-0 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-20">
-        <button onClick={() => navigate(-1)} className="rounded-full p-1.5 active:bg-muted">
+        <button onClick={() => goBack()} className="rounded-full p-1.5 active:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-bold">AI 配置管理</h1>

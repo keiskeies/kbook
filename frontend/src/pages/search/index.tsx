@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, Search, X, Star, Sparkles, Tag, ChevronDown, ChevronUp } from 'lucide-react'
 
 /** 评分徽章（带中文标签） — 5分制分等级配色（无背景） */
@@ -204,6 +205,7 @@ function fmtFileSize(bytes: number | null | undefined): string {
 
 export default function SearchPage() {
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const [searchParams] = useSearchParams()
   const [keyword, setKeyword] = useState('')
   const [tag, setTag] = useState<string>(() => searchParams.get('tag') || '')
@@ -321,7 +323,7 @@ export default function SearchPage() {
       {/* 顶部固定区域：搜索框 + 筛选标签 */}
       <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl">
         <header className="flex items-center gap-2 border-b border-border/50 px-4 py-3">
-          <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+          <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="relative flex flex-1 items-center gap-2 rounded-xl bg-muted px-3 py-2">

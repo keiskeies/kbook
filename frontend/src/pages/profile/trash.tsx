@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, Trash2, RotateCcw, Star } from 'lucide-react'
 import { getTrashList, removeFromTrash } from '@/api/bookTrash'
 import type { BookTrashItem } from '@/api/bookTrash'
@@ -27,7 +27,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
 }
 
 export default function BookTrashPage() {
-  const navigate = useNavigate()
+  const goBack = useGoBack()
   const [books, setBooks] = useState<BookTrashItem[]>([])
   const [loading, setLoading] = useState(true)
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false)
@@ -76,7 +76,7 @@ export default function BookTrashPage() {
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       <div className="shrink-0 z-20 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
         <header className="flex items-center gap-3 px-4 py-3">
-          <button onClick={() => navigate(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">
+          <button onClick={() => goBack()} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2 flex-1">

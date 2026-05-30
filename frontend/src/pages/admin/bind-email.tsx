@@ -4,6 +4,7 @@ import { sendBindEmailCode, bindEmail } from '@/api/admin'
 import { useCountdown } from '@/hooks/useCountdown'
 import { ArrowLeft, Mail } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { toast } from 'sonner'
 
 /**
@@ -13,6 +14,7 @@ import { toast } from 'sonner'
  */
 export default function BindEmailPage() {
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const {updateUserInfo } = useAuthStore()
   const { countdown, start: startCountdown } = useCountdown(60)
 
@@ -67,7 +69,7 @@ export default function BindEmailPage() {
   return (
     <div className="flex min-h-screen flex-col px-6 pt-safe-top">
       <header className="flex items-center gap-3 py-3">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+        <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-semibold">绑定邮箱</h1>

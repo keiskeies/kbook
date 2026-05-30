@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, Sparkles, Star, RefreshCw, Tag, Trash2, Loader2 } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
 import { getRecommendationsPage, generateRecommendationsStream } from '@/api/book'
@@ -212,6 +213,7 @@ function SwipeableBookCard({
 
 export default function RecommendPage() {
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const [books, setBooks] = useState<RecommendedItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -329,7 +331,7 @@ export default function RecommendPage() {
     <div className="min-h-screen bg-background page-enter">
       <div className="sticky top-0 z-50 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
         <header className="flex items-center gap-3 px-4 py-3">
-          <button onClick={() => navigate(-1)} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">
+          <button onClick={() => goBack()} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2 flex-1">

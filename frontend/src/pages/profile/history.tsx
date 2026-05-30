@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, Clock, CheckCircle2, BookOpen, Star, Sparkles, Loader2 } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
 import { getReadingHistory } from '@/api/progress'
@@ -63,6 +64,7 @@ interface HistoryItem {
 
 export default function ReadingHistoryPage() {
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const [items, setItems] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -147,7 +149,7 @@ export default function ReadingHistoryPage() {
   return (
     <div className="min-h-screen bg-background page-enter">
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
+        <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="flex-1 text-base font-bold">阅读历史</h1>

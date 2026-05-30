@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, MessageSquare, Heart, Bookmark } from 'lucide-react'
 import { getTopRatedComments } from '@/api/comment'
 import type { CommentVO } from '@/api/comment'
@@ -8,6 +9,7 @@ import BookCover from '@/components/book/BookCover'
 
 export default function ReviewsPage() {
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const [comments, setComments] = useState<CommentVO[]>([])
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
@@ -46,7 +48,7 @@ export default function ReviewsPage() {
     <div className="min-h-screen bg-background page-enter">
       {/* 顶部 */}
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+        <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-base font-bold">高分书评</h1>

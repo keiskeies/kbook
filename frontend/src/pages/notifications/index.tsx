@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, Bell, Heart, Bookmark, MessageCircle, BookOpen, CheckCheck } from 'lucide-react'
 import { getNotifications, markAsRead, markAllAsRead } from '@/api/notification'
 import type { NotificationVO } from '@/api/notification'
@@ -15,6 +16,7 @@ const typeConfig: Record<string, { icon: typeof Heart; label: string; color: str
 
 export default function NotificationsPage() {
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const [notifications, setNotifications] = useState<NotificationVO[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -69,7 +71,7 @@ export default function NotificationsPage() {
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       <header className="shrink-0 flex items-center justify-between border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+          <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="text-base font-bold">通知</h1>

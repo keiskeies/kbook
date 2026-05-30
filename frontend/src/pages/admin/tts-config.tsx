@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ArrowLeft, Save, Trash2, Plus, Star, StarOff, Pencil, X, Volume2, Cpu, Mic } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { toast } from 'sonner'
 import {
   listTtsConfigs,
@@ -17,7 +17,7 @@ const PROVIDER_OPTIONS: { value: string; label: string; type: string }[] = [
 ]
 
 export default function TtsConfigPage() {
-  const navigate = useNavigate()
+  const goBack = useGoBack()
   const [configs, setConfigs] = useState<TtsConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -176,7 +176,7 @@ export default function TtsConfigPage() {
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background overscroll-contain">
       <header className="shrink-0 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-20">
-        <button onClick={() => navigate(-1)} className="rounded-full p-1.5 active:bg-muted">
+        <button onClick={() => goBack()} className="rounded-full p-1.5 active:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-bold">TTS 配置管理</h1>

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import {ArrowLeft, UserPlus, UserMinus, CheckCircle2, MessageSquare, Heart, BookOpen, MessageCircle} from 'lucide-react'
 import { getUserProfile, getUserBooks, getUserComments } from '@/api/userProfile'
 import { followUser, unfollowUser } from '@/api/follow'
@@ -24,6 +25,7 @@ const MOOD_EMOJI: Record<string, string> = {
 export default function UserProfilePage() {
   const { userId } = useParams<{ userId: string }>()
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const { userInfo } = useAuthStore()
   const [profile, setProfile] = useState<UserProfileVO | null>(null)
   const [readingBooks, setReadingBooks] = useState<UserBookItem[]>([])
@@ -108,7 +110,7 @@ export default function UserProfilePage() {
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+        <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-base font-bold">{profile.nickname}</h1>

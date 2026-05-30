@@ -22,7 +22,7 @@ import {
   XCircle
 } from 'lucide-react'
 import DraggableFab from '@/components/DraggableFab'
-import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import type {
   EmbeddingStats,
   EsReindexProgress,
@@ -57,7 +57,7 @@ const ADMIN_QUICK_PROMPTS = [
 ]
 
 export default function AdminBooksPage() {
-  const navigate = useNavigate()
+  const goBack = useGoBack()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -424,7 +424,7 @@ export default function AdminBooksPage() {
       {/* 顶部 */}
       <header className="sticky top-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
-          <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+          <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="text-lg font-semibold">图书管理</h1>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Star, Sparkles, Tag, ChevronDown, ChevronUp } from 'lucide-react'
-import { getBook, getMatchScores } from '@/api/book'
+import { getBook } from '@/api/book'
+import { useMatchScores } from '@/hooks/useMatchScores'
 import type { Book } from '@/types/book'
 import { parseFormatTags } from '@/types/book'
 import BookCover from '@/components/book/BookCover'
@@ -119,7 +120,7 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
   const navigate = useNavigate()
   const [bookDetail, setBookDetail] = useState<Book | null>(null)
   const [loading, setLoading] = useState(false)
-  const [matchScore, setMatchScore] = useState<number | undefined>(book.matchScore)
+  const matchScores = useMatchScores([book.bookId])
   const fetchedRef = useRef(false)
 
   const tags = bookDetail?.formatTags ? parseFormatTags(bookDetail.formatTags) : []
@@ -147,18 +148,9 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
       .finally(() => {
         setLoading(false)
       })
+  }, [book.bookId])
 
-    if (book.matchScore === undefined) {
-      getMatchScores([book.bookId])
-        .then((res) => {
-          const data = res as unknown as Record<string, number>
-          if (data && typeof data[book.bookId] === 'number') {
-            setMatchScore(Math.round(data[book.bookId] * 100))
-          }
-        })
-        .catch(() => {})
-    }
-  }, [book.bookId, book.matchScore])
+  const matchScore = book.matchScore ?? matchScores?.[String(book.bookId)]
 
   const displayTitle = bookDetail?.title || book.title
   const displayAuthor = bookDetail?.author || book.author
@@ -229,9 +221,9 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
             )}
           </div>
 
-          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
             <RatingBadgeCN rating={displayRating} />
-            <MatchBadgeCN score={matchScore !== undefined ? matchScore / 100 : undefined} />
+            <MatchBadgeCN score={matchScore} />
             <span className="text-[11px] text-muted-foreground">
               {fmtReadCount(displayReadCount)}
             </span>

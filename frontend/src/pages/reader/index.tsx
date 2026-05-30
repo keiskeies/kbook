@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import {
   ArrowLeft, Settings, List,
   Loader2, AlertCircle, Volume2, VolumeX,
@@ -26,7 +27,7 @@ import ImageViewer from '@/components/common/ImageViewer'
 
 export default function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>()
-  const navigate = useNavigate()
+  const goBack = useGoBack()
   const { settings, showSettings, toggleSettings, showToc, toggleToc, setCurrentBookId, isSystemDark } = useReaderStore()
   const [book, setBook] = useState<Book | null>(null)
   const [initialPosition, setInitialPosition] = useState<string | null>(null)
@@ -262,7 +263,7 @@ export default function ReaderPage() {
           <AlertCircle className="mx-auto h-10 w-10 text-destructive" />
           <p className="mt-3 text-sm text-foreground">{readerState.error}</p>
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             className="mt-4 rounded-lg bg-primary px-6 py-2 text-sm text-primary-foreground"
           >
             返回
@@ -280,7 +281,7 @@ export default function ReaderPage() {
         style={{ backgroundColor: theme.bg + 'e6', color: theme.fg, borderColor: theme.fg + '15' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+        <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="min-w-0 flex-1">

@@ -15,13 +15,13 @@ import {
   type ReviewStats,
 } from '@/api/admin'
 import { ArrowLeft, Check, X, Unlock, RefreshCw, CheckCircle2, Mail, Copy, CheckCheck, Ban, Search } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 import { toast } from 'sonner'
 
 type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'BANNED'
 
 export default function AdminReviewPage() {
-  const navigate = useNavigate()
+  const goBack = useGoBack()
   useAuthStore()
 
   const [activeTab, setActiveTab] = useState<StatusFilter>('PENDING')
@@ -249,7 +249,7 @@ export default function AdminReviewPage() {
       {/* 顶部 */}
       <header className="sticky top-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
-          <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+          <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="text-lg font-semibold">用户审核</h1>

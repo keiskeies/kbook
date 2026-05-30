@@ -4,9 +4,11 @@ import { changePassword } from '@/api/auth'
 import { toast } from 'sonner'
 import { ArrowLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useGoBack } from '@/hooks/useGoBack'
 
 export default function ChangePasswordPage() {
   const navigate = useNavigate()
+  const goBack = useGoBack()
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -49,7 +51,7 @@ export default function ChangePasswordPage() {
   return (
     <div className="flex flex-col px-6 pt-safe-top">
       <header className="flex items-center gap-3 py-3">
-        <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
+        <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-semibold">修改密码</h1>
