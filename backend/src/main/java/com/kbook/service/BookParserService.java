@@ -1651,7 +1651,7 @@ public class BookParserService {
             log.info("========== AI 合并请求（标签+评分+相关度） ==========");
             log.info("callAiCombined 输入内容: {}", content.replaceAll("\\n", " "));
 
-            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinking();
             if (chatModel == null) {
                 log.debug("无可用的 AI 模型，跳过合并生成");
                 return null;

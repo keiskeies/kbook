@@ -14,6 +14,8 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -124,154 +126,108 @@ public class BookInfoServiceTest {
         List<Book> allBooks = bookRepository.findAllByOrderByRatingDesc();
         System.out.println("共 " + allBooks.size() + " 本图书需要处理");
 
-        // 记录总开始时间
         long totalStartTime = System.currentTimeMillis();
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger failCount = new AtomicInteger(0);
+        AtomicInteger skippedCount = new AtomicInteger(0);
+        AtomicInteger completedCount = new AtomicInteger(0);
 
-        int successCount = 0;
-        int failCount = 0;
+        int threadCount = 100;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch latch = new CountDownLatch(allBooks.size());
+
+        Thread progressThread = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    break;
+                }
+                int done = completedCount.get();
+                int ok = successCount.get();
+                int fail = failCount.get();
+                int skip = skippedCount.get();
+                long elapsedMs = System.currentTimeMillis() - totalStartTime;
+                double elapsedMin = elapsedMs / 60000.0;
+                int processed = ok + fail;
+                double avgMs = processed > 0 ? (double) elapsedMs / processed : 0;
+                int remaining = allBooks.size() - done;
+                double estMin = remaining * avgMs / 60000.0;
+                java.time.LocalDateTime finishTime = java.time.LocalDateTime.now().plusSeconds((long)(estMin * 60));
+                System.out.printf("[进度] %d/%d (%.1f%%) | 成功=%d 失败=%d 跳过=%d | 已用=%.1f分钟 | 预计剩余=%.1f分钟 | 预计完成=%s%n",
+                        done, allBooks.size(), done * 100.0 / allBooks.size(),
+                        ok, fail, skip, elapsedMin, estMin,
+                        finishTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")));
+            }
+        });
+        progressThread.setDaemon(true);
+        progressThread.start();
 
         for (int i = 0; i < allBooks.size(); i++) {
-            Book book = allBooks.get(i);
-            long bookStartTime = System.currentTimeMillis();
-            try {
-                System.out.println("\n========== 进度: " + (i + 1) + "/" + allBooks.size() + " ==========");
-                System.out.println("处理图书: [" + book.getId() + "] " + book.getTitle());
+            final int index = i;
+            final Book book = allBooks.get(i);
+            executor.submit(() -> {
+                try {
+                    if (book.getFileUrl() == null || book.getFileUrl().isBlank()) {
+                        skippedCount.incrementAndGet();
+                        return;
+                    }
 
-                if (book.getFileUrl() == null || book.getFileUrl().isBlank()) {
-                    System.out.println("  跳过: 无文件路径");
-                    continue;
+                    Path filePath = Path.of(book.getFileUrl());
+                    if (!java.nio.file.Files.exists(filePath)) {
+                        skippedCount.incrementAndGet();
+                        return;
+                    }
+
+                    boolean needAi = false;
+                    if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
+                        needAi = true;
+                    } else if (book.getRelevanceScores().length() < rl) {
+                        needAi = true;
+                    }
+                    if (!needAi) {
+                        skippedCount.incrementAndGet();
+                        return;
+                    }
+
+                    bookParserService.parseAndFill(book, filePath);
+                    bookParserService.finalizeCover(book);
+                    bookParserService.generateAllAiData(book);
+                    bookService.updateBookAll(book.getId(), book);
+
+                    successCount.incrementAndGet();
+                    System.out.printf("  ✓ [%d] id=%d %s%n", index + 1, book.getId(), book.getTitle());
+
+                } catch (Exception e) {
+                    failCount.incrementAndGet();
+                    System.err.printf("  ✗ [%d] id=%d %s — %s%n", index + 1, book.getId(), book.getTitle(), e.getMessage());
+                } finally {
+                    completedCount.incrementAndGet();
+                    latch.countDown();
                 }
-
-                Path filePath = Path.of(book.getFileUrl());
-                if (!java.nio.file.Files.exists(filePath)) {
-                    System.out.println("  跳过: 文件不存在 - " + book.getFileUrl());
-                    continue;
-                }
-
-
-                boolean needAi = false;
-//                // 检查简介是否需要AI补充
-//                if (book.getDescription() == null) {
-//                    System.out.println("  简介为空，需AI补充");
-//                    needAi = true;
-//                } else if (book.getDescription().length() < 50) {
-//                    System.out.println("  简介长度不足50字，需AI补充");
-//                    needAi = true;
-//                } else if (book.getDescription().startsWith("基于小说内容生成的100-300字图书简介")) {
-//                    System.out.println("  简介为占位符文本（小说），需AI补充");
-//                    needAi = true;
-//                } else if (book.getDescription().startsWith("基于正文内容生成的100-300字图书简介")) {
-//                    System.out.println("  简介为占位符文本（正文），需AI补充");
-//                    needAi = true;
-//                } else if (!book.getDescription().matches(".*[\\u4e00-\\u9fa5].*")) {
-////                    System.out.println("  简介不包含中文字符，需AI补充");
-////                    needAi = true;
-//                }
-//                book.setDescription(null);
-//                if (book.getFormatTags() == null || book.getFormatTags().isBlank()) {
-//                    System.out.println("  缺少标签数据，需AI补充");
-//                    needAi = true;
-//                } else {
-//                    int len = book.getFormatTags().split(",").length;
-//                    if (len < 3) {
-//                        System.out.println("  标签数量不足3个，需AI补充");
-//                        needAi = true;
-//                    }
-////                    else if (len > 8) {
-////                        System.out.println("  标签数量超过8个，需AI补充");
-////                        needAi = true;
-////                    }
-//                }
-//                if (book.getRating() == null || book.getRating() == 0) {
-//                    System.out.println("  评分为空或为0，需AI补充");
-//                    needAi = true;
-//                }
-//                if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
-//                    System.out.println("  缺少维度得分，需AI补充");
-//                    needAi = true;
-//                }
-                if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
-                    System.out.println("  缺少维度得分，需AI补充");
-                    needAi = true;
-                } else if (book.getRelevanceScores().length() < rl) {
-                    System.out.println("  维度得分长度不足"+rl+"字，需AI补充");
-                    needAi = true;
-                }
-                if (!needAi) {
-                    continue;
-                }
-
-
-                bookParserService.parseAndFill(book, filePath);
-                bookParserService.finalizeCover(book);
-
-                bookParserService.generateAllAiData(book);
-
-                bookService.updateBookAll(book.getId(), book);
-
-//                bookParserService.generateBookEmbedding(book);
-
-                successCount++;
-                
-                // 计算当前书籍处理耗时
-                long bookEndTime = System.currentTimeMillis();
-                long bookElapsedMs = bookEndTime - bookStartTime;
-                double bookElapsedSec = bookElapsedMs / 1000.0;
-                
-                // 计算总体进度
-                long currentTime = System.currentTimeMillis();
-                long totalElapsedMs = currentTime - totalStartTime;
-                double totalElapsedSec = totalElapsedMs / 1000.0;
-                
-                // 计算平均每本耗时（基于已处理的书籍）
-                int processedCount = successCount + failCount;
-                double avgMsPerBook = processedCount > 0 ? (double) totalElapsedMs / processedCount : 0;
-                
-                // 估算剩余时间
-                int remainingBooks = allBooks.size() - (i + 1);
-                long estimatedRemainingMs = (long) (avgMsPerBook * remainingBooks);
-                double estimatedRemainingMin = estimatedRemainingMs / 60000.0;
-                
-                // 估算总完成时间
-                long estimatedTotalMs = totalElapsedMs + estimatedRemainingMs;
-                java.time.LocalDateTime estimatedFinishTime = java.time.LocalDateTime.now().plusSeconds(estimatedRemainingMs / 1000);
-                
-                System.out.printf("  ✓ 处理完成: %s%n", book.getTitle());
-                System.out.printf("  ⏱️  当前书籍耗时: %.2f秒%n", bookElapsedSec);
-                System.out.printf("  \uD83D\uDCCA 总体进度: %d/%d (%.1f%%)%n", i + 1, allBooks.size(), (i + 1) * 100.0 / allBooks.size());
-                System.out.printf("  ⏳ 已用时间: %.2f分钟 (%.2f秒)%n", totalElapsedSec / 60, totalElapsedSec);
-                System.out.printf("  \uD83D\uDD2E 预计剩余: %.1f分钟 (约%d本 × %.2f秒/本)%n",
-                    estimatedRemainingMin, remainingBooks, avgMsPerBook / 1000.0);
-                System.out.printf("  \uD83C\uDFAF 预计完成时间: %s%n", estimatedFinishTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-//                try {
-//                    Thread.sleep(2000);
-//                } catch (InterruptedException e) {
-//                    e.printStackTrace();
-//                }
-
-            } catch (Exception e) {
-                failCount++;
-                long bookEndTime = System.currentTimeMillis();
-                long bookElapsedMs = bookEndTime - bookStartTime;
-                double bookElapsedSec = bookElapsedMs / 1000.0;
-                
-                System.err.printf("  ✗ 失败: %s - %s (耗时: %.2f秒)%n", book.getTitle(), e.getMessage(), bookElapsedSec);
-                e.printStackTrace();
-            }
+            });
         }
 
-        // 计算总耗时
-        long totalEndTime = System.currentTimeMillis();
-        long totalElapsedMs = totalEndTime - totalStartTime;
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        executor.shutdown();
+        progressThread.interrupt();
+
+        long totalElapsedMs = System.currentTimeMillis() - totalStartTime;
         double totalElapsedMin = totalElapsedMs / 60000.0;
-        double totalElapsedSec = totalElapsedMs / 1000.0;
-        double avgMsPerBook = allBooks.size() > 0 ? (double) totalElapsedMs / allBooks.size() : 0;
+        int processed = successCount.get() + failCount.get();
+        double avgMs = processed > 0 ? (double) totalElapsedMs / processed : 0;
 
         System.out.println("\n========== 处理完成 ==========");
         System.out.println("总数: " + allBooks.size());
-        System.out.println("成功: " + successCount);
-        System.out.println("失败: " + failCount);
-        System.out.println(String.format("⏱️  总耗时: %.2f分钟 (%.2f秒)", totalElapsedMin, totalElapsedSec));
-        System.out.println(String.format("📈 平均每本: %.2f秒", avgMsPerBook / 1000.0));
+        System.out.println("成功: " + successCount.get());
+        System.out.println("失败: " + failCount.get());
+        System.out.println("跳过: " + skippedCount.get());
+        System.out.printf("总耗时: %.2f分钟%n", totalElapsedMin);
+        System.out.printf("平均每本: %.2f秒 (仅计算实际处理的)%n", avgMs / 1000.0);
     }
 }
