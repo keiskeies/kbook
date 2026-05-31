@@ -25,6 +25,7 @@ export interface UserInfo {
   entrepreneurship?: string | null
   aspirationIncome?: string | null
   mood?: string | null
+  bookChatStyle?: string | null
   bio?: string | null
   followerCount?: number
   followingCount?: number
@@ -97,4 +98,9 @@ export function updateTraits(data: {
 /** 更新心情状态 */
 export function updateMood(mood: string) {
   return request.put('/user/profile/mood', null, { params: { mood } })
+}
+
+/** 更新图书对话风格 */
+export function updateBookChatStyle(style: string) {
+  return request.put('/user/profile/book-chat-style', null, { params: { style } })
 }

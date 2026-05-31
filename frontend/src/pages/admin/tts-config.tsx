@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ArrowLeft, Save, Trash2, Plus, Star, StarOff, Pencil, X, Volume2, Cpu, Mic } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, Plus, Star, StarOff, Pencil, X, Volume2, Cpu, Mic, Zap } from 'lucide-react'
 import { useGoBack } from '@/hooks/useGoBack'
 import { toast } from 'sonner'
 import {
@@ -51,6 +51,7 @@ export default function TtsConfigPage() {
     pitch: 50,
     enabled: true,
     isDefault: false,
+    streaming: false,
   })
 
   const loadConfigs = useCallback(async () => {
@@ -85,6 +86,7 @@ export default function TtsConfigPage() {
       pitch: 50,
       enabled: true,
       isDefault: false,
+      streaming: false,
     })
     setIsCustomVoice(false)
     setEditingId(null)
@@ -242,6 +244,7 @@ export default function TtsConfigPage() {
                         {typeIcon(c.ttsType)}
                         {typeLabel(c.ttsType)} / {providerLabel(c.provider)}
                         {c.voice && <span>· {c.voice}</span>}
+                        {c.streaming && <span className="text-amber-500">· 流式</span>}
                       </p>
                     </div>
 
@@ -374,6 +377,21 @@ export default function TtsConfigPage() {
                     />
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">选择预置音色或自定义输入音色 ID</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-amber-500" />
+                    <div>
+                      <label className="text-sm font-medium">流式输出</label>
+                      <p className="text-xs text-muted-foreground">边生成边播放，降低首字延迟</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setForm((f) => ({ ...f, streaming: !f.streaming }))}
+                    className={`relative h-6 w-11 rounded-full transition-colors ${form.streaming ? 'bg-amber-500' : 'bg-muted-foreground/30'}`}
+                  >
+                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.streaming ? 'left-[22px]' : 'left-0.5'}`} />
+                  </button>
                 </div>
               </>
             )}

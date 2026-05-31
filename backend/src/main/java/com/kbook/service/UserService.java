@@ -237,6 +237,16 @@ public class UserService {
     }
 
     /**
+     * 更新图书对话风格
+     */
+    @Transactional
+    public User updateBookChatStyle(Long userId, String style) {
+        User user = getUserById(userId);
+        user.setBookChatStyle(style != null && !style.isBlank() ? style.toUpperCase() : "DEEP");
+        return userRepository.save(user);
+    }
+
+    /**
      * 更新当前心情状态
      */
     @Transactional

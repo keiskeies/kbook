@@ -2,12 +2,17 @@ package com.kbook.service;
 
 import com.kbook.entity.TtsConfig;
 import com.kbook.repository.TtsConfigRepository;
+import com.kbook.service.tts.TtsCache;
+import com.kbook.service.tts.TtsEngine;
 import com.kbook.service.tts.TtsEngineFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
+import java.util.Base64;
 import java.util.List;
 
 @Slf4j
@@ -17,6 +22,7 @@ public class TtsConfigService {
 
     private final TtsConfigRepository ttsConfigRepository;
     private final TtsEngineFactory ttsEngineFactory;
+    private final TtsCache ttsCache;
 
     public List<TtsConfig> listAll() {
         return ttsConfigRepository.findByOrderByIsDefaultDescUpdatedAtDesc();
@@ -57,6 +63,7 @@ public class TtsConfigService {
         if (config.getSpeed() != null) existing.setSpeed(config.getSpeed());
         if (config.getPitch() != null) existing.setPitch(config.getPitch());
         if (config.getEnabled() != null) existing.setEnabled(config.getEnabled());
+        if (config.getStreaming() != null) existing.setStreaming(config.getStreaming());
         if (Boolean.TRUE.equals(config.getIsDefault()) && !existing.getIsDefault()) {
             ttsConfigRepository.clearDefaultForOthers(id);
             existing.setIsDefault(true);
@@ -84,6 +91,78 @@ public class TtsConfigService {
     }
 
     public byte[] synthesize(String text, Long configId) {
+        TtsConfig config = resolveConfig(configId);
+
+        byte[] cached = ttsCache.get(config.getId(), text);
+        if (cached != null) {
+            log.info("TTS cache hit: configId={}, textLength={}", config.getId(), text.length());
+            return cached;
+        }
+
+        byte[] audio = ttsEngineFactory.getEngine(config).synthesize(text, config);
+        ttsCache.put(config.getId(), text, audio);
+        return audio;
+    }
+
+    public boolean supportsStreaming(Long configId) {
+        TtsConfig config = resolveConfig(configId);
+        return Boolean.TRUE.equals(config.getStreaming()) && ttsEngineFactory.getEngine(config).supportsStreaming(config);
+    }
+
+    public void synthesizeStream(String text, Long configId, SseEmitter emitter) {
+        TtsConfig config = resolveConfig(configId);
+        TtsEngine engine = ttsEngineFactory.getEngine(config);
+
+        byte[] cached = ttsCache.get(config.getId(), text);
+        if (cached != null) {
+            log.info("TTS stream cache hit: configId={}, textLength={}", config.getId(), text.length());
+            try {
+                int offset = 0;
+                int chunkSize = 8192;
+                while (offset < cached.length) {
+                    int end = Math.min(offset + chunkSize, cached.length);
+                    byte[] chunk = new byte[end - offset];
+                    System.arraycopy(cached, offset, chunk, 0, chunk.length);
+                    String base64 = Base64.getEncoder().encodeToString(chunk);
+                    emitter.send(SseEmitter.event().name("audio").data(base64));
+                    offset = end;
+                }
+                emitter.send(SseEmitter.event().name("done").data(""));
+                emitter.complete();
+            } catch (IOException e) {
+                log.debug("SSE send cached audio failed: {}", e.getMessage());
+            }
+            return;
+        }
+
+        java.io.ByteArrayOutputStream cacheBuffer = new java.io.ByteArrayOutputStream();
+
+        engine.synthesizeStream(text, config,
+                (pcmBytes) -> {
+                    try {
+                        cacheBuffer.write(pcmBytes);
+                        String base64 = Base64.getEncoder().encodeToString(pcmBytes);
+                        emitter.send(SseEmitter.event().name("audio").data(base64));
+                    } catch (IOException e) {
+                        log.debug("SSE send audio chunk failed (client disconnected): {}", e.getMessage());
+                    }
+                },
+                () -> {
+                    try {
+                        byte[] fullAudio = cacheBuffer.toByteArray();
+                        if (fullAudio.length > 0) {
+                            ttsCache.put(config.getId(), text, fullAudio);
+                        }
+                        emitter.send(SseEmitter.event().name("done").data(""));
+                        emitter.complete();
+                    } catch (IOException e) {
+                        log.debug("SSE send done failed (client disconnected): {}", e.getMessage());
+                    }
+                }
+        );
+    }
+
+    private TtsConfig resolveConfig(Long configId) {
         TtsConfig config;
         if (configId != null) {
             config = ttsConfigRepository.findById(configId)
@@ -97,6 +176,6 @@ public class TtsConfigService {
         if (!Boolean.TRUE.equals(config.getEnabled())) {
             throw new RuntimeException("TTS 配置未启用");
         }
-        return ttsEngineFactory.getEngine(config).synthesize(text, config);
+        return config;
     }
 }

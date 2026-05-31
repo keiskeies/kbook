@@ -84,6 +84,13 @@ public class UserController {
         return Result.ok(userService.updateMood(userId, mood));
     }
 
+    @PutMapping("/profile/book-chat-style")
+    public Result<User> updateBookChatStyle(Authentication authentication,
+                                             @RequestParam(required = false) String style) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(userService.updateBookChatStyle(userId, style));
+    }
+
     @PostMapping("/avatar")
     public Result<User> uploadAvatar(Authentication authentication,
                                       @RequestParam("file") MultipartFile file) {

@@ -16,6 +16,7 @@ export interface TtsConfig {
   pitch?: number
   enabled?: boolean
   isDefault?: boolean
+  streaming?: boolean
   createdAt?: string
   updatedAt?: string
 }
@@ -67,4 +68,8 @@ export async function synthesizeTts(text: string, configId?: number): Promise<Ar
     throw new Error(err.message || 'TTS 请求失败')
   }
   return res.arrayBuffer()
+}
+
+export function isStreamingSupported(configId?: number): Promise<boolean> {
+  return request.get<boolean>('/tts/streaming-supported', { params: { configId } })
 }

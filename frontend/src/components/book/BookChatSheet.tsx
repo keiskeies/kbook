@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, X, Volume2, Square, Plus } from 'lucide-react'
+import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, X, Volume2, Square, Plus, ChevronDown, ChevronUp } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions, getBookChatHistory } from '@/api/bookChat'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
@@ -8,6 +8,8 @@ import { BlinkingBot } from '@/components/layout/TabBar'
 import { ttsService } from '@/utils/tts'
 import { useTtsStore } from '@/store/tts'
 import { getActiveTtsConfig } from '@/api/adminTts'
+import { useAuthStore } from '@/store/auth'
+import { updateBookChatStyle } from '@/api/auth'
 import type { AiMessage } from '@/types/ai'
 import type { AiSessionItem } from '@/types/ai'
 import type { Book } from '@/types/book'
@@ -19,10 +21,22 @@ interface BookChatSheetProps {
   initialQuestion?: string
 }
 
+const CHAT_STYLES = [
+  { value: 'CASUAL', label: '随和', desc: '口语化、像朋友聊天' },
+  { value: 'DEEP', label: '深度', desc: '结构化、认真分析' },
+  { value: 'CONCISE', label: '简洁', desc: '要言不烦、直击重点' },
+  { value: 'WITTY', label: '幽默', desc: '轻松调侃、玩梗' },
+]
+
 export default function BookChatSheet({ book, open, onOpenChange, initialQuestion }: BookChatSheetProps) {
   const [messages, setMessages] = useState<AiMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [styleMenuOpen, setStyleMenuOpen] = useState(false)
+  const userInfo = useAuthStore((s) => s.userInfo)
+  const updateUserInfo = useAuthStore((s) => s.updateUserInfo)
+  const currentStyle = userInfo?.bookChatStyle || 'DEEP'
+  const currentStyleLabel = CHAT_STYLES.find(s => s.value === currentStyle)?.label || '深度'
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [sessionId, setSessionId] = useState<string>('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -329,18 +343,18 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
       .replace(/`[^`]+`/g, '')
       .replace(/\*\*([^*]+)\*\*/g, '$1')
       .replace(/\*([^*]+)\*/g, '$1')
-      .replace(/#+\s/g, '')
+      .replace(/^(#{1,6})\s+/gm, '\n')
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/[-*]\s/g, '')
-      .replace(/\d+\.\s/g, '')
-      .replace(/>\s/g, '')
+      .replace(/^[-*]\s+/gm, '')
+      .replace(/^(\d+)\.\s+/gm, '$1、')
+      .replace(/^>\s+/gm, '')
       .replace(/\|/g, ' ')
-      .replace(/---+/g, '')
+      .replace(/---+/g, '\n')
       .trim()
     if (!plainText) return
     ttsService.cancel()
     setSpeakingId(msgId)
-    ttsService.speakSingleText(plainText, () => {
+    ttsService.speakLongText(plainText, () => {
       setSpeakingId((prev) => prev === msgId ? null : prev)
     })
   }, [speakingId])
@@ -667,7 +681,51 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
         )}
 
         <div className="shrink-0 border-t bg-background px-4 pt-2 pb-3 pb-safe-bottom">
-          <div className="flex items-end gap-2">
+          <div className="flex items-stretch gap-2">
+            {/* 对话风格切换 */}
+            <div className="relative">
+              <button
+                onClick={() => setStyleMenuOpen(!styleMenuOpen)}
+                className={`flex items-center gap-1 rounded-xl border border-transparent px-3 py-2.5 text-xs text-primary-foreground transition-all shrink-0 ${
+                  styleMenuOpen ? 'bg-primary' : 'bg-primary/50'
+                }`}
+                title="切换对话风格"
+              >
+                <span>{currentStyleLabel}</span>
+                {styleMenuOpen ? (
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                ) : (
+                  <ChevronUp className="h-3 w-3 shrink-0" />
+                )}
+              </button>
+              {styleMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setStyleMenuOpen(false)} />
+                  <div className="absolute bottom-full left-0 mb-2 z-20 bg-card rounded-xl border shadow-lg p-1.5 w-48">
+                    {CHAT_STYLES.map((s) => (
+                      <button
+                        key={s.value}
+                        onClick={async () => {
+                          try {
+                            await updateBookChatStyle(s.value)
+                            updateUserInfo({ bookChatStyle: s.value })
+                            setStyleMenuOpen(false)
+                          } catch { /* ignore */ }
+                        }}
+                        className={`w-full text-left rounded-lg px-3 py-2 text-xs transition-colors ${
+                          currentStyle === s.value
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-muted-foreground hover:bg-muted'
+                        }`}
+                      >
+                        <div>{s.label}</div>
+                        <div className="text-[10px] opacity-60 mt-0.5">{s.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             <textarea
               ref={textareaRef}
               rows={1}
@@ -680,9 +738,9 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                 el.style.height = 'auto'
                 el.style.height = Math.min(el.scrollHeight, 160) + 'px'
               }}
-              placeholder={`问关于《${book.title.length > 10 ? book.title.slice(0, 10) + '...' : book.title}》的问题...`}
+              placeholder={`聊聊《${book.title.length > 10 ? book.title.slice(0, 10) + '...' : book.title}》`}
               disabled={loading}
-              className="flex-1 resize-none rounded-xl bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50 overflow-y-auto"
+              className="flex-1 resize-none rounded-xl bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground placeholder:truncate disabled:opacity-50 overflow-y-auto"
             />
             <button
               onClick={() => handleSend()}

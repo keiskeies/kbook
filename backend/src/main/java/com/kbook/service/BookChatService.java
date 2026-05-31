@@ -61,6 +61,7 @@ public class BookChatService {
     private final QdrantProperties qdrantProperties;
     private final RagHitStatisticsService ragHitStatisticsService;
     private final BookQuestionGenService questionGenService;
+    private final UserService userService;
 
     /**
      * SSE 异步执行线程池
@@ -479,7 +480,9 @@ public class BookChatService {
      */
     private List<ChatMessage> buildChatMessages(String sessionId, Long userId, String currentPrompt) {
         List<ChatMessage> messages = new ArrayList<>();
-        messages.add(SystemMessage.from(AiPromptConstants.BOOK_CHAT_SYSTEM_PROMPT));
+        String style = getChatStyleForUser(userId);
+        String systemPrompt = getSystemPromptForStyle(style);
+        messages.add(SystemMessage.from(systemPrompt));
 
         try {
             // 先压缩历史（如有需要），确保 LLM 收到的上下文不超限
@@ -789,6 +792,31 @@ public class BookChatService {
         } catch (Exception e) {
             log.warn("保存图书问答记录失败: {}", e.getMessage());
         }
+    }
+
+    /** 根据用户设置返回对应的系统提示词 */
+    private String getChatStyleForUser(Long userId) {
+        try {
+            var user = userService.getUserById(userId);
+            if (user != null && user.getBookChatStyle() != null) {
+                return user.getBookChatStyle();
+            }
+        } catch (Exception e) {
+            log.debug("获取用户对话风格失败，使用默认风格: {}", e.getMessage());
+        }
+        return "DEEP";
+    }
+
+    private String getSystemPromptForStyle(String style) {
+        if (style != null) {
+            return switch (style.toUpperCase()) {
+                case "CASUAL" -> AiPromptConstants.BOOK_CHAT_STYLE_CASUAL;
+                case "CONCISE" -> AiPromptConstants.BOOK_CHAT_STYLE_CONCISE;
+                case "WITTY" -> AiPromptConstants.BOOK_CHAT_STYLE_WITTY;
+                default -> AiPromptConstants.BOOK_CHAT_STYLE_DEEP;
+            };
+        }
+        return AiPromptConstants.BOOK_CHAT_STYLE_CASUAL;
     }
 
     /**

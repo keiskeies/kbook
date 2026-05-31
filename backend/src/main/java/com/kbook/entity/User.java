@@ -105,6 +105,11 @@ public class User {
     @Column(length = 50)
     private String mood;
 
+    /** AI 图书问答的对话风格：CASUAL=随和聊天(默认) / DEEP=深度分析 / CONCISE=简洁直接 / WITTY=幽默风趣 */
+    @Column(name = "book_chat_style", length = 20)
+    @Builder.Default
+    private String bookChatStyle = "DEEP";
+
     /** 个人简介 */
     @Column(length = 500)
     private String bio;

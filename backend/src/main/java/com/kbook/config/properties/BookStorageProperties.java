@@ -21,6 +21,9 @@ public class BookStorageProperties {
     /** 上传文件配置 */
     private UploadConfig upload = new UploadConfig();
 
+    /** TTS 音频缓存目录 */
+    private String ttsCacheDir = "./.tts-cache";
+
     /** 扫描配置 */
     private ScanConfig scan = new ScanConfig();
 

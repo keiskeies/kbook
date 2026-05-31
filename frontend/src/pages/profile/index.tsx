@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle, RotateCcw, Trash2, Volume2 } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle, RotateCcw, Trash2, Volume2, Sparkles } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
 import { useNavigate } from 'react-router-dom'
@@ -77,6 +77,13 @@ const MOOD_OPTIONS = [
   { value: 'CURIOUS', label: '好奇', emoji: '🤔' },
 ]
 
+const BOOK_CHAT_STYLES = [
+  { value: 'CASUAL', label: '随和聊天', desc: '口语化，像朋友在聊书' },
+  { value: 'DEEP', label: '深度分析', desc: '结构化解读，认真钻研' },
+  { value: 'CONCISE', label: '简洁直接', desc: '要言不烦，直击重点' },
+  { value: 'WITTY', label: '幽默风趣', desc: '轻松调侃，边读边乐' },
+]
+
 function calcAge(birthday: string | null | undefined): number | null {
   if (!birthday) return null
   const birth = new Date(birthday)
@@ -92,6 +99,7 @@ function calcAge(birthday: string | null | undefined): number | null {
 export default function ProfilePage() {
   const { userInfo, updateUserInfo, fetchUserInfo, logout } = useAuthStore()
   const { setUnreadCount } = useChatStore()
+  const currentStyle = userInfo?.bookChatStyle || 'DEEP'
   const setTabBarVisible = useUiStore((s) => s.setTabBarVisible)
   const navigate = useNavigate()
   const [stats, setStats] = useState<ReadingStats | null>(null)
@@ -127,6 +135,7 @@ export default function ProfilePage() {
   const [savingTraits, setSavingTraits] = useState(false)
 
   const [showProfileModal, setShowProfileModal] = useState(false)
+  const [showStylePicker, setShowStylePicker] = useState(false)
   const [editNickname, setEditNickname] = useState(userInfo?.nickname ?? '')
   const [editBio, setEditBio] = useState(userInfo?.bio ?? '')
   const [editMood, setEditMood] = useState(userInfo?.mood ?? '')
@@ -264,6 +273,7 @@ export default function ProfilePage() {
       items: [
         { label: '我的书架', icon: Library, path: ROUTES.BOOKSHELF, extra: `${shelfCount} 本` },
         { label: '阅读历史', icon: Clock, path: '/profile/history', extra: stats ? `${stats.completedBooks} 本已读完` : '' },
+        { label: '对话风格', icon: Sparkles, path: '', extra: `${BOOK_CHAT_STYLES.find(s => s.value === (userInfo?.bookChatStyle || 'DEEP'))?.label || '深度'}`, action: () => setShowStylePicker(true) },
       ],
     },
     {
@@ -1089,6 +1099,42 @@ export default function ProfilePage() {
         imageFile={avatarFile}
         onCropComplete={handleCropComplete}
       />
+
+      <Sheet open={showStylePicker} onOpenChange={setShowStylePicker}>
+        <SheetContent side="bottom" className="rounded-t-3xl bg-card p-5 max-h-[50vh]">
+          <SheetHeader className="p-0 pb-3">
+            <SheetTitle className="text-base font-bold">AI 对话风格</SheetTitle>
+            <SheetDescription className="text-xs text-muted-foreground">选择 AI 图书问答的语气风格</SheetDescription>
+          </SheetHeader>
+          <div className="grid grid-cols-2 gap-2">
+            {BOOK_CHAT_STYLES.map(s => {
+              const isActive = currentStyle === s.value
+              return (
+                <button
+                  key={s.value}
+                  onClick={async () => {
+                    try {
+                      const { updateBookChatStyle } = await import('@/api/auth')
+                      await updateBookChatStyle(s.value)
+                      updateUserInfo({ bookChatStyle: s.value })
+                      setShowStylePicker(false)
+                      toast.success(`已切换为「${s.label}」风格`)
+                    } catch { toast.error('切换失败') }
+                  }}
+                  className={`text-left rounded-xl px-3.5 py-3 text-sm transition-colors border border-border ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background text-foreground hover:bg-muted'
+                  }`}
+                >
+                  <div className="font-medium">{s.label}</div>
+                  <div className={`text-[11px] mt-0.5 ${isActive ? 'opacity-70' : 'text-muted-foreground'}`}>{s.desc}</div>
+                </button>
+              )
+            })}
+          </div>
+        </SheetContent>
+      </Sheet>
 
     </div>
   )

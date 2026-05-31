@@ -155,6 +155,8 @@ kbook:
     avatar-url-prefix: /api/user/avatar
     chat-dir: ${CHAT_DIR:G:/uploads/chat}
     chat-url-prefix: /api/chat/files
+  # TTS 音频缓存目录
+  tts-cache-dir: ${TTS_CACHE_DIR:G:/图书/tts_temp}
   # 视频处理（需安装 FFmpeg）
   video:
     ffmpeg-path: ${FFMPEG_PATH:C:/Program Files/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe}

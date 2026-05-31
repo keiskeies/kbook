@@ -67,6 +67,9 @@ public class TtsConfig {
     @Builder.Default
     private Boolean isDefault = false;
 
+    @Builder.Default
+    private Boolean streaming = false;
+
     @Column(updatable = false)
     private LocalDateTime createdAt;
 

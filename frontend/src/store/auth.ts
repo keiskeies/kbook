@@ -23,6 +23,7 @@ export interface UserInfo {
   entrepreneurship?: string | null
   aspirationIncome?: string | null
   mood?: string | null
+  bookChatStyle?: string | null
   bio?: string | null
   followerCount?: number
   followingCount?: number
@@ -65,6 +66,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       entrepreneurship: apiUserInfo.entrepreneurship,
       aspirationIncome: apiUserInfo.aspirationIncome,
       mood: apiUserInfo.mood,
+      bookChatStyle: apiUserInfo.bookChatStyle,
       bio: apiUserInfo.bio,
       followerCount: apiUserInfo.followerCount,
       followingCount: apiUserInfo.followingCount,
@@ -111,6 +113,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         entrepreneurship: data.entrepreneurship ?? null,
         aspirationIncome: data.aspirationIncome ?? null,
         mood: data.mood ?? null,
+        bookChatStyle: data.bookChatStyle ?? null,
         bio: data.bio ?? null,
         followerCount: data.followerCount ?? 0,
         followingCount: data.followingCount ?? 0,

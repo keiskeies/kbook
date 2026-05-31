@@ -10,8 +10,11 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Slf4j
 @RestController
@@ -19,6 +22,8 @@ import java.util.List;
 public class TtsConfigController {
 
     private final TtsConfigService ttsConfigService;
+
+    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
     @GetMapping("/api/tts/config/active")
     public Result<TtsConfig> getActiveConfig() {
@@ -31,10 +36,52 @@ public class TtsConfigController {
 
     @PostMapping("/api/tts/synthesize")
     public ResponseEntity<byte[]> synthesize(@RequestBody TtsSynthesizeRequest request) {
+        log.info("TTS synthesize request: textLength={}, configId={}", 
+                request.getText() != null ? request.getText().length() : 0, request.getConfigId());
+        long start = System.currentTimeMillis();
         byte[] audio = ttsConfigService.synthesize(request.getText(), request.getConfigId());
+        log.info("TTS synthesize completed: audioSize={} bytes, elapsed={}ms", audio.length, System.currentTimeMillis() - start);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("audio/wav"))
                 .body(audio);
+    }
+
+    @PostMapping("/api/tts/synthesize/stream")
+    public SseEmitter synthesizeStream(@RequestBody TtsSynthesizeRequest request) {
+        log.info("TTS stream request: textLength={}, configId={}", 
+                request.getText() != null ? request.getText().length() : 0, request.getConfigId());
+        long start = System.currentTimeMillis();
+        SseEmitter emitter = new SseEmitter(300_000L);
+
+        emitter.onCompletion(() -> log.info("TTS stream completed: elapsed={}ms", System.currentTimeMillis() - start));
+        emitter.onTimeout(() -> {
+            log.warn("TTS stream timed out: elapsed={}ms", System.currentTimeMillis() - start);
+            emitter.complete();
+        });
+        emitter.onError(e -> log.warn("TTS stream error: {}, elapsed={}ms", e.getMessage(), System.currentTimeMillis() - start));
+
+        sseExecutor.submit(() -> {
+            try {
+                ttsConfigService.synthesizeStream(request.getText(), request.getConfigId(), emitter);
+            } catch (Exception e) {
+                log.error("TTS stream synthesis failed", e);
+                try {
+                    emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
+                } catch (Exception ignored) { }
+                emitter.completeWithError(e);
+            }
+        });
+
+        return emitter;
+    }
+
+    @GetMapping("/api/tts/streaming-supported")
+    public Result<Boolean> isStreamingSupported(@RequestParam(required = false) Long configId) {
+        try {
+            return Result.ok(ttsConfigService.supportsStreaming(configId));
+        } catch (Exception e) {
+            return Result.ok(false);
+        }
     }
 
     @GetMapping("/api/admin/tts-config")

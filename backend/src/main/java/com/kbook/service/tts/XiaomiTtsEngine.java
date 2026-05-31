@@ -6,6 +6,8 @@ import com.kbook.entity.TtsConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -14,6 +16,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 @Slf4j
 @Component
@@ -25,6 +28,10 @@ public class XiaomiTtsEngine implements TtsEngine {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static final String DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
+    private static final String DEFAULT_VOICE = "冰糖";
+    private static final String DEFAULT_MODEL = "mimo-v2.5-tts";
+
     @Override
     public boolean supports(TtsConfig config) {
         return config.getProvider() == TtsConfig.Provider.XIAOMI
@@ -32,35 +39,19 @@ public class XiaomiTtsEngine implements TtsEngine {
     }
 
     @Override
+    public boolean supportsStreaming(TtsConfig config) {
+        return supports(config);
+    }
+
+    @Override
     public byte[] synthesize(String text, TtsConfig config) {
         try {
-            String baseUrl = config.getBaseUrl();
-            if (baseUrl == null || baseUrl.isBlank()) {
-                baseUrl = "https://api.xiaomimimo.com/v1";
-            }
-            baseUrl = baseUrl.replaceAll("/+$", "");
-
-            String voice = config.getVoice();
-            if (voice == null || voice.isBlank()) {
-                voice = "冰糖";
-            }
-
-            Map<String, Object> requestBody = Map.of(
-                    "model", config.getModelName() != null ? config.getModelName() : "mimo-v2.5-tts",
-                    "messages", List.of(
-                            Map.of("role", "user", "content", "请用自然流畅的语气朗读文本"),
-                            Map.of("role", "assistant", "content", text)
-                    ),
-                    "audio", Map.of(
-                            "format", "wav",
-                            "voice", voice
-                    )
-            );
+            Map<String, Object> requestBody = buildRequestBody(text, config, "wav", false);
 
             String json = objectMapper.writeValueAsString(requestBody);
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/chat/completions"))
+                    .uri(URI.create(resolveBaseUrl(config) + "/chat/completions"))
                     .header("Content-Type", "application/json")
                     .header("api-key", config.getApiKey())
                     .timeout(Duration.ofSeconds(60))
@@ -86,5 +77,93 @@ public class XiaomiTtsEngine implements TtsEngine {
             log.error("Xiaomi TTS synthesis failed", e);
             throw new RuntimeException("TTS 合成失败: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public void synthesizeStream(String text, TtsConfig config, Consumer<byte[]> onChunk, Runnable onDone) {
+        try {
+            Map<String, Object> requestBody = buildRequestBody(text, config, "pcm16", true);
+
+            String json = objectMapper.writeValueAsString(requestBody);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(resolveBaseUrl(config) + "/chat/completions"))
+                    .header("Content-Type", "application/json")
+                    .header("api-key", config.getApiKey())
+                    .timeout(Duration.ofMinutes(5))
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+
+            HttpResponse<java.io.InputStream> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofInputStream());
+
+            if (response.statusCode() != 200) {
+                String errorBody = new String(response.body().readAllBytes());
+                log.warn("Xiaomi TTS stream API error: status={}, body={}", response.statusCode(), errorBody);
+                throw new RuntimeException("TTS 流式请求失败: HTTP " + response.statusCode());
+            }
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(response.body()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("data: ")) continue;
+                String data = line.substring(6).trim();
+                if ("[DONE]".equals(data)) break;
+
+                try {
+                    JsonNode chunk = objectMapper.readTree(data);
+                    JsonNode choices = chunk.path("choices");
+                    if (!choices.isArray() || choices.isEmpty()) continue;
+                    JsonNode audioNode = choices.get(0).path("delta").path("audio").path("data");
+                    if (audioNode.isMissingNode() || audioNode.asText().isEmpty()) continue;
+                    byte[] pcmBytes = Base64.getDecoder().decode(audioNode.asText());
+                    onChunk.accept(pcmBytes);
+                } catch (Exception e) {
+                    log.debug("Failed to parse TTS stream chunk: {}", e.getMessage());
+                }
+            }
+
+            onDone.run();
+        } catch (Exception e) {
+            log.error("Xiaomi TTS stream synthesis failed", e);
+            throw new RuntimeException("TTS 流式合成失败: " + e.getMessage(), e);
+        }
+    }
+
+    private Map<String, Object> buildRequestBody(String text, TtsConfig config, String format, boolean stream) {
+        Map<String, Object> audio = new java.util.LinkedHashMap<>();
+        audio.put("format", format);
+        audio.put("voice", resolveVoice(config));
+        if (stream) {
+            audio.put("stream", true);
+        }
+
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("model", resolveModel(config));
+        body.put("messages", List.of(
+                Map.of("role", "user", "content", "请用自然流畅的语气朗读文本"),
+                Map.of("role", "assistant", "content", text)
+        ));
+        body.put("audio", audio);
+        if (stream) {
+            body.put("stream", true);
+        }
+        return body;
+    }
+
+    private String resolveBaseUrl(TtsConfig config) {
+        String baseUrl = config.getBaseUrl();
+        if (baseUrl == null || baseUrl.isBlank()) return DEFAULT_BASE_URL;
+        return baseUrl.replaceAll("/+$", "");
+    }
+
+    private String resolveVoice(TtsConfig config) {
+        String voice = config.getVoice();
+        return (voice == null || voice.isBlank()) ? DEFAULT_VOICE : voice;
+    }
+
+    private String resolveModel(TtsConfig config) {
+        String model = config.getModelName();
+        return (model == null || model.isBlank()) ? DEFAULT_MODEL : model;
     }
 }
