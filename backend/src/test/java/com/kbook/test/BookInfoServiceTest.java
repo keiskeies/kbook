@@ -123,7 +123,8 @@ public class BookInfoServiceTest {
     @Test
     public void updateBookBaseInfo() {
         int rl = "{'0-9':0.5,'10-19':0.5,'20-29':0.5,'30-39':0.5,'40-49':0.5,'50-59':0.5,'60+':0.5,'male':0.5,'female':0.5,'married':0.5,'unmarried':0.5,'children_0_2':0.5,'children_3_6':0.5,'children_7_12':0.5,'children_13_17':0.5,'children_18_plus':0.5,'no_children':0.5,'INTJ':0.5,'INTP':0.5,'ENTJ':0.5,'ENTP':0.5,'INFJ':0.5,'INFP':0.5,'ENFJ':0.5,'ENFP':0.5,'ISTJ':0.5,'ISFJ':0.5,'ESTJ':0.5,'ESFJ':0.5,'ISTP':0.5,'ISFP':0.5,'ESTP':0.5,'ESFP':0.5,'student':0.5,'tech':0.5,'finance':0.5,'education':0.5,'medical':0.5,'arts':0.5,'management':0.5,'freelance':0.5,'retired':0.5,'other':0.5,'high_school':0.5,'college':0.5,'bachelor':0.5,'master':0.5,'doctorate':0.5,'other_edu':0.5,'entrepreneur_or_want':0.5,'notInterested':0.5,'under_50k':0.5,'50k_150k':0.5,'150k_300k':0.5,'300k_500k':0.5,'500k_1m':0.5,'over_1m':0.5,'prefer_not_to_say':0.5,'happy':0.5,'calm':0.5,'anxious':0.5,'sad':0.5,'frustrated':0.5,'tired':0.5,'growth':0.5,'comfort':0.5,'escape':0.5,'excite':0.5,'insight':0.5}".length();
-        List<Book> allBooks = bookRepository.findAllByOrderByRatingDesc();
+        List<Book> allBooks0 = bookRepository.findAllByOrderByRatingDesc();
+        List<Book>  allBooks = allBooks0.stream().filter(book -> book.getRelevanceScores() == null || book.getRelevanceScores().isBlank() || book.getRelevanceScores().length() < rl).toList();
         System.out.println("共 " + allBooks.size() + " 本图书需要处理");
 
         long totalStartTime = System.currentTimeMillis();
@@ -132,7 +133,7 @@ public class BookInfoServiceTest {
         AtomicInteger skippedCount = new AtomicInteger(0);
         AtomicInteger completedCount = new AtomicInteger(0);
 
-        int threadCount = 100;
+        int threadCount = 200;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
         CountDownLatch latch = new CountDownLatch(allBooks.size());
 
@@ -178,18 +179,6 @@ public class BookInfoServiceTest {
                         skippedCount.incrementAndGet();
                         return;
                     }
-
-                    boolean needAi = false;
-                    if (book.getRelevanceScores() == null || book.getRelevanceScores().isBlank()) {
-                        needAi = true;
-                    } else if (book.getRelevanceScores().length() < rl) {
-                        needAi = true;
-                    }
-                    if (!needAi) {
-                        skippedCount.incrementAndGet();
-                        return;
-                    }
-
                     bookParserService.parseAndFill(book, filePath);
                     bookParserService.finalizeCover(book);
                     bookParserService.generateAllAiData(book);

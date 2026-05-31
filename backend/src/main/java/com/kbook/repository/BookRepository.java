@@ -209,4 +209,7 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      */
     @Query("SELECT b.formatTags FROM Book b WHERE b.formatTags IS NOT NULL")
     List<String> findAllFormatTags();
+
+    @Query("SELECT b FROM Book b WHERE NOT EXISTS (SELECT 1 FROM BookSuggestedQuestion sq WHERE sq.bookId = b.id) ORDER BY b.rating DESC")
+    List<Book> findBooksWithoutQuestions();
 }
