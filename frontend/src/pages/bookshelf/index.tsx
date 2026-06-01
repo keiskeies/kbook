@@ -76,7 +76,7 @@ export default function BookshelfPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen px-4 page-enter pb-20">
+      <div className="px-4 page-enter pb-20">
         <header className="sticky top-0 z-10 -mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
           <h1 className="text-lg font-bold">我的书架</h1>
         </header>
@@ -95,7 +95,7 @@ export default function BookshelfPage() {
 
   if (items.length === 0) {
     return (
-      <div className="min-h-screen px-4 page-enter pb-20">
+      <div className="px-4 page-enter pb-20">
         <header className="-mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
           <h1 className="text-lg font-bold">我的书架</h1>
         </header>
@@ -118,7 +118,7 @@ export default function BookshelfPage() {
   }
 
   return (
-    <div className="min-h-screen px-4 page-enter pb-20">
+    <div className="px-4 page-enter pb-20">
       <header className="sticky top-0 z-10 -mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
         <div className="flex items-center justify-between">
           <div>

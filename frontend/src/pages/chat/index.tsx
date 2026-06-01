@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { ArrowLeft, Search, MessageCircle, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { getConversations, searchConversations } from '@/api/chat'
 import { useChatStore } from '@/store/chat'
 import { chatWebSocketService } from '@/services/chatWebSocket'
@@ -12,6 +13,8 @@ export default function ChatListPage() {
   const goBack = useGoBack()
   const { setConversations, conversations, setSearchKeyword, searchKeyword } = useChatStore()
   const [loading, setLoading] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   const loadConversations = useCallback(async () => {
     setLoading(true)
@@ -51,8 +54,8 @@ export default function ChatListPage() {
   }, [searchKeyword, loadConversations, setConversations])
 
   return (
-    <div className="min-h-screen bg-background page-enter pb-20">
-      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter">
+      <header className="shrink-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
@@ -73,7 +76,7 @@ export default function ChatListPage() {
         </div>
       </header>
 
-      <div className="px-4 py-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="h-6 w-6 animate-spin rounded-full border-3 border-primary border-t-transparent" />

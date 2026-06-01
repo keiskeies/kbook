@@ -28,6 +28,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useMatchScores } from '@/hooks/useMatchScores'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { useAuthStore } from '@/store/auth'
 import { toast } from 'sonner'
 import { createSsePostConnection } from '@/utils/sse-request'
@@ -797,6 +798,8 @@ export default function BookDetailPage() {
   const [descExpanded, setDescExpanded] = useState(false)
   const [showImageViewer, setShowImageViewer] = useState(false)
   const coverInputRef = useRef<HTMLInputElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   const [editTitleOpen, setEditTitleOpen] = useState(false)
   const [editAuthorOpen, setEditAuthorOpen] = useState(false)
@@ -1096,7 +1099,7 @@ export default function BookDetailPage() {
       </header>
 
       {/* 内容区域 - 可滚动 */}
-      <div className="flex-1 overflow-y-auto overscroll-contain">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain">
 
       {/* 图书信息 — 渐变背景 */}
       <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">

@@ -492,7 +492,8 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
         ) : (
           <div className="flex-1 overflow-y-auto overscroll-y-contain px-4 py-4">
             {!hasMessages ? (
-              <div className="flex h-full flex-col items-center justify-center text-center">
+              <div className="flex min-h-full flex-col items-center text-center">
+                <div className="my-auto flex flex-col items-center">
                 <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
                   <Bot className="h-7 w-7 text-primary" />
                 </div>
@@ -515,6 +516,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                     ))}
                   </div>
                 )}
+                </div>
               </div>
             ) : (
               <div className="space-y-4 pb-4">

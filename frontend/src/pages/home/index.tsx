@@ -421,7 +421,7 @@ export default function HomePage() {
   const goToBook = (id: number) => navigate(`/book/${id}`)
 
   return (
-    <div className="min-h-screen px-4 page-enter pb-20">
+    <div className="px-4 page-enter pb-20">
       <Header />
 
       <div className="space-y-6">

@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import {ArrowLeft, UserPlus, UserMinus, CheckCircle2, MessageSquare, Heart, BookOpen, MessageCircle} from 'lucide-react'
 import { getUserProfile, getUserBooks, getUserComments } from '@/api/userProfile'
 import { followUser, unfollowUser } from '@/api/follow'
@@ -33,6 +34,8 @@ export default function UserProfilePage() {
   const [comments, setComments] = useState<CommentVO[]>([])
   const [tab, setTab] = useState<'reading' | 'completed' | 'comments'>('reading')
   const [loading, setLoading] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   const id = Number(userId)
 
@@ -200,7 +203,7 @@ export default function UserProfilePage() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain px-4 pt-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 pt-3">
         {tab === 'reading' && (
           readingBooks.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">暂无在读书籍</p>

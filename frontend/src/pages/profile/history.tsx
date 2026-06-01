@@ -1,14 +1,27 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { ArrowLeft, Clock, CheckCircle2, BookOpen, Star, Sparkles, Loader2 } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
 import { getReadingHistory } from '@/api/progress'
 import { formatRelativeTime } from '@/utils/time'
 import BookCover from '@/components/book/BookCover'
 import { useMatchScores } from '@/hooks/useMatchScores'
+import { useKeepAliveStore } from '@/store/keepAlive'
 
 const PAGE_SIZE = 10
+
+const CACHE_KEY = '/profile/history'
+const CACHE_TTL = 5 * 60 * 1000
+
+interface HistoryCache {
+  items: HistoryItem[]
+  total: number
+  page: number
+  hasMore: boolean
+  timestamp: number
+}
 
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating < 0) return null
@@ -65,17 +78,35 @@ interface HistoryItem {
 export default function ReadingHistoryPage() {
   const navigate = useNavigate()
   const goBack = useGoBack()
-  const [items, setItems] = useState<HistoryItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const savePageData = useKeepAliveStore((s) => s.savePageData)
+  const getPageData = useKeepAliveStore((s) => s.getPageData)
+
+  const cached = getPageData<HistoryCache>(CACHE_KEY)
+  const isCacheValid = cached && Date.now() - cached.timestamp < CACHE_TTL
+
+  const [items, setItems] = useState<HistoryItem[]>(() => isCacheValid ? cached.items : [])
+  const [loading, setLoading] = useState(() => !isCacheValid)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
-  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(() => isCacheValid ? cached.hasMore : true)
+  const [total, setTotal] = useState(() => isCacheValid ? cached.total : 0)
   const fetchingRef = useRef(false)
-  const hasMoreRef = useRef(true)
-  const pageRef = useRef(0)
+  const hasMoreRef = useRef(isCacheValid ? cached.hasMore : true)
+  const pageRef = useRef(isCacheValid ? cached.page : 0)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [scrollRoot, setScrollRoot] = useState<Element | null>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
+
+  const updateCache = useCallback((i: HistoryItem[], t: number, p: number, h: boolean) => {
+    savePageData(CACHE_KEY, { items: i, total: t, page: p, hasMore: h, timestamp: Date.now() })
+  }, [savePageData])
+
+  const scrollRefCallback = useCallback((node: HTMLDivElement | null) => {
+    scrollRef.current = node
+    setScrollRoot(node)
+  }, [])
 
   const { ref: sentinelRef, inView } = useInView({
-    root: document.body,
+    root: scrollRoot,
     rootMargin: '1000px',
   })
 
@@ -108,9 +139,14 @@ export default function ReadingHistoryPage() {
         readCount: r.readCount,
       }))
 
-      setItems((prev) => pageNum === 0 ? mapped : [...prev, ...mapped])
-      setTotal(totalCount)
       const hasNext = mapped.length === PAGE_SIZE && (pageNum + 1) * PAGE_SIZE < totalCount
+
+      setItems((prev) => {
+        const next = pageNum === 0 ? mapped : [...prev, ...mapped]
+        updateCache(next, totalCount, pageNum, hasNext)
+        return next
+      })
+      setTotal(totalCount)
       hasMoreRef.current = hasNext
       setHasMore(hasNext)
       pageRef.current = pageNum
@@ -121,11 +157,11 @@ export default function ReadingHistoryPage() {
       setLoading(false)
       setLoadingMore(false)
     }
-  }, [])
+  }, [updateCache])
 
   useEffect(() => {
-    loadPage(0)
-  }, [loadPage])
+    if (!isCacheValid) { loadPage(0) }
+  }, [loadPage, isCacheValid])
 
   useEffect(() => {
     if (inView && hasMoreRef.current && !fetchingRef.current && !loading) {
@@ -140,15 +176,15 @@ export default function ReadingHistoryPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex flex-1 items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background page-enter">
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter">
+      <header className="shrink-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
         <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -156,6 +192,7 @@ export default function ReadingHistoryPage() {
         <span className="text-xs text-muted-foreground">{total} 本</span>
       </header>
 
+      <div ref={scrollRefCallback} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain">
       {items.length === 0 ? (
         <div className="flex h-60 flex-col items-center justify-center text-muted-foreground">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
@@ -239,6 +276,7 @@ export default function ReadingHistoryPage() {
           {hasMore && <div ref={sentinelRef} className="h-1" />}
         </div>
       )}
+      </div>
     </div>
   )
 }

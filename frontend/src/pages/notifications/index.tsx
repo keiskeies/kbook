@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { ArrowLeft, Bell, Heart, Bookmark, MessageCircle, BookOpen, CheckCheck } from 'lucide-react'
 import { getNotifications, markAsRead, markAllAsRead } from '@/api/notification'
 import type { NotificationVO } from '@/api/notification'
@@ -21,6 +22,8 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   const loadData = useCallback(async (p: number) => {
     try {
@@ -84,7 +87,7 @@ export default function NotificationsPage() {
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain px-4">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4">
         {notifications.length === 0 ? (
           <div className="py-16 text-center text-sm text-muted-foreground">
             <Bell className="mx-auto h-10 w-10 text-muted-foreground/30" />

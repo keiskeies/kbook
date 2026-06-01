@@ -489,7 +489,7 @@ export default function ProfilePage() {
     : null
 
   return (
-    <div className="px-4 pt-safe-top pb-6 page-enter">
+    <div className="px-4 pt-safe-top pb-20 page-enter">
       <div className="h-4" />
       
       <div className="mb-5 rounded-2xl bg-card p-4 shadow-sm border border-border/50">

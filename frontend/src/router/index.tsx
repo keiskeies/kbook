@@ -7,11 +7,6 @@ import { LazyLoad } from '@/components/LazyLoad'
 
 import { lazy } from 'react'
 
-const HomePage = lazy(() => import('@/pages/home'))
-const RankPage = lazy(() => import('@/pages/rank'))
-const AIPage = lazy(() => import('@/pages/ai'))
-const BookshelfPage = lazy(() => import('@/pages/bookshelf'))
-const ProfilePage = lazy(() => import('@/pages/profile'))
 const LoginPage = lazy(() => import('@/pages/auth/login'))
 const RegisterPage = lazy(() => import('@/pages/auth/register'))
 const ResetPasswordPage = lazy(() => import('@/pages/auth/reset-password'))
@@ -47,12 +42,6 @@ export const router = createBrowserRouter([
     ),
     errorElement: <RouteErrorBoundary />,
     children: [
-      { index: true, element: <LazyLoad><HomePage /></LazyLoad> },
-      { path: ROUTES.HOME, element: <LazyLoad><HomePage /></LazyLoad> },
-      { path: ROUTES.RANK, element: <LazyLoad><RankPage /></LazyLoad> },
-      { path: ROUTES.AI, element: <LazyLoad><AIPage /></LazyLoad> },
-      { path: ROUTES.BOOKSHELF, element: <LazyLoad><BookshelfPage /></LazyLoad> },
-      { path: ROUTES.PROFILE, element: <LazyLoad><ProfilePage /></LazyLoad> },
       { path: ROUTES.CHANGE_PASSWORD, element: <LazyLoad><ChangePasswordPage /></LazyLoad> },
     ],
   },

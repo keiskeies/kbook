@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { ArrowLeft, Trash2, RotateCcw, Star } from 'lucide-react'
 import { getTrashList, removeFromTrash } from '@/api/bookTrash'
 import type { BookTrashItem } from '@/api/bookTrash'
@@ -33,6 +34,8 @@ export default function BookTrashPage() {
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false)
   const [restoreTarget, setRestoreTarget] = useState<BookTrashItem | null>(null)
   const [restoring, setRestoring] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -89,7 +92,7 @@ export default function BookTrashPage() {
         </header>
       </div>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }, (_, i) => (

@@ -134,7 +134,6 @@ export default function RankPage() {
   const pageRef = useRef(0)
 
   const { ref: sentinelRef, inView } = useInView({
-    root: document.body,
     rootMargin: '1000px',
   })
 
@@ -143,7 +142,7 @@ export default function RankPage() {
     : getNewBooksRank
 
   useEffect(() => {
-    document.body.scrollTop = 0
+    window.scrollTo(0, 0)
   }, [type])
 
   const loadPage = useCallback(async (pageNum: number) => {
@@ -186,7 +185,7 @@ export default function RankPage() {
   const matchScores = useMatchScores(books.map(b => b.id))
 
   return (
-    <div className="page-enter px-4">
+    <div className="page-enter px-4 pb-20">
       {/* 顶部头部 + Tab */}
       <div className="sticky top-0 z-50 -mx-4 px-4 pt-safe-top bg-background/80 backdrop-blur-xl border-b border-border/30">
         <header className="py-4">

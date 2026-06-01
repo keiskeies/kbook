@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import DraggableFab from '@/components/DraggableFab'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import type {
   EmbeddingStats,
   EsReindexProgress,
@@ -63,6 +64,8 @@ export default function AdminBooksPage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatAbortRef = useRef<AbortController | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   // 扫描状态
   const [scanning, setScanning] = useState(false)
@@ -420,9 +423,9 @@ export default function AdminBooksPage() {
   const currentErrors: ScanError[] = scanResult?.errors || progress?.errors || []
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background">
       {/* 顶部 */}
-      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+      <header className="shrink-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
@@ -431,7 +434,7 @@ export default function AdminBooksPage() {
         </div>
       </header>
 
-      <div className="px-4 py-4 space-y-4">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-4">
         {/* 扫描图书 */}
         <section className="rounded-xl bg-card p-4 shadow-xs">
           <div className="flex items-center gap-3 mb-3">

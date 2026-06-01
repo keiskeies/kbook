@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { ArrowLeft, Search, X, Star, Sparkles, Tag, ChevronDown, ChevronUp } from 'lucide-react'
+import { useKeepAliveStore } from '@/store/keepAlive'
 
 /** 评分徽章（带中文标签） — 5分制分等级配色（无背景） */
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
@@ -203,26 +205,52 @@ function fmtFileSize(bytes: number | null | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
+const CACHE_KEY = '/search'
+const CACHE_TTL = 5 * 60 * 1000
+
+interface SearchCache {
+  query: string
+  tag: string
+  results: any[]
+  timestamp: number
+}
+
 export default function SearchPage() {
   const navigate = useNavigate()
   const goBack = useGoBack()
   const [searchParams] = useSearchParams()
-  const [keyword, setKeyword] = useState('')
-  const [tag, setTag] = useState<string>(() => searchParams.get('tag') || '')
-  const [results, setResults] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-  const [searched, setSearched] = useState(false)
+  const savePageData = useKeepAliveStore((s) => s.savePageData)
+  const getPageData = useKeepAliveStore((s) => s.getPageData)
+
+  const cached = getPageData<SearchCache>(CACHE_KEY)
+  const isCacheValid = cached && Date.now() - cached.timestamp < CACHE_TTL
+
+  const urlKw = searchParams.get('keyword')
+  const urlTag = searchParams.get('tag')
+  const initialKw = urlKw ? decodeURIComponent(urlKw) : ''
+  const initialTag = urlTag || ''
+
+  const cacheMatch = isCacheValid && cached.query === initialKw && cached.tag === initialTag
+
+  const [keyword, setKeyword] = useState(initialKw || '')
+  const [tag, setTag] = useState<string>(() => initialTag || searchParams.get('tag') || '')
+  const [results, setResults] = useState<any[]>(() => cacheMatch ? cached.results : [])
+  const [loading, setLoading] = useState(() => cacheMatch ? false : false)
+  const [searched, setSearched] = useState(() => cacheMatch ? true : false)
   const [suggests, setSuggests] = useState<string[]>([])
   const [showSuggest, setShowSuggest] = useState(false)
   const [popularTags, setPopularTags] = useState<string[]>([])
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
   const [searchTriggerKey, setSearchTriggerKey] = useState(0)
 
   // 从 URL 参数自动搜索（如从首页热门标签跳转 / AI 对话点击书名）
   useEffect(() => {
     const kw = searchParams.get('keyword')
     const t = searchParams.get('tag')
+    if (cacheMatch) return
     if (kw) {
       const decoded = decodeURIComponent(kw)
       setKeyword(decoded)
@@ -230,7 +258,6 @@ export default function SearchPage() {
     } else if (t) {
       doSearch('', t)
     }
-    // 加载热门标签
     loadPopularTags()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -258,20 +285,21 @@ export default function SearchPage() {
     setSearched(true)
     setShowSuggest(false)
     try {
-      // 关键词和标签同时支持
       const res = await searchBooks({
         keyword: kw || undefined,
         tag: t || undefined,
         page: 1,
         size: 50,
       })
-      setResults((res as any)?.list || [])
+      const list = (res as any)?.list || []
+      setResults(list)
+      savePageData(CACHE_KEY, { query: kw, tag: t, results: list, timestamp: Date.now() })
     } catch {
       setResults([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [savePageData])
 
   const handleInputChange = (value: string) => {
     setKeyword(value)
@@ -314,14 +342,14 @@ export default function SearchPage() {
 
   const handleTagChange = (t: string) => {
     setTag(t === '全部' ? '' : t)
-    window.scrollTo(0, 0)
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
     doSearch(keyword, t === '全部' ? '' : t)
   }
 
   return (
-    <div className="min-h-screen bg-background page-enter">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter">
       {/* 顶部固定区域：搜索框 + 筛选标签 */}
-      <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl">
+      <div className="shrink-0 z-10 bg-background/80 backdrop-blur-xl">
         <header className="flex items-center gap-2 border-b border-border/50 px-4 py-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
@@ -374,7 +402,7 @@ export default function SearchPage() {
         )}
       </div>
 
-      <div className="p-4">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain p-4">
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: 5 }, (_, i) => (

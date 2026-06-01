@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuthStore } from '@/store/auth'
 import {
   getReviewStats,
@@ -16,6 +16,7 @@ import {
 } from '@/api/admin'
 import { ArrowLeft, Check, X, Unlock, RefreshCw, CheckCircle2, Mail, Copy, CheckCheck, Ban, Search } from 'lucide-react'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { toast } from 'sonner'
 
 type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'BANNED'
@@ -42,6 +43,8 @@ export default function AdminReviewPage() {
   const [inviteLoading, setInviteLoading] = useState(false)
   const [inviteResult, setInviteResult] = useState<{ email: string; inviteCode: string } | null>(null)
   const [copied, setCopied] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   const pageSize = 10
 
@@ -245,9 +248,9 @@ export default function AdminReviewPage() {
   const totalPages = Math.ceil(total / pageSize)
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background">
       {/* 顶部 */}
-      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+      <header className="shrink-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
@@ -358,7 +361,7 @@ export default function AdminReviewPage() {
       )}
 
       {/* 用户列表 */}
-      <div className="px-4 py-2 space-y-2">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-2 space-y-2">
         {loading ? (
           <div className="py-12 text-center text-sm text-muted-foreground">加载中...</div>
         ) : users.length === 0 ? (

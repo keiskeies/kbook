@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
+import { useKeepAliveStore } from '@/store/keepAlive'
 import { ArrowLeft, Sparkles, Star, RefreshCw, Tag, Trash2, Loader2 } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
 import { getRecommendationsPage, generateRecommendationsStream } from '@/api/book'
@@ -211,28 +213,73 @@ function SwipeableBookCard({
   )
 }
 
+const CACHE_KEY = '/recommend'
+const CACHE_TTL = 10 * 60 * 1000
+
+interface RecommendCache {
+  books: RecommendedItem[]
+  total: number
+  page: number
+  hasMore: boolean
+  timestamp: number
+}
+
 export default function RecommendPage() {
   const navigate = useNavigate()
   const goBack = useGoBack()
-  const [books, setBooks] = useState<RecommendedItem[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const savePageData = useKeepAliveStore((s) => s.savePageData)
+  const getPageData = useKeepAliveStore((s) => s.getPageData)
+  const clearPageData = useKeepAliveStore((s) => s.clearPageData)
+
+  const cached = getPageData<RecommendCache>(CACHE_KEY)
+  const isCacheValid = cached && Date.now() - cached.timestamp < CACHE_TTL
+
+  const [books, setBooks] = useState<RecommendedItem[]>(() =>
+    isCacheValid ? cached.books : [],
+  )
+  const [total, setTotal] = useState(() =>
+    isCacheValid ? cached.total : 0,
+  )
+  const [loading, setLoading] = useState(() => !isCacheValid)
   const [loadingMore, setLoadingMore] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState<RecommendProgress | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const fetchingRef = useRef(false)
-  const hasMoreRef = useRef(true)
-  const pageRef = useRef(0)
-
-  const { ref: sentinelRef, inView } = useInView({
-    root: document.body,
-    rootMargin: '1000px',
-  })
+  const hasMoreRef = useRef(isCacheValid ? cached.hasMore : true)
+  const pageRef = useRef(isCacheValid ? cached.page : 0)
 
   const [trashDialogOpen, setTrashDialogOpen] = useState(false)
   const [trashTarget, setTrashTarget] = useState<RecommendedItem | null>(null)
   const [trashing, setTrashing] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [scrollRoot, setScrollRoot] = useState<Element | null>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
+
+  const scrollRefCallback = useCallback((node: HTMLDivElement | null) => {
+    scrollRef.current = node
+    setScrollRoot(node)
+  }, [])
+
+  const { ref: sentinelRef, inView } = useInView({
+    root: scrollRoot,
+    rootMargin: '1000px',
+  })
+
+  const updateCache = useCallback((
+    b: RecommendedItem[],
+    t: number,
+    p: number,
+    h: boolean,
+  ) => {
+    savePageData(CACHE_KEY, {
+      books: b,
+      total: t,
+      page: p,
+      hasMore: h,
+      timestamp: Date.now(),
+    })
+  }, [savePageData])
 
   const loadPage = useCallback(async (pageNum: number) => {
     if (fetchingRef.current) return
@@ -248,11 +295,19 @@ export default function RecommendPage() {
       const list: RecommendedItem[] = data?.list || []
       const totalCount: number = data?.total || 0
 
-      setBooks((prev) => pageNum === 0 ? list : [...prev, ...list])
+      setBooks((prev) => {
+        const merged = pageNum === 0 ? list : [...prev, ...list]
+        return merged
+      })
       setTotal(totalCount)
       const hasNext = list.length >= PAGE_SIZE && (pageNum + 1) * PAGE_SIZE < totalCount
       hasMoreRef.current = hasNext
       pageRef.current = pageNum
+
+      setBooks((prev) => {
+        updateCache(prev, totalCount, pageNum, hasNext)
+        return prev
+      })
     } catch {
       if (pageNum === 0) setBooks([])
     } finally {
@@ -260,7 +315,7 @@ export default function RecommendPage() {
       setLoading(false)
       setLoadingMore(false)
     }
-  }, [])
+  }, [updateCache])
 
   const startGenerate = useCallback(() => {
     if (abortRef.current) {
@@ -268,11 +323,13 @@ export default function RecommendPage() {
       abortRef.current = null
     }
 
+    clearPageData(CACHE_KEY)
     setGenerating(true)
     setProgress({ stage: 'loading', message: '正在准备...', progress: 0 })
     setBooks([])
     setTotal(0)
     pageRef.current = 0
+    hasMoreRef.current = true
 
     const controller = generateRecommendationsStream(
       (data) => {
@@ -293,11 +350,13 @@ export default function RecommendPage() {
       },
     )
     abortRef.current = controller
-  }, [loadPage])
+  }, [loadPage, clearPageData])
 
   useEffect(() => {
-    loadPage(0)
-  }, [loadPage])
+    if (!isCacheValid) {
+      loadPage(0)
+    }
+  }, [loadPage, isCacheValid])
 
   useEffect(() => {
     if (inView && hasMoreRef.current && !fetchingRef.current && !loading) {
@@ -316,8 +375,14 @@ export default function RecommendPage() {
     try {
       await moveToTrash(trashTarget.bookId)
       toast.success('已丢入垃圾桶')
-      setBooks(prev => prev.filter(b => b.bookId !== trashTarget.bookId))
-      setTotal(prev => prev - 1)
+      setBooks(prev => {
+        const next = prev.filter(b => b.bookId !== trashTarget.bookId)
+        setTotal(t => {
+          updateCache(next, t - 1, pageRef.current, hasMoreRef.current)
+          return t - 1
+        })
+        return next
+      })
     } catch (err: any) {
       toast.error(err?.message || '操作失败')
     } finally {
@@ -328,8 +393,8 @@ export default function RecommendPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background page-enter">
-      <div className="sticky top-0 z-50 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter">
+      <div className="shrink-0 z-50 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
         <header className="flex items-center gap-3 px-4 py-3">
           <button onClick={() => goBack()} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">
             <ArrowLeft className="h-5 w-5" />
@@ -352,7 +417,7 @@ export default function RecommendPage() {
         </header>
       </div>
 
-      <div className="px-4 py-3">
+      <div ref={scrollRefCallback} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         {generating && progress ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-full max-w-xs">

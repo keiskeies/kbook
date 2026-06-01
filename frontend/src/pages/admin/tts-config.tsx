@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { ArrowLeft, Save, Trash2, Plus, Star, StarOff, Pencil, X, Volume2, Cpu, Mic, Zap } from 'lucide-react'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { toast } from 'sonner'
 import {
   listTtsConfigs,
@@ -23,6 +24,8 @@ export default function TtsConfigPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isCustomVoice, setIsCustomVoice] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   const xiaomiVoices = [
     { id: 'mimo_default', label: 'MiMo-默认（冰糖/Mia）', lang: '混合', gender: '-' },
@@ -184,7 +187,7 @@ export default function TtsConfigPage() {
         <h1 className="text-lg font-bold">TTS 配置管理</h1>
       </header>
 
-      <main className="flex-1 overflow-y-auto overscroll-contain mx-auto w-full max-w-lg space-y-4 p-4">
+      <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain mx-auto w-full max-w-lg space-y-4 p-4">
         <section className="rounded-xl bg-card p-4 shadow-xs">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">

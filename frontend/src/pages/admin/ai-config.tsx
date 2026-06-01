@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { ArrowLeft, Save, Trash2, RefreshCw, Zap, Eye, EyeOff, ExternalLink, ChevronDown, ChevronUp, Globe, MapPin, Plus, Star, StarOff, Pencil, X } from 'lucide-react'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { toast } from 'sonner'
 import {
   listAiConfigsByPurpose,
@@ -28,6 +29,8 @@ export default function AiConfigPage() {
   const [showPresets, setShowPresets] = useState(false)
   const [regionFilter, setRegionFilter] = useState<'ALL' | 'CN' | 'GLOBAL'>('ALL')
   const [testing, setTesting] = useState<number | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   // 表单状态
   const [showForm, setShowForm] = useState(false)
@@ -226,7 +229,7 @@ export default function AiConfigPage() {
         <h1 className="text-lg font-bold">AI 配置管理</h1>
       </header>
 
-      <main className="flex-1 overflow-y-auto overscroll-contain mx-auto w-full max-w-lg space-y-4 p-4">
+      <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain mx-auto w-full max-w-lg space-y-4 p-4">
         {/* 说明卡片 */}
         <section className="rounded-xl bg-card p-4 shadow-xs">
           <div className="flex items-start gap-3">

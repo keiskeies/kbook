@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { ArrowLeft, UserPlus, UserMinus } from 'lucide-react'
 import { getFollowings, getFollowers, followUser, unfollowUser } from '@/api/follow'
 import type { FollowUserVO } from '@/api/follow'
@@ -17,6 +18,8 @@ export default function FollowListPage() {
   const [followers, setFollowers] = useState<FollowUserVO[]>([])
   const [loading, setLoading] = useState(true)
   const [followingSet, setFollowingSet] = useState<Set<number>>(new Set())
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const { handleScroll } = useScrollRestore(scrollRef)
 
   const id = Number(userId)
 
@@ -105,7 +108,7 @@ export default function FollowListPage() {
       </div>
 
       {/* 列表内容 */}
-      <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="h-6 w-6 animate-spin rounded-full border-3 border-primary border-t-transparent" />
