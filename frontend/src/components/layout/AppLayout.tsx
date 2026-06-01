@@ -23,7 +23,7 @@ function isTabPath(pathname: string): string | null {
   if (pathname === '/' || pathname === ROUTES.HOME) return ROUTES.HOME
   for (const tab of TAB_ROUTES) {
     if (tab.path === ROUTES.HOME) continue
-    if (pathname.startsWith(tab.path)) return tab.path
+    if (pathname === tab.path) return tab.path
   }
   return null
 }
@@ -132,7 +132,7 @@ export function AppLayout() {
             </div>
           )}
         </div>
-        {tabBarVisible && <TabBar />}
+        {isOnTabPage && tabBarVisible && <TabBar />}
       </div>
     </>
   )

@@ -75,16 +75,14 @@ public class AiToolService {
 
     // ==================== 图书查询工具 ====================
 
-    @Tool("搜索图书，支持按关键词和格式筛选（混合搜索：Qdrant语义向量 + ES全文检索融合排序）。返回图书列表，包含图书ID、书名、作者、评分等。")
+    @Tool("搜索图书（混合搜索：Qdrant语义向量 + ES全文检索融合排序）。返回图书列表，包含图书ID、书名、作者、评分等。")
     public String searchBooks(
-            @P("搜索关键词，如书名或作者名，支持自然语言描述如'适合失恋看的治愈系书籍'") String keyword,
-            @P("图书格式，可选值：TXT、EPUB、PDF，为空则不限格式") String format
+            @P("搜索关键词，如书名或作者名，支持自然语言描述如'适合失恋看的治愈系书籍'") String keyword
     ) {
-        log.debug("[AI Tool] searchBooks: keyword={}, format={}", keyword, format);
+        log.debug("[AI Tool] searchBooks: keyword={}", keyword);
         try {
-            String fmt = (format == null || format.isBlank()) ? null : format.toUpperCase();
             PageResult<BookDocument> result =
-                    bookService.searchBooksEs(keyword, fmt, null,1, 10);
+                    bookService.searchBooksEs(keyword, null, 1, 10);
             if (result.getList().isEmpty()) {
                 return "没有找到相关图书。";
             }
@@ -263,7 +261,7 @@ public class AiToolService {
         log.info("[AI Tool] deleteBooksByAuthor: author={}", author);
         try {
             // 先查询确认有多少本
-            var books = bookService.searchBooks(author, null, 1, 50);
+            var books = bookService.searchBooks(author, 1, 50);
             long authorBookCount = books.getList().stream()
                     .filter(b -> author.equals(b.getAuthor()))
                     .count();
@@ -346,7 +344,7 @@ public class AiToolService {
 
             // 3. 同作者推荐
             if (sourceBook.getAuthor() != null && !sourceBook.getAuthor().isBlank()) {
-                var sameAuthorBooks = bookService.searchBooks(sourceBook.getAuthor(), null, 1, 5);
+                var sameAuthorBooks = bookService.searchBooks(sourceBook.getAuthor(), 1, 5);
                 for (BookProjection b : sameAuthorBooks.getList()) {
                     if (b.getId().equals(bookId)) continue;
                     if (recommendations.stream().anyMatch(r -> r.get("bookId").equals(b.getId()))) continue;
@@ -588,7 +586,7 @@ public class AiToolService {
 
             try {
                 PageResult<BookDocument> keywordResults =
-                        bookService.searchBooksEs(needDescription, null, null, 1, 10);
+                        bookService.searchBooksEs(needDescription, null, 1, 10);
                 for (BookDocument doc : keywordResults.getList()) {
                     candidates.merge(doc.getId(),
                             new DeepRecommendCandidate(doc.getId(), 0.5, needDescription),
@@ -658,7 +656,7 @@ public class AiToolService {
     private String deepRecommendFallback(String needDescription, int limit) {
         try {
             PageResult<BookDocument> result =
-                    bookService.searchBooksEs(needDescription, null, null, 1, limit);
+                    bookService.searchBooksEs(needDescription, null, 1, limit);
             if (result.getList().isEmpty()) {
                 return "没有找到与「" + needDescription + "」相关的书籍。";
             }
@@ -777,7 +775,7 @@ public class AiToolService {
             JsonNode sourceScores = objectMapper.readTree(sourceBook.getRelevanceScores());
 
             // 获取所有书籍（限制候选集大小）
-            PageResult<BookProjection> candidates = bookService.searchBooks("", null, 1, 200);
+            PageResult<BookProjection> candidates = bookService.searchBooks("", 1, 200);
             List<ScoredBook> scoredBooks = new ArrayList<>();
 
             for (BookProjection candidate : candidates.getList()) {

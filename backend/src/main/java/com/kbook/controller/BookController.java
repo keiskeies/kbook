@@ -78,11 +78,10 @@ public class BookController {
     @GetMapping("/search")
     public Result<PageResult<BookDocument>> searchBooks(
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String format,
             @RequestParam(required = false) String tag,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(bookService.searchBooksByKeyword(keyword, format, tag, page, size));
+        return Result.ok(bookService.searchBooksByKeyword(keyword, tag, page, size));
     }
 
     /**

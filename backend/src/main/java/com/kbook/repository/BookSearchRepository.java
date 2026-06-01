@@ -31,26 +31,6 @@ public interface BookSearchRepository extends ElasticsearchRepository<BookDocume
     Page<BookDocument> searchWithHighlight(String keyword, Pageable pageable);
 
     /**
-     * 按格式筛选
-     */
-    Page<BookDocument> findByFormat(String format, Pageable pageable);
-
-    /**
-     * 多字段搜索 + 格式筛选，带高亮
-     */
-    @Highlight(fields = {
-            @HighlightField(name = "title"),
-            @HighlightField(name = "author"),
-            @HighlightField(name = "description")
-    })
-    @Query("{\"bool\": {\"should\": [" +
-            "{\"match\": {\"title\": {\"query\": \"?0\", \"boost\": 3.0}}}," +
-            "{\"match\": {\"author\": {\"query\": \"?0\", \"boost\": 2.0}}}," +
-            "{\"match\": {\"description\": {\"query\": \"?0\", \"boost\": 1.0}}}" +
-            "], \"minimum_should_match\": 1, \"filter\": [{\"term\": {\"format\": \"?1\"}}]}}")
-    Page<BookDocument> searchWithFormat(String keyword, String format, Pageable pageable);
-
-    /**
      * 搜索建议（前缀匹配标题）
      */
     @Query("{\"match_phrase_prefix\": {\"title\": \"?0\"}}")

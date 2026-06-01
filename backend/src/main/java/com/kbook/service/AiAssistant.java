@@ -35,11 +35,10 @@ import dev.langchain4j.service.*;
         【工具使用指南】
         
         搜索与推荐
-        1. searchBooks(keyword, format) — 搜索图书
+        1. searchBooks(keyword) — 搜索图书
            - 精确找书（书名/作者）或主题搜索时使用
            - 关键词越短越精确；完整句子先提取书名/作者再搜索
            - 返回为空时用更短的关键词重试，不要直接说找不到
-           - format 可选：TXT、EPUB、PDF，不限格式则留空
         
         2. deepRecommend(needDescription, count) — 深度推荐
            - 用户提出宽泛或深层次阅读需求时优先使用

@@ -218,10 +218,9 @@ public class RecommendService {
     /**
      * 异步重新计算用户推荐
      * <p>
-     * 设置重算标识后调用 computeAndSave。
-     * 如果当前有正在进行的计算，它会检测到重算标识并立即中断重来；
-     * 如果没有，直接开始计算。
-     * 如果锁被占用，等待后重试。
+     * 设置重算标识（中断当前正在进行的计算），然后调用 computeAndSave。
+     * computeAndSave 内部会复用图书数据、检测重算标识并自动重新评分。
+     * 若锁被占用则等待重试。
      *
      * @param userId 用户ID
      */
@@ -229,27 +228,25 @@ public class RecommendService {
     public void asyncRecompute(Long userId) {
         try {
             log.info("异步重新计算推荐: userId={}", userId);
-            // 设置重算标识 — 如果正在计算中，会触发其中断并重来
             String restartKey = RESTART_KEY_PREFIX + userId;
             redisTemplate.opsForValue().set(restartKey, "1", 10, java.util.concurrent.TimeUnit.MINUTES);
 
             int maxRetries = 10;
             for (int attempt = 1; attempt <= maxRetries; attempt++) {
-                List<ScoredBook> scoredBooks = this.computeAndSave(userId);
-                if (scoredBooks != null) {
-                    log.info("异步重新计算完成: userId={}, count={}, attempt={}",
-                            userId, scoredBooks.size(), Math.max(attempt, 1));
+                List<ScoredBook> result = this.computeAndSave(userId);
+                if (result != null) {
+                    log.info("异步重新计算完成: userId={}, count={}", userId, result.size());
                     return;
                 }
-                log.info("锁被占用(已有计算在进行)，等待后重试: userId={}, attempt={}/{}", userId, attempt, maxRetries);
-                try {
+                if (attempt < maxRetries) {
+                    log.info("锁被占用，等待后重试: userId={}, attempt={}/{}", userId, attempt, maxRetries);
                     Thread.sleep(2000);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return;
                 }
             }
-            log.warn("异步重新计算最终放弃(超过{}次重试): userId={}", maxRetries, userId);
+            log.warn("异步重新计算最终放弃(锁被占用超过{}次): userId={}", maxRetries, userId);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.warn("异步重新计算被中断: userId={}", userId);
         } catch (Exception e) {
             log.error("异步重新计算失败: userId={}", userId, e);
         }
@@ -257,6 +254,10 @@ public class RecommendService {
 
     /**
      * SSE 推荐生成（带进度推送）：规则匹配 + 探索发现，实时推送进度
+     * <p>
+     * 图书数据只查询一次。若计算过程中检测到画像变更，复用已有图书数据重新评分，
+     * 并通过 SSE 推送重启进度。
+     *
      * @param userId 用户ID
      * @param emitter SSE 发射器
      */
@@ -264,22 +265,40 @@ public class RecommendService {
         try {
             sendProgress(emitter, "loading", "正在加载书籍数据...", 0, 0, 0);
 
-            long totalBooks = bookRepository.count();
-            int intTotalBooks = totalBooks > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) totalBooks;
+            String restartKey = RESTART_KEY_PREFIX + userId;
+            redisTemplate.delete(restartKey);
 
-            List<ScoredBook> scoredBooks = this.computeScoredBooks(userId, processed -> {
-                int progressPercent = 10 + (int) (60.0 * processed / Math.max(intTotalBooks, 1));
-                sendProgress(emitter, "matching", "正在计算匹配度...", progressPercent, processed, intTotalBooks);
-            });
+            List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
+            int intTotalBooks = allBooks.size();
 
-            sendProgress(emitter, "saving", "正在保存推荐结果...", 90, 0, 0);
-            this.saveToSortedSetDirect(userId, scoredBooks);
+            int maxRestarts = 5;
+            for (int restartCount = 0; restartCount <= maxRestarts; restartCount++) {
+                if (restartCount > 0) {
+                    redisTemplate.delete(restartKey);
+                    sendProgress(emitter, "restarting", "检测到画像变更，正在重新计算...", 5, 0, intTotalBooks);
+                }
 
-            sendProgress(emitter, "done", "推荐生成完成", 100, scoredBooks.size(), intTotalBooks);
+                List<ScoredBook> scoredBooks = scoreAllBooks(userId, allBooks, restartKey, processed -> {
+                    int progressPercent = 10 + (int) (60.0 * processed / Math.max(intTotalBooks, 1));
+                    sendProgress(emitter, "matching", "正在计算匹配度...", progressPercent, processed, intTotalBooks);
+                });
 
-            emitter.complete();
+                if (scoredBooks == null) {
+                    continue;
+                }
 
-            log.info("SSE推荐生成完成: userId={}, total={}", userId, scoredBooks.size());
+                sendProgress(emitter, "saving", "正在保存推荐结果...", 90, 0, 0);
+                this.saveToSortedSetDirect(userId, scoredBooks);
+
+                sendProgress(emitter, "done", "推荐生成完成", 100, scoredBooks.size(), intTotalBooks);
+
+                emitter.complete();
+
+                log.info("SSE推荐生成完成: userId={}, total={}, restarts={}", userId, scoredBooks.size(), restartCount);
+                return;
+            }
+
+            SseHelper.sendErrorAndComplete(emitter, "推荐计算重启次数过多，请稍后重试");
         } catch (Exception e) {
             log.error("SSE推荐生成失败: userId={}", userId, e);
             SseHelper.sendErrorAndComplete(emitter, "推荐生成失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
@@ -386,6 +405,9 @@ public class RecommendService {
 
     /**
      * 计算并保存用户推荐列表（带分布式锁）
+     * <p>
+     * 图书数据只查询一次。若计算过程中检测到画像变更（重算标识），
+     * 清空临时评分结果，用最新画像对同一批图书重新评分，不重复查库。
      */
     @RedisLock(key = "'kbook:lock:recommend:' + #userId", leaseTime = 600)
     public List<ScoredBook> computeAndSave(Long userId) {
@@ -393,37 +415,52 @@ public class RecommendService {
         long startTime = System.currentTimeMillis();
 
         String restartKey = RESTART_KEY_PREFIX + userId;
-        List<ScoredBook> scoredBooks;
-        int restartCount = 0;
-        do {
-            redisTemplate.delete(restartKey);
-            if (restartCount > 0) {
-                log.info("检测到画像更新，重新计算: userId={}, restartCount={}", userId, restartCount);
-            }
-            scoredBooks = computeScoredBooks(userId, restartKey);
-            if (scoredBooks == null) {
-                restartCount++;
-            }
-        } while (scoredBooks == null && restartCount < 5);
+        redisTemplate.delete(restartKey);
 
-        if (scoredBooks == null) {
-            log.warn("推荐计算放弃(重算次数过多): userId={}", userId);
-            return null;
+        List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
+        int total = allBooks.size();
+
+        int maxRestarts = 5;
+        for (int restartCount = 0; restartCount <= maxRestarts; restartCount++) {
+            if (restartCount > 0) {
+                redisTemplate.delete(restartKey);
+                log.info("检测到画像变更，复用已有图书数据重新评分: userId={}, restartCount={}", userId, restartCount);
+            }
+
+            List<ScoredBook> scoredBooks = scoreAllBooks(userId, allBooks, restartKey, null);
+
+            if (scoredBooks == null) {
+                continue;
+            }
+
+            saveToSortedSetWithTemp(userId, scoredBooks);
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.info("推荐计算完成: userId={}, count={}, elapsed={}ms, restarts={}",
+                    userId, scoredBooks.size(), elapsed, restartCount);
+            return scoredBooks;
         }
 
-        saveToSortedSetWithTemp(userId, scoredBooks);
-
-        long elapsed = System.currentTimeMillis() - startTime;
-        log.info("推荐计算完成: userId={}, count={}, elapsed={}ms, restarts={}",
-                userId, scoredBooks.size(), elapsed, restartCount);
-        return scoredBooks;
+        log.warn("推荐计算重启次数过多: userId={}", userId);
+        return null;
     }
 
-    public List<ScoredBook> computeScoredBooks(Long userId, IntConsumer onMatchingProgress) {
-        return computeScoredBooksWithRestart(userId, null, onMatchingProgress);
+    private List<ScoredBook> computeScoredBooksWithRestart(Long userId, String restartKey) {
+        List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
+        return scoreAllBooks(userId, allBooks, restartKey, null);
     }
 
-    private List<ScoredBook> computeScoredBooksWithRestart(Long userId, String restartKey, IntConsumer onMatchingProgress) {
+    /**
+     * 对给定的图书列表执行评分（可被 restartKey 中断后重新调用，不重复查库）
+     *
+     * @param userId       用户ID
+     * @param allBooks     已加载的图书列表（复用，不重复查库）
+     * @param restartKey   重算标识 key，非 null 时每 chunk 检查
+     * @param onProgress   进度回调（SSE 用），可为 null
+     * @return 评分结果；若被中断返回 null
+     */
+    private List<ScoredBook> scoreAllBooks(Long userId, List<BookProjection> allBooks,
+                                            String restartKey, IntConsumer onProgress) {
         User user = userService.getUserById(userId);
         List<Long> readBookIds = getReadBookIds(userId);
         Set<Long> excludeSet = new HashSet<>(readBookIds);
@@ -439,17 +476,14 @@ public class RecommendService {
         double ruleMinScore = coefficientService.getCoefficient("OTHER", "rule_min_score", -0.5);
 
         List<ScoredBook> scoredBooks = Collections.synchronizedList(new ArrayList<>());
-
-        List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
         int total = allBooks.size();
 
-        // 分块并行计算：每 2000 本一个块，块内并行，块间检查重算标识
         int chunkSize = 2000;
         for (int offset = 0; offset < total; offset += chunkSize) {
             if (restartKey != null) {
                 Boolean hasRestart = redisTemplate.hasKey(restartKey);
                 if (Boolean.TRUE.equals(hasRestart)) {
-                    log.info("检测到重算标识，中断当前计算: userId={}, processed={}", userId, offset);
+                    log.info("检测到重算标识，中断当前评分: userId={}, processed={}/{}", userId, offset, total);
                     return null;
                 }
             }
@@ -466,13 +500,13 @@ public class RecommendService {
 
             scoredBooks.addAll(chunkResults);
 
-            if (onMatchingProgress != null) {
-                onMatchingProgress.accept(end);
+            if (onProgress != null) {
+                onProgress.accept(end);
             }
         }
 
-        if (onMatchingProgress != null) {
-            onMatchingProgress.accept(total);
+        if (onProgress != null) {
+            onProgress.accept(total);
         }
 
         addExploreBooks(user, excludeSet, scoredBooks);
@@ -482,7 +516,7 @@ public class RecommendService {
     }
 
     private List<ScoredBook> computeScoredBooks(Long userId, String restartKey) {
-        return computeScoredBooksWithRestart(userId, restartKey, null);
+        return computeScoredBooksWithRestart(userId, restartKey);
     }
 
     private void addExploreBooks(User user, Set<Long> excludeSet, List<ScoredBook> scoredBooks) {

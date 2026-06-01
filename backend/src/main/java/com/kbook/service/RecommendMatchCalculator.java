@@ -69,16 +69,16 @@ public class RecommendMatchCalculator {
      */
     enum MatchWeight {
         // ---- 主维度权重 ----
-        RATING("rating_weight", 0.6),                          // 图书评分：客观质量信号，0.6 权重让好书有适度加分
+        RATING("rating_weight", 0.3),                          // 图书评分：客观质量信号，0.6 权重让好书有适度加分
         AGE("age_weight", 1.2),                                // 年龄：核心画像维度，不同年龄段阅读偏好差异大，权重最高
-        GENDER("gender_weight", 1.0),                          // 性别：中等权重，配合反向惩罚（OPPOSITE_PENALTY）使用
-        MARRIED("married_weight", 1.0),                        // 婚姻状态：中等权重，配合反向惩罚使用
-        CHILDREN("children_weight", 1.0),                      // 子女年龄区间：中等权重，配合邻近衰减（CHILDREN_ADJACENT_DECAY）使用
+        GENDER("gender_weight", 0.8),                          // 性别：中等权重，配合反向惩罚（OPPOSITE_PENALTY）使用
+        MARRIED("married_weight", 0.8),                        // 婚姻状态：中等权重，配合反向惩罚使用
+        CHILDREN("children_weight", 0.8),                      // 子女年龄区间：中等权重，配合邻近衰减（CHILDREN_ADJACENT_DECAY）使用
         MBTI("mbti_weight", 1.5),                              // MBTI 性格类型：较高权重，性格对阅读偏好影响显著
         OCCUPATION("occupation_weight", 1.3),                  // 职业：中等权重，配合邻近衰减使用
-        EDUCATION("education_weight", 0.5),                    // 学历：较低权重，配合邻近衰减使用
+        EDUCATION("education_weight", 0.3),                    // 学历：较低权重，配合邻近衰减使用
         ENTREPRENEURSHIP("entrepreneurship_weight", 0.9),      // 创业意向：较低权重，二值维度无邻近衰减
-        INCOME("income_weight", 0.5),                          // 收入区间：最低权重，配合邻近衰减使用
+        INCOME("income_weight", 0.3),                          // 收入区间：最低权重，配合邻近衰减使用
         INTENT("intent_weight", 2.0),                          // 阅读意图（充电成长/共鸣陪伴/逃离放松/新鲜刺激/答案解惑）
         MOOD("mood_weight", 2.0),                              // 心情（开心/平静/焦虑/低落/烦躁/疲惫）
 

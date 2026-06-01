@@ -64,7 +64,7 @@ export interface ProgressBatchItem {
 export function parseFormatTags(tags: string | null): string[] {
   if (!tags) return []
   try {
-    return JSON.parse(tags)
+    return [...new Set(JSON.parse(tags) as string[])]
   } catch {
     return []
   }

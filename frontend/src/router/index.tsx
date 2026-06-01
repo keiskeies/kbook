@@ -42,7 +42,26 @@ export const router = createBrowserRouter([
     ),
     errorElement: <RouteErrorBoundary />,
     children: [
+      { index: true, element: <></> },
+      { path: ROUTES.HOME, element: <></> },
+      { path: ROUTES.RANK, element: <></> },
+      { path: ROUTES.AI, element: <></> },
+      { path: ROUTES.BOOKSHELF, element: <></> },
+      { path: ROUTES.PROFILE, element: <></> },
+      { path: ROUTES.BOOK_DETAIL, element: <LazyLoad><BookDetailPage /></LazyLoad> },
+      { path: ROUTES.SEARCH, element: <LazyLoad><SearchPage /></LazyLoad> },
+      { path: ROUTES.READER, element: <LazyLoad><ReaderPage /></LazyLoad> },
+      { path: ROUTES.HISTORY, element: <LazyLoad><ReadingHistoryPage /></LazyLoad> },
+      { path: ROUTES.TRASH, element: <LazyLoad><BookTrashPage /></LazyLoad> },
+      { path: ROUTES.REVIEWS, element: <LazyLoad><ReviewsPage /></LazyLoad> },
+      { path: ROUTES.RECOMMEND, element: <LazyLoad><RecommendPage /></LazyLoad> },
+      { path: ROUTES.NOTIFICATIONS, element: <LazyLoad><NotificationsPage /></LazyLoad> },
+      { path: ROUTES.USER_PROFILE, element: <LazyLoad><UserProfilePage /></LazyLoad> },
+      { path: ROUTES.FOLLOW_LIST + '/:tab?', element: <LazyLoad><FollowListPage /></LazyLoad> },
+      { path: ROUTES.CHAT, element: <LazyLoad><ChatListPage /></LazyLoad> },
+      { path: ROUTES.CHAT_ROOM, element: <LazyLoad><ChatRoomPage /></LazyLoad> },
       { path: ROUTES.CHANGE_PASSWORD, element: <LazyLoad><ChangePasswordPage /></LazyLoad> },
+      { path: '/onboarding', element: <LazyLoad><OnboardingPage /></LazyLoad> },
     ],
   },
   {
@@ -64,68 +83,6 @@ export const router = createBrowserRouter([
       {
         path: ROUTES.RESET_PASSWORD,
         element: <LazyLoad><ResetPasswordPage /></LazyLoad>,
-      },
-    ],
-  },
-  {
-    element: (
-      <AuthGuard>
-        <BlankLayout />
-      </AuthGuard>
-    ),
-    errorElement: <RouteErrorBoundary />,
-    children: [
-      {
-        path: '/onboarding',
-        element: <LazyLoad><OnboardingPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.BOOK_DETAIL,
-        element: <LazyLoad><BookDetailPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.SEARCH,
-        element: <LazyLoad><SearchPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.HISTORY,
-        element: <LazyLoad><ReadingHistoryPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.TRASH,
-        element: <LazyLoad><BookTrashPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.REVIEWS,
-        element: <LazyLoad><ReviewsPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.RECOMMEND,
-        element: <LazyLoad><RecommendPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.NOTIFICATIONS,
-        element: <LazyLoad><NotificationsPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.USER_PROFILE,
-        element: <LazyLoad><UserProfilePage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.FOLLOW_LIST + '/:tab?',
-        element: <LazyLoad><FollowListPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.CHAT,
-        element: <LazyLoad><ChatListPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.CHAT_ROOM,
-        element: <LazyLoad><ChatRoomPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.READER,
-        element: <LazyLoad><ReaderPage /></LazyLoad>,
       },
     ],
   },

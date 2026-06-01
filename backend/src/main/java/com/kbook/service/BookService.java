@@ -341,18 +341,18 @@ public class BookService {
      * 关键词优先搜索（用于前端 /api/books/search）
      * 优先返回 ES 书名/作者匹配的书籍
      */
-    public PageResult<BookDocument> searchBooksByKeyword(String keyword, String format, String tag, int page, int size) {
-        log.debug("关键词搜索: keyword={}, format={}, tag={}, page={}, size={}", keyword, format, tag, page, size);
-        return bookSearchService.keywordSearch(keyword, format, tag, page, size);
+    public PageResult<BookDocument> searchBooksByKeyword(String keyword, String tag, int page, int size) {
+        log.debug("关键词搜索: keyword={}, tag={}, page={}, size={}", keyword, tag, page, size);
+        return bookSearchService.keywordSearch(keyword, tag, page, size);
     }
 
     /**
      * 混合搜索（供 AI Tool 使用）
      * 结合向量语义和关键词，适合模糊意图理解
      */
-    public PageResult<BookDocument> searchBooksEs(String keyword, String format, String tag, int page, int size) {
-        log.debug("混合搜索: keyword={}, format={}, tag={}, page={}, size={}", keyword, format, tag, page, size);
-        return bookSearchService.hybridSearch(keyword, format, tag, page, size);
+    public PageResult<BookDocument> searchBooksEs(String keyword, String tag, int page, int size) {
+        log.debug("混合搜索: keyword={}, tag={}, page={}, size={}", keyword, tag, page, size);
+        return bookSearchService.hybridSearch(keyword, tag, page, size);
     }
 
     /**
@@ -361,9 +361,9 @@ public class BookService {
      * 注意：此方法仅走 MySQL LIKE，不经过 Qdrant/ES。
      * 需要混合搜索请使用 {@link #searchBooksEs}。
      */
-    public PageResult<BookProjection> searchBooks(String keyword, String format, int page, int size) {
+    public PageResult<BookProjection> searchBooks(String keyword, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<BookProjection> pageData = bookRepository.searchProjectedBooks(keyword, format, pageable);
+        Page<BookProjection> pageData = bookRepository.searchProjectedBooks(keyword, pageable);
         return PageResult.of(pageData.getContent(), pageData.getTotalElements(), page, size);
     }
 

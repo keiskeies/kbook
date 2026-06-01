@@ -74,11 +74,8 @@ public class BookSearchService {
      * 关键词优先搜索（用于前端 /api/books/search）
      * 优先返回 ES 书名/作者匹配的书籍，适合用户精确查找
      */
-    public PageResult<BookDocument> keywordSearch(String keyword, String format, String tag, int page, int size) {
+    public PageResult<BookDocument> keywordSearch(String keyword, String tag, int page, int size) {
         if (keyword == null || keyword.isBlank()) {
-            if (format != null && !format.isBlank()) {
-                return searchByFormat(format, page, size);
-            }
             if (tag != null && !tag.isBlank()) {
                 return searchByTag(tag, page, size);
             }
@@ -88,7 +85,7 @@ public class BookSearchService {
         // 1. 尝试 ES 搜索
         if (esAvailable) {
             try {
-                return esKeywordSearch(keyword, format, tag, page, size);
+                return esKeywordSearch(keyword, tag, page, size);
             } catch (Exception e) {
                 log.warn("ES 关键词搜索异常，降级到 MySQL: {}", e.getMessage());
                 esAvailable = false;
@@ -96,21 +93,15 @@ public class BookSearchService {
         }
 
         // 2. 降级 MySQL
-        return mysqlKeywordSearch(keyword, format, tag, page, size);
+        return mysqlKeywordSearch(keyword, tag, page, size);
     }
 
     /**
      * ES 关键词搜索实现
      */
-    private PageResult<BookDocument> esKeywordSearch(String keyword, String format, String tag, int page, int size) {
+    private PageResult<BookDocument> esKeywordSearch(String keyword, String tag, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size);
-        Page<BookDocument> result;
-
-        if (format != null && !format.isBlank()) {
-            result = searchRepository.searchWithFormat(keyword, format, pageable);
-        } else {
-            result = searchRepository.searchWithHighlight(keyword, pageable);
-        }
+        Page<BookDocument> result = searchRepository.searchWithHighlight(keyword, pageable);
 
         List<BookDocument> docs = result.getContent();
 
@@ -128,9 +119,9 @@ public class BookSearchService {
     /**
      * MySQL 关键词搜索实现
      */
-    private PageResult<BookDocument> mysqlKeywordSearch(String keyword, String format, String tag, int page, int size) {
+    private PageResult<BookDocument> mysqlKeywordSearch(String keyword, String tag, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<BookProjection> jpaResult = bookRepository.searchProjectedBooks(keyword, format, pageable);
+        Page<BookProjection> jpaResult = bookRepository.searchProjectedBooks(keyword, pageable);
         List<BookProjection> books = jpaResult.getContent();
 
         // 转换为 BookDocument
@@ -152,11 +143,8 @@ public class BookSearchService {
      * 仅格式筛选（无关键词）时走纯 ES/MySQL，不做向量搜索
      * 适用于 AI Tool 等需要语义理解场景
      */
-    public PageResult<BookDocument> hybridSearch(String keyword, String format, String tag, int page, int size) {
+    public PageResult<BookDocument> hybridSearch(String keyword, String tag, int page, int size) {
         if (keyword == null || keyword.isBlank()) {
-            if (format != null && !format.isBlank()) {
-                return searchByFormat(format, page, size);
-            }
             if (tag != null && !tag.isBlank()) {
                 return searchByTag(tag, page, size);
             }
@@ -168,7 +156,7 @@ public class BookSearchService {
         SearchWeights prior = analyzeQueryIntent(keyword);
 
         Map<Long, Double> vectorScores = vectorRecall(keyword);
-        Map<Long, Integer> keywordRanks = keywordRecall(keyword, format);
+        Map<Long, Integer> keywordRanks = keywordRecall(keyword);
 
         SearchWeights weights = adjustWeightsByRecall(prior, vectorScores, keywordRanks);
 
@@ -270,31 +258,25 @@ public class BookSearchService {
     /**
      * 关键词召回：ES 优先，降级 MySQL，返回 bookId → rank（1-based，越小越相关）
      */
-    private Map<Long, Integer> keywordRecall(String keyword, String format) {
+    private Map<Long, Integer> keywordRecall(String keyword) {
         if (esAvailable) {
             try {
-                return esKeywordRecall(keyword, format);
+                return esKeywordRecall(keyword);
             } catch (Exception e) {
                 log.warn("ES 关键词召回异常，降级到 MySQL: {}", e.getMessage());
                 esAvailable = false;
             }
         }
-        return mysqlKeywordRecall(keyword, format);
+        return mysqlKeywordRecall(keyword);
     }
 
     /**
      * ES 关键词召回，返回 bookId → rank
      */
-    private Map<Long, Integer> esKeywordRecall(String keyword, String format) {
+    private Map<Long, Integer> esKeywordRecall(String keyword) {
         Map<Long, Integer> ranks = new LinkedHashMap<>();
         Pageable pageable = PageRequest.of(0, RECALL_SIZE);
-        Page<BookDocument> result;
-
-        if (format != null && !format.isBlank()) {
-            result = searchRepository.searchWithFormat(keyword, format, pageable);
-        } else {
-            result = searchRepository.searchWithHighlight(keyword, pageable);
-        }
+        Page<BookDocument> result = searchRepository.searchWithHighlight(keyword, pageable);
 
         List<BookDocument> docs = result.getContent();
         for (int i = 0; i < docs.size(); i++) {
@@ -307,10 +289,10 @@ public class BookSearchService {
     /**
      * MySQL LIKE 关键词召回（ES 降级方案），返回 bookId → rank
      */
-    private Map<Long, Integer> mysqlKeywordRecall(String keyword, String format) {
+    private Map<Long, Integer> mysqlKeywordRecall(String keyword) {
         Map<Long, Integer> ranks = new LinkedHashMap<>();
         Pageable pageable = PageRequest.of(0, RECALL_SIZE, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<Book> jpaResult = bookRepository.searchBooks(keyword, format, pageable);
+        Page<Book> jpaResult = bookRepository.searchBooks(keyword, pageable);
         List<Book> books = jpaResult.getContent();
         for (int i = 0; i < books.size(); i++) {
             ranks.putIfAbsent(books.get(i).getId(), i + 1);
@@ -389,32 +371,6 @@ public class BookSearchService {
         double newKw = 1.0 - newVw;
 
         return SearchWeights.of(newVw, newKw);
-    }
-
-    // ==================== 纯格式筛选（无关键词，不走向量） ====================
-
-    /**
-     * 按格式筛选（无关键词时使用）
-     */
-    private PageResult<BookDocument> searchByFormat(String format, int page, int size) {
-        if (esAvailable) {
-            try {
-                Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-                Page<BookDocument> result = searchRepository.findByFormat(format, pageable);
-                esAvailable = true;
-                return PageResult.of(result.getContent(), result.getTotalElements(), page, size);
-            } catch (Exception e) {
-                log.warn("ES 格式筛选异常: {}", e.getMessage());
-                esAvailable = false;
-            }
-        }
-        // MySQL 降级
-        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
-        Page<BookProjection> jpaResult = bookRepository.findProjectedByFormat(format, pageable);
-        List<BookDocument> docs = jpaResult.getContent().stream()
-                .map(this::toDocument)
-                .collect(Collectors.toList());
-        return PageResult.of(docs, jpaResult.getTotalElements(), page, size);
     }
 
     /**

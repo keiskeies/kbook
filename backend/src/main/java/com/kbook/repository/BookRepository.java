@@ -43,10 +43,8 @@ public interface BookRepository extends JpaRepository<Book, Long> {
     @Query("SELECT b FROM Book b WHERE " +
            "(:keyword IS NULL OR LOWER(b.title) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
            "OR LOWER(b.author) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-           "OR LOWER(b.description) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-           "AND (:format IS NULL OR b.format = :format)")
+           "OR LOWER(b.description) LIKE LOWER(CONCAT('%', :keyword, '%')))")
     Page<Book> searchBooks(@Param("keyword") String keyword,
-                           @Param("format") String format,
                            Pageable pageable);
 
     /**
@@ -198,10 +196,8 @@ public interface BookRepository extends JpaRepository<Book, Long> {
     @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE " +
            "(:keyword IS NULL OR LOWER(b.title) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
            "OR LOWER(b.author) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-           "OR LOWER(b.description) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-           "AND (:format IS NULL OR b.format = :format)")
+           "OR LOWER(b.description) LIKE LOWER(CONCAT('%', :keyword, '%')))")
     Page<BookProjection> searchProjectedBooks(@Param("keyword") String keyword,
-                                              @Param("format") String format,
                                               Pageable pageable);
 
     /**
