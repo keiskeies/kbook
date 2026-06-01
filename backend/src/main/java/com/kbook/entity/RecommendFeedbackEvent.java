@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -30,7 +32,9 @@ import java.time.LocalDateTime;
  * - RATE: +rating * 0.1（评分越高正反馈越强）
  * - DISMISS: -0.2
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -41,7 +45,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_created_at", columnList = "created_at"),
         @Index(name = "idx_feedback_type", columnList = "feedback_type")
 })
-public class RecommendFeedbackEvent {
+public class RecommendFeedbackEvent extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -89,5 +93,10 @@ public class RecommendFeedbackEvent {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

@@ -1,11 +1,14 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.common.util.SseHelper;
 import com.kbook.dto.request.TtsSynthesizeRequest;
 import com.kbook.entity.TtsConfig;
 import com.kbook.service.TtsConfigService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -13,8 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 
 @Slf4j
 @RestController
@@ -23,7 +25,9 @@ public class TtsConfigController {
 
     private final TtsConfigService ttsConfigService;
 
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+    /** SSE 异步执行器（由 AsyncExecutorConfig 提供，自动 shutdown） */
+    @Qualifier("sseExecutor")
+    private final Executor sseExecutor;
 
     @GetMapping("/api/tts/config/active")
     public Result<TtsConfig> getActiveConfig() {
@@ -35,7 +39,7 @@ public class TtsConfigController {
     }
 
     @PostMapping("/api/tts/synthesize")
-    public ResponseEntity<byte[]> synthesize(@RequestBody TtsSynthesizeRequest request) {
+    public ResponseEntity<byte[]> synthesize(@Valid @RequestBody TtsSynthesizeRequest request) {
         log.info("TTS synthesize request: textLength={}, configId={}", 
                 request.getText() != null ? request.getText().length() : 0, request.getConfigId());
         long start = System.currentTimeMillis();
@@ -47,8 +51,8 @@ public class TtsConfigController {
     }
 
     @PostMapping("/api/tts/synthesize/stream")
-    public SseEmitter synthesizeStream(@RequestBody TtsSynthesizeRequest request) {
-        log.info("TTS stream request: textLength={}, configId={}", 
+    public SseEmitter synthesizeStream(@Valid @RequestBody TtsSynthesizeRequest request) {
+        log.info("TTS stream request: textLength={}, configId={}",
                 request.getText() != null ? request.getText().length() : 0, request.getConfigId());
         long start = System.currentTimeMillis();
         SseEmitter emitter = new SseEmitter(300_000L);
@@ -60,15 +64,12 @@ public class TtsConfigController {
         });
         emitter.onError(e -> log.warn("TTS stream error: {}, elapsed={}ms", e.getMessage(), System.currentTimeMillis() - start));
 
-        sseExecutor.submit(() -> {
+        sseExecutor.execute(() -> {
             try {
                 ttsConfigService.synthesizeStream(request.getText(), request.getConfigId(), emitter);
             } catch (Exception e) {
                 log.error("TTS stream synthesis failed", e);
-                try {
-                    emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
-                } catch (Exception ignored) { }
-                emitter.completeWithError(e);
+                SseHelper.sendErrorAndComplete(emitter, e.getMessage());
             }
         });
 

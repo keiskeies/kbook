@@ -3,12 +3,16 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -16,7 +20,7 @@ import java.time.LocalDateTime;
 @Table(name = "book_trash", uniqueConstraints = {
         @UniqueConstraint(name = "uk_user_book_trash", columnNames = {"user_id", "book_id"})
 })
-public class BookTrash {
+public class BookTrash extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -34,5 +38,10 @@ public class BookTrash {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

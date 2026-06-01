@@ -1,5 +1,6 @@
 package com.kbook.common.exception;
 
+import com.kbook.common.api.ErrorCode;
 import com.kbook.common.api.Result;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +41,7 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public Result<?> handleBadCredentials(BadCredentialsException e, HttpServletResponse response) {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        return Result.fail(401, "用户名或密码错误");
+        return Result.fail(ErrorCode.UNAUTHORIZED, "用户名或密码错误");
     }
 
     /**
@@ -51,7 +52,7 @@ public class GlobalExceptionHandler {
     public Result<?> handleAccessDenied(AccessDeniedException e, HttpServletResponse response) {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         log.debug("访问被拒绝: {}", e.getMessage());
-        return Result.fail(403, "您没有权限访问此资源");
+        return Result.fail(ErrorCode.FORBIDDEN, "您没有权限访问此资源");
     }
 
     /**
@@ -60,15 +61,14 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(AuthorizationDeniedException.class)
     public Result<?> handleAuthorizationDenied(AuthorizationDeniedException e, HttpServletResponse response) {
-        // SSE 流式响应已提交时，过滤器链的后续检查会触发此异常，直接忽略
         if (response.isCommitted()) {
             log.debug("授权被拒绝（响应已提交，忽略）: {}", e.getMessage());
             return null;
         }
-        response.setStatus(403);
+        response.setStatus(HttpStatus.FORBIDDEN.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         log.debug("授权被拒绝: {}", e.getMessage());
-        return Result.fail(403, "您没有权限执行此操作");
+        return Result.fail(ErrorCode.FORBIDDEN, "您没有权限执行此操作");
     }
 
     /**
@@ -82,7 +82,7 @@ public class GlobalExceptionHandler {
                 .map(f -> f.getField() + ": " + f.getDefaultMessage())
                 .findFirst()
                 .orElse("参数校验失败");
-        return Result.fail(400, message);
+        return Result.fail(ErrorCode.PARAM_INVALID, message);
     }
 
     /**
@@ -96,17 +96,17 @@ public class GlobalExceptionHandler {
                 .map(f -> f.getField() + ": " + f.getDefaultMessage())
                 .findFirst()
                 .orElse("参数绑定失败");
-        return Result.fail(400, message);
+        return Result.fail(ErrorCode.PARAM_INVALID, message);
     }
 
     /**
-     * 兜底异常处理，捕获所有未处理的异常
+     * 兜底异常处理 — 记录完整堆栈，返回脱敏后的通用错误消息
      */
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<?> handleException(Exception e, HttpServletResponse response) {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         log.error("系统异常: ", e);
-        return Result.fail(500, "系统繁忙，请稍后重试");
+        return Result.fail(ErrorCode.SYSTEM_ERROR);
     }
 }

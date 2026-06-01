@@ -1,10 +1,12 @@
 package com.kbook.common.util;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * SSE 辅助工具 — 统一 SSE 错误处理和友好错误信息提取
  */
+@Slf4j
 public final class SseHelper {
 
     private SseHelper() {}
@@ -20,7 +22,9 @@ public final class SseHelper {
             emitter.send(SseEmitter.event().name("error").data(message));
             emitter.send(SseEmitter.event().name("done").data("[DONE]"));
             emitter.complete();
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.warn("SSE 发送错误事件失败（连接可能已关闭）: {}", e.getMessage());
+        }
     }
 
     /**
@@ -33,9 +37,7 @@ public final class SseHelper {
     public static String extractFriendlyError(Throwable e) {
         if (e == null) return "AI 响应异常，请稍后重试。";
         String msg = e.getMessage();
-        // 消息为空时返回默认提示
         if (msg == null) return "AI 响应异常，请稍后重试。";
-        // 根据异常消息中的关键字匹配常见错误场景
         if (msg.contains("not found")) return "AI 模型不存在，请管理员检查模型配置。";
         if (msg.contains("timed out") || msg.contains("Timeout")) return "AI 响应超时，请检查模型服务是否正常运行。";
         if (msg.contains("Connection refused") || msg.contains("connect")) return "无法连接到 AI 模型服务，请检查端点地址和网络。";
@@ -54,6 +56,8 @@ public final class SseHelper {
     public static void safeSendEvent(SseEmitter emitter, String eventName, String data) {
         try {
             emitter.send(SseEmitter.event().name(eventName).data(data));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.debug("SSE 发送事件 [{}] 失败（连接可能已关闭）: {}", eventName, e.getMessage());
+        }
     }
 }

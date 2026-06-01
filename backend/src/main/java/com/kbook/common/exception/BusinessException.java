@@ -1,32 +1,33 @@
 package com.kbook.common.exception;
 
+import com.kbook.common.api.ErrorCode;
 import lombok.Getter;
 
 /**
- * 业务异常
+ * 业务异常 — 携带语义化错误码。
+ * <p>
+ * 优先使用 {@link #BusinessException(ErrorCode, String)} 以保证错误码一致性。
  */
 @Getter
 public class BusinessException extends RuntimeException {
 
-    /** 业务错误码 */
     private final int code;
 
-    /**
-     * 使用默认错误码1构造业务异常
-     *
-     * @param message 错误消息
-     */
     public BusinessException(String message) {
         super(message);
-        this.code = 1;
+        this.code = ErrorCode.GENERIC_ERROR.code();
     }
 
-    /**
-     * 使用自定义错误码构造业务异常
-     *
-     * @param code    业务错误码
-     * @param message 错误消息
-     */
+    public BusinessException(ErrorCode errorCode) {
+        super(errorCode.defaultMessage());
+        this.code = errorCode.code();
+    }
+
+    public BusinessException(ErrorCode errorCode, String message) {
+        super(message);
+        this.code = errorCode.code();
+    }
+
     public BusinessException(int code, String message) {
         super(message);
         this.code = code;

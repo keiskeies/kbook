@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -21,7 +23,9 @@ import java.time.LocalDateTime;
  * - PREFERENCE：偏好加成参数（tag/author/format）
  * - OTHER：其他参数（max_same_author/mmr_lambda/explore_random_count）
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -29,7 +33,7 @@ import java.time.LocalDateTime;
 @Table(name = "recommend_coefficient", uniqueConstraints = {
         @UniqueConstraint(name = "uk_category_key", columnNames = {"category", "coeff_key"})
 })
-public class RecommendCoefficient {
+public class RecommendCoefficient extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -83,5 +87,10 @@ public class RecommendCoefficient {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

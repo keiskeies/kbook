@@ -39,13 +39,27 @@ public class Result<T> {
     }
 
     /**
-     * 失败响应（默认错误码1）
+     * 失败响应（默认错误码 1）
      *
      * @param message 错误消息
      * @return 失败结果
      */
     public static <T> Result<T> fail(String message) {
-        return new Result<>(1, message, null);
+        return new Result<>(ErrorCode.GENERIC_ERROR.code(), message, null);
+    }
+
+    /**
+     * 失败响应（使用预定义 ErrorCode）
+     */
+    public static <T> Result<T> fail(ErrorCode errorCode) {
+        return new Result<>(errorCode.code(), errorCode.defaultMessage(), null);
+    }
+
+    /**
+     * 失败响应（使用预定义 ErrorCode + 自定义消息）
+     */
+    public static <T> Result<T> fail(ErrorCode errorCode, String message) {
+        return new Result<>(errorCode.code(), message, null);
     }
 
     /**

@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -11,7 +13,9 @@ import java.time.LocalDateTime;
 /**
  * AI 对话记录实体
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -22,7 +26,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_conv_type", columnList = "type"),
         @Index(name = "idx_conv_book_id", columnList = "book_id")
 })
-public class AiConversation {
+public class AiConversation extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -102,5 +106,10 @@ public class AiConversation {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

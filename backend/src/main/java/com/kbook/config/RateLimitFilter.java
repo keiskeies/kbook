@@ -1,7 +1,10 @@
 package com.kbook.config;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
+import io.github.bucket4j.ConsumptionProbe;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,22 +17,31 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 限流过滤器 — 基于 Bucket4j 本地令牌桶
+ * 限流过滤器 — 基于 Bucket4j + Caffeine 本地令牌桶
  * <p>
  * 策略：
  * - 登录/注册：5 请求/分钟/IP
  * - AI 对话：10 请求/分钟/用户
  * - 搜索：20 请求/分钟/IP
+ * <p>
+ * 使用 Caffeine 缓存以避免无界 ConcurrentHashMap 导致的 OOM。
  */
 @Slf4j
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    /** 本地 Bucket 缓存 */
-    private final ConcurrentHashMap<String, Bucket> localBuckets = new ConcurrentHashMap<>();
+    /** 桶最大条目数（按 IP/用户维度） */
+    private static final int MAX_BUCKETS = 50_000;
+    /** 桶空闲过期时间 */
+    private static final Duration BUCKET_IDLE_TTL = Duration.ofMinutes(10);
+
+    /** 本地 Bucket 缓存（Caffeine，LRU + 读写过期） */
+    private final Cache<String, Bucket> localBuckets = Caffeine.newBuilder()
+            .maximumSize(MAX_BUCKETS)
+            .expireAfterAccess(BUCKET_IDLE_TTL)
+            .build();
 
     /**
      * 过滤器核心逻辑 — 根据请求路径和客户端标识进行令牌桶限流
@@ -40,7 +52,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         String clientIp = getClientIp(request);
 
-        // 登录/注册限流：5次/分钟/IP
         if (uri.startsWith("/api/auth/login") || uri.startsWith("/api/auth/register")) {
             if (!tryConsume("auth:" + clientIp, 5, Duration.ofMinutes(1))) {
                 sendTooManyRequests(response, "请求过于频繁，请1分钟后重试");
@@ -48,16 +59,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
             }
         }
 
-        // AI 对话限流：10次/分钟/用户
         if (uri.startsWith("/api/ai/")) {
-            String userId = request.getHeader("Authorization") != null ? request.getHeader("Authorization").hashCode() + "" : clientIp;
-            if (!tryConsume("ai:" + userId, 10, Duration.ofMinutes(1))) {
+            String userKey = resolveAiUserKey(request, clientIp);
+            if (!tryConsume("ai:" + userKey, 10, Duration.ofMinutes(1))) {
                 sendTooManyRequests(response, "AI 对话请求过于频繁，请稍后重试");
                 return;
             }
         }
 
-        // 搜索限流：20次/分钟/IP
         if (uri.startsWith("/api/books/search") || uri.startsWith("/api/books/suggest")) {
             if (!tryConsume("search:" + clientIp, 20, Duration.ofMinutes(1))) {
                 sendTooManyRequests(response, "搜索请求过于频繁，请稍后重试");
@@ -69,31 +78,37 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     /**
+     * 解析 AI 对话限流维度。
+     * 已认证请求使用 userId（来自 SecurityContext），匿名请求回退到 IP。
+     */
+    private String resolveAiUserKey(HttpServletRequest request, String clientIp) {
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof Long userId) {
+            return "u" + userId;
+        }
+        return "ip:" + clientIp;
+    }
+
+    /**
      * 尝试消费一个令牌
-     *
-     * @param key          限流标识（如 IP、用户 ID）
-     * @param capacity     令牌桶容量
-     * @param refillPeriod 令牌补充周期
-     * @return true-允许请求, false-被限流
      */
     private boolean tryConsume(String key, int capacity, Duration refillPeriod) {
-        Bucket bucket = localBuckets.computeIfAbsent(key, k -> {
+        Bucket bucket = localBuckets.get(key, k -> {
             Bandwidth bandwidth = Bandwidth.builder()
                     .capacity(capacity)
                     .refillIntervally(capacity, refillPeriod)
                     .build();
-            return Bucket.builder()
-                    .addLimit(bandwidth)
-                    .build();
+            return Bucket.builder().addLimit(bandwidth).build();
         });
-        return bucket.tryConsume(1);
+        if (bucket == null) {
+            return true;
+        }
+        ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
+        return probe.isConsumed();
     }
 
     /**
      * 发送 429 Too Many Requests 响应
-     *
-     * @param response HTTP 响应
-     * @param message  提示信息
      */
     private void sendTooManyRequests(HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
@@ -103,11 +118,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     /**
      * 获取客户端真实 IP 地址
-     * <p>
-     * 优先从反向代理头（X-Forwarded-For、X-Real-IP）获取，多级代理取第一个。
-     *
-     * @param request HTTP 请求
-     * @return 客户端 IP 地址
      */
     private String getClientIp(HttpServletRequest request) {
         String ip = request.getHeader("X-Forwarded-For");
@@ -117,7 +127,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (ip == null || ip.isBlank()) {
             ip = request.getRemoteAddr();
         }
-        // 多级代理取第一个
         if (ip.contains(",")) {
             ip = ip.split(",")[0].trim();
         }

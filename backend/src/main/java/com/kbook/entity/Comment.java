@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -12,7 +14,9 @@ import java.time.LocalDateTime;
  * 评论实体
  * 支持书籍评论和章节评论，支持嵌套回复
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -23,7 +27,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_comment_parent", columnList = "parent_id"),
         @Index(name = "idx_comment_book_chapter", columnList = "book_id,chapter_id")
 })
-public class Comment {
+public class Comment extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -84,5 +88,10 @@ public class Comment {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

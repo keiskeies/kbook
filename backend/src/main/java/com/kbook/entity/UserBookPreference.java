@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -12,7 +14,9 @@ import java.time.LocalDateTime;
  * 用户书籍偏好实体
  * 记录用户不喜欢的书籍标签/类型，推荐时排除
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -20,7 +24,7 @@ import java.time.LocalDateTime;
 @Table(name = "user_book_preference", uniqueConstraints = {
         @UniqueConstraint(name = "uk_user_category_value", columnNames = {"user_id", "category", "value"})
 })
-public class UserBookPreference {
+public class UserBookPreference extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -58,5 +62,10 @@ public class UserBookPreference {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

@@ -1,7 +1,9 @@
 package com.kbook.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
@@ -9,12 +11,14 @@ import java.time.LocalDateTime;
 /**
  * 图书预设问题表 — 存储 AI 为每本书生成的推荐提问
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Entity
 @Table(name = "book_suggested_questions", indexes = {
         @Index(name = "idx_book_id", columnList = "book_id")
 })
-public class BookSuggestedQuestion {
+public class BookSuggestedQuestion extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -33,4 +37,9 @@ public class BookSuggestedQuestion {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    @Override
+    public Long getId() {
+        return id;
+    }
 }

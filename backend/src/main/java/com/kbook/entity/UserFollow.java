@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -12,7 +14,9 @@ import java.time.LocalDateTime;
  * 用户关注关系实体
  * follower 关注 following
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -23,7 +27,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_follow_follower", columnList = "follower_id"),
         @Index(name = "idx_follow_following", columnList = "following_id")
 })
-public class UserFollow {
+public class UserFollow extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -46,5 +50,10 @@ public class UserFollow {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

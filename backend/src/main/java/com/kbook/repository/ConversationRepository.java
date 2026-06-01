@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -31,6 +32,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
      * 清零用户1的未读计数
      */
     @Modifying
+    @Transactional
     @Query("UPDATE Conversation c SET c.unreadCountUser1 = 0 WHERE c.id = :conversationId")
     void clearUnreadCountUser1(@Param("conversationId") Long conversationId);
 
@@ -38,6 +40,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
      * 清零用户2的未读计数
      */
     @Modifying
+    @Transactional
     @Query("UPDATE Conversation c SET c.unreadCountUser2 = 0 WHERE c.id = :conversationId")
     void clearUnreadCountUser2(@Param("conversationId") Long conversationId);
 
@@ -45,6 +48,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
      * 用户1软删除会话
      */
     @Modifying
+    @Transactional
     @Query("UPDATE Conversation c SET c.user1Deleted = true WHERE c.id = :conversationId")
     void deleteByUser1(@Param("conversationId") Long conversationId);
 
@@ -52,6 +56,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
      * 用户2软删除会话
      */
     @Modifying
+    @Transactional
     @Query("UPDATE Conversation c SET c.user2Deleted = true WHERE c.id = :conversationId")
     void deleteByUser2(@Param("conversationId") Long conversationId);
 

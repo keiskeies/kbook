@@ -3,9 +3,11 @@ package com.kbook.config;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.Assert;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -30,6 +32,21 @@ public class JwtUtil {
     /** Refresh Token 过期时间（毫秒） */
     @Value("${jwt.refresh-token-expiration}")
     private long refreshTokenExpiration;
+
+    /**
+     * 启动时校验 JWT 配置，避免运行时 NPE 或弱签名
+     */
+    @PostConstruct
+    void validateConfig() {
+        Assert.hasText(secret, "jwt.secret 未配置");
+        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
+        Assert.isTrue(keyBytes.length >= 32,
+                "jwt.secret 至少需要 32 字节（HS256 要求），当前长度: " + keyBytes.length);
+        Assert.isTrue(accessTokenExpiration > 0, "jwt.access-token-expiration 必须大于 0");
+        Assert.isTrue(refreshTokenExpiration > 0, "jwt.refresh-token-expiration 必须大于 0");
+        log.info("JWT 配置校验通过: keyLength={} bytes, accessTTL={}ms, refreshTTL={}ms",
+                keyBytes.length, accessTokenExpiration, refreshTokenExpiration);
+    }
 
     /**
      * 获取 HMAC 签名密钥

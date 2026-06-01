@@ -1,12 +1,14 @@
 package com.kbook.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.entity.RecommendCoefficient;
 import com.kbook.entity.RecommendFeedbackEvent;
 import com.kbook.repository.RecommendCoefficientRepository;
 import com.kbook.repository.RecommendFeedbackEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,7 +43,8 @@ public class RecommendCoefficientService {
 
     private final RecommendCoefficientRepository coefficientRepository;
     private final RecommendFeedbackEventRepository feedbackEventRepository;
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final StringRedisTemplate redisTemplate;
+    private final ObjectMapper objectMapper;
 
     private static final String REDIS_PREFIX = "kbook:recommend:coeff:";
     private static final String REDIS_ALL_KEY = "kbook:recommend:coeff:all";
@@ -188,10 +191,10 @@ public class RecommendCoefficientService {
             String key = rc.getCategory() + ":" + rc.getCoeffKey();
             coefficientCache.put(key, rc.getCoeffValue());
         }
-        // 更新 Redis 二级缓存
+        // 更新 Redis 二级缓存（使用 StringRedisTemplate + 手动 JSON 序列化，避免依赖 Jackson default typing）
         try {
-            redisTemplate.opsForValue().set(REDIS_ALL_KEY, new HashMap<>(coefficientCache),
-                    2, TimeUnit.HOURS);
+            String json = objectMapper.writeValueAsString(new HashMap<>(coefficientCache));
+            redisTemplate.opsForValue().set(REDIS_ALL_KEY, json, 2, TimeUnit.HOURS);
         } catch (Exception e) {
             log.debug("更新系数Redis缓存失败: {}", e.getMessage());
         }
@@ -211,11 +214,15 @@ public class RecommendCoefficientService {
 
         // 2. Redis
         try {
-            @SuppressWarnings("unchecked")
-            Map<String, Double> redisMap = (Map<String, Double>) redisTemplate.opsForValue().get(REDIS_ALL_KEY);
-            if (redisMap != null && redisMap.containsKey(cacheKey)) {
-                coefficientCache.put(cacheKey, redisMap.get(cacheKey));
-                return redisMap.get(cacheKey);
+            String json = redisTemplate.opsForValue().get(REDIS_ALL_KEY);
+            if (json != null) {
+                Map<String, Double> redisMap = objectMapper.readValue(json,
+                        new TypeReference<Map<String, Double>>() {});
+                Double v = redisMap.get(cacheKey);
+                if (v != null) {
+                    coefficientCache.put(cacheKey, v);
+                    return v;
+                }
             }
         } catch (Exception e) {
             log.debug("读取系数Redis缓存失败: {}", e.getMessage());

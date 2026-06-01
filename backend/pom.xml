@@ -178,6 +178,12 @@
             <version>8.10.1</version>
         </dependency>
 
+        <!-- Caffeine 本地缓存（限流桶 LRU + TTL） -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
         <!-- EPUB 解析 -->
         <dependency>
             <groupId>com.positiondev.epublib</groupId>

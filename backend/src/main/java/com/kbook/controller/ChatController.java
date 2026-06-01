@@ -8,6 +8,7 @@ import com.kbook.dto.response.ChatMessageVO;
 import com.kbook.dto.response.ConversationVO;
 import com.kbook.entity.ChatMessage;
 import com.kbook.service.ChatService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.FileSystemResource;
@@ -98,7 +99,7 @@ public class ChatController {
     @PostMapping("/messages")
     public Result<ConversationVO> sendMessage(
             Authentication authentication,
-            @RequestBody SendMessageRequest request) {
+            @Valid @RequestBody SendMessageRequest request) {
         Long userId = (Long) authentication.getPrincipal();
         ChatMessage.MessageType messageType = ChatMessage.MessageType.valueOf(request.getMessageType().toUpperCase());
 

@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -11,7 +13,9 @@ import java.time.LocalDateTime;
 /**
  * 评论收藏实体
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -19,7 +23,7 @@ import java.time.LocalDateTime;
 @Table(name = "comment_favorites", uniqueConstraints = {
         @UniqueConstraint(name = "uk_comment_favorite", columnNames = {"comment_id", "user_id"})
 })
-public class CommentFavorite {
+public class CommentFavorite extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -42,5 +46,10 @@ public class CommentFavorite {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

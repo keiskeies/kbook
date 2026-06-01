@@ -1,55 +1,59 @@
 package com.kbook.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- * 跨域配置 - 允许前端开发服务器跨域访问
+ * 跨域配置 — 通过 setAllowedOriginPatterns 允许通配符模式（可与 credentials 共存）。
+ * <p>
+ * 配置项：
+ * - kbook.cors.allowed-origin-patterns : 允许的 origin 模式列表（逗号分隔）
+ * <p>
+ * 生产环境务必显式配置为具体域名，例如：
+ * kbook.cors.allowed-origin-patterns=https://book.keiskei.top
  */
 @Configuration
 public class CorsConfig {
 
     /**
+     * 默认的 origin 模式列表 — 覆盖常见开发场景（任意 host/port）。
+     * 注意：使用 setAllowedOriginPatterns() 而非 setAllowedOrigins()，前者允许通配符与 credentials 并存。
+     */
+    private static final String DEFAULT_PATTERNS =
+            "http://*:*," +
+            "https://*:*," +
+            "http://*," +
+            "https://*";
+
+    /** 允许的 origin 模式（逗号分隔） */
+    @Value("${kbook.cors.allowed-origin-patterns:" + DEFAULT_PATTERNS + "}")
+    private String[] allowedOriginPatterns;
+
+    /**
      * 配置跨域过滤器
-     * <p>
-     * 允许所有来源、常用 HTTP 方法、所有请求头，支持携带凭证。
-     * 预检请求缓存 1 小时。
-     *
-     * @return CorsFilter 实例
      */
     @Bean
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // 允许的来源（生产环境应替换为具体域名）
-        config.setAllowedOriginPatterns(List.of(
-                "http://localhost:*",
-                "https://localhost:*",
-                "http://192.168.*.*:*",
-                "https://192.168.*.*:*",
-                "http://*:*",
-                "https://*:*",
-                "http://*",
-                "https://*"
-        ));
+        List<String> patterns = Arrays.stream(allowedOriginPatterns)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
+        config.setAllowedOriginPatterns(patterns);
 
-        // 允许的请求方法
-        config.setAllowedMethods(List.of(
-                "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"
-        ));
-
-        // 允许的请求头
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
-
-        // 允许携带凭证
         config.setAllowCredentials(true);
-
-        // 预检请求缓存时间
+        config.setExposedHeaders(List.of("Authorization", "Content-Disposition"));
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

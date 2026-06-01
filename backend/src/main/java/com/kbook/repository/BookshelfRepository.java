@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +34,7 @@ public interface BookshelfRepository extends JpaRepository<Bookshelf, Long> {
      * 从用户书架中移除指定图书
      */
     @Modifying
+    @Transactional
     void deleteByUserIdAndBookId(Long userId, Long bookId);
 
     /**

@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -12,7 +14,9 @@ import java.time.LocalDateTime;
  * 用户阅读历史实体
  * 记录所有阅读行为（包括书架外的），用于协同过滤和推荐计算
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -20,7 +24,7 @@ import java.time.LocalDateTime;
 @Table(name = "user_read_history", uniqueConstraints = {
         @UniqueConstraint(name = "uk_user_book_action", columnNames = {"user_id", "book_id", "action"})
 })
-public class UserReadHistory {
+public class UserReadHistory extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -56,5 +60,10 @@ public class UserReadHistory {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

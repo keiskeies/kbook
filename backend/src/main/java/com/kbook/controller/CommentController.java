@@ -9,6 +9,7 @@ import com.kbook.repository.BookRepository;
 import com.kbook.repository.UserRepository;
 import com.kbook.service.CommentService;
 import com.kbook.dto.CreateCommentRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -31,7 +32,7 @@ public class CommentController {
 
     /** 发表评论 */
     @PostMapping
-    public Result<CommentVO> createComment(Authentication auth, @RequestBody CreateCommentRequest req) {
+    public Result<CommentVO> createComment(Authentication auth, @Valid @RequestBody CreateCommentRequest req) {
         Long userId = (Long) auth.getPrincipal();
         CommentVO vo = commentService.createComment(userId, req.getBookId(), req.getChapterId(), req.getParentId(), req.getContent());
         fillUserInfo(List.of(vo));

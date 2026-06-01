@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -20,11 +22,13 @@ import java.time.LocalDateTime;
         @Index(name = "idx_conversation_user2", columnList = "user2_id"),
         @Index(name = "idx_conversation_updated", columnList = "updated_at")
 })
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Conversation {
+public class Conversation extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -72,4 +76,9 @@ public class Conversation {
     @Column(name = "user2_deleted", columnDefinition = "TINYINT(1) DEFAULT 0")
     @Builder.Default
     private Boolean user2Deleted = false;
+
+    @Override
+    public Long getId() {
+        return id;
+    }
 }

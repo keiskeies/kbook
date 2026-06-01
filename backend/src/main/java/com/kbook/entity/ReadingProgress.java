@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -14,7 +16,9 @@ import java.time.LocalDateTime;
  * - EPUB/TXT: progress = 已读字符数 / 总字符数 (0.0~1.0)
  * - PDF: progress = 当前页码 / 总页数 (0.0~1.0)
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -22,7 +26,7 @@ import java.time.LocalDateTime;
 @Table(name = "reading_progress", uniqueConstraints = {
         @UniqueConstraint(name = "uk_user_book", columnNames = {"user_id", "book_id"})
 })
-public class ReadingProgress {
+public class ReadingProgress extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -64,5 +68,10 @@ public class ReadingProgress {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

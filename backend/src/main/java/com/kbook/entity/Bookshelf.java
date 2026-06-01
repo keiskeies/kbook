@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -11,7 +13,9 @@ import java.time.LocalDateTime;
 /**
  * 用户书架实体
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -19,7 +23,7 @@ import java.time.LocalDateTime;
 @Table(name = "bookshelf", uniqueConstraints = {
         @UniqueConstraint(name = "uk_user_book_shelf", columnNames = {"user_id", "book_id"})
 })
-public class Bookshelf {
+public class Bookshelf extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -47,5 +51,10 @@ public class Bookshelf {
     @PrePersist
     protected void onCreate() {
         addedAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

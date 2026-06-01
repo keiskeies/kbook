@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -12,7 +14,9 @@ import java.time.LocalDateTime;
  * 系统通知实体
  * 类型：COMMENT_REPLY(评论被回复) / COMMENT_LIKED(评论被点赞) / COMMENT_FAVORITED(评论被收藏) / NEW_REVIEW(关注的人发书评)
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -21,7 +25,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_notif_user", columnList = "receiver_id"),
         @Index(name = "idx_notif_user_read", columnList = "receiver_id, is_read")
 })
-public class Notification {
+public class Notification extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -61,5 +65,10 @@ public class Notification {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

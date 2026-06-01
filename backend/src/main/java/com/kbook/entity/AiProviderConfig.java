@@ -4,7 +4,9 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
@@ -22,7 +24,9 @@ import java.time.LocalDateTime;
  * - OLLAMA: 本地/远程 Ollama 服务
  * - OPENAI: OpenAI 兼容 API（包括 DeepSeek、通义千问等兼容接口）
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -30,7 +34,7 @@ import java.time.LocalDateTime;
 @Table(name = "ai_provider_config", indexes = {
         @Index(name = "idx_purpose_enabled", columnList = "purpose, enabled")
 })
-public class AiProviderConfig {
+public class AiProviderConfig extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -134,5 +138,10 @@ public class AiProviderConfig {
         public Provider convertToEntityAttribute(String dbData) {
             return dbData == null ? null : Provider.valueOf(dbData.toUpperCase());
         }
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
@@ -19,11 +21,13 @@ import java.time.LocalDateTime;
         @Index(name = "idx_message_sender", columnList = "sender_id"),
         @Index(name = "idx_message_created", columnList = "created_at")
 })
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ChatMessage {
+public class ChatMessage extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -87,5 +91,10 @@ public class ChatMessage {
         VOICE,
         /** 文件消息 */
         FILE
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

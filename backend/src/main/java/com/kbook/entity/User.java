@@ -3,8 +3,10 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -13,7 +15,9 @@ import java.time.LocalDateTime;
  * 用户实体
  * 状态字段支持：PENDING(待审核) / APPROVED(已通过) / BANNED(封禁)
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -23,7 +27,7 @@ import java.time.LocalDateTime;
 }, indexes = {
         @Index(name = "idx_users_status", columnList = "status")
 })
-public class User {
+public class User extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -143,5 +147,10 @@ public class User {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }

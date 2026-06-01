@@ -3,7 +3,9 @@ package com.kbook.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
@@ -13,7 +15,9 @@ import java.time.LocalDateTime;
  * 上传文件实体
  * 记录用户上传的文件信息，用于聊天附件等场景
  */
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -22,7 +26,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_uploaded_file_filename", columnList = "filename"),
         @Index(name = "idx_uploaded_file_uploader", columnList = "uploader_id")
 })
-public class UploadedFile {
+public class UploadedFile extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -57,4 +61,9 @@ public class UploadedFile {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    @Override
+    public Long getId() {
+        return id;
+    }
 }

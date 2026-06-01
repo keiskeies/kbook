@@ -8,6 +8,7 @@ import com.kbook.dto.*;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.service.*;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -176,7 +177,7 @@ public class BookController {
      * 用户评分
      */
     @PostMapping("/{id}/rate")
-    public Result<Book> rateBook(@PathVariable Long id, @RequestBody RateRequest req,
+    public Result<Book> rateBook(@PathVariable Long id, @Valid @RequestBody RateRequest req,
                                  Authentication authentication) {
         Double rating = req.getRating();
         if (rating == null || rating < 1.0 || rating > 5.0) {

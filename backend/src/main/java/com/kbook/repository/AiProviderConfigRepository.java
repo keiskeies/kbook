@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +34,7 @@ public interface AiProviderConfigRepository extends JpaRepository<AiProviderConf
      * 将指定用途的其他配置的 isDefault 设为 false
      */
     @Modifying
+    @Transactional
     @Query("UPDATE AiProviderConfig c SET c.isDefault = false WHERE c.purpose = :purpose AND c.id <> :excludeId")
     void clearDefaultForPurpose(@Param("purpose") String purpose, @Param("excludeId") Long excludeId);
 
@@ -40,6 +42,7 @@ public interface AiProviderConfigRepository extends JpaRepository<AiProviderConf
      * 将指定用途的所有配置的 isDefault 设为 false
      */
     @Modifying
+    @Transactional
     @Query("UPDATE AiProviderConfig c SET c.isDefault = false WHERE c.purpose = :purpose")
     void clearAllDefaultsForPurpose(@Param("purpose") String purpose);
 }

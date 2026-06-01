@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 系统通知数据访问层
@@ -21,6 +22,7 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     /** 全部标记为已读 */
     @Modifying
+    @Transactional
     @Query("UPDATE Notification n SET n.isRead = true WHERE n.receiverId = :receiverId AND n.isRead = false")
     void markAllAsRead(@Param("receiverId") Long receiverId);
 }

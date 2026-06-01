@@ -4,12 +4,16 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -18,7 +22,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_tts_enabled", columnList = "enabled"),
         @Index(name = "idx_tts_type_provider", columnList = "tts_type, provider")
 })
-public class TtsConfig {
+public class TtsConfig extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -130,5 +134,10 @@ public class TtsConfig {
         public Provider convertToEntityAttribute(String dbData) {
             return dbData == null ? null : Provider.valueOf(dbData.toUpperCase());
         }
+    }
+
+    @Override
+    public Long getId() {
+        return id;
     }
 }
