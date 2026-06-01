@@ -50,6 +50,8 @@ public class AuthService {
     private static final String RATE_KEY_PREFIX = "verify:rate:";
     private static final String DAILY_KEY_PREFIX = "verify:daily:";
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
+    private static final String CODE_ATTEMPT_PREFIX = "verify:attempt:";
+    private static final int MAX_CODE_ATTEMPTS = 5;
 
     /**
      * 发送验证码
@@ -287,14 +289,28 @@ public class AuthService {
 
     void validateCode(String email, String code, String scene) {
         String codeKey = CODE_KEY_PREFIX + scene + ":" + email;
+        String attemptKey = CODE_ATTEMPT_PREFIX + scene + ":" + email;
+
+        String attemptCount = redisTemplate.opsForValue().get(attemptKey);
+        if (attemptCount != null && Integer.parseInt(attemptCount) >= MAX_CODE_ATTEMPTS) {
+            redisTemplate.delete(codeKey);
+            redisTemplate.delete(attemptKey);
+            throw new BusinessException("验证码错误次数过多，请重新获取");
+        }
+
         String storedCode = redisTemplate.opsForValue().get(codeKey);
         if (storedCode == null) {
             throw new BusinessException("验证码已过期，请重新获取");
         }
         if (!storedCode.equals(code)) {
+            Long count = redisTemplate.opsForValue().increment(attemptKey);
+            if (count != null && count == 1) {
+                redisTemplate.expire(attemptKey, verificationProps.getExpireMinutes(), TimeUnit.MINUTES);
+            }
             throw new BusinessException("验证码错误");
         }
         redisTemplate.delete(codeKey);
+        redisTemplate.delete(attemptKey);
     }
 
     private LoginResult generateLoginResult(User user) {

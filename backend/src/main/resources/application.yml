@@ -246,7 +246,7 @@ logging:
     root: INFO
     com.kbook: DEBUG
     org.hibernate.SQL: INFO
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.hibernate.type.descriptor.sql.BasicBinder: INFO
     # LangChain4j 内部日志（调试 AI 请求/响应/耗时）
     dev.langchain4j: DEBUG
     # Ollama HTTP 客户端日志（查看实际请求和响应内容）
