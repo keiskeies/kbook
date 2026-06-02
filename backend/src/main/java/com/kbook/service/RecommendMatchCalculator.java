@@ -60,32 +60,34 @@ public class RecommendMatchCalculator {
      * <p>
      * 权重设计原则：
      * <ul>
-     *   <li>核心画像维度（年龄、MBTI）权重较高（1.3~1.5）</li>
-     *   <li>中等画像维度（性别、婚姻、子女、职业）权重适中（1.0）</li>
-     *   <li>辅助画像维度（学历、创业、收入、意图、心情）权重较低（0.5~0.8）</li>
-     *   <li>图书评分作为客观质量信号，权重 0.6</li>
-     *   <li>衰减/惩罚系数统一为 0.4~0.5</li>
+     *   <li>核心画像维度（年龄 1.5、MBTI 1.3）权重较高，是匹配度的主驱动</li>
+     *   <li>中等画像维度（职业 1.0、性别 0.8、婚姻 0.8、子女 0.8、学历 0.8）</li>
+     *   <li>瞬时状态维度（意图 1.2、心情 1.2）权重适中，辅助信号不主导匹配</li>
+     *   <li>辅助画像维度（创业 0.6、收入 0.5）权重较低</li>
+     *   <li>图书评分（0.5）作为客观质量信号</li>
+     *   <li>衰减系数 0.4（邻近维度权重 = 主权重 × 0.4）</li>
+     *   <li>反向惩罚系数 0.3（二值维度的反向扣分比例）</li>
      * </ul>
      */
     enum MatchWeight {
         // ---- 主维度权重 ----
-        RATING("rating_weight", 0.3),                          // 图书评分：客观质量信号，0.6 权重让好书有适度加分
-        AGE("age_weight", 1.2),                                // 年龄：核心画像维度，不同年龄段阅读偏好差异大，权重最高
+        RATING("rating_weight", 0.5),                          // 图书评分：客观质量信号，适度权重让好书有加分
+        AGE("age_weight", 1.5),                                // 年龄：核心画像维度，不同年龄段阅读偏好差异大，权重最高
         GENDER("gender_weight", 0.8),                          // 性别：中等权重，配合反向惩罚（OPPOSITE_PENALTY）使用
         MARRIED("married_weight", 0.8),                        // 婚姻状态：中等权重，配合反向惩罚使用
         CHILDREN("children_weight", 0.8),                      // 子女年龄区间：中等权重，配合邻近衰减（CHILDREN_ADJACENT_DECAY）使用
-        MBTI("mbti_weight", 1.5),                              // MBTI 性格类型：较高权重，性格对阅读偏好影响显著
-        OCCUPATION("occupation_weight", 1.3),                  // 职业：中等权重，配合邻近衰减使用
-        EDUCATION("education_weight", 0.3),                    // 学历：较低权重，配合邻近衰减使用
-        ENTREPRENEURSHIP("entrepreneurship_weight", 0.9),      // 创业意向：较低权重，二值维度无邻近衰减
-        INCOME("income_weight", 0.3),                          // 收入区间：最低权重，配合邻近衰减使用
-        INTENT("intent_weight", 2.0),                          // 阅读意图（充电成长/共鸣陪伴/逃离放松/新鲜刺激/答案解惑）
-        MOOD("mood_weight", 2.0),                              // 心情（开心/平静/焦虑/低落/烦躁/疲惫）
+        MBTI("mbti_weight", 1.3),                              // MBTI 性格类型：较高权重，性格对阅读偏好影响显著
+        OCCUPATION("occupation_weight", 1.0),                  // 职业：中等权重，配合邻近衰减使用
+        EDUCATION("education_weight", 0.8),                    // 学历：中等权重，配合邻近衰减使用
+        ENTREPRENEURSHIP("entrepreneurship_weight", 0.6),      // 创业意向：辅助权重，二值维度无邻近衰减
+        INCOME("income_weight", 0.5),                          // 收入区间：辅助权重，配合邻近衰减使用
+        INTENT("intent_weight", 1.2),                          // 阅读意图：中等权重，瞬时状态辅助信号（充电成长/共鸣陪伴/逃离放松/新鲜刺激/答案解惑）
+        MOOD("mood_weight", 1.2),                              // 心情：中等权重，瞬时状态辅助信号（开心/平静/焦虑/低落/烦躁/疲惫）
 
         // ---- 衰减/惩罚系数 ----
         ADJACENT_DECAY("adjacent_decay", 0.4),                 // 邻近维度衰减系数：邻近维度的权重 = 主权重 × 此值
         CHILDREN_ADJACENT_DECAY("children_adjacent_decay", 0.4),// 子女区间专用衰减系数（与通用衰减分开配置）
-        OPPOSITE_PENALTY("opposite_penalty", 0.5),             // 反向维度惩罚系数：性别/婚姻/子女等二值维度的反向扣分比例
+        OPPOSITE_PENALTY("opposite_penalty", 0.3),             // 反向维度惩罚系数：性别/婚姻/子女等二值维度的反向扣分比例
         ;
 
         final String key;

@@ -515,9 +515,6 @@ public class RecommendService {
         return scoredBooks;
     }
 
-    private List<ScoredBook> computeScoredBooks(Long userId, String restartKey) {
-        return computeScoredBooksWithRestart(userId, restartKey);
-    }
 
     private void addExploreBooks(User user, Set<Long> excludeSet, List<ScoredBook> scoredBooks) {
         int exploreRandomCount = (int) coefficientService.getCoefficient("OTHER", "explore_random_count", 30);

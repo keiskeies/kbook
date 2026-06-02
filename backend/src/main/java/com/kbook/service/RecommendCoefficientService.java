@@ -84,20 +84,21 @@ public class RecommendCoefficientService {
             {"FRESHNESS", "bonus_min", 1.03, 1.00, 1.10, "新鲜度衰减后最小加成"},
 
             // --- 画像匹配参数 ---
+            {"MATCH", "rating_weight", 0.5, 0.2, 1.5, "图书评分匹配权重"},
             {"MATCH", "age_weight", 1.5, 1.0, 2.5, "年龄段匹配权重"},
+            {"MATCH", "gender_weight", 0.8, 0.3, 1.5, "性别匹配权重"},
+            {"MATCH", "married_weight", 0.8, 0.3, 1.5, "婚姻状态匹配权重"},
+            {"MATCH", "children_weight", 0.8, 0.3, 1.5, "子女年龄匹配权重"},
+            {"MATCH", "children_adjacent_decay", 0.40, 0.10, 0.70, "子女区间邻近衰减系数"},
             {"MATCH", "mbti_weight", 1.3, 0.8, 2.0, "MBTI 匹配权重"},
             {"MATCH", "occupation_weight", 1.0, 0.5, 1.5, "职业匹配权重"},
-            {"MATCH", "occupation_decay", 0.40, 0.10, 0.70, "相邻职业衰减系数"},
             {"MATCH", "education_weight", 0.8, 0.4, 1.2, "学历匹配权重"},
-            {"MATCH", "education_decay", 0.40, 0.10, 0.70, "相邻学历衰减系数"},
             {"MATCH", "entrepreneurship_weight", 0.6, 0.3, 1.0, "创业意向匹配权重"},
             {"MATCH", "income_weight", 0.5, 0.2, 0.8, "年收入匹配权重"},
-            {"MATCH", "income_decay", 0.40, 0.10, 0.70, "相邻收入衰减系数"},
+            {"MATCH", "intent_weight", 1.2, 0.3, 1.5, "阅读意图匹配权重"},
             {"MATCH", "mood_weight", 1.2, 0.3, 1.5, "心情状态匹配权重"},
-            {"MATCH", "mood_decay", 0.40, 0.10, 0.70, "相关心情衰减系数"},
-            {"MATCH", "adjacent_decay", 0.40, 0.10, 0.70, "相邻年龄段/MBTI 衰减系数"},
-            {"MATCH", "opposite_penalty", 0.30, 0.10, 0.50, "反面维度最大惩罚值"},
-            {"MATCH", "opposite_threshold", 0.70, 0.50, 0.90, "反面维度惩罚触发阈值"},
+            {"MATCH", "adjacent_decay", 0.40, 0.10, 0.70, "通用邻近维度衰减系数"},
+            {"MATCH", "opposite_penalty", 0.30, 0.10, 0.50, "反向维度惩罚系数"},
 
             // --- 覆盖度衰减参数 ---
             {"COVERAGE", "dim10", 1.00, 0.85, 1.00, "10维全填的置信度"},
