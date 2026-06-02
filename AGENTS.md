@@ -35,7 +35,7 @@ AI-native reading platform. React 19 frontend + Spring Boot 3.4 backend.
 - Redis password: `123456`, database `4`
 - ES: `http://localhost:9201` (no auth)
 - Qdrant: `localhost:6334` (gRPC)
-- AI: Ollama at `http://localhost:11434`, model `gemma3n:e4b`, embedding `qwen3-embedding:0.6b`
+- AI: Ollama at `http://localhost:11434`, model `gemma3n:e4b`, embedding `bge-m3:latest`
 - Book paths default to `G:/图书/{epub,pdf1,txt1}` — change for your machine
 - Admin default: `admin@kbook` / `admin123456` (injected by `DataInitializer`)
 

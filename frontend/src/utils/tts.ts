@@ -3,8 +3,8 @@ import type { TtsVoice } from '@/store/tts'
 import { synthesizeTts } from '@/api/adminTts'
 
 const PCM_SAMPLE_RATE = 24000
-const CHUNK_FIRST_MAX_LEN = 100
-const CHUNK_MAX_LEN = 300
+const CHUNK_FIRST_MAX_LEN = 50
+const CHUNK_MAX_LEN = 100
 const CHUNK_MIN_LEN = 50
 
 function getPauseMs(text: string): number {

@@ -184,7 +184,7 @@ kbook:
     vector-dimension: ${QDRANT_VECTOR_DIMENSION:1024}
     # RAG 内容分块大小（字符数）
     # 建议值：embedding 模型上下文越长 → 分块可越大；模型越小 → 分块应越小
-    # qwen3-embedding:0.6b (32K tokens) → 建议 512~800；qwen3-embedding:4b/8b → 建议 800~1200
+    # bge-m3:latest (32K tokens) → 建议 512~800；qwen3-embedding:4b/8b → 建议 800~1200
     chunk-size: ${QDRANT_CHUNK_SIZE:800}
     # RAG 内容分块重叠大小（字符数），建议为 chunk-size 的 15%~25%
     chunk-overlap: ${QDRANT_CHUNK_OVERLAP:200}
@@ -235,7 +235,7 @@ langchain4j:
     timeout: 600s
   embedding-model:
     base-url: ${AI_BASE_URL:http://localhost:11434}
-    model-name: ${AI_EMBEDDING_MODEL:qwen3-embedding:0.6b}
+    model-name: ${AI_EMBEDDING_MODEL:bge-m3:latest}
     timeout: 300s
 
 # ========================

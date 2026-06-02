@@ -212,6 +212,7 @@ interface SearchCache {
   query: string
   tag: string
   results: any[]
+  popularTags: string[]
   timestamp: number
 }
 
@@ -227,30 +228,35 @@ export default function SearchPage() {
 
   const urlKw = searchParams.get('keyword')
   const urlTag = searchParams.get('tag')
-  const initialKw = urlKw ? decodeURIComponent(urlKw) : ''
-  const initialTag = urlTag || ''
+  const hasUrlParams = !!(urlKw || urlTag)
 
-  const cacheMatch = isCacheValid && cached.query === initialKw && cached.tag === initialTag
+  const urlMatchCache = isCacheValid
+    && (urlKw ? decodeURIComponent(urlKw) : '') === cached.query
+    && (urlTag || '') === cached.tag
 
-  const [keyword, setKeyword] = useState(initialKw || '')
-  const [tag, setTag] = useState<string>(() => initialTag || searchParams.get('tag') || '')
-  const [results, setResults] = useState<any[]>(() => cacheMatch ? cached.results : [])
-  const [loading, setLoading] = useState(() => cacheMatch ? false : false)
-  const [searched, setSearched] = useState(() => cacheMatch ? true : false)
+  const useCache = isCacheValid && (!hasUrlParams || urlMatchCache)
+
+  const [keyword, setKeyword] = useState(() => useCache ? cached.query : (urlKw ? decodeURIComponent(urlKw) : ''))
+  const [tag, setTag] = useState<string>(() => useCache ? cached.tag : (urlTag || ''))
+  const [results, setResults] = useState<any[]>(() => useCache ? cached.results : [])
+  const [loading, setLoading] = useState(false)
+  const [searched, setSearched] = useState(() => useCache)
   const [suggests, setSuggests] = useState<string[]>([])
   const [showSuggest, setShowSuggest] = useState(false)
-  const [popularTags, setPopularTags] = useState<string[]>([])
+  const [popularTags, setPopularTags] = useState<string[]>(() => useCache ? cached.popularTags : [])
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { handleScroll } = useScrollRestore(scrollRef)
   const [searchTriggerKey, setSearchTriggerKey] = useState(0)
 
-  // 从 URL 参数自动搜索（如从首页热门标签跳转 / AI 对话点击书名）
   useEffect(() => {
+    if (!useCache || popularTags.length === 0) {
+      loadPopularTags()
+    }
+    if (useCache) return
     const kw = searchParams.get('keyword')
     const t = searchParams.get('tag')
-    if (cacheMatch) return
     if (kw) {
       const decoded = decodeURIComponent(kw)
       setKeyword(decoded)
@@ -258,7 +264,6 @@ export default function SearchPage() {
     } else if (t) {
       doSearch('', t)
     }
-    loadPopularTags()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -272,7 +277,11 @@ export default function SearchPage() {
       if (res.ok) {
         const json = await res.json()
         const tags = json?.data || []
-        setPopularTags(tags.map((c: any) => c.name))
+        const tagNames = tags.map((c: any) => c.name)
+        setPopularTags(tagNames)
+        if (isCacheValid) {
+          savePageData(CACHE_KEY, { ...cached, popularTags: tagNames })
+        }
       }
     } catch { /* ignore */ }
   }
@@ -293,7 +302,7 @@ export default function SearchPage() {
       })
       const list = (res as any)?.list || []
       setResults(list)
-      savePageData(CACHE_KEY, { query: kw, tag: t, results: list, timestamp: Date.now() })
+      savePageData(CACHE_KEY, { query: kw, tag: t, results: list, popularTags, timestamp: Date.now() })
     } catch {
       setResults([])
     } finally {

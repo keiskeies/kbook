@@ -260,7 +260,8 @@ public class BookChatService {
                 int ragTopK = Optional.ofNullable(aiProviderConfigService.getActiveRagTopK())
                         .orElse(qdrantProperties.getRagTopK());
                 int ragMaxChars = getRagMaxChars();
-                String ragContext = retrieveRagContext(book, question, ragTopK, ragMaxChars);
+                String lastAiAnswer = getLastAiAnswer(userId, finalSessionId);
+                String ragContext = retrieveRagContext(book, question, ragTopK, ragMaxChars, lastAiAnswer);
                 log.debug("RAG 检索结果长度: {}", ragContext.length());
 
                 try {
@@ -523,7 +524,7 @@ public class BookChatService {
      * @param topK     返回的最大结果数
      * @return 拼接后的 RAG 上下文文本
      */
-    private String retrieveRagContext(Book book, String question, int topK, int maxChars) {
+    private String retrieveRagContext(Book book, String question, int topK, int maxChars, String lastAiAnswer) {
         if (!embeddingService.isAvailable()) {
             log.debug("Embedding 不可用，跳过 RAG 检索");
             return "";
@@ -531,14 +532,16 @@ public class BookChatService {
 
         try {
 
-            List<String> subQueries = decomposeQuery(question);
+            List<String> subQueries = decomposeQuery(book, question, lastAiAnswer);
             Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
             int rawCount = 0, rawChars = 0;
+            // 优化策略：多查询检索 + 相邻片段合并 + 关键词重排序 + 自适应 topK
+            int maxResult = Math.min(topK, !subQueries.isEmpty() ? topK / subQueries.size() * 2 : topK);
 
             for (String subQuery : subQueries) {
                 try {
                     List<EmbeddingMatch<TextSegment>> matches =
-                            embeddingService.searchContent(subQuery, topK, book);
+                            embeddingService.searchContent(subQuery, maxResult, book);
                     for (EmbeddingMatch<TextSegment> match : matches) {
                         String chunkText = match.embedded() != null ? match.embedded().text() : "";
                         if (chunkText.isBlank()) continue;
@@ -561,6 +564,17 @@ public class BookChatService {
 
             if (allMatches.isEmpty()) {
                 log.debug("RAG 检索无结果: bookId={}, question={}", book.getId(), question.substring(0, Math.min(30, question.length())));
+                ragHitStatisticsService.recordMiss(book.getId());
+                return "";
+            }
+
+            double topScore = allMatches.stream()
+                    .mapToDouble(EmbeddingMatch::score)
+                    .max()
+                    .orElse(0.0);
+            if (topScore < 0.1) {
+                log.warn("[RAG质量门控] 最高score={} < 0.1, 结果为噪声, 丢弃: bookId={}, question={}",
+                        String.format("%.4f", topScore), book.getId(), question.substring(0, Math.min(30, question.length())));
                 ragHitStatisticsService.recordMiss(book.getId());
                 return "";
             }
@@ -613,9 +627,74 @@ public class BookChatService {
         }
     }
 
-    private List<String> decomposeQuery(String question) {
-        // 使用 LLM 生成查询改写
-        return embeddingService.generateQueryRewrites(question, "这是一个关于书籍内容的 RAG 查询，需要搜索相关的书籍内容段落");
+    private String getLastAiAnswer(Long userId, String sessionId) {
+        try {
+            List<AiConversation> history = conversationRepository
+                    .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+            for (int i = history.size() - 1; i >= 0; i--) {
+                if ("assistant".equals(history.get(i).getRole())) {
+                    return history.get(i).getCompressedContent();
+                }
+            }
+        } catch (Exception e) {
+            log.debug("获取上次AI回答失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private List<String> decomposeQuery(Book book, String question, String lastAiAnswer) {
+        List<String> queries = new ArrayList<>();
+        queries.add(question);
+
+        try {
+            StringBuilder contextBuilder = new StringBuilder();
+            contextBuilder.append("书名：《").append(book.getTitle()).append("》\n");
+            if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
+                contextBuilder.append("作者：").append(book.getAuthor()).append("\n");
+            }
+            if (lastAiAnswer != null && !lastAiAnswer.isBlank()) {
+                String truncated = lastAiAnswer.length() > 500
+                        ? lastAiAnswer.substring(0, 500) + "..."
+                        : lastAiAnswer;
+                contextBuilder.append("上轮AI回答摘要：").append(truncated).append("\n");
+            }
+
+            String prompt = String.format("""
+                    你是一个向量检索查询生成器。根据以下上下文，为用户的问题生成2个精准的向量搜索查询。
+                    
+                    上下文：
+                    %s
+                    
+                    用户问题：%s
+                    
+                    要求：
+                    1. 理解用户问题的真实意图，特别是代词指代（如"上面""这些""那个"等）要结合上下文解析
+                    2. 每个查询应该是一个独立的搜索关键词或短句，用于在书籍内容中做语义检索
+                    3. 如果用户追问上轮回答中的具体内容，查询应指向该内容在书中的出处
+                    4. 不要简单改写原问题，要从不同角度切入以提高召回率
+                    5. 每行输出一个查询，不带序号、引号或额外文字
+                    """, contextBuilder.toString().trim(), question);
+
+            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
+
+            if (response != null && response.aiMessage() != null && response.aiMessage().text() != null) {
+                String[] lines = response.aiMessage().text().split("\n");
+                for (String line : lines) {
+                    line = line.trim();
+                    if (!line.isBlank() && !line.equals(question)) {
+                        queries.add(line);
+                        if (queries.size() >= 3) break;
+                    }
+                }
+            }
+
+            log.debug("[RAG查询扩展] 原始: {} → 扩展后: {}", question, queries);
+        } catch (Exception e) {
+            log.warn("[RAG查询扩展] 失败，使用原始查询: {}", e.getMessage());
+        }
+
+        return queries;
     }
 
     private double keywordRelevanceBonus(EmbeddingMatch<TextSegment> match, String question) {

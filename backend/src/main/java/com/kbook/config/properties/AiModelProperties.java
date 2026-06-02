@@ -48,7 +48,7 @@ public class AiModelProperties {
         /** Ollama 服务地址 */
         private String baseUrl = "http://localhost:11434";
         /** 嵌入模型名称 */
-        private String modelName = "qwen3-embedding:0.6b";
+        private String modelName = "bge-m3:latest";
         /** 请求超时时间 */
         private Duration timeout = Duration.ofSeconds(300);
     }
