@@ -45,12 +45,18 @@ public class AiModelProperties {
     /** 嵌入模型配置 */
     @Data
     public static class EmbeddingModelConfig {
-        /** Ollama 服务地址 */
+        /** 提供商类型：OLLAMA（默认）或 OPENAI */
+        private AiProviderConfig.Provider provider = AiProviderConfig.Provider.OLLAMA;
+        /** 服务地址（Ollama 默认 localhost:11434，OpenAI 兼容 API 填对应地址） */
         private String baseUrl = "http://localhost:11434";
         /** 嵌入模型名称 */
         private String modelName = "bge-m3:latest";
+        /** API Key（OpenAI 兼容 API 需要；Ollama 可留空） */
+        private String apiKey;
         /** 请求超时时间 */
         private Duration timeout = Duration.ofSeconds(300);
+        /** embedding 并发数（批量入库时并行发送 API 请求的线程数，默认 3） */
+        private int concurrency = 3;
     }
 
     @Data

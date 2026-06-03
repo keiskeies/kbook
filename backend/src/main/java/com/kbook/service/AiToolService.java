@@ -35,6 +35,7 @@ public class AiToolService {
 
     private final BookService bookService;
     private final BookshelfService bookshelfService;
+    private final ChatModelManager chatModelManager;
     private final EmbeddingService embeddingService;
     private final UserBookPreferenceService preferenceService;
     private final RecommendService recommendService;
@@ -44,6 +45,7 @@ public class AiToolService {
     public AiToolService(
             BookService bookService,
             BookshelfService bookshelfService,
+            ChatModelManager chatModelManager,
             @Lazy EmbeddingService embeddingService,
             UserBookPreferenceService preferenceService,
             @Lazy RecommendService recommendService,
@@ -52,6 +54,7 @@ public class AiToolService {
     ) {
         this.bookService = bookService;
         this.bookshelfService = bookshelfService;
+        this.chatModelManager = chatModelManager;
         this.embeddingService = embeddingService;
         this.preferenceService = preferenceService;
         this.recommendService = recommendService;
@@ -681,7 +684,7 @@ public class AiToolService {
 
     private List<String> expandRecommendQueries(String needDescription) {
         // 使用 LLM 生成查询改写，用于书籍推荐
-        return embeddingService.generateQueryRewrites(needDescription, "这是一个用户想要寻找的书籍推荐查询，需要搜索相关的书籍");
+        return chatModelManager.generateQueryRewrites(needDescription, "这是一个用户想要寻找的书籍推荐查询，需要搜索相关的书籍");
     }
 
     private double qualityBoost(Book book) {

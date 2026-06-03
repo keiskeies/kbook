@@ -1,6 +1,6 @@
 package com.kbook.service;
 
-import com.kbook.config.ChatModelFactory;
+
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
@@ -9,6 +9,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
 import lombok.extern.slf4j.Slf4j;
+import com.kbook.config.ChatModelFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

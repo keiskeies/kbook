@@ -5,21 +5,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
+import com.kbook.config.annotation.RedisLock;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.Book;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import com.kbook.config.annotation.LogAction;
-import com.kbook.config.annotation.LogModule;
-import com.kbook.config.annotation.RedisLock;
-import java.util.concurrent.TimeUnit;
 import nl.siegmann.epublib.domain.MediaType;
 import nl.siegmann.epublib.domain.TOCReference;
 import nl.siegmann.epublib.epub.EpubReader;
@@ -51,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -76,7 +74,8 @@ import java.util.zip.ZipOutputStream;
 @RequiredArgsConstructor
 public class BookParserService {
 
-    private final ChatModelFactory chatModelFactory; // AI模型工厂（yml配置）
+    private final ChatModelFactory chatModelFactory;
+    private final ChatModelManager chatModelManager;
     private final BookService bookService; // 书籍服务
     private final UserService userService; // 用户服务
     private final EmbeddingService embeddingService; // 嵌入向量服务
@@ -442,9 +441,9 @@ public class BookParserService {
     }
 
     /**
-         * 内部类：用于返回提取的图片数据和类型
-         */
-        private record CoverExtractionResult(byte[] data, MediaType mediaType) {
+     * 内部类：用于返回提取的图片数据和类型
+     */
+    private record CoverExtractionResult(byte[] data, MediaType mediaType) {
     }
 
     /**
@@ -642,23 +641,6 @@ public class BookParserService {
     private static final Pattern BARE_AMPERSAND_PATTERN = Pattern.compile("&(?!((?:#\\d+|#x[\\da-fA-F]+|\\w+);))");
 
     /**
-     * 清理 AI 输出中的 ```json / ``` 代码块标记
-     */
-    private static String stripCodeFence(String text) {
-        if (text == null) return null;
-        String result = text.trim();
-        if (result.startsWith("```json")) {
-            result = result.substring(7);
-        } else if (result.startsWith("```")) {
-            result = result.substring(3);
-        }
-        if (result.endsWith("```")) {
-            result = result.substring(0, result.length() - 3);
-        }
-        return result.trim();
-    }
-
-    /**
      * 修复 EPUB 中 XML/XHTML 文件内未声明的 HTML 实体及裸 &
      */
     private InputStream fixEpubEntities(Path filePath) throws IOException {
@@ -744,7 +726,7 @@ public class BookParserService {
             // 6. 文字型 PDF 缺失作者时，或始终用大模型生成更完整简介
             /* 始终用AI生成更完整的简介 */
             if (!isScanned) {
-                inferMetadataFromContent(book, firstPagesText); // 从内容推断元数据
+                chatModelManager.inferMetadataFromContent(book, firstPagesText); // 从内容推断元数据
             }
 
             // 7. 构建 AI 标签生成的内容
@@ -850,7 +832,7 @@ public class BookParserService {
             ChatResponse response = chatModel.chat(List.of(systemMessage, userMessage));
             String result = response.aiMessage().text();
 
-            result = stripCodeFence(result);
+            result = CommonUtils.stripCodeFence(result);
 
             // 解析 JSON 结果
             if (result != null && !result.isBlank()) {
@@ -1003,54 +985,9 @@ public class BookParserService {
 
             // TXT 没有结构化元数据，用大模型从前2000字推断作者和简介
             // 简介始终生成（AI基于正文生成更完整），作者仅在缺失时推断
-            inferMetadataFromContent(book, preview); // 从内容推断元数据
+            chatModelManager.inferMetadataFromContent(book, preview); // 从内容推断元数据
         } catch (Exception e) {
             log.warn("TXT 解析失败: {} - {}", book.getTitle(), e.getMessage());
-        }
-    }
-
-    /**
-     * 使用大模型从文本内容推断书名/作者/简介
-     * 适用于 TXT 和 PDF 文字型（元数据缺失时）
-     */
-    private void inferMetadataFromContent(Book book, String content) {
-        ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
-        if (chatModel == null) return;
-
-        try {
-            String prompt = "根据以下书籍内容，推断并提取以下信息，以JSON格式返回：\n" +
-                    "- author: 作者名（如果内容中能看出来，否则填 null）\n" +
-                    "- description: 简短的内容简介（50-200字，概括书籍主题和内容，如果内容中自带简介则提取原简介）\n" +
-                    "只返回JSON，不要其他文字。\n\n" +
-                    "书籍内容：\n" + CommonUtils.truncateText(content, 2000);
-
-            ChatResponse response = chatModel.chat(List.of(
-                    SystemMessage.from(AiPromptConstants.BOOK_INFO_EXTRACT_SYSTEM_PROMPT),
-                    UserMessage.from(prompt)
-            ));
-
-            String result = stripCodeFence(response.aiMessage().text());
-            if (result != null) {
-                var node = objectMapper.readTree(result);
-
-                if ((book.getAuthor() == null || book.getAuthor().isBlank())
-                        && node.has("author") && !node.get("author").isNull()) {
-                    String author = node.get("author").asText().trim();
-                    if (!author.isBlank() && !"null".equalsIgnoreCase(author)) {
-                        book.setAuthor(author);
-                    }
-                }
-
-                // 简介（始终覆盖，AI生成的更完整）
-                if (node.has("description") && !node.get("description").isNull()) {
-                    String desc = node.get("description").asText().trim();
-                    if (!desc.isBlank() && !"null".equalsIgnoreCase(desc)) {
-                        book.setDescription(desc);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("从内容推断元数据失败: {} - {}", book.getTitle(), e.getMessage());
         }
     }
 
@@ -1680,41 +1617,21 @@ public class BookParserService {
      * 一次 LLM 调用同时生成标签、评分、8维度相关度得分
      */
     private CombinedAiResult callAiCombined(String content) {
+        String rawResult = chatModelManager.callAi(AI_OP_COMBINED,
+                String.format("输入: %s", content.replaceAll("\\n", " ").substring(0, Math.min(100, content.length()))),
+                AiPromptConstants.COMBINED_PROMPT, content);
+        if (rawResult == null) return null;
+
         try {
-            log.info("========== AI 合并请求（标签+评分+相关度） ==========");
-            log.info("callAiCombined 输入内容: {}", content.replaceAll("\\n", " "));
-
-            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinking();
-            if (chatModel == null) {
-                log.debug("无可用的 AI 模型，跳过合并生成");
-                return null;
-            }
-
-            long startTime = System.currentTimeMillis();
-            ChatResponse response = chatModel.chat(List.of(
-                    SystemMessage.from(AiPromptConstants.COMBINED_PROMPT),
-                    UserMessage.from(content)
-            ));
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            String rawResult = response.aiMessage().text();
-            if (rawResult == null || rawResult.isBlank()) {
-                log.warn("AI 合并调用返回空结果");
-                log.info("====================================\n");
-                return null;
-            }
-
             // 提取 JSON 部分
             rawResult = rawResult.trim();
             int jsonStart = rawResult.indexOf('{');
             int jsonEnd = rawResult.lastIndexOf('}');
             if (jsonStart < 0 || jsonEnd <= jsonStart) {
                 log.warn("AI 合并调用返回内容无有效JSON: {}", rawResult);
-                log.info("====================================\n");
                 return null;
             }
             String jsonStr = rawResult.substring(jsonStart, jsonEnd + 1);
-            log.info("AI 合并调用返回结果: {}", jsonStr);
 
             // 解析 JSON
             JsonNode root = objectMapper.readTree(jsonStr);
@@ -1746,7 +1663,6 @@ public class BookParserService {
             String relevanceScoresJson = null;
             if (root.has("relevance") && !root.get("relevance").isNull()) {
                 JsonNode relevanceNode = root.get("relevance");
-                // 验证是对象格式
                 if (relevanceNode.isObject()) {
                     relevanceScoresJson = objectMapper.writeValueAsString(relevanceNode);
                 }
@@ -1761,14 +1677,6 @@ public class BookParserService {
                 }
             }
 
-            // 记录 AI 调用日志
-            int inputTokens = CommonUtils.estimateTokens(content);
-            int outputTokens = CommonUtils.estimateTokens(rawResult);
-            CommonUtils.logAiCall(AI_OP_COMBINED, elapsed, inputTokens, outputTokens,
-                    String.format("标签: %s | 评分: %s | 相关度: %s | 简介: %s",
-                            tags, rating, relevanceScoresJson != null ? "已生成" : "无",
-                            description != null ? "已生成(" + description.length() + "字)" : "无"));
-
             // 至少有一项结果才算成功
             if (tags == null && rating == null && relevanceScoresJson == null && description == null) {
                 return null;
@@ -1777,7 +1685,7 @@ public class BookParserService {
             return new CombinedAiResult(tags, rating, relevanceScoresJson, description);
 
         } catch (Exception e) {
-            log.warn("AI 合并调用失败: {}", e.getMessage());
+            log.warn("AI 合并调用结果解析失败: {}", e.getMessage());
             return null;
         }
     }
@@ -1821,179 +1729,12 @@ public class BookParserService {
         }
     }
 
-    @LogAction("生成速读摘要")
     public com.kbook.dto.BookSpeedReadVO generateSpeedRead(Book book) {
-        return generateSpeedRead(book, null);
+        return chatModelManager.generateSpeedRead(book);
     }
 
-    @LogAction("生成速读摘要")
     public com.kbook.dto.BookSpeedReadVO generateSpeedRead(Book book, com.kbook.entity.User user) {
-        try {
-            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
-            if (chatModel == null) {
-                log.warn("AI 模型未配置，无法生成速读摘要: bookId={}", book.getId());
-                return null;
-            }
-
-            String bookContent = buildSpeedReadContent(book);
-
-            // 构建用户画像描述
-            String userProfileDesc = buildUserProfileDesc(user);
-
-            String prompt;
-            if (!userProfileDesc.isBlank()) {
-                prompt = """
-                        你是一位资深阅读顾问。请基于以下书籍信息，为特定读者生成一份「3分钟速读」摘要。
-                        
-                        【读者画像】
-                        %s
-                        
-                        【书籍信息】
-                        %s
-                        
-                        请严格按照以下JSON格式输出（不要输出其他内容）：
-                        {
-                          "corePoints": ["核心观点1", "核心观点2", "核心观点3"],
-                          "suitableFor": ["适合人群1", "适合人群2"],
-                          "notSuitableFor": ["不适合人群1", "不适合人群2"],
-                          "takeaways": ["读完能收获什么1", "读完能收获什么2"],
-                          "difficulty": "入门/中等/进阶"
-                        }
-                        
-                        要求：
-                        - corePoints: 3个最核心的观点或主题，每个不超过30字。请结合读者画像，突出与其最相关的内容。
-                        - suitableFor: 2-3类最适合阅读的人群描述，请特别说明为什么适合这位读者（如果匹配的话）。
-                        - notSuitableFor: 2-3类不适合阅读的人群描述。
-                        - takeaways: 2-3个读完能获得的具体收获，请结合读者的职业和人生阶段给出个性化收获。
-                        - difficulty: 根据内容深度和读者的背景判断阅读难度。
-                        """.formatted(userProfileDesc, bookContent);
-            } else {
-                prompt = """
-                        你是一位资深阅读顾问。请基于以下书籍信息，生成一份「3分钟速读」摘要，帮助读者快速判断这本书是否值得阅读。
-                        
-                        %s
-                        
-                        请严格按照以下JSON格式输出（不要输出其他内容）：
-                        {
-                          "corePoints": ["核心观点1", "核心观点2", "核心观点3"],
-                          "suitableFor": ["适合人群1", "适合人群2"],
-                          "notSuitableFor": ["不适合人群1", "不适合人群2"],
-                          "takeaways": ["读完能收获什么1", "读完能收获什么2"],
-                          "difficulty": "入门/中等/进阶"
-                        }
-                        
-                        要求：
-                        - corePoints: 3个最核心的观点或主题，每个不超过30字
-                        - suitableFor: 2-3类最适合阅读的人群描述
-                        - notSuitableFor: 2-3类不适合阅读的人群描述
-                        - takeaways: 2-3个读完能获得的具体收获
-                        - difficulty: 根据内容深度判断阅读难度
-                        """.formatted(bookContent);
-            }
-
-            long startTime = System.currentTimeMillis();
-            ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            String aiText = stripCodeFence(response.aiMessage().text());
-            if (aiText == null || aiText.isBlank()) {
-                log.warn("AI 速读摘要为空: bookId={}", book.getId());
-                return null;
-            }
-
-            com.kbook.dto.BookSpeedReadVO vo = objectMapper.readValue(aiText, com.kbook.dto.BookSpeedReadVO.class);
-            vo.setBookId(book.getId());
-            vo.setRawContent(aiText);
-
-            int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
-                    ? response.tokenUsage().inputTokenCount() : 0;
-            int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
-                    ? response.tokenUsage().outputTokenCount() : 0;
-
-            CommonUtils.logAiCall("3分钟速读", elapsed, inputTokens, outputTokens,
-                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
-
-            return vo;
-        } catch (Exception e) {
-            log.warn("生成速读摘要失败: bookId={} - {}", book.getId(), e.getMessage());
-            return null;
-        }
-    }
-
-    private String buildSpeedReadContent(Book book) {
-        StringBuilder contentBuilder = new StringBuilder();
-        contentBuilder.append("书名：《").append(book.getTitle()).append("》\n");
-        if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
-            contentBuilder.append("作者：").append(book.getAuthor()).append("\n");
-        }
-        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
-            String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
-            contentBuilder.append("标签：").append(tags).append("\n");
-        }
-        if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            contentBuilder.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 2000)).append("\n");
-        }
-
-        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-            contentBuilder.append("章节摘要：\n").append(CommonUtils.truncateText(book.getChapterSummary(), MAX_CONTENT_FOR_AI)).append("\n");
-        } else if (book.getToc() != null && !book.getToc().isBlank()) {
-            contentBuilder.append("目录：\n").append(CommonUtils.truncateText(book.getToc(), 1500)).append("\n");
-        }
-        return contentBuilder.toString();
-    }
-
-    private String buildUserProfileDesc(com.kbook.entity.User user) {
-        if (user == null) return "";
-        StringBuilder profileBuilder = new StringBuilder();
-        if (user.getBirthday() != null) {
-            int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
-            profileBuilder.append("年龄：").append(age).append("岁\n");
-        }
-        if (user.getGender() != null) {
-            profileBuilder.append("性别：").append(switch (user.getGender()) {
-                case "MALE" -> "男";
-                case "FEMALE" -> "女";
-                default -> "其他";
-            }).append("\n");
-        }
-        if (user.getMarried() != null) {
-            profileBuilder.append("婚姻：").append(user.getMarried() ? "已婚" : "未婚").append("\n");
-        }
-        if (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank()) {
-            String labels = java.util.Arrays.stream(user.getChildrenAgeRanges().split(","))
-                    .map(String::trim)
-                    .map(RecommendMatchCalculator::getChildRangeLabel)
-                    .collect(java.util.stream.Collectors.joining("、"));
-            profileBuilder.append("子女年龄段：").append(labels).append("\n");
-        } else if (user.getHasChildren() != null) {
-            profileBuilder.append("子女：").append(user.getHasChildren() ? "有孩子" : "无孩子").append("\n");
-        }
-        if (user.getMbti() != null) {
-            profileBuilder.append("MBTI：").append(user.getMbti()).append("\n");
-        }
-        if (user.getOccupation() != null && !user.getOccupation().isBlank()) {
-            profileBuilder.append("职业：").append(RecommendMatchCalculator.getOccupationLabel(user.getOccupation())).append("\n");
-        }
-        if (user.getAspirationEducation() != null) {
-            profileBuilder.append("期望学历：").append(RecommendMatchCalculator.getEducationLabel(user.getAspirationEducation())).append("\n");
-        }
-        if (user.getEntrepreneurship() != null) {
-            profileBuilder.append("创业意向：").append(RecommendMatchCalculator.getEntrepreneurshipLabel(user.getEntrepreneurship())).append("\n");
-        }
-        if (user.getAspirationIncome() != null) {
-            profileBuilder.append("期望年收入：").append(RecommendMatchCalculator.getAnnualIncomeLabel(user.getAspirationIncome())).append("\n");
-        }
-        if (user.getMood() != null && !user.getMood().isBlank()) {
-            String moodRaw = user.getMood();
-            int pipeIdx = moodRaw.indexOf('|');
-            if (pipeIdx > 0) {
-                String intentKey = moodRaw.substring(0, pipeIdx);
-                String moodKey = moodRaw.substring(pipeIdx + 1);
-                profileBuilder.append("阅读意图：").append(RecommendMatchCalculator.getIntentLabel(intentKey)).append("\n");
-                profileBuilder.append("当前心情：").append(RecommendMatchCalculator.getMoodLabel(moodKey)).append("\n");
-            }
-        }
-        return profileBuilder.toString();
+        return chatModelManager.generateSpeedRead(book, user);
     }
 
     @LogAction("流式生成速读摘要")
@@ -2016,147 +1757,7 @@ public class BookParserService {
         }
 
         com.kbook.entity.User finalUser = user;
-        sseExecutor.execute(() -> doStreamSpeedRead(book, finalUser, emitter));
+        sseExecutor.execute(() -> chatModelManager.streamSpeedRead(book, finalUser, emitter));
         return emitter;
-    }
-
-    private void doStreamSpeedRead(Book book, com.kbook.entity.User user, SseEmitter emitter) {
-        try {
-            StreamingChatModel streamingChatModel = chatModelFactory.buildStreamingChatModelWithoutThinkingFromYml();
-            if (streamingChatModel == null) {
-                SseHelper.sendErrorAndComplete(emitter, "AI 模型未配置，无法生成速读摘要");
-                return;
-            }
-
-            String bookContent = buildSpeedReadContent(book);
-            String userProfileDesc = buildUserProfileDesc(user);
-
-            String prompt;
-            if (!userProfileDesc.isBlank()) {
-                prompt = """
-                        你是一位资深阅读顾问。请基于以下书籍信息，为特定读者生成一份「3分钟速读」摘要。
-                        
-                        【读者画像】
-                        %s
-                        
-                        【书籍信息】
-                        %s
-                        
-                        请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行：
-                        
-                        ### 核心观点
-                        xxxxx
-                        xxxxx
-                        xxxxx
-                        
-                        ### 适合谁读
-                        xxxxx
-                        xxxxx
-                        xxxxx
-                        
-                        ### 不适合谁读
-                        xxxxx
-                        xxxxx
-                        xxxxx
-                        
-                        ### 读完能收获什么
-                        xxxxx
-                        xxxxx
-                        xxxxx
-                        
-                        ### 难度
-                        入门/中等/进阶
-                        
-                        要求：
-                        - 核心观点: 3个最核心的观点或主题，每个不超过30字。请结合读者画像，突出与其最相关的内容。
-                        - 适合谁读: 2-3类最适合阅读的人群描述，请特别说明为什么适合这位读者（如果匹配的话）。
-                        - 不适合谁读: 2-3类不适合阅读的人群描述。
-                        - 读完能收获什么: 2-3个读完能获得的具体收获，请结合读者的职业和人生阶段给出个性化收获。
-                        - 难度: 根据内容深度和读者的背景判断阅读难度，只输出"入门"、"中等"或"进阶"。
-                        - 不要输出任何其他内容，不要使用Markdown加粗或列表符号。
-                        - 每个标题占一行，标题下的每条内容各占一行
-                        """.formatted(userProfileDesc, bookContent);
-            } else {
-                prompt = """
-                        你是一位资深阅读顾问。请基于以下书籍信息，生成一份「3分钟速读」摘要，帮助读者快速判断这本书是否值得阅读。
-                        
-                        %s
-                        
-                        请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行：
-                        
-                        ### 核心观点
-                        xxxxx
-                        xxxxx
-                        xxxxx
-                        
-                        ### 适合谁读
-                        xxxxx
-                        xxxxx
-                        xxxxx
-                        
-                        ### 不适合谁读
-                        xxxxx
-                        xxxxx
-                        xxxxx
-                        
-                        ### 读完能收获什么
-                        xxxxx
-                        xxxxx
-                        xxxxx
-                        
-                        ### 难度
-                        入门/中等/进阶
-                        
-                        要求：
-                        - 核心观点: 3个最核心的观点或主题，每个不超过30字
-                        - 适合谁读: 2-3类最适合阅读的人群描述
-                        - 不适合谁读: 2-3类不适合阅读的人群描述
-                        - 读完能收获什么: 2-3个读完能获得的具体收获
-                        - 难度: 根据内容深度判断阅读难度，只输出"入门"、"中等"或"进阶"
-                        - 不要输出任何其他内容，不要使用Markdown加粗或列表符号。
-                        - 每个标题占一行，标题下的每条内容各占一行
-                        """.formatted(bookContent);
-            }
-
-            long startTime = System.currentTimeMillis();
-
-            streamingChatModel.chat(
-                    List.of(UserMessage.from(prompt)),
-                    new StreamingChatResponseHandler() {
-                        @Override
-                        public void onPartialResponse(String partialResponse) {
-                            if (partialResponse != null && !partialResponse.isEmpty()) {
-                                SseHelper.safeSendEvent(emitter, "message", partialResponse);
-                            }
-                        }
-
-                        @Override
-                        public void onCompleteResponse(ChatResponse completeResponse) {
-                            long elapsed = System.currentTimeMillis() - startTime;
-                            int inputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
-                                    ? completeResponse.tokenUsage().inputTokenCount() : 0;
-                            int outputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
-                                    ? completeResponse.tokenUsage().outputTokenCount() : 0;
-                            CommonUtils.logAiCall("3分钟速读(流式)", elapsed, inputTokens, outputTokens,
-                                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
-
-                            try {
-                                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                                emitter.complete();
-                            } catch (Exception ignored) {
-                            }
-                        }
-
-                        @Override
-                        public void onError(Throwable error) {
-                            log.warn("流式速读摘要失败: bookId={} - {}", book.getId(), error.getMessage());
-                            SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(error));
-                        }
-                    }
-            );
-        } catch (Exception e) {
-            log.warn("流式速读摘要异常: bookId={} - {}", book.getId(), e.getMessage());
-            SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
-        }
     }
 }

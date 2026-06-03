@@ -26,7 +26,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.qdrant.client.ConditionFactory.match;
 import static io.qdrant.client.PointIdFactory.id;
@@ -129,14 +130,14 @@ public class EmbeddingService {
      * 初始化 Embedding 模型
      */
     private void initEmbeddingModel() {
-        log.info("开始初始化 Embedding 模型: baseUrl={}, embeddingModel={}",
-                chatModelFactory.getDefaultBaseUrl(),
-                chatModelFactory.getClass().getSimpleName());
+        log.info("开始初始化 Embedding 模型: baseUrl={}, model={}",
+                chatModelFactory.getEmbeddingBaseUrl(),
+                chatModelFactory.getEmbeddingModelName());
 
         embeddingModel = chatModelFactory.buildDefaultEmbeddingModel();
 
         // 记录当前模型标识（baseUrl + embeddingModelName），用于向量一致性校验
-        String embeddingBaseUrl = chatModelFactory.getDefaultBaseUrl();
+        String embeddingBaseUrl = chatModelFactory.getEmbeddingBaseUrl();
         String embeddingModelName = chatModelFactory.getEmbeddingModelName();
         currentEmbeddingModelName = embeddingBaseUrl + "/" + embeddingModelName;
         log.info("Embedding 模型标识: {}", currentEmbeddingModelName);
@@ -152,7 +153,7 @@ public class EmbeddingService {
                     embeddingModel = null;
                 }
             } catch (Exception e) {
-                log.error("Embedding 模型初始化验证失败（调用 Ollama 失败）: {}", e.getMessage(), e);
+                log.error("Embedding 模型初始化验证失败: {}", e.getMessage(), e);
                 embeddingModel = null;
             }
         } else {
@@ -584,6 +585,8 @@ public class EmbeddingService {
 
     /**
      * 为图书生成 RAG 内容向量（返回 chunk 数量）
+     * <p>
+     * 使用线程池并行处理多个 batch，大幅提升 embedding 生成速度。
      */
     public int generateContentEmbeddingWithCount(Long bookId, String content) {
         try {
@@ -600,101 +603,135 @@ public class EmbeddingService {
 
             long startTime = System.currentTimeMillis();
 
-            // 分块
             List<String> chunks = splitContent(content);
             log.info("书籍内容分块: bookId={}, totalChars={}, chunks={}", bookId, content.length(), chunks.size());
 
-            // 先删除该书已有的旧内容向量，确保幂等
             removeContentEmbedding(bookId);
 
-            // 批量生成 embedding 并写入
             int totalChunks = chunks.size();
-            int processed = 0;
+            int concurrency = chatModelFactory.getEmbeddingConcurrency();
+            log.info("内容向量生成: bookId={}, chunks={}, concurrency={}", bookId, totalChunks, concurrency);
+
+            ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+            AtomicInteger processed = new AtomicInteger(0);
+            List<Future<Integer>> futures = new ArrayList<>();
 
             for (int batchStart = 0; batchStart < totalChunks; batchStart += EMBED_BATCH_SIZE) {
                 int batchEnd = Math.min(batchStart + EMBED_BATCH_SIZE, totalChunks);
                 List<String> batchChunks = chunks.subList(batchStart, batchEnd);
+                final int start = batchStart;
 
-                try {
-                    List<TextSegment> segments = new ArrayList<>(batchChunks.size());
-                    for (int i = 0; i < batchChunks.size(); i++) {
-                        int globalIndex = batchStart + i;
-                        segments.add(TextSegment.from(batchChunks.get(i),
-                                new Metadata().put("bookId", bookId)
-                                        .put("chunkIndex", globalIndex)
-                                        .put("totalChunks", totalChunks)
-                                        .put("embeddingModel", currentEmbeddingModelName)));
-                    }
-
-                    List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
-
-                    List<float[]> vectors = new ArrayList<>(embeddings.size());
-                    List<Map<String, io.qdrant.client.grpc.JsonWithInt.Value>> payloads = new ArrayList<>(embeddings.size());
-
-                    for (int i = 0; i < embeddings.size(); i++) {
-                        float[] vec = embeddings.get(i).vector();
-                        double vNorm = vectorNorm(vec);
-                        if (vNorm < 0.001) {
-                            log.warn("chunkIndex={} 的 embedding 为零向量，跳过: bookId={}", batchStart + i, bookId);
-                            continue;
-                        }
-                        vectors.add(vec);
-                        payloads.add(buildQdrantPayload(segments.get(i)));
-                    }
-
-                    if (!vectors.isEmpty()) {
-                        directBatchUpsertPoints(qdrantProps.getContentCollection(), vectors, payloads);
-                    }
-
-                    processed += batchChunks.size();
-                    if (processed % 100 == 0 || processed == totalChunks) {
+                futures.add(executor.submit(() -> {
+                    int count = processContentBatch(bookId, batchChunks, start, totalChunks);
+                    int done = processed.addAndGet(count);
+                    if (done % 100 == 0 || done >= totalChunks) {
                         long elapsed = System.currentTimeMillis() - startTime;
-                        log.info("内容向量生成进度: bookId={}, {}/{}, elapsed={}ms", bookId, processed, totalChunks, elapsed);
+                        log.info("内容向量生成进度: bookId={}, {}/{}, elapsed={}ms",
+                                bookId, done, totalChunks, elapsed);
                     }
+                    return count;
+                }));
+            }
+
+            executor.shutdown();
+            executor.awaitTermination(1, TimeUnit.HOURS);
+
+            int totalProcessed = 0;
+            for (Future<Integer> f : futures) {
+                try {
+                    totalProcessed += f.get();
                 } catch (Exception e) {
-                    log.warn("批量embed失败，回退逐条处理: bookId={}, batch={}-{} - {}",
-                            bookId, batchStart, batchEnd, e.getMessage());
-                    List<float[]> fallbackVectors = new ArrayList<>();
-                    List<Map<String, io.qdrant.client.grpc.JsonWithInt.Value>> fallbackPayloads = new ArrayList<>();
-                    for (int i = 0; i < batchChunks.size(); i++) {
-                        try {
-                            int globalIndex = batchStart + i;
-                            TextSegment segment = TextSegment.from(batchChunks.get(i),
-                                    new Metadata().put("bookId", bookId)
-                                            .put("chunkIndex", globalIndex)
-                                            .put("totalChunks", totalChunks)
-                                            .put("embeddingModel", currentEmbeddingModelName));
-                            Embedding embedding = embeddingModel.embed(segment).content();
-
-                            float[] vec = embedding.vector();
-                            double vNorm = vectorNorm(vec);
-                            if (vNorm < 0.001) {
-                                log.warn("chunkIndex={} 零向量，跳过: bookId={}", globalIndex, bookId);
-                                continue;
-                            }
-                            fallbackPayloads.add(buildQdrantPayload(segment));
-                            fallbackVectors.add(vec);
-
-                            if (fallbackVectors.size() >= EMBED_BATCH_SIZE || i == batchChunks.size() - 1) {
-                                directBatchUpsertPoints(qdrantProps.getContentCollection(), fallbackVectors, fallbackPayloads);
-                                processed += fallbackVectors.size();
-                                fallbackVectors.clear();
-                                fallbackPayloads.clear();
-                            }
-                        } catch (Exception ex) {
-                            log.warn("逐条embed失败: bookId={}, index={} - {}", bookId, batchStart + i, ex.getMessage());
-                        }
-                    }
+                    log.warn("批次处理失败: {}", e.getMessage());
                 }
             }
 
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("书籍内容向量生成完成: bookId={}, chunks={}, elapsed={}ms", bookId, processed, elapsed);
+            log.info("书籍内容向量生成完成: bookId={}, chunks={}, elapsed={}ms",
+                    bookId, totalProcessed, elapsed);
 
-            return processed;
+            return totalProcessed;
         } catch (Exception e) {
             log.error("书籍内容向量生成失败: bookId={} - {}", bookId, e.getMessage());
             return 0;
+        }
+    }
+
+    /**
+     * 处理单个 batch 的 embedding 生成与入库（含失败回退）
+     */
+    private int processContentBatch(Long bookId, List<String> batchChunks, int batchStart, int totalChunks) {
+        try {
+            // 构建 TextSegment
+            List<TextSegment> segments = new ArrayList<>(batchChunks.size());
+            for (int i = 0; i < batchChunks.size(); i++) {
+                int globalIndex = batchStart + i;
+                segments.add(TextSegment.from(batchChunks.get(i),
+                        new Metadata().put("bookId", bookId)
+                                .put("chunkIndex", globalIndex)
+                                .put("totalChunks", totalChunks)
+                                .put("embeddingModel", currentEmbeddingModelName)));
+            }
+
+            // 批量 embed
+            List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
+
+            List<float[]> vectors = new ArrayList<>(embeddings.size());
+            List<Map<String, JsonWithInt.Value>> payloads = new ArrayList<>(embeddings.size());
+
+            for (int i = 0; i < embeddings.size(); i++) {
+                float[] vec = embeddings.get(i).vector();
+                double vNorm = vectorNorm(vec);
+                if (vNorm < 0.001) {
+                    log.warn("chunkIndex={} 零向量，跳过: bookId={}", batchStart + i, bookId);
+                    continue;
+                }
+                vectors.add(vec);
+                payloads.add(buildQdrantPayload(segments.get(i)));
+            }
+
+            if (!vectors.isEmpty()) {
+                directBatchUpsertPoints(qdrantProps.getContentCollection(), vectors, payloads);
+            }
+
+            return vectors.size();
+        } catch (Exception e) {
+            log.warn("批量embed失败，回退逐条处理: bookId={}, batch={}-{} - {}",
+                    bookId, batchStart, batchStart + batchChunks.size() - 1, e.getMessage());
+
+            int fallbackCount = 0;
+            List<float[]> fallbackVectors = new ArrayList<>();
+            List<Map<String, JsonWithInt.Value>> fallbackPayloads = new ArrayList<>();
+
+            for (int i = 0; i < batchChunks.size(); i++) {
+                try {
+                    int globalIndex = batchStart + i;
+                    TextSegment segment = TextSegment.from(batchChunks.get(i),
+                            new Metadata().put("bookId", bookId)
+                                    .put("chunkIndex", globalIndex)
+                                    .put("totalChunks", totalChunks)
+                                    .put("embeddingModel", currentEmbeddingModelName));
+                    Embedding embedding = embeddingModel.embed(segment).content();
+
+                    float[] vec = embedding.vector();
+                    double vNorm = vectorNorm(vec);
+                    if (vNorm < 0.001) {
+                        log.warn("chunkIndex={} 零向量，跳过: bookId={}", globalIndex, bookId);
+                        continue;
+                    }
+                    fallbackPayloads.add(buildQdrantPayload(segment));
+                    fallbackVectors.add(vec);
+
+                    if (fallbackVectors.size() >= EMBED_BATCH_SIZE || i == batchChunks.size() - 1) {
+                        directBatchUpsertPoints(qdrantProps.getContentCollection(), fallbackVectors, fallbackPayloads);
+                        fallbackCount += fallbackVectors.size();
+                        fallbackVectors.clear();
+                        fallbackPayloads.clear();
+                    }
+                } catch (Exception ex) {
+                    log.warn("逐条embed失败: bookId={}, index={} - {}", bookId, batchStart + i, ex.getMessage());
+                }
+            }
+            return fallbackCount;
         }
     }
 
@@ -1088,68 +1125,6 @@ public class EmbeddingService {
         } catch (Exception e) {
             return query;
         }
-    }
-
-    /**
-     * 使用 LLM 生成查询改写（Multi-Query Retrieval）
-     *
-     * @param query   原始查询
-     * @param context 上下文提示（比如用于区分 RAG 场景和书籍推荐场景）
-     * @return 改写后的查询列表，包含原始查询
-     */
-    public List<String> generateQueryRewrites(String query, String context) {
-        List<String> rewrites = new ArrayList<>();
-        rewrites.add(query);
-
-        try {
-            long startTime = System.currentTimeMillis();
-            var model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
-            String prompt = String.format("""
-                    请为以下用户查询生成 2 个语义相似的改写版本，用于向量检索召回。
-                    
-                    要求：
-                    1. 不改变查询的核心意图。
-                    2. 从不同角度表达同一问题（如同义词替换、句式变换、问法侧重不同）。
-                    3. 改写要自然，像真实用户会问的问题。
-                    4. 每行输出一个改写版本，不带序号、不带引号、不输出任何额外文字（如“好的”“以下是”等）。
-                    
-                    %s
-                    
-                    用户查询：%s
-                    """, context, query);
-
-            ChatResponse response = model.chat(List.of(UserMessage.from(prompt)));
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            int parsedCount = 0;
-            if (response != null && response.aiMessage() != null && response.aiMessage().text() != null) {
-                String[] lines = response.aiMessage().text().split("\n");
-                for (String line : lines) {
-                    line = line.trim();
-                    if (!line.isBlank() && !line.equals(query)) {
-                        rewrites.add(line);
-                        parsedCount++;
-                        if (rewrites.size() >= 3) break;
-                    }
-                }
-            }
-
-            int inputTokens = 0;
-            int outputTokens = 0;
-            if (response != null) {
-                inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
-                        ? response.tokenUsage().inputTokenCount() : 0;
-                outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
-                        ? response.tokenUsage().outputTokenCount() : 0;
-            }
-            CommonUtils.logAiCall("查询改写", elapsed, inputTokens, outputTokens,
-                    String.format("query=%s, rewrites=%d", query.substring(0, Math.min(30, query.length())), parsedCount));
-            log.debug("LLM 向量检索相似改写结果: {} -> {}", query, rewrites);
-        } catch (Exception e) {
-            log.warn("LLM 查询改写失败，使用原始查询: {}", e.getMessage());
-        }
-
-        return rewrites;
     }
 
     private String extractDomainContext(Book book) {

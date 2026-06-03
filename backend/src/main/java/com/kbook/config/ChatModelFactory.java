@@ -15,6 +15,7 @@ import dev.langchain4j.model.ollama.OllamaChatModel;
 import dev.langchain4j.model.ollama.OllamaEmbeddingModel;
 import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -257,15 +258,38 @@ public class ChatModelFactory {
     }
 
     /**
+     * 构建 OpenAI 兼容的嵌入模型。
+     * <p>
+     * 用于生成文本向量表示，支持 OpenAI 兼容 API（如 Gitee AI、DeepSeek 等）。
+     *
+     * @param baseUrl   API 服务地址
+     * @param modelName 嵌入模型名称
+     * @param apiKey    API Key
+     * @param timeout   请求超时时间，如果为 null 则使用默认 300 秒
+     * @return 嵌入模型实例
+     */
+    public EmbeddingModel buildOpenAiEmbeddingModel(String baseUrl, String modelName, String apiKey, Duration timeout) {
+        var builder = OpenAiEmbeddingModel.builder()
+                .baseUrl(baseUrl).modelName(modelName)
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(300));
+        builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
+        return builder.build();
+    }
+
+    /**
      * 构建默认的嵌入模型。
      * <p>
-     * 从 yml 配置中读取嵌入模型参数并构建模型。
+     * 从 yml 配置中读取嵌入模型参数，根据 provider 类型构建 Ollama 或 OpenAI 兼容模型。
      *
      * @return 嵌入模型实例
      */
     public EmbeddingModel buildDefaultEmbeddingModel() {
         AiModelProperties.EmbeddingModelConfig emb = aiProps.getEmbeddingModel();
-        return buildOllamaEmbeddingModel(emb.getBaseUrl(), emb.getModelName(), emb.getTimeout());
+        log.info("构建 EmbeddingModel: provider={}, baseUrl={}, model={}",
+                emb.getProvider(), emb.getBaseUrl(), emb.getModelName());
+        return emb.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? buildOpenAiEmbeddingModel(emb.getBaseUrl(), emb.getModelName(), emb.getApiKey(), emb.getTimeout())
+                : buildOllamaEmbeddingModel(emb.getBaseUrl(), emb.getModelName(), emb.getTimeout());
     }
 
     /**
@@ -308,6 +332,17 @@ public class ChatModelFactory {
     }
 
     /**
+     * 获取嵌入模型的服务基础地址。
+     * <p>
+     * 从 yml 配置的嵌入模型中读取。
+     *
+     * @return 嵌入模型的基础 URL
+     */
+    public String getEmbeddingBaseUrl() {
+        return aiProps.getEmbeddingModel().getBaseUrl();
+    }
+
+    /**
      * 获取当前配置的聊天模型名称。
      * <p>
      * 从 yml 配置的聊天模型中读取。
@@ -327,6 +362,17 @@ public class ChatModelFactory {
      */
     public String getEmbeddingModelName() {
         return aiProps.getEmbeddingModel().getModelName();
+    }
+
+    /**
+     * 获取 embedding 并发数。
+     * <p>
+     * 从 yml 配置的嵌入模型中读取，用于控制批量入库时的并行请求数。
+     *
+     * @return 并发线程数
+     */
+    public int getEmbeddingConcurrency() {
+        return aiProps.getEmbeddingModel().getConcurrency();
     }
 
     // ======================== 内部：维度组合器 ========================

@@ -1,15 +1,11 @@
 package com.kbook.service;
 
-import com.kbook.common.util.CommonUtils;
-import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.AiConversation;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -17,8 +13,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Function;
 
 /**
  * LangChain4j ChatMemory 存储实现
@@ -52,16 +48,16 @@ public class AiChatMemory implements ChatMemoryStore {
     private final AiSessionRepository sessionRepository;
     private final AiConversationRepository conversationRepository;
     private final ObjectProvider<AiProviderConfigService> providerConfigServiceProvider;
-    private final ChatModelFactory chatModelFactory;
+    private final ChatModelManager chatModelManager;
 
     public AiChatMemory(AiSessionRepository sessionRepository,
                         AiConversationRepository conversationRepository,
                         ObjectProvider<AiProviderConfigService> providerConfigServiceProvider,
-                        ChatModelFactory chatModelFactory) {
+                        ChatModelManager chatModelManager) {
         this.sessionRepository = sessionRepository;
         this.conversationRepository = conversationRepository;
         this.providerConfigServiceProvider = providerConfigServiceProvider;
-        this.chatModelFactory = chatModelFactory;
+        this.chatModelManager = chatModelManager;
     }
 
     /**
@@ -163,7 +159,7 @@ public class AiChatMemory implements ChatMemoryStore {
                 }
 
                 String original = target.getContent();
-                String summary = compressContent(original);
+                String summary = chatModelManager.compressContent(original);
                 if (summary == null) {
                     log.warn("压缩失败(跳过): sessionId={}, convId={}", sessionId, target.getId());
                     break;
@@ -185,36 +181,4 @@ public class AiChatMemory implements ChatMemoryStore {
         }
     }
 
-    /**
-     * 将 AI 回复压缩到 200 字以内
-     */
-    private String compressContent(String original) {
-        if (original == null || original.length() <= 200) return original;
-        try {
-            long startTime = System.currentTimeMillis();
-            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
-            if (chatModel == null) return null;
-
-            String prompt = String.format(
-                    "将以下内容压缩到200字以内，保留核心观点和信息：\n\n%s", original);
-            ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
-                    ? response.tokenUsage().inputTokenCount() : 0;
-            int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
-                    ? response.tokenUsage().outputTokenCount() : 0;
-
-            String compressed = response.aiMessage().text();
-            if (compressed != null && !compressed.isBlank()) {
-                compressed = compressed.trim();
-                CommonUtils.logAiCall("历史压缩", elapsed, inputTokens, outputTokens,
-                        String.format("%d→%d chars", original.length(), compressed.length()));
-                return compressed;
-            }
-        } catch (Exception e) {
-            log.warn("调用AI压缩内容失败: {}", e.getMessage());
-        }
-        return null;
-    }
 }

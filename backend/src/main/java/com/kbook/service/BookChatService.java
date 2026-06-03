@@ -19,7 +19,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
@@ -58,6 +57,7 @@ public class BookChatService {
     private final BookParserService bookParserService;
     private final AiProviderConfigService aiProviderConfigService;
     private final ChatModelFactory chatModelFactory;
+    private final ChatModelManager chatModelManager;
     private final AiConversationRepository conversationRepository;
     private final AiSessionRepository sessionRepository;
     private final BookSuggestedQuestionRepository suggestedQuestionRepository;
@@ -125,20 +125,6 @@ public class BookChatService {
     }
 
     /**
-     * 解析 AI 生成的文本为问题列表（按行分割，去除序号）
-     */
-    private List<String> parseQuestions(String text) {
-        return Arrays.stream(text.split("\n"))
-                .map(String::trim)
-                .filter(line -> !line.isEmpty())
-                .map(line -> line.replaceAll("^\\d+[.、)\\s]*", "").trim())
-                .filter(line -> line.length() > 2)
-                .distinct()
-                .limit(20)
-                .collect(Collectors.toList());
-    }
-
-    /**
      * 从问题池中随机选取最多6个问题
      */
     private List<String> getRandomQuestions(List<String> questions) {
@@ -200,7 +186,9 @@ public class BookChatService {
                     while (!done && System.currentTimeMillis() < deadline) {
                         Boolean result = bookParserService.ensureContentEmbedded(bookId);
                         if (result == null) {
-                            try { Thread.sleep(2000); } catch (InterruptedException e) {
+                            try {
+                                Thread.sleep(2000);
+                            } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
                                 break;
                             }
@@ -256,31 +244,30 @@ public class BookChatService {
                         new StreamingChatResponseHandler() {
                             @Override
                             public void onPartialThinking(dev.langchain4j.model.chat.response.PartialThinking partialThinking) {
+                                if (Thread.currentThread().isInterrupted()) return;
                                 String thinking = partialThinking.text();
                                 if (thinking != null && !thinking.isEmpty()) {
                                     fullThinking.append(thinking);
-                                    try {
-                                        emitter.send(SseEmitter.event().name("thinking_content").data(thinking));
-                                    } catch (Exception e) {
-                                        log.warn("SSE发送thinking失败: {}", e.getMessage());
+                                    if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinking)) {
+                                        Thread.currentThread().interrupt();
                                     }
                                 }
                             }
 
                             @Override
                             public void onPartialResponse(String partialResponse) {
+                                if (Thread.currentThread().isInterrupted()) return;
                                 fullResponse.append(partialResponse);
                                 if (!partialResponse.isEmpty()) {
-                                    try {
-                                        emitter.send(SseEmitter.event().name("message").data(partialResponse));
-                                    } catch (Exception e) {
-                                        log.warn("SSE发送token失败: {}", e.getMessage());
+                                    if (!SseHelper.safeSendEvent(emitter, "message", partialResponse)) {
+                                        Thread.currentThread().interrupt();
                                     }
                                 }
                             }
 
                             @Override
                             public void onCompleteResponse(ChatResponse completeResponse) {
+                                if (Thread.currentThread().isInterrupted()) return;
                                 long elapsed = System.currentTimeMillis() - startTime;
                                 String answer = fullResponse.toString().trim();
 
@@ -313,6 +300,7 @@ public class BookChatService {
 
                             @Override
                             public void onError(Throwable error) {
+                                if (Thread.currentThread().isInterrupted()) return;
                                 log.error("图书问答流式异常: bookId={} - {}", bookId, error.getMessage(), error);
                                 aiProviderConfigService.clearAssistantCache();
                                 SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(error));
@@ -321,6 +309,7 @@ public class BookChatService {
                 );
 
             } catch (Exception e) {
+                if (Thread.currentThread().isInterrupted()) return;
                 log.error("图书问答异常: bookId={} - {}", bookId, e.getMessage(), e);
                 aiProviderConfigService.clearAssistantCache();
                 SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(e));
@@ -379,62 +368,13 @@ public class BookChatService {
             return Collections.emptyList();
         }
 
-        try {
-            String title = "未知书籍";
-            Book book = bookService.getBookById(bookId);
-            if (book != null) {
-                title = book.getTitle();
-            }
-
-            String prompt = String.format(
-                    """
-                                    你正在和读者讨论《%s》这本书。你刚给出了一个回答。
-                            
-                                    读者问：%s
-                                    你回答：%s
-                            
-                                    现在，审视你刚才的回答，找出其中3个最可能引发读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
-                                    - 你说了一个结论，但没有给出这个结论成立的条件或前提
-                                    - 你使用了一个关键概念，但它的含义在语境中可能被误解
-                                    - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
-                                    - 你提出了一个判断，但没有说明它适用的边界或反例
-                            
-                                    要求：
-                                    - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
-                                    - 问题的提问对象是你这个AI，问题本身你必须能回答
-                                    - 每行一个，不超25字，无序号
-                            """,
-                    title,
-                    question,
-                    answer
-            );
-
-            long startTime = System.currentTimeMillis();
-
-            dev.langchain4j.model.chat.ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
-            dev.langchain4j.model.chat.response.ChatResponse response =
-                    chatModel.chat(List.of(dev.langchain4j.data.message.UserMessage.from(prompt)));
-
-            long elapsed = System.currentTimeMillis() - startTime;
-            int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
-                    ? response.tokenUsage().inputTokenCount() : 0;
-            int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
-                    ? response.tokenUsage().outputTokenCount() : 0;
-
-            String aiText = response.aiMessage().text();
-            if (aiText != null && !aiText.isBlank()) {
-                List<String> followUps = parseQuestions(aiText).stream().limit(3).collect(Collectors.toList());
-
-                CommonUtils.logAiCall("生成深入追问问题", elapsed, inputTokens, outputTokens,
-                        String.format("bookId=%d, questions=%s", bookId, followUps));
-
-                return followUps;
-            }
-        } catch (Exception e) {
-            log.debug("生成深入追问问题失败: {}", e.getMessage());
+        String title = "未知书籍";
+        Book book = bookService.getBookById(bookId);
+        if (book != null) {
+            title = book.getTitle();
         }
 
-        return Collections.emptyList();
+        return chatModelManager.generateFollowUpQuestions(title, question, answer);
     }
 
     /**
@@ -499,7 +439,7 @@ public class BookChatService {
 
         try {
 
-            List<String> subQueries = decomposeQuery(book, question, lastAiAnswer);
+            List<String> subQueries = chatModelManager.expandQuery(question, book.getTitle(), book.getAuthor(), lastAiAnswer);
             Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
             int rawCount = 0, rawChars = 0;
             // 优化策略：多查询检索 + 相邻片段合并 + 关键词重排序 + 自适应 topK
@@ -609,78 +549,6 @@ public class BookChatService {
         return null;
     }
 
-    private List<String> decomposeQuery(Book book, String question, String lastAiAnswer) {
-        List<String> queries = new ArrayList<>();
-        queries.add(question);
-
-        try {
-            StringBuilder contextBuilder = new StringBuilder();
-            contextBuilder.append("书名：《").append(book.getTitle()).append("》\n");
-            if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
-                contextBuilder.append("作者：").append(book.getAuthor()).append("\n");
-            }
-            if (lastAiAnswer != null && !lastAiAnswer.isBlank()) {
-                String truncated = lastAiAnswer.length() > 500
-                        ? lastAiAnswer.substring(0, 500) + "..."
-                        : lastAiAnswer;
-                contextBuilder.append("上轮AI回答摘要：").append(truncated).append("\n");
-            }
-
-            String prompt = String.format("""
-                    你是一个向量检索查询生成器。根据以下上下文，为用户的问题生成2个额外的向量搜索查询（不包含原问题本身），每行一个。
-
-                    上下文：
-                    %s
-
-                    用户问题：%s
-
-                    要求：
-                    1. 先解析代词指代（"上面""这些""该理论"等），在查询中替换为具体实体
-                    2. 两个查询必须从不同粒度切入，严禁雷同：
-                       - 查询A（精准定位）：提取问题中的核心名词/关键论断，组合成书中可能出现的原文级短语，用于定位具体出处
-                       - 查询B（宽泛召回）：将问题抽象到上一层的主题或相关概念，用于补充检索遗漏的相关段落
-                    3. 如果用户追问上轮回答，查询应指向书中原文出处而非复述AI回答
-                    4. 使用书籍中可能出现的措辞，避免口语化；若书名/作者信息可用，查询风格应与之匹配
-                    5. 每行只输出查询文本，不带序号、引号或任何额外文字
-
-                    示例：
-                    用户问题：情绪是否完全由生理反应决定？
-                    输出：
-                    情绪理论中生理反应与认知评价的关系
-                    情绪产生的生理机制与詹姆斯-兰格理论
-
-                    用户问题：概念化对情绪体验有什么作用？
-                    输出：
-                    概念化在情绪建构论中的作用机制
-                    情绪建构理论的核心观点与证据
-
-                    用户问题：上面说的身体感觉怎么影响情绪？
-                    输出：
-                    身体感觉作为情绪建构的原材料
-                    情绪体验中身体感觉与概念的相互作用
-                    """, contextBuilder.toString().trim(), question);
-
-            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
-            ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
-
-            if (response != null && response.aiMessage() != null && response.aiMessage().text() != null) {
-                String[] lines = response.aiMessage().text().split("\n");
-                for (String line : lines) {
-                    line = line.trim();
-                    if (!line.isBlank() && !line.equals(question)) {
-                        queries.add(line);
-                        if (queries.size() >= 3) break;
-                    }
-                }
-            }
-
-            log.debug("[RAG查询扩展] 原始: {} → 扩展后: {}", question, queries);
-        } catch (Exception e) {
-            log.warn("[RAG查询扩展] 失败，使用原始查询: {}", e.getMessage());
-        }
-
-        return queries;
-    }
 
     private double keywordRelevanceBonus(EmbeddingMatch<TextSegment> match, String question) {
         if (match.embedded() == null || match.embedded().text() == null) return 0;
@@ -858,7 +726,9 @@ public class BookChatService {
         }
     }
 
-    /** 根据用户设置返回对应的系统提示词 */
+    /**
+     * 根据用户设置返回对应的系统提示词
+     */
     private String getChatStyleForUser(Long userId) {
         try {
             var user = userService.getUserById(userId);
@@ -941,7 +811,7 @@ public class BookChatService {
 
                 // 调用 AI 模型压缩内容，失败则跳过
                 String original = target.getContent();
-                String summary = compressContent(original);
+                String summary = chatModelManager.compressContent(original);
                 if (summary == null) {
                     log.warn("压缩失败(跳过): sessionId={}, convId={}", sessionId, target.getId());
                     break;
@@ -977,39 +847,6 @@ public class BookChatService {
         Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
         int tokens = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
         return (int) (tokens * TOKEN_TO_CHAR_RATIO * 0.6);
-    }
-
-    /**
-     * 将 AI 回复压缩到 200 字以内
-     */
-    private String compressContent(String original) {
-        if (original == null || original.length() <= 200) return original;
-        try {
-            long startTime = System.currentTimeMillis();
-            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
-            if (chatModel == null) return null;
-
-            String prompt = String.format(
-                    "将以下内容压缩到200字以内，保留核心观点和信息：\n\n%s", original);
-            ChatResponse response = chatModel.chat(List.of(UserMessage.from(prompt)));
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
-                    ? response.tokenUsage().inputTokenCount() : 0;
-            int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
-                    ? response.tokenUsage().outputTokenCount() : 0;
-
-            String compressed = response.aiMessage().text();
-            if (compressed != null && !compressed.isBlank()) {
-                compressed = compressed.trim();
-                CommonUtils.logAiCall("历史压缩", elapsed, inputTokens, outputTokens,
-                        String.format("%d→%d chars", original.length(), compressed.length()));
-                return compressed;
-            }
-        } catch (Exception e) {
-            log.warn("调用AI压缩内容失败: {}", e.getMessage());
-        }
-        return null;
     }
 
     /**

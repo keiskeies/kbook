@@ -25,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 管理员 AI 对话服务
@@ -86,7 +87,7 @@ public class BookAdminChatService {
         log.info("========== 管理员 AI 对话请求 ==========");
         log.info("userId={}, sessionId={}, message={}", userId, sessionId, userMessage);
 
-        SseEmitter emitter = new SseEmitter(180_000L);
+        SseEmitter emitter = new SseEmitter(3_600_000L);
 
         try {
             emitter.send(SseEmitter.event().name("thinking").data("正在思考..."));
@@ -98,6 +99,7 @@ public class BookAdminChatService {
         sseExecutor.execute(() -> {
             StringBuilder fullResponse = new StringBuilder();
             StringBuilder fullThinking = new StringBuilder();
+            AtomicBoolean cancelled = new AtomicBoolean(false);
             try {
                 long startTime = System.currentTimeMillis();
                 BookAdminAssistant assistant = getAdminAssistant();
@@ -105,27 +107,28 @@ public class BookAdminChatService {
                 TokenStream tokenStream = assistant.chatStream(sessionId, userMessage);
                 tokenStream
                         .onPartialThinking(pt -> {
+                            if (cancelled.get()) return;
                             String thinking = pt.text();
                             if (thinking != null && !thinking.isEmpty()) {
                                 fullThinking.append(thinking);
-                                try {
-                                    emitter.send(SseEmitter.event().name("thinking_content").data(thinking));
-                                } catch (Exception e) {
-                                    log.warn("SSE发送thinking失败: {}", e.getMessage());
+                                if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinking)) {
+                                    cancelled.set(true);
+                                    throw new RuntimeException("Client disconnected");
                                 }
                             }
                         })
                         .onPartialResponse(token -> {
+                            if (cancelled.get()) return;
                             fullResponse.append(token);
                             if (!token.isEmpty()) {
-                                try {
-                                    emitter.send(SseEmitter.event().name("message").data(token));
-                                } catch (Exception e) {
-                                    log.warn("SSE发送token失败: {}", e.getMessage());
+                                if (!SseHelper.safeSendEvent(emitter, "message", token)) {
+                                    cancelled.set(true);
+                                    throw new RuntimeException("Client disconnected");
                                 }
                             }
                         })
                         .onCompleteResponse(response -> {
+                            if (cancelled.get()) return;
                             long elapsed = System.currentTimeMillis() - startTime;
 
                             int apiInputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
@@ -151,6 +154,7 @@ public class BookAdminChatService {
                             updateSessionTimestamp(sessionId);
                         })
                         .onError(error -> {
+                            if (cancelled.get()) return;
                             log.error("管理员 AI 流式对话异常: sessionId={}", sessionId, error);
                             providerConfigService.clearAssistantCache();
                             clearCache();
@@ -171,6 +175,7 @@ public class BookAdminChatService {
                         .start();
 
             } catch (Exception e) {
+                if (cancelled.get()) return;
                 log.error("管理员 AI 对话启动异常: sessionId={}", sessionId, e);
                 providerConfigService.clearAssistantCache();
                 clearCache();

@@ -248,4 +248,19 @@ public class CommonUtils {
                 elapsed, inputTokens, outputTokens, (int) totalTokens, String.format("%.2f", tokensPerSecond), tokensAllSecond);
         log.info("====================================\n");
     }
+
+    /** 去掉 AI 返回文本中的 ```json / ``` 代码围栏 */
+    public static String stripCodeFence(String text) {
+        if (text == null) return null;
+        String result = text.trim();
+        if (result.startsWith("```json")) {
+            result = result.substring(7);
+        } else if (result.startsWith("```")) {
+            result = result.substring(3);
+        }
+        if (result.endsWith("```")) {
+            result = result.substring(0, result.length() - 3);
+        }
+        return result.trim();
+    }
 }

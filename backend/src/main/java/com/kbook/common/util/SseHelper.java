@@ -47,17 +47,20 @@ public final class SseHelper {
     }
 
     /**
-     * 安全发送 SSE 事件（忽略已关闭的连接）
+     * 安全发送 SSE 事件 — 失败时返回 false（不中断线程）
      *
      * @param emitter   SSE 发射器
      * @param eventName 事件名称
      * @param data      事件数据
+     * @return 是否发送成功
      */
-    public static void safeSendEvent(SseEmitter emitter, String eventName, String data) {
+    public static boolean safeSendEvent(SseEmitter emitter, String eventName, String data) {
         try {
             emitter.send(SseEmitter.event().name(eventName).data(data));
+            return true;
         } catch (Exception e) {
             log.debug("SSE 发送事件 [{}] 失败（连接可能已关闭）: {}", eventName, e.getMessage());
+            return false;
         }
     }
 }

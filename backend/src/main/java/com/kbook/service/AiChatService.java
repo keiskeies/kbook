@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * AI 通用对话服务
@@ -83,7 +84,7 @@ public class AiChatService {
         log.info("会话ID: {}", sessionId);
         log.info("问题内容: {}", userMessage);
 
-        SseEmitter emitter = new SseEmitter(120_000L);
+        SseEmitter emitter = new SseEmitter(3_600_000L);
 
         try {
             emitter.send(SseEmitter.event().name("thinking").data("正在思考..."));
@@ -108,6 +109,7 @@ public class AiChatService {
             }
             StringBuilder fullResponse = new StringBuilder();
             StringBuilder fullThinking = new StringBuilder();
+            AtomicBoolean cancelled = new AtomicBoolean(false);
             try {
                 long startTime = System.currentTimeMillis();
                 AiAssistant assistant = providerConfigService.getChatAssistant();
@@ -125,27 +127,28 @@ public class AiChatService {
                 TokenStream tokenStream = assistant.chatStream(sessionId, userId, userMessage);
                 tokenStream
                         .onPartialThinking(pt -> {
+                            if (cancelled.get()) return;
                             String thinking = pt.text();
                             if (thinking != null && !thinking.isEmpty()) {
                                 fullThinking.append(thinking);
-                                try {
-                                    emitter.send(SseEmitter.event().name("thinking_content").data(thinking));
-                                } catch (Exception e) {
-                                    log.warn("SSE发送thinking失败: {}", e.getMessage());
+                                if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinking)) {
+                                    cancelled.set(true);
+                                    throw new RuntimeException("Client disconnected");
                                 }
                             }
                         })
                         .onPartialResponse(token -> {
+                            if (cancelled.get()) return;
                             fullResponse.append(token);
                             if (!token.isEmpty()) {
-                                try {
-                                    emitter.send(SseEmitter.event().name("message").data(token));
-                                } catch (Exception e) {
-                                    log.warn("SSE发送token失败: {}", e.getMessage());
+                                if (!SseHelper.safeSendEvent(emitter, "message", token)) {
+                                    cancelled.set(true);
+                                    throw new RuntimeException("Client disconnected");
                                 }
                             }
                         })
                         .onCompleteResponse(response -> {
+                            if (cancelled.get()) return;
                             long elapsed = System.currentTimeMillis() - startTime;
 
                             int apiInputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
@@ -182,6 +185,7 @@ public class AiChatService {
                             updateSessionTimestamp(sessionId);
                         })
                         .onError(error -> {
+                            if (Thread.currentThread().isInterrupted()) return;
                             if (isConnectionReset(error) && !fullResponse.isEmpty()) {
                                 log.warn("Connection reset 但已有部分响应，视为成功: sessionId={}, 已接收={}字符",
                                         sessionId, fullResponse.length());
@@ -222,6 +226,7 @@ public class AiChatService {
                         .start();
 
             } catch (Exception e) {
+                if (cancelled.get()) return;
                 log.error("流式对话启动异常: sessionId={}", sessionId, e);
                 providerConfigService.clearAssistantCache();
                 String errMsg = SseHelper.extractFriendlyError(e);

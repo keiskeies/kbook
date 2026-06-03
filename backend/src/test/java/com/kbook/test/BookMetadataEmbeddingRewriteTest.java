@@ -1,5 +1,6 @@
 package com.kbook.test;
 
+import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.service.BookParserService;
@@ -7,13 +8,16 @@ import com.kbook.service.EmbeddingService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -28,6 +32,9 @@ public class BookMetadataEmbeddingRewriteTest {
     @Autowired
     private BookParserService bookParserService;
 
+    @Autowired
+    private ChatModelFactory chatModelFactory;
+
     @Test
     public void rewriteAllBookMetadataEmbeddings() {
         if (!embeddingService.isAvailable()) {
@@ -35,40 +42,59 @@ public class BookMetadataEmbeddingRewriteTest {
             return;
         }
 
-        long totalBooks = bookRepository.count();
+        List<Book> allBooks = bookRepository.findAll();
+        long totalBooks = allBooks.size();
         System.out.println("========== 重写图书元数据向量 ==========");
         System.out.println("总图书数: " + totalBooks);
 
-        int pageSize = 100;
-        int pageNumber = 0;
+        int concurrency = chatModelFactory.getEmbeddingConcurrency();
+        System.out.println("并行数: " + concurrency);
+
         AtomicInteger successCount = new AtomicInteger();
         AtomicInteger failCount = new AtomicInteger();
+        AtomicLong lastLogTime = new AtomicLong(System.currentTimeMillis());
 
         long startTime = System.currentTimeMillis();
+        ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+        List<Future<?>> futures = new ArrayList<>();
 
-        Page<Book> bookPage;
-        do {
-            Pageable pageable = PageRequest.of(pageNumber, pageSize);
-            bookPage = bookRepository.findAll(pageable);
-            List<Book> books = bookPage.getContent();
-
-            for (Book book : books) {
+        for (Book book : allBooks) {
+            Long bookId = book.getId();
+            String title = book.getTitle();
+            futures.add(executor.submit(() -> {
                 try {
                     bookParserService.generateBookEmbedding(book);
                     successCount.incrementAndGet();
                 } catch (Exception e) {
                     failCount.incrementAndGet();
-                    System.err.println("  ✗ 失败: bookId=" + book.getId() + " 《" + book.getTitle() + "》 - " + e.getMessage());
+                    System.err.println("  ✗ 失败: bookId=" + bookId + " 《" + title + "》 - " + e.getMessage());
                 }
+                int done = successCount.get() + failCount.get();
+                long now = System.currentTimeMillis();
+                long last = lastLogTime.get();
+                if (done % 100 == 0 || done == totalBooks || now - last > 5000) {
+                    if (lastLogTime.compareAndSet(last, now)) {
+                        long elapsed = System.currentTimeMillis() - startTime;
+                        System.out.printf("  进度: %d/%d (成功=%d, 失败=%d, 耗时=%ds)%n",
+                                done, totalBooks, successCount.get(), failCount.get(), elapsed / 1000);
+                    }
+                }
+            }));
+        }
+
+        executor.shutdown();
+        try {
+            executor.awaitTermination(2, TimeUnit.HOURS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        for (Future<?> f : futures) {
+            try {
+                f.get();
+            } catch (Exception ignored) {
             }
-
-            int processed = (pageNumber + 1) * pageSize;
-            System.out.printf("  进度: %d/%d (成功=%d, 失败=%d)%n",
-                    Math.min(processed, totalBooks), totalBooks,
-                    successCount.get(), failCount.get());
-
-            pageNumber++;
-        } while (bookPage.hasNext());
+        }
 
         long elapsed = System.currentTimeMillis() - startTime;
 
