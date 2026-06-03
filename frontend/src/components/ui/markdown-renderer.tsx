@@ -1,43 +1,10 @@
-import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react'
+import React, { useRef, useEffect, useCallback, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeRaw from 'rehype-raw'
-import DOMPurify from 'dompurify'
 import { useNavigate } from 'react-router-dom'
 import InlineBookCard, { type InlineBookCardData } from '@/components/ai/InlineBookCard'
-
-DOMPurify.addHook('uponSanitizeElement', (node, data) => {
-  if (data.tagName === 'style') {
-    (node as Element).remove()
-  }
-})
-
-const PURIFY_CONFIG = {
-  ALLOWED_TAGS: [
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    'p', 'br', 'hr', 'blockquote', 'pre', 'code',
-    'ul', 'ol', 'li', 'dl', 'dt', 'dd',
-    'table', 'thead', 'tbody', 'tr', 'th', 'td', 'caption',
-    'a', 'strong', 'em', 'b', 'i', 'u', 's', 'del', 'ins', 'mark', 'sub', 'sup', 'abbr',
-    'img', 'figure', 'figcaption',
-    'details', 'summary',
-    'div', 'span',
-  ],
-  ALLOWED_ATTR: [
-    'href', 'target', 'rel', 'id', 'class', 'title', 'alt', 'src',
-    'colspan', 'rowspan', 'width', 'height', 'align', 'valign',
-    'start', 'type', 'reversed',
-    'name', 'open',
-  ],
-  ALLOW_DATA_ATTR: false,
-  FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'input', 'textarea', 'button', 'select'],
-  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onsubmit'],
-} satisfies Record<string, unknown>
-
-function sanitizeHtml(html: string): string {
-  return DOMPurify.sanitize(html, PURIFY_CONFIG) as string
-}
 
 interface MarkdownRendererProps {
   content: string
@@ -174,8 +141,6 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
   // 手动将 **...** 替换为 <strong>...</strong> 绕过此限制
   const strongFixed = unescapedContent.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
 
-  const sanitizedContent = useMemo(() => sanitizeHtml(strongFixed), [strongFixed])
-
   const handleClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement
     const anchor = target.closest('a')
@@ -193,7 +158,7 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
     }
   }
 
-  const segments = segmentContent(sanitizedContent)
+  const segments = segmentContent(strongFixed)
 
   // 如果没有分段或只有文本，直接渲染 markdown（带《书名》搜索链接兜底）
   if (segments.length === 1 && segments[0].type === 'text') {

@@ -828,7 +828,7 @@ export default function BookDetailPage() {
   // Speed read SSE — only when no cache
   useEffect(() => {
     if (!bookId) return
-    if (isCacheValid && cached.speedReadData) return
+    if (isCacheValid) return
     setSpeedReadLoading(true)
     setSpeedReadData({ bookId: id, corePoints: [], suitableFor: [], notSuitableFor: [], takeaways: [], difficulty: '' })
     const bufferRef = { current: '' }
@@ -899,8 +899,7 @@ export default function BookDetailPage() {
       },
     )
     return () => controller.abort()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId, id, isCacheValid])
+  }, [bookId, id])
 
   const toggleShelf = async () => {
     if (!book) return

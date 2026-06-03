@@ -592,35 +592,37 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                           </span>
                         )}
                       </div>
-                      {msg.role === 'assistant' && !msg.streaming && msg.content && (
+                      {msg.role === 'assistant' && !msg.streaming && (
                         <div className="mt-1.5 flex items-center justify-between">
                           <div className="flex items-center gap-1">
-                            <button
-                              className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-                              onClick={() => {
-                                const idx = messages.indexOf(msg)
-                                const userMsg = idx > 0 ? messages[idx - 1] : null
-                                const text = userMsg && userMsg.role === 'user'
-                                  ? `问题：${userMsg.content}\n回答：${msg.content}`
-                                  : `回答：${msg.content}`
-                                navigator.clipboard.writeText(text)
-                                setCopiedId(msg.id)
-                                setTimeout(() => setCopiedId(null), 2000)
-                              }}
-                              title="复制"
-                            >
-                              {copiedId === msg.id ? (
-                                <>
-                                  <Check className="h-3.5 w-3.5 text-green-500" />
-                                  <span className="text-green-500">已复制</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="h-3.5 w-3.5" />
-                                  <span>复制</span>
-                                </>
-                              )}
-                            </button>
+                            {msg.content && (
+                              <button
+                                className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                                onClick={() => {
+                                  const idx = messages.indexOf(msg)
+                                  const userMsg = idx > 0 ? messages[idx - 1] : null
+                                  const text = userMsg && userMsg.role === 'user'
+                                    ? `问题：${userMsg.content}\n回答：${msg.content}`
+                                    : `回答：${msg.content}`
+                                  navigator.clipboard.writeText(text)
+                                  setCopiedId(msg.id)
+                                  setTimeout(() => setCopiedId(null), 2000)
+                                }}
+                                title="复制"
+                              >
+                                {copiedId === msg.id ? (
+                                  <>
+                                    <Check className="h-3.5 w-3.5 text-green-500" />
+                                    <span className="text-green-500">已复制</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="h-3.5 w-3.5" />
+                                    <span>复制</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
                             {msg.id === lastAssistantId && (
                               <button
                                 className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
@@ -633,27 +635,29 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                               </button>
                             )}
                           </div>
-                          <button
-                            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors active:scale-95 ${
-                              speakingId === msg.id
-                                ? 'text-primary hover:bg-primary/10'
-                                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                            }`}
-                            onClick={() => handleToggleSpeak(msg.id, msg.content)}
-                            title={speakingId === msg.id ? '停止朗读' : '朗读'}
-                          >
-                            {speakingId === msg.id ? (
-                              <>
-                                <Square className="h-3.5 w-3.5 fill-current" />
-                                <span>停止</span>
-                              </>
-                            ) : (
-                              <>
-                                <Volume2 className="h-3.5 w-3.5" />
-                                <span>朗读</span>
-                              </>
-                            )}
-                          </button>
+                          {msg.content && (
+                            <button
+                              className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors active:scale-95 ${
+                                speakingId === msg.id
+                                  ? 'text-primary hover:bg-primary/10'
+                                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                              }`}
+                              onClick={() => handleToggleSpeak(msg.id, msg.content)}
+                              title={speakingId === msg.id ? '停止朗读' : '朗读'}
+                            >
+                              {speakingId === msg.id ? (
+                                <>
+                                  <Square className="h-3.5 w-3.5 fill-current" />
+                                  <span>停止</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="h-3.5 w-3.5" />
+                                  <span>朗读</span>
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
                       )}
                       {msg.role === 'assistant' && !msg.streaming && msg.followUpQuestions && msg.followUpQuestions.length > 0 && (

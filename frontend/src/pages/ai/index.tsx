@@ -510,28 +510,30 @@ export default function AIPage() {
                         </span>
                       )}
                     </div>
-                    {msg.role === 'assistant' && !msg.streaming && msg.content && (
+                    {msg.role === 'assistant' && !msg.streaming && (
                       <div className="mt-1.5 flex items-center gap-1">
-                        <button
-                          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
-                          onClick={() => {
-                            const idx = messages.indexOf(msg)
-                            const userMsg = idx > 0 ? messages[idx - 1] : null
-                            const text = userMsg && userMsg.role === 'user'
-                              ? `问题：${userMsg.content}\n回答：${msg.content}`
-                              : `回答：${msg.content}`
-                            navigator.clipboard.writeText(text)
-                            setCopiedId(msg.id)
-                            setTimeout(() => setCopiedId(null), 2000)
-                          }}
-                        >
-                          {copiedId === msg.id ? (
-                            <Check className="h-3 w-3 text-green-500" />
-                          ) : (
-                            <Copy className="h-3 w-3" />
-                          )}
-                          {copiedId === msg.id ? '已复制' : '复制'}
-                        </button>
+                        {msg.content && (
+                          <button
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                            onClick={() => {
+                              const idx = messages.indexOf(msg)
+                              const userMsg = idx > 0 ? messages[idx - 1] : null
+                              const text = userMsg && userMsg.role === 'user'
+                                ? `问题：${userMsg.content}\n回答：${msg.content}`
+                                : `回答：${msg.content}`
+                              navigator.clipboard.writeText(text)
+                              setCopiedId(msg.id)
+                              setTimeout(() => setCopiedId(null), 2000)
+                            }}
+                          >
+                            {copiedId === msg.id ? (
+                              <Check className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                            {copiedId === msg.id ? '已复制' : '复制'}
+                          </button>
+                        )}
                         {msg.id === lastAssistantId && (
                           <button
                             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"

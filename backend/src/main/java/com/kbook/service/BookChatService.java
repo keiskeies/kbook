@@ -188,62 +188,6 @@ public class BookChatService {
                     return;
                 }
 
-//                // 检查是否有相同问题的缓存回答（跨用户），重新生成时跳过缓存
-//                if (!regenerate) {
-//                    try {
-//                        Optional<AiConversation> cachedAnswer = conversationRepository.findCachedAnswer(bookId, question);
-//                        if (cachedAnswer.isPresent()) {
-//                            AiConversation answer = cachedAnswer.get();
-//                            log.info("命中缓存回答: bookId={}, question={}", bookId, question);
-//
-//                            // 逐块输出思考内容
-//                            if (answer.getThinkingContent() != null && !answer.getThinkingContent().isEmpty()) {
-//                                String thinking = answer.getThinkingContent();
-//                                for (int i = 0; i < thinking.length(); ) {
-//                                    int end = Math.min(i + 5, thinking.length());
-//                                    emitter.send(SseEmitter.event().name("thinking_content").data(thinking.substring(i, end)));
-//                                    i = end;
-//                                    try {
-//                                        Thread.sleep(15);
-//                                    } catch (InterruptedException ignored) {
-//                                        Thread.currentThread().interrupt();
-//                                    }
-//                                }
-//                            }
-//
-//                            // 逐块输出回答
-//                            String content = answer.getContent();
-//                            for (int i = 0; i < content.length(); ) {
-//                                int end = Math.min(i + 3, content.length());
-//                                emitter.send(SseEmitter.event().name("message").data(content.substring(i, end)));
-//                                i = end;
-//                                try {
-//                                    Thread.sleep(25);
-//                                } catch (InterruptedException ignored) {
-//                                    Thread.currentThread().interrupt();
-//                                }
-//                            }
-//
-//                            if (answer.getFollowUpQuestions() != null && !answer.getFollowUpQuestions().isEmpty()) {
-//                                emitter.send(SseEmitter.event().name("follow_up_questions").data(answer.getFollowUpQuestions()));
-//                            }
-//                            emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-//                            emitter.complete();
-//
-//                            ensureSession(userId, finalSessionId, question, bookId);
-//                            saveMessage(userId, finalSessionId, "user", question, bookId, null, null);
-//                            saveMessage(userId, finalSessionId, "assistant", answer.getContent(), bookId,
-//                                    answer.getThinkingContent(), answer.getFollowUpQuestions());
-//                            updateSessionTimestamp(finalSessionId);
-//
-//                            log.info("缓存回答发送完成: bookId={}", bookId);
-//                            return;
-//                        }
-//                    } catch (Exception e) {
-//                        log.warn("查询缓存回答失败，继续调用AI: {}", e.getMessage());
-//                    }
-//                }
-
                 if (!Boolean.TRUE.equals(book.getContentEmbedded())) {
                     log.info("图书未生成内容向量，尝试按需生成: bookId={}", bookId);
                     try {
@@ -683,19 +627,37 @@ public class BookChatService {
             }
 
             String prompt = String.format("""
-                    你是一个向量检索查询生成器。根据以下上下文，为用户的问题生成2个精准的向量搜索查询。
-                    
+                    你是一个向量检索查询生成器。根据以下上下文，为用户的问题生成2个额外的向量搜索查询（不包含原问题本身），每行一个。
+
                     上下文：
                     %s
-                    
+
                     用户问题：%s
-                    
+
                     要求：
-                    1. 理解用户问题的真实意图，特别是代词指代（如"上面""这些""那个"等）要结合上下文解析
-                    2. 每个查询应该是一个独立的搜索关键词或短句，用于在书籍内容中做语义检索
-                    3. 如果用户追问上轮回答中的具体内容，查询应指向该内容在书中的出处
-                    4. 不要简单改写原问题，要从不同角度切入以提高召回率
-                    5. 每行输出一个查询，不带序号、引号或额外文字
+                    1. 先解析代词指代（"上面""这些""该理论"等），在查询中替换为具体实体
+                    2. 两个查询必须从不同粒度切入，严禁雷同：
+                       - 查询A（精准定位）：提取问题中的核心名词/关键论断，组合成书中可能出现的原文级短语，用于定位具体出处
+                       - 查询B（宽泛召回）：将问题抽象到上一层的主题或相关概念，用于补充检索遗漏的相关段落
+                    3. 如果用户追问上轮回答，查询应指向书中原文出处而非复述AI回答
+                    4. 使用书籍中可能出现的措辞，避免口语化；若书名/作者信息可用，查询风格应与之匹配
+                    5. 每行只输出查询文本，不带序号、引号或任何额外文字
+
+                    示例：
+                    用户问题：情绪是否完全由生理反应决定？
+                    输出：
+                    情绪理论中生理反应与认知评价的关系
+                    情绪产生的生理机制与詹姆斯-兰格理论
+
+                    用户问题：概念化对情绪体验有什么作用？
+                    输出：
+                    概念化在情绪建构论中的作用机制
+                    情绪建构理论的核心观点与证据
+
+                    用户问题：上面说的身体感觉怎么影响情绪？
+                    输出：
+                    身体感觉作为情绪建构的原材料
+                    情绪体验中身体感觉与概念的相互作用
                     """, contextBuilder.toString().trim(), question);
 
             ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
