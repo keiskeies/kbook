@@ -59,7 +59,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             }
         }
 
-        if (uri.startsWith("/api/ai/")) {
+        if (uri.startsWith("/api/ai/chat/")
+                || uri.startsWith("/api/books/") && (uri.endsWith("/chat/stream") || uri.endsWith("/chat/suggestions"))) {
             String userKey = resolveAiUserKey(request, clientIp);
             if (!tryConsume("ai:" + userKey, 10, Duration.ofMinutes(1))) {
                 sendTooManyRequests(response, "AI 对话请求过于频繁，请稍后重试");

@@ -105,7 +105,7 @@ public class AiChatMemory implements ChatMemoryStore {
 
         // 从数据库加载历史，使用 compressed_content
         List<AiConversation> history = conversationRepository
-                .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+                .findBySessionIdOrderByCreatedAtAsc(sessionId);
         messages = new ArrayList<>();
         messages.add(SystemMessage.from(AiPromptConstants.AI_CHAT_SYSTEM_PROMPT));
 

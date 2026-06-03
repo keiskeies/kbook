@@ -14,6 +14,11 @@ import java.util.Optional;
 public interface AiConversationRepository extends JpaRepository<AiConversation, Long> {
 
     /**
+     * 按会话ID查询对话记录，按创建时间升序排列
+     */
+    List<AiConversation> findBySessionIdOrderByCreatedAtAsc(String sessionId);
+
+    /**
      * 按用户和会话ID查询对话记录，按创建时间升序排列
      */
     List<AiConversation> findByUserIdAndSessionIdOrderByCreatedAtAsc(Long userId, String sessionId);
