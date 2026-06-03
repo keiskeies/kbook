@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.dto.BookProjection;
 import com.kbook.dto.MatchScoreDetailVO;
 import com.kbook.entity.User;
@@ -47,6 +48,7 @@ import java.util.List;
  * @see RecommendCoefficientService 权重系数服务
  */
 @Slf4j
+@LogModule("推荐计算")
 public class RecommendMatchCalculator {
 
     /**

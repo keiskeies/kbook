@@ -6,6 +6,8 @@ import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.TransactionUtils;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.document.BookDocument;
@@ -41,6 +43,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@LogModule("图书")
 public class BookService {
 
     private final BookRepository bookRepository;
@@ -84,6 +87,7 @@ public class BookService {
     }
 
 
+    @LogAction("计算热门标签")
     @RedisLock(key = "'kbook:lock:top_tags'", leaseTime = 30)
     public List<TagStat> computeTopTagsWithLock() {
         // 双重检查：加锁后再次确认缓存是否存在（其他线程可能已写入）
@@ -139,6 +143,7 @@ public class BookService {
     /**
      * 获取图书详情（带 Redis 缓存，防穿透/雪崩）
      */
+    @LogAction("获取图书详情")
     public Book getBookById(Long bookId) {
         String cacheKey = BOOK_CACHE_KEY_PREFIX + bookId;
         try {
@@ -176,6 +181,7 @@ public class BookService {
     /**
      * 获取图书投影（仅常用字段，带独立缓存，key更小）
      */
+    @LogAction("获取图书投影")
     public BookProjection getBookProjectionById(Long bookId) {
         String cacheKey = BOOK_PROJ_CACHE_KEY_PREFIX + bookId;
         try {
@@ -214,6 +220,7 @@ public class BookService {
      * 图书入库（JPA + ES 双写）
      */
     @Transactional
+    @LogAction("创建图书")
     public Book createBook(Book book) {
         log.info("图书入库: title={}, author={}, format={}", book.getTitle(), book.getAuthor(), book.getFormat());
         List<String> validFormats = Arrays.asList("TXT", "EPUB", "PDF");
@@ -231,6 +238,7 @@ public class BookService {
      * 更新图书信息（JPA + ES 双写）
      */
     @Transactional
+    @LogAction("更新图书")
     public void updateBook(Long id, Book updates) {
         log.debug("更新图书: id={}", id);
         Book book = getBookById(id);
@@ -258,6 +266,7 @@ public class BookService {
      * 更新图书信息（JPA + ES 双写）
      */
     @Transactional
+    @LogAction("全量更新图书")
     public void updateBookAll(Long id, Book updates) {
         log.debug("更新图书: id={}", id);
         Book book = getBookById(id);
@@ -287,6 +296,7 @@ public class BookService {
      * 上传新封面图片，自动压缩至最大宽度 300px
      */
     @Transactional
+    @LogAction("更新图书封面")
     public Book updateBookCover(Long bookId, MultipartFile coverFile) {
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new BusinessException("图书不存在: " + bookId));
@@ -341,6 +351,7 @@ public class BookService {
      * 关键词优先搜索（用于前端 /api/books/search）
      * 优先返回 ES 书名/作者匹配的书籍
      */
+    @LogAction("关键词搜索图书")
     public PageResult<BookDocument> searchBooksByKeyword(String keyword, String tag, int page, int size) {
         log.debug("关键词搜索: keyword={}, tag={}, page={}, size={}", keyword, tag, page, size);
         return bookSearchService.keywordSearch(keyword, tag, page, size);
@@ -350,6 +361,7 @@ public class BookService {
      * 混合搜索（供 AI Tool 使用）
      * 结合向量语义和关键词，适合模糊意图理解
      */
+    @LogAction("混合搜索图书")
     public PageResult<BookDocument> searchBooksEs(String keyword, String tag, int page, int size) {
         log.debug("混合搜索: keyword={}, tag={}, page={}, size={}", keyword, tag, page, size);
         return bookSearchService.hybridSearch(keyword, tag, page, size);
@@ -361,6 +373,7 @@ public class BookService {
      * 注意：此方法仅走 MySQL LIKE，不经过 Qdrant/ES。
      * 需要混合搜索请使用 {@link #searchBooksEs}。
      */
+    @LogAction("搜索图书")
     public PageResult<BookProjection> searchBooks(String keyword, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
         Page<BookProjection> pageData = bookRepository.searchProjectedBooks(keyword, pageable);
@@ -370,6 +383,7 @@ public class BookService {
     /**
      * 搜索建议
      */
+    @LogAction("搜索建议")
     public List<String> suggestBooks(String keyword) {
         return bookSearchService.suggest(keyword);
     }
@@ -377,6 +391,7 @@ public class BookService {
     /**
      * 阅读排行
      */
+    @LogAction("获取阅读排行")
     public PageResult<BookProjection> getReadRank(int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size);
         Page<BookProjection> pageData = bookRepository.findAllProjectedByOrderByReadCountDesc(pageable);
@@ -386,6 +401,7 @@ public class BookService {
     /**
      * 评分排行
      */
+    @LogAction("获取评分排行")
     public PageResult<BookProjection> getRatingRank(int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size);
         Page<BookProjection> pageData = bookRepository.findAllProjectedByOrderByRatingDesc(pageable);
@@ -395,6 +411,7 @@ public class BookService {
     /**
      * 新书榜
      */
+    @LogAction("获取新书榜")
     public PageResult<BookProjection> getNewBooksRank(int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size);
         Page<BookProjection> pageData = bookRepository.findAllProjectedByOrderByCreatedAtDesc(pageable);
@@ -404,6 +421,7 @@ public class BookService {
     /**
      * 按格式筛选
      */
+    @LogAction("按格式筛选图书")
     public PageResult<BookProjection> getBooksByFormat(String format, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
         Page<BookProjection> pageData = bookRepository.findProjectedByFormat(format, pageable);
@@ -413,6 +431,7 @@ public class BookService {
     /**
      * 按标签筛选
      */
+    @LogAction("按标签筛选图书")
     public PageResult<BookProjection> getBooksByTag(String tag, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
         Page<BookProjection> pageData = bookRepository.findProjectedByTag(tag, pageable);
@@ -423,6 +442,7 @@ public class BookService {
      * 增加阅读计数（JPA + ES 双写）
      */
     @Transactional
+    @LogAction("增加阅读计数")
     public void incrementReadCount(Long bookId) {
         Book book = getBookById(bookId);
         book.setReadCount(book.getReadCount() + 1);
@@ -435,6 +455,7 @@ public class BookService {
      * 管理格式标签（JPA + ES 双写）
      */
     @Transactional
+    @LogAction("更新格式标签")
     public Book updateFormatTags(Long bookId, List<String> tags) {
         Book book = getBookById(bookId);
         String tagsJson = tags.stream()
@@ -454,6 +475,7 @@ public class BookService {
      * 更新8维度相关度得分
      */
     @Transactional
+    @LogAction("更新相关度得分")
     public void updateRelevanceScores(Long bookId, String scoresJson) {
         Book book = getBookById(bookId);
         book.setRelevanceScores(scoresJson);
@@ -474,6 +496,7 @@ public class BookService {
      * AI 初始评分（不更新实际评分人数）
      */
     @Transactional
+    @LogAction("设置AI评分")
     public void setAiRating(Long bookId, Double rating) {
         Book book = getBookById(bookId);
         book.setRating(rating);
@@ -496,6 +519,7 @@ public class BookService {
      * @param coverUrl 封面图片URL地址
      */
     @Transactional
+    @LogAction("设置图书封面URL")
     public void setCoverUrl(Long bookId, String coverUrl) {
         // 获取图书实体并更新封面URL
         Book book = getBookById(bookId);
@@ -518,6 +542,7 @@ public class BookService {
      * 计算公式: new_avg = (old_avg * (AI基数 + 用户数) + new_score) / (AI基数 + 用户数 + 1)
      */
     @Transactional
+    @LogAction("用户评分")
     public Book rateBook(Long bookId, Double rating, Long userId) {
         // 检查用户是否已评分
         boolean hasRated = userReadHistoryRepository.findByUserIdAndBookIdAndAction(userId, bookId, "RATE").isPresent();
@@ -553,6 +578,7 @@ public class BookService {
      * 更新图书简介
      */
     @Transactional
+    @LogAction("更新图书简介")
     public void updateDescription(Long bookId, String description) {
         Book book = getBookById(bookId);
         book.setDescription(description);
@@ -568,6 +594,7 @@ public class BookService {
      * 删除图书（全链路：JPA + ES + Qdrant向量 + Redis缓存 + 封面图片）
      */
     @Transactional
+    @LogAction("删除图书")
     public void deleteBook(Long id) {
         Book book = bookRepository.findById(id).orElse(null);
         if (null != book) {
@@ -601,6 +628,7 @@ public class BookService {
      * @return 删除的书籍数量
      */
     @Transactional
+    @LogAction("按作者删除图书")
     public int deleteBooksByAuthor(String author) {
         List<Book> books = bookRepository.findByAuthor(author);
         if (books.isEmpty()) {
@@ -637,6 +665,7 @@ public class BookService {
      * @return 合并结果描述
      */
     @Transactional
+    @LogAction("合并同名图书")
     public String mergeBooksByTitle(String title) {
         List<Book> books = bookRepository.findByTitle(title);
         if (books.size() <= 1) {

@@ -1,6 +1,8 @@
 package com.kbook.service;
 
 import com.kbook.common.exception.BusinessException;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.User;
 import com.kbook.entity.UserFollow;
 import com.kbook.repository.UserFollowRepository;
@@ -19,6 +21,7 @@ import java.util.List;
  */
 @Slf4j
 @Service
+@LogModule("关注")
 @RequiredArgsConstructor
 public class UserFollowService {
 
@@ -29,6 +32,7 @@ public class UserFollowService {
 
     /** 关注用户 */
     @Transactional
+    @LogAction("关注用户")
     public void followUser(Long followerId, Long followingId) {
         if (followerId.equals(followingId)) {
             throw new BusinessException("不能关注自己");
@@ -58,6 +62,7 @@ public class UserFollowService {
 
     /** 取消关注 */
     @Transactional
+    @LogAction("取消关注")
     public void unfollowUser(Long followerId, Long followingId) {
         if (!userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId)) {
             throw new BusinessException("尚未关注该用户");
@@ -77,21 +82,25 @@ public class UserFollowService {
     }
 
     /** 是否已关注 */
+    @LogAction("检查关注状态")
     public boolean isFollowing(Long followerId, Long followingId) {
         return userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId);
     }
 
     /** 获取用户的关注ID列表 */
+    @LogAction("获取关注列表ID")
     public List<Long> getFollowingIds(Long userId) {
         return userFollowRepository.findFollowingIds(userId);
     }
 
     /** 获取粉丝列表 */
+    @LogAction("获取粉丝列表")
     public List<UserFollow> getFollowers(Long userId) {
         return userFollowRepository.findFollowers(userId);
     }
 
     /** 获取关注列表 */
+    @LogAction("获取关注列表")
     public List<UserFollow> getFollowings(Long userId) {
         return userFollowRepository.findFollowings(userId);
     }

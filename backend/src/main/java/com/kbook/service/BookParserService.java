@@ -16,6 +16,8 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import java.util.concurrent.TimeUnit;
 import nl.siegmann.epublib.domain.MediaType;
@@ -70,6 +72,7 @@ import java.util.zip.ZipOutputStream;
  */
 @Slf4j
 @Service
+@LogModule("图书解析")
 @RequiredArgsConstructor
 public class BookParserService {
 
@@ -99,6 +102,7 @@ public class BookParserService {
      * 初始化方法，在Spring容器启动时自动执行
      * 打印封面存储目录的绝对路径，便于调试和验证配置
      */
+    @LogAction("初始化")
     @PostConstruct
     public void init() {
         Path absolutePath = Paths.get(storageProps.getCoverPath()).toAbsolutePath(); // 获取封面目录的绝对路径
@@ -115,6 +119,7 @@ public class BookParserService {
      * @param book     图书实体对象
      * @param filePath 图书文件路径
      */
+    @LogAction("解析并填充图书元数据")
     public void parseAndFill(Book book, Path filePath) {
         // 根据图书格式选择对应的解析方法
         switch (book.getFormat()) {
@@ -133,6 +138,7 @@ public class BookParserService {
      * @param book     图书实体对象
      * @param filePath EPUB文件路径
      */
+    @LogAction("解析EPUB")
     public void parseEpub(Book book, Path filePath) {
         // 预验证：检查 EPUB 结构是否可被 epublib 解析
         if (!isValidEpubStructure(filePath)) {
@@ -1220,6 +1226,7 @@ public class BookParserService {
      *
      * @param book 图书实体对象
      */
+    @LogAction("生成全部AI数据")
     public void generateAllAiData(Book book) {
         Long bookId = book.getId(); // 获取图书ID
         try {
@@ -1285,6 +1292,7 @@ public class BookParserService {
      *
      * @param bookId 图书ID
      */
+    @LogAction("生成RAG内容向量")
     public void generateContentEmbedding(Long bookId) {
         try {
             Book book = bookService.getBookById(bookId);
@@ -1302,6 +1310,7 @@ public class BookParserService {
      * @param bookId  图书ID
      * @param content 已提取的全文内容（可为null，将自动提取）
      */
+    @LogAction("生成RAG内容向量(预提内容)")
     public void generateContentEmbedding(Long bookId, String content) {
         try {
             if (content == null || content.isBlank()) {
@@ -1335,6 +1344,7 @@ public class BookParserService {
      * @return {@link Boolean#TRUE} 成功，{@link Boolean#FALSE} 失败，{@code null} 锁被占用
      */
     @RedisLock(key = "'book:content:embed:' + #bookId", leaseTime = 60, timeUnit = TimeUnit.MINUTES)
+    @LogAction("确保内容向量已生成")
     public Boolean ensureContentEmbedded(Long bookId) {
         Book book = bookService.getBookById(bookId);
         if (Boolean.TRUE.equals(book.getContentEmbedded())) {
@@ -1348,6 +1358,7 @@ public class BookParserService {
      * 为图书全文重新向量化（返回 chunk 数量）
      * 用于管理员手动修复或自动风控触发
      */
+    @LogAction("重新内容向量化")
     public int generateContentEmbeddingWithCount(Long bookId) {
         try {
             Book book = bookService.getBookById(bookId);
@@ -1373,6 +1384,7 @@ public class BookParserService {
      *
      * @param book 图书
      */
+    @LogAction("生成元数据向量")
     public void generateBookEmbedding(Book book) {
         try {
             embeddingService.generateBookEmbedding(book);
@@ -1773,6 +1785,7 @@ public class BookParserService {
     /**
      * 为新入库的图书重命名封面文件（使用正式的 bookId）
      */
+    @LogAction("最终处理封面")
     public void finalizeCover(Book book) {
         if (book.getCoverUrl() == null || book.getId() == null) {
             return;
@@ -1808,10 +1821,12 @@ public class BookParserService {
         }
     }
 
+    @LogAction("生成速读摘要")
     public com.kbook.dto.BookSpeedReadVO generateSpeedRead(Book book) {
         return generateSpeedRead(book, null);
     }
 
+    @LogAction("生成速读摘要")
     public com.kbook.dto.BookSpeedReadVO generateSpeedRead(Book book, com.kbook.entity.User user) {
         try {
             ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
@@ -1981,6 +1996,7 @@ public class BookParserService {
         return profileBuilder.toString();
     }
 
+    @LogAction("流式生成速读摘要")
     public SseEmitter streamSpeedRead(Long bookId, Long userId) {
         SseEmitter emitter = new SseEmitter(360_000L);
 
@@ -2058,6 +2074,7 @@ public class BookParserService {
                         - 读完能收获什么: 2-3个读完能获得的具体收获，请结合读者的职业和人生阶段给出个性化收获。
                         - 难度: 根据内容深度和读者的背景判断阅读难度，只输出"入门"、"中等"或"进阶"。
                         - 不要输出任何其他内容，不要使用Markdown加粗或列表符号。
+                        - 每个标题占一行，标题下的每条内容各占一行
                         """.formatted(userProfileDesc, bookContent);
             } else {
                 prompt = """
@@ -2097,6 +2114,7 @@ public class BookParserService {
                         - 读完能收获什么: 2-3个读完能获得的具体收获
                         - 难度: 根据内容深度判断阅读难度，只输出"入门"、"中等"或"进阶"
                         - 不要输出任何其他内容，不要使用Markdown加粗或列表符号。
+                        - 每个标题占一行，标题下的每条内容各占一行
                         """.formatted(bookContent);
             }
 

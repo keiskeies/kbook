@@ -5,6 +5,8 @@ import com.kbook.dto.BookProjection;
 import com.kbook.repository.BookRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -26,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@LogModule("排行榜")
 public class RankService {
 
     private final BookRepository bookRepository;
@@ -49,6 +52,7 @@ public class RankService {
     /**
      * 获取高分佳作（4分以上随机6本，优先读缓存）
      */
+    @LogAction("获取高分佳作")
     public List<BookProjection> getHighRatedRandom() {
         String cachedIds = redisTemplate.opsForValue().get(HIGH_RATED_RANDOM_KEY);
         if (cachedIds != null && !cachedIds.isEmpty()) {
@@ -67,6 +71,7 @@ public class RankService {
     /**
      * 获取新书速递（全部书籍随机12本，优先读缓存）
      */
+    @LogAction("获取新书速递")
     public List<BookProjection> getNewArrivalsRandom() {
         String cachedIds = redisTemplate.opsForValue().get(NEW_ARRIVALS_RANDOM_KEY);
         if (cachedIds != null && !cachedIds.isEmpty()) {
@@ -176,6 +181,7 @@ public class RankService {
     /**
      * 从缓存读取指定页码的阅读榜
      */
+    @LogAction("获取阅读榜")
     public PageResult<BookProjection> getReadRank(int page, int size) {
         return getCachedPage(READ_RANK_KEY, page, size);
     }
@@ -183,6 +189,7 @@ public class RankService {
     /**
      * 从缓存读取指定页码的评分榜
      */
+    @LogAction("获取评分榜")
     public PageResult<BookProjection> getRatingRank(int page, int size) {
         return getCachedPage(RATING_RANK_KEY, page, size);
     }
@@ -190,6 +197,7 @@ public class RankService {
     /**
      * 从缓存读取指定页码的新书榜
      */
+    @LogAction("获取新书榜")
     public PageResult<BookProjection> getNewBooksRank(int page, int size) {
         return getCachedPage(NEW_BOOKS_RANK_KEY, page, size);
     }

@@ -29,6 +29,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useMatchScores } from '@/hooks/useMatchScores'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
+import { useKeepAliveStore } from '@/store/keepAlive'
 import { useAuthStore } from '@/store/auth'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
@@ -223,97 +224,6 @@ function MatchScoreCard({ bookId, ms }: { bookId: number; ms: number | undefined
       )}
     </div>
   )
-}
-
-function useSpeedRead(bookId: number) {
-  const [data, setData] = useState<BookSpeedRead | null>(null)
-  const [loading, setLoading] = useState(true)
-  const bufferRef = useRef('')
-  const currentSectionRef = useRef('')
-  const currentItemRef = useRef('')
-
-  const flushCurrentItem = useCallback(() => {
-    const item = currentItemRef.current.trim()
-    const section = currentSectionRef.current
-    currentItemRef.current = ''
-    if (!item || !section) return
-
-    setData(prev => {
-      const next = { ...prev! }
-      if (section === '核心观点') {
-        next.corePoints = [...(next.corePoints || []), item]
-      } else if (section === '适合谁读') {
-        next.suitableFor = [...(next.suitableFor || []), item]
-      } else if (section === '不适合谁读') {
-        next.notSuitableFor = [...(next.notSuitableFor || []), item]
-      } else if (section === '读完能收获什么') {
-        next.takeaways = [...(next.takeaways || []), item]
-      } else if (section === '难度') {
-        next.difficulty = item
-      }
-      return next
-    })
-  }, [])
-
-  useEffect(() => {
-    if (!bookId) return
-    setLoading(true)
-    setData({ bookId, corePoints: [], suitableFor: [], notSuitableFor: [], takeaways: [], difficulty: '' })
-    bufferRef.current = ''
-    currentSectionRef.current = ''
-    currentItemRef.current = ''
-
-    const controller = createSsePostConnection(
-      `/books/${bookId}/speed-read/stream`,
-      {},
-      {
-        onChunk: (text) => {
-          if (!text) return
-          bufferRef.current += text
-          const lines = bufferRef.current.split('\n')
-          bufferRef.current = lines.pop() || ''
-
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (trimmed.startsWith('### ')) {
-              flushCurrentItem()
-              currentSectionRef.current = trimmed.slice(4).trim()
-            } else if (trimmed) {
-              if (currentItemRef.current) {
-                currentItemRef.current += trimmed
-              } else {
-                currentItemRef.current = trimmed
-              }
-              flushCurrentItem()
-            }
-          }
-        },
-        onDone: () => {
-          if (bufferRef.current.trim()) {
-            const trimmed = bufferRef.current.trim()
-            if (trimmed.startsWith('### ')) {
-              flushCurrentItem()
-              currentSectionRef.current = trimmed.slice(4).trim()
-            } else if (trimmed) {
-              currentItemRef.current = trimmed
-              flushCurrentItem()
-            }
-          } else {
-            flushCurrentItem()
-          }
-          setLoading(false)
-        },
-        onError: () => {
-          flushCurrentItem()
-          setLoading(false)
-        },
-      },
-    )
-
-    return () => controller.abort()
-  }, [bookId, flushCurrentItem])
-
-  return { data, loading }
 }
 
 function SpeedReadCard({ data, loading }: { data: BookSpeedRead | null; loading: boolean }) {
@@ -784,21 +694,45 @@ function EditTagsDialog({
   )
 }
 
+const DETAIL_CACHE_PREFIX = '/book/'
+const DETAIL_CACHE_TTL = 10 * 60 * 1000
+
+interface DetailCache {
+  book: Book
+  inShelf: boolean
+  inTrash: boolean
+  progress: number
+  userRating: number
+  comments: CommentVO[]
+  commentCount: number
+  commentPage: number
+  hasMoreComments: boolean
+  speedReadData: BookSpeedRead | null
+  timestamp: number
+}
+
 export default function BookDetailPage() {
   const { bookId } = useParams<{ bookId: string }>()
   const navigate = useNavigate()
   const goBack = useGoBack()
-  const [book, setBook] = useState<Book | null>(null)
-  const [inShelf, setInShelf] = useState(false)
-  const [progress, setProgress] = useState<number>(0)
-  const [loading, setLoading] = useState(true)
+  const savePageData = useKeepAliveStore((s) => s.savePageData)
+  const getPageData = useKeepAliveStore((s) => s.getPageData)
+
+  const cacheKey = `${DETAIL_CACHE_PREFIX}${bookId}`
+  const cached = getPageData<DetailCache>(cacheKey)
+  const isCacheValid = cached && Date.now() - cached.timestamp < DETAIL_CACHE_TTL
+
+  const [book, setBook] = useState<Book | null>(() => isCacheValid ? cached.book : null)
+  const [inShelf, setInShelf] = useState(() => isCacheValid ? cached.inShelf : false)
+  const [progress, setProgress] = useState<number>(() => isCacheValid ? cached.progress : 0)
+  const [loading, setLoading] = useState(() => !isCacheValid)
   const [showRating, setShowRating] = useState(false)
-  const [userRating, setUserRating] = useState(0)
+  const [userRating, setUserRating] = useState(() => isCacheValid ? cached.userRating : 0)
   const [hoverStar, setHoverStar] = useState(0)
-  const [comments, setComments] = useState<CommentVO[]>([])
-  const [commentCount, setCommentCount] = useState(0)
-  const [commentPage, setCommentPage] = useState(1)
-  const [hasMoreComments, setHasMoreComments] = useState(true)
+  const [comments, setComments] = useState<CommentVO[]>(() => isCacheValid ? cached.comments : [])
+  const [commentCount, setCommentCount] = useState(() => isCacheValid ? cached.commentCount : 0)
+  const [commentPage, setCommentPage] = useState(() => isCacheValid ? cached.commentPage : 1)
+  const [hasMoreComments, setHasMoreComments] = useState(() => isCacheValid ? cached.hasMoreComments : true)
   const [showBookChat, setShowBookChat] = useState(false)
   const [chatInitialQuestion, setChatInitialQuestion] = useState<string | undefined>(undefined)
   const [descExpanded, setDescExpanded] = useState(false)
@@ -811,7 +745,7 @@ export default function BookDetailPage() {
   const [editAuthorOpen, setEditAuthorOpen] = useState(false)
   const [editTagsOpen, setEditTagsOpen] = useState(false)
   const [editDescOpen, setEditDescOpen] = useState(false)
-  const [inTrash, setInTrash] = useState(false)
+  const [inTrash, setInTrash] = useState(() => isCacheValid ? cached.inTrash : false)
   const [trashDialogOpen, setTrashDialogOpen] = useState(false)
   const [trashing, setTrashing] = useState(false)
 
@@ -822,7 +756,36 @@ export default function BookDetailPage() {
   const id = Number(bookId)
   const matchScores = useMatchScores(book ? [book.id] : [])
   const ms = book ? matchScores?.[String(book.id)] : null
-  const { data: speedReadData, loading: speedReadLoading } = useSpeedRead(id)
+  const [speedReadData, setSpeedReadData] = useState<BookSpeedRead | null>(() => isCacheValid ? cached.speedReadData : null)
+  const [speedReadLoading, setSpeedReadLoading] = useState(() => isCacheValid && cached.speedReadData ? false : true)
+
+  const updateCache = useCallback((
+    b: Book | null,
+    shelf: boolean,
+    trash: boolean,
+    prog: number,
+    rating: number,
+    cmts: CommentVO[],
+    cmtCount: number,
+    cmtPage: number,
+    hasMore: boolean,
+    srData: BookSpeedRead | null,
+  ) => {
+    if (!b) return
+    savePageData(cacheKey, {
+      book: b,
+      inShelf: shelf,
+      inTrash: trash,
+      progress: prog,
+      userRating: rating,
+      comments: cmts,
+      commentCount: cmtCount,
+      commentPage: cmtPage,
+      hasMoreComments: hasMore,
+      speedReadData: srData,
+      timestamp: Date.now(),
+    })
+  }, [savePageData, cacheKey])
 
   const loadComments = useCallback(async (page: number = 1) => {
     try {
@@ -837,25 +800,107 @@ export default function BookDetailPage() {
 
   useEffect(() => {
     if (!bookId) return
+    if (isCacheValid) return
     Promise.all([
       getBook(id),
       checkInBookshelf(id).catch(() => ({ data: false })),
       getProgress(id).catch(() => ({ data: null })),
       checkInTrash(id).catch(() => ({ data: false })),
     ]).then(([bookRes, shelfRes, progressRes, trashRes]) => {
-      setBook(bookRes as unknown as Book)
-      setInShelf((shelfRes as any) || false)
-      setInTrash((trashRes as any) || false)
+      const b = bookRes as unknown as Book
+      const shelf = (shelfRes as any) || false
+      const trash = (trashRes as any) || false
       const progressData = (progressRes as any)
-      setProgress(progressData?.progress || 0)
-      if (progressData?.userRating) {
-        setUserRating(progressData.userRating)
-      }
+      const prog = progressData?.progress || 0
+      const rating = progressData?.userRating || 0
+      setBook(b)
+      setInShelf(shelf)
+      setInTrash(trash)
+      setProgress(prog)
+      if (rating) setUserRating(rating)
       setLoading(false)
+      updateCache(b, shelf, trash, prog, rating, [], 0, 1, true, null)
     })
     loadComments(1)
     countBookComments(id).then(res => setCommentCount((res as any)?.data || (res as any) || 0)).catch(() => {})
-  }, [bookId, id, loadComments])
+  }, [bookId, id, loadComments, isCacheValid, updateCache])
+
+  // Speed read SSE — only when no cache
+  useEffect(() => {
+    if (!bookId) return
+    if (isCacheValid && cached.speedReadData) return
+    setSpeedReadLoading(true)
+    setSpeedReadData({ bookId: id, corePoints: [], suitableFor: [], notSuitableFor: [], takeaways: [], difficulty: '' })
+    const bufferRef = { current: '' }
+    const currentSectionRef = { current: '' }
+    const currentItemRef = { current: '' }
+
+    const flushCurrentItem = () => {
+      const item = currentItemRef.current.trim()
+      const section = currentSectionRef.current
+      currentItemRef.current = ''
+      if (!item || !section) return
+
+      setSpeedReadData(prev => {
+        if (!prev) return prev
+        const next = { ...prev }
+        if (section === '核心观点') next.corePoints = [...(next.corePoints || []), item]
+        else if (section === '适合谁读') next.suitableFor = [...(next.suitableFor || []), item]
+        else if (section === '不适合谁读') next.notSuitableFor = [...(next.notSuitableFor || []), item]
+        else if (section === '读完能收获什么') next.takeaways = [...(next.takeaways || []), item]
+        else if (section === '难度') next.difficulty = item
+        return next
+      })
+    }
+
+    const controller = createSsePostConnection(
+      `/books/${id}/speed-read/stream`,
+      {},
+      {
+        onChunk: (text: string) => {
+          if (!text) return
+          bufferRef.current += text
+          const lines = bufferRef.current.split('\n')
+          bufferRef.current = lines.pop() || ''
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('### ')) {
+              flushCurrentItem()
+              currentSectionRef.current = trimmed.slice(4).trim()
+            } else if (trimmed) {
+              currentItemRef.current = currentItemRef.current ? currentItemRef.current + trimmed : trimmed
+              flushCurrentItem()
+            }
+          }
+        },
+        onDone: () => {
+          if (bufferRef.current.trim()) {
+            const trimmed = bufferRef.current.trim()
+            if (trimmed.startsWith('### ')) {
+              flushCurrentItem()
+              currentSectionRef.current = trimmed.slice(4).trim()
+            } else if (trimmed) {
+              currentItemRef.current = trimmed
+              flushCurrentItem()
+            }
+          } else {
+            flushCurrentItem()
+          }
+          setSpeedReadLoading(false)
+          setSpeedReadData(prev => {
+            if (prev) updateCache(book, inShelf, inTrash, progress, userRating, comments, commentCount, commentPage, hasMoreComments, prev)
+            return prev
+          })
+        },
+        onError: () => {
+          flushCurrentItem()
+          setSpeedReadLoading(false)
+        },
+      },
+    )
+    return () => controller.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookId, id, isCacheValid])
 
   const toggleShelf = async () => {
     if (!book) return

@@ -1,6 +1,8 @@
 package com.kbook.service;
 
 import com.kbook.common.exception.BusinessException;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.response.ChatMessageVO;
 import com.kbook.dto.response.ConversationVO;
@@ -43,6 +45,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@LogModule("聊天")
 @RequiredArgsConstructor
 public class ChatService {
 
@@ -71,6 +74,7 @@ public class ChatService {
      * @return 会话视图对象
      */
     @Transactional
+    @LogAction("发送消息")
     public ConversationVO sendMessage(Long senderId, Long recipientId, String content, 
                                       ChatMessage.MessageType messageType, String fileName,
                                       Long fileSize, String fileUrl, Integer voiceDuration) {
@@ -172,6 +176,7 @@ public class ChatService {
      * @param userId 用户ID
      * @return 会话视图对象列表
      */
+    @LogAction("获取会话列表")
     public List<ConversationVO> getConversations(Long userId) {
         List<Conversation> conversations = conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
         return conversations.stream()
@@ -185,6 +190,7 @@ public class ChatService {
      * @param keyword 搜索关键词
      * @return 匹配的会话视图对象列表
      */
+    @LogAction("搜索会话")
     public List<ConversationVO> searchConversations(Long userId, String keyword) {
         List<Conversation> conversations = conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
         String lowerKeyword = keyword.toLowerCase();
@@ -215,6 +221,7 @@ public class ChatService {
      * @return 消息视图对象列表
      */
     @Transactional
+    @LogAction("获取消息列表")
     public List<ChatMessageVO> getMessages(Long userId, Long conversationId, Long beforeId, int limit) {
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new BusinessException("会话不存在"));
@@ -243,6 +250,7 @@ public class ChatService {
      * @param conversationId 会话ID
      */
     @Transactional
+    @LogAction("标记已读")
     public void markAsRead(Long userId, Long conversationId) {
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new BusinessException("会话不存在"));
@@ -266,6 +274,7 @@ public class ChatService {
      * @param conversationId 会话ID
      */
     @Transactional
+    @LogAction("删除会话")
     public void deleteConversation(Long userId, Long conversationId) {
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new BusinessException("会话不存在"));
@@ -284,6 +293,7 @@ public class ChatService {
      * @param userId 用户ID
      * @return 未读消息数
      */
+    @LogAction("获取未读消息数")
     public Long getUnreadCount(Long userId) {
         return conversationRepository.sumUnreadCount(userId);
     }
@@ -295,6 +305,7 @@ public class ChatService {
      * @param file 上传的文件
      * @return 文件访问URL
      */
+    @LogAction("上传聊天文件")
     public String uploadChatFile(Long userId, Long conversationId, MultipartFile file) throws IOException {
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new BusinessException("会话不存在"));
@@ -525,6 +536,7 @@ public class ChatService {
      * @param conversationId 会话ID
      * @return 会话视图对象
      */
+    @LogAction("获取会话信息")
     public ConversationVO getConversation(Long userId, Long conversationId) {
         Conversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new BusinessException("会话不存在"));
@@ -542,6 +554,7 @@ public class ChatService {
      * @param recipientId 对方用户ID
      * @return 会话视图对象
      */
+    @LogAction("创建会话")
     public ConversationVO startConversation(Long userId, Long recipientId) {
         validateUserExists(userId);
         validateUserExists(recipientId);

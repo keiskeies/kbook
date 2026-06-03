@@ -2,6 +2,8 @@ package com.kbook.service;
 
 import com.kbook.common.exception.BusinessException;
 import com.kbook.config.JwtUtil;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.VerificationProperties;
 import com.kbook.dto.LoginResult;
 import com.kbook.dto.UserInfo;
@@ -35,6 +37,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Service
+@LogModule("认证")
 @RequiredArgsConstructor
 public class AuthService {
 
@@ -63,6 +66,7 @@ public class AuthService {
      * @param captchaId 点击验证码ID（需先通过点击验证）
      */
     @Transactional
+    @LogAction("发送验证码")
     public void sendVerificationCode(String email, String scene, String captchaId) {
         // 场景校验
         if ("register".equals(scene) && userRepository.existsByEmail(email)) {
@@ -120,6 +124,7 @@ public class AuthService {
      * - 待审核用户也返回Token，前端根据状态显示审核提示
      */
     @Transactional
+    @LogAction("验证码登录")
     public LoginResult loginByCode(String email, String code) {
         log.info("验证码登录: email={}", email);
         validateCode(email, code, "login");
@@ -145,6 +150,7 @@ public class AuthService {
      *
      * @param captchaId 点击验证码ID（需先通过点击验证）
      */
+    @LogAction("密码登录")
     public LoginResult loginByPassword(String email, String password, String captchaId) {
         // 校验点击验证码
         if (captchaId != null && !captchaId.isBlank()) {
@@ -173,6 +179,7 @@ public class AuthService {
      * 注册（含可选画像信息）
      */
     @Transactional
+    @LogAction("用户注册")
     public LoginResult register(String email, String code, String password,
                                 LocalDate birthday, String gender, Boolean married,
                                 Boolean hasChildren, String mbti) {
@@ -207,6 +214,7 @@ public class AuthService {
     /**
      * 刷新 Token
      */
+    @LogAction("刷新Token")
     public LoginResult refreshToken(String refreshToken) {
         log.debug("刷新 Token");
         if (!jwtUtil.validateToken(refreshToken) || !jwtUtil.isRefreshToken(refreshToken)) {
@@ -233,6 +241,7 @@ public class AuthService {
      * 修改密码
      */
     @Transactional
+    @LogAction("修改密码")
     public void changePassword(Long userId, String oldPassword, String newPassword) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
@@ -254,6 +263,7 @@ public class AuthService {
      * 重置密码（通过验证码）
      */
     @Transactional
+    @LogAction("重置密码")
     public void resetPassword(String email, String code, String newPassword) {
         validateCode(email, code, "reset");
 
@@ -270,6 +280,7 @@ public class AuthService {
     /**
      * 登出 - 将当前 Access Token 加入黑名单
      */
+    @LogAction("用户登出")
     public void logout(String token) {
         if (token != null && jwtUtil.validateToken(token)) {
             Long userId = jwtUtil.getUserId(token);
@@ -281,6 +292,7 @@ public class AuthService {
     /**
      * 校验绑定邮箱验证码（供 AdminController 调用）
      */
+    @LogAction("校验绑定邮箱验证码")
     public void validateBindCode(String email, String code) {
         validateCode(email, code, "bind");
     }

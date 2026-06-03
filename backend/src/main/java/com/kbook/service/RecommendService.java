@@ -2,6 +2,8 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.dto.BookProjection;
 import com.kbook.dto.RecommendedItem;
@@ -37,6 +39,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@LogModule("推荐")
 public class RecommendService {
 
     private final BookRepository bookRepository;
@@ -89,6 +92,7 @@ public class RecommendService {
      * @param bookIds 书籍ID列表
      * @return bookId → 匹配度得分 的映射
      */
+    @LogAction("批量计算匹配度")
     public Map<Long, Double> batchCalculateMatchScores(Long userId, List<Long> bookIds) {
         if (bookIds == null || bookIds.isEmpty()) return Map.of();
 
@@ -121,6 +125,7 @@ public class RecommendService {
      * @param count 返回数量
      * @return 推荐项列表
      */
+    @LogAction("获取个性化推荐")
     public List<RecommendedItem> getPersonalizedRecommendations(Long userId, int count) {
         String sortedKey = SORTED_KEY_PREFIX + userId;
         try {
@@ -147,6 +152,7 @@ public class RecommendService {
      * @param size 每页大小
      * @return 分页结果（含 list, total, page, size）
      */
+    @LogAction("分页获取推荐")
     public Map<String, Object> getRecommendationsPage(Long userId, int page, int size) {
         String sortedKey = SORTED_KEY_PREFIX + userId;
         Map<String, Object> result = new LinkedHashMap<>();
@@ -189,6 +195,7 @@ public class RecommendService {
      * 清除用户的推荐缓存
      * @param userId 用户ID
      */
+    @LogAction("清除推荐缓存")
     public void clearUserCache(Long userId) {
         try {
             Set<String> keys = redisTemplate.keys(CACHE_PREFIX + userId + ":*");
@@ -207,6 +214,7 @@ public class RecommendService {
      * @param userId 用户ID
      * @param bookId 图书ID
      */
+    @LogAction("移除推荐图书")
     public void removeSingleBook(Long userId, Long bookId) {
         try {
             redisTemplate.opsForZSet().remove(SORTED_KEY_PREFIX + userId, bookId);
@@ -225,6 +233,7 @@ public class RecommendService {
      * @param userId 用户ID
      */
     @Async
+    @LogAction("异步重算推荐")
     public void asyncRecompute(Long userId) {
         try {
             log.info("异步重新计算推荐: userId={}", userId);
@@ -261,6 +270,7 @@ public class RecommendService {
      * @param userId 用户ID
      * @param emitter SSE 发射器
      */
+    @LogAction("SSE推荐生成")
     public void generateWithProgress(Long userId, SseEmitter emitter) {
         try {
             sendProgress(emitter, "loading", "正在加载书籍数据...", 0, 0, 0);
@@ -410,6 +420,7 @@ public class RecommendService {
      * 清空临时评分结果，用最新画像对同一批图书重新评分，不重复查库。
      */
     @RedisLock(key = "'kbook:lock:recommend:' + #userId", leaseTime = 600)
+    @LogAction("计算并保存推荐")
     public List<ScoredBook> computeAndSave(Long userId) {
         log.info("获取锁成功，开始计算推荐: userId={}", userId);
         long startTime = System.currentTimeMillis();
@@ -587,6 +598,7 @@ public class RecommendService {
         }
     }
 
+    @LogAction("计算单本图书推荐得分")
     public void computeAndAddSingleBook(Long userId, Long bookId) {
         try {
             User user = userService.getUserById(userId);
@@ -619,6 +631,7 @@ public class RecommendService {
         }
     }
 
+    @LogAction("计算图书匹配度得分")
     public double computeFullScore(User user, BookProjection book, Long userId) {
         List<String> includedTags = getIncludedTags(userId);
         List<String> includedAuthors = getIncludedAuthors(userId);
@@ -775,6 +788,7 @@ public class RecommendService {
      * @param detail 行为详情
      */
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    @LogAction("记录阅读行为")
     public void recordReadAction(Long userId, Long bookId, String action, Integer weight, String detail) {
         try {
             Optional<UserReadHistory> existing = readHistoryRepository.findByUserIdAndBookIdAndAction(userId, bookId, action);

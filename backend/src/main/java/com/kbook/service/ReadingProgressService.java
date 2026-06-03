@@ -1,5 +1,7 @@
 package com.kbook.service;
 
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.dto.ProgressBatchItem;
 import com.kbook.dto.ReadingHistoryVO;
 import com.kbook.dto.ReadingStats;
@@ -32,6 +34,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@LogModule("进度")
 @RequiredArgsConstructor
 public class ReadingProgressService {
 
@@ -51,6 +54,7 @@ public class ReadingProgressService {
      * @return ProgressResult 包含进度记录和是否是新创建的标志
      */
     @Transactional // 开启事务保证数据一致性
+    @LogAction("上报阅读进度")
     public ProgressResult reportProgress(Long userId, Long bookId, Double progress, String currentPosition) {
         log.debug("上报阅读进度: userId={}, bookId={}, progress={}", userId, bookId, progress); // 记录调试日志
 
@@ -106,6 +110,7 @@ public class ReadingProgressService {
      * @return BatchProgressResult 包含统计信息和新创建的bookId列表
      */
     @Transactional // 开启事务保证数据一致性
+    @LogAction("批量上报阅读进度")
     public BatchProgressResult batchReportProgress(Long userId, List<ProgressBatchItem> items) {
         log.info("开始批量上报进度: userId={}, count={}", userId, items.size()); // 记录开始日志
         int updated = 0, created = 0, skipped = 0; // 初始化计数器：更新数、创建数、跳过数
@@ -175,6 +180,7 @@ public class ReadingProgressService {
      * @param bookId 书籍ID
      * @return 阅读进度对象，不存在则返回null
      */
+    @LogAction("获取阅读进度")
     public ReadingProgress getProgress(Long userId, Long bookId) {
         // 查询并返回用户的阅读进度，不存在则返回null
         return progressRepository.findByUserIdAndBookId(userId, bookId)
@@ -188,6 +194,7 @@ public class ReadingProgressService {
      * @param bookIds 书籍ID列表
      * @return 书籍ID到阅读进度对象的映射Map
      */
+    @LogAction("批量获取阅读进度")
     public Map<Long, ReadingProgress> getProgressBatch(Long userId, List<Long> bookIds) {
         // 批量查询用户在这些书籍上的阅读进度
         List<ReadingProgress> list = progressRepository.findByUserIdAndBookIdIn(userId, bookIds);
@@ -201,6 +208,7 @@ public class ReadingProgressService {
      * @param userId 用户ID
      * @return 阅读进度列表
      */
+    @LogAction("获取用户所有阅读进度")
     public List<ReadingProgress> getUserProgresses(Long userId) {
         // 查询用户的所有阅读进度，按更新时间降序排列
         return progressRepository.findByUserIdOrderByUpdatedAtDesc(userId);
@@ -214,6 +222,7 @@ public class ReadingProgressService {
      * @param size 每页大小
      * @return 分页的阅读历史视图对象列表
      */
+    @LogAction("获取阅读历史")
     public com.kbook.common.api.PageResult<ReadingHistoryVO> getUserReadingHistory(Long userId, int page, int size) {
         // 分页查询用户的阅读进度，按更新时间降序排列
         org.springframework.data.domain.Page<ReadingProgress> pageData = progressRepository
@@ -235,6 +244,7 @@ public class ReadingProgressService {
      * @param limit 返回数量限制
      * @return 最近阅读的进度列表
      */
+    @LogAction("获取最近阅读")
     public List<ReadingProgress> getRecentReading(Long userId, int limit) {
         // 查询最近阅读的书籍，限制返回数量
         return progressRepository.findRecentReading(userId, PageRequest.of(0, limit));
@@ -246,6 +256,7 @@ public class ReadingProgressService {
      * @param userId 用户ID
      * @return 阅读统计对象
      */
+    @LogAction("获取阅读统计")
     public ReadingStats getReadingStats(Long userId) {
         // 获取用户的所有阅读进度
         List<ReadingProgress> all = progressRepository.findByUserIdOrderByUpdatedAtDesc(userId);

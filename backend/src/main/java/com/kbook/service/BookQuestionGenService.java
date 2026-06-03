@@ -2,6 +2,8 @@ package com.kbook.service;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.entity.Book;
 import com.kbook.entity.BookSuggestedQuestion;
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@LogModule("图书问题生成")
 public class BookQuestionGenService {
 
     private final BookService bookService;
@@ -42,6 +45,7 @@ public class BookQuestionGenService {
      */
     @Async
     @RedisLock(key = "'book:suggest:gen:' + #bookId", leaseTime = 10, timeUnit = TimeUnit.MINUTES)
+    @LogAction("异步生成预设问题")
     public void asyncGenerateQuestions(Long bookId) {
         log.info("开始异步生成图书预设问题: bookId={}", bookId);
         Book book = bookService.getBookById(bookId);

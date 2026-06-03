@@ -2,6 +2,8 @@ package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
@@ -40,6 +42,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
+@LogModule("用户")
 public class UserService {
 
     /** 用户数据仓库 */
@@ -61,6 +64,7 @@ public class UserService {
      * @param id 用户ID
      * @return 用户实体
      */
+    @LogAction("获取用户详情")
     public User getUserById(Long id) {
         return userRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
@@ -69,6 +73,7 @@ public class UserService {
     /**
      * 分页查询待审核用户
      */
+    @LogAction("查询待审核用户")
     public PageResult<User> getPendingUsers(int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "id"));
         Page<User> pageData = userRepository.findByStatus("PENDING", pageable);
@@ -79,6 +84,7 @@ public class UserService {
      * 按状态筛选用户（支持多状态）
      * 按 id DESC 排序（自增主键，等价于按注册时间倒序但索引效率更高）
      */
+    @LogAction("按状态筛选用户")
     public PageResult<User> getUsersByStatus(List<String> statuses, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "id"));
         Page<User> pageData;
@@ -94,6 +100,7 @@ public class UserService {
      * 搜索用户（关键词 + 状态筛选）
      * 按 id DESC 排序（自增主键，索引效率更高）
      */
+    @LogAction("搜索用户")
     public PageResult<User> searchUsers(String keyword, String status, int page, int size) {
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "id"));
         Page<User> pageData = userRepository.searchUsers(keyword, status, pageable);
@@ -103,6 +110,7 @@ public class UserService {
     /**
      * 审核统计
      */
+    @LogAction("获取审核统计")
     public Map<String, Long> getReviewStats() {
         Map<String, Long> stats = new HashMap<>();
         List<Object[]> groups = userRepository.countGroupByStatus();
@@ -121,6 +129,7 @@ public class UserService {
      * 审核通过
      */
     @Transactional
+    @LogAction("审核通过")
     public void approveUser(Long userId) {
         User user = getUserById(userId);
         if (!"PENDING".equals(user.getStatus())) {
@@ -135,6 +144,7 @@ public class UserService {
      * 批量审核通过
      */
     @Transactional
+    @LogAction("批量审核通过")
     public int batchApprove(List<Long> userIds) {
         List<User> users = userRepository.findAllById(userIds);
         int count = 0;
@@ -153,6 +163,7 @@ public class UserService {
      * 审核拒绝（封禁）
      */
     @Transactional
+    @LogAction("审核拒绝")
     public void rejectUser(Long userId) {
         User user = getUserById(userId);
         user.setStatus("BANNED");
@@ -164,6 +175,7 @@ public class UserService {
      * 批量拒绝
      */
     @Transactional
+    @LogAction("批量审核拒绝")
     public int batchReject(List<Long> userIds) {
         List<User> users = userRepository.findAllById(userIds);
         users.forEach(user -> user.setStatus("BANNED"));
@@ -176,6 +188,7 @@ public class UserService {
      * 解封用户
      */
     @Transactional
+    @LogAction("解封用户")
     public void unbanUser(Long userId) {
         User user = getUserById(userId);
         if (!"BANNED".equals(user.getStatus())) {
@@ -190,6 +203,7 @@ public class UserService {
      * 封禁用户（封禁已通过的用户）
      */
     @Transactional
+    @LogAction("封禁用户")
     public void banUser(Long userId) {
         User user = getUserById(userId);
         if (!"APPROVED".equals(user.getStatus())) {
@@ -204,6 +218,7 @@ public class UserService {
      * 更新用户信息
      */
     @Transactional
+    @LogAction("更新用户信息")
     public User updateProfile(Long userId, String nickname, String avatar, String bio) {
         User user = getUserById(userId);
         if (nickname != null) user.setNickname(nickname);
@@ -216,6 +231,7 @@ public class UserService {
      * 更新用户画像（出生日期/性别/婚否/孩子年龄区间/MBTI/职业/期望学历/创业意向/期望年收入）
      */
     @Transactional
+    @LogAction("更新用户画像")
     public User updateTraits(Long userId, LocalDate birthday, String gender,
                              Boolean married, Boolean hasChildren, String childrenAgeRanges,
                              String mbti, String occupation,
@@ -240,6 +256,7 @@ public class UserService {
      * 更新图书对话风格
      */
     @Transactional
+    @LogAction("更新图书对话风格")
     public User updateBookChatStyle(Long userId, String style) {
         User user = getUserById(userId);
         user.setBookChatStyle(style != null && !style.isBlank() ? style.toUpperCase() : "DEEP");
@@ -250,6 +267,7 @@ public class UserService {
      * 更新当前心情状态
      */
     @Transactional
+    @LogAction("更新心情状态")
     public User updateMood(Long userId, String mood) {
         User user = getUserById(userId);
         user.setMood(mood != null && !mood.isBlank() ? mood : null);
@@ -263,6 +281,7 @@ public class UserService {
      * 裁剪后的图片在前端已转为 JPEG，后端统一缩放为 300x300 正方形
      */
     @Transactional
+    @LogAction("上传头像")
     public User uploadAvatar(Long userId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("请选择头像文件");
@@ -325,6 +344,7 @@ public class UserService {
      * 管理员绑定邮箱（简化版，供 Controller 调用，验证码由 AuthService 校验）
      */
     @Transactional
+    @LogAction("绑定邮箱")
     public User bindEmail(Long userId, String email) {
         User user = getUserById(userId);
         if (Boolean.TRUE.equals(user.getEmailBound())) {

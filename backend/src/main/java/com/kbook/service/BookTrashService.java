@@ -11,6 +11,8 @@ import com.kbook.entity.User;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.BookTrashRepository;
 import lombok.extern.slf4j.Slf4j;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@LogModule("回收站")
 public class BookTrashService {
 
     private final BookTrashRepository bookTrashRepository;
@@ -62,6 +65,7 @@ public class BookTrashService {
      * @throws BusinessException 当图书不存在或已在垃圾桶中时抛出异常
      */
     @Transactional
+    @LogAction("移入垃圾桶")
     public void moveToTrash(Long userId, Long bookId) {
         // 检查图书是否存在
         if (!bookRepository.existsById(bookId)) {
@@ -106,6 +110,7 @@ public class BookTrashService {
      * @throws BusinessException 当图书不在垃圾桶中时抛出异常
      */
     @Transactional
+    @LogAction("移出垃圾桶")
     public void removeFromTrash(Long userId, Long bookId) {
         // 检查是否在垃圾桶中
         if (!bookTrashRepository.existsByUserIdAndBookId(userId, bookId)) {
@@ -141,6 +146,7 @@ public class BookTrashService {
      * @param bookId 图书ID
      */
     @Transactional
+    @LogAction("加入书架更新维度")
     public void updateDimensionScoresOnBookshelf(Long userId, Long bookId) {
         // 获取图书信息
         Book book = bookRepository.findById(bookId).orElseThrow();
@@ -165,6 +171,7 @@ public class BookTrashService {
      * @param bookId 图书ID
      */
     @Transactional
+    @LogAction("移出书架更新维度")
     public void reverseDimensionScoresOnBookshelf(Long userId, Long bookId) {
         // 获取图书信息，如果不存在则直接返回
         Book book = bookRepository.findById(bookId).orElse(null);
@@ -192,6 +199,7 @@ public class BookTrashService {
      * @param bookId 图书ID
      * @return 如果在垃圾桶中返回true，否则返回false
      */
+    @LogAction("检查是否在垃圾桶")
     public boolean isInTrash(Long userId, Long bookId) {
         return bookTrashRepository.existsByUserIdAndBookId(userId, bookId);
     }
@@ -202,6 +210,7 @@ public class BookTrashService {
      * @param userId 用户ID
      * @return 垃圾桶中的图书项列表
      */
+    @LogAction("获取垃圾桶列表")
     public List<BookTrashItem> getTrashList(Long userId) {
         // 查询用户的垃圾桶记录，按创建时间降序排列
         List<BookTrash> trashItems = bookTrashRepository.findByUserIdOrderByCreatedAtDesc(userId);
@@ -236,6 +245,7 @@ public class BookTrashService {
      * @param userId 用户ID
      * @return 垃圾桶中的图书数量
      */
+    @LogAction("获取垃圾桶数量")
     public long getTrashCount(Long userId) {
         return bookTrashRepository.countByUserId(userId);
     }
@@ -246,6 +256,7 @@ public class BookTrashService {
      * @param userId 用户ID
      * @return 垃圾桶中的图书ID列表
      */
+    @LogAction("获取垃圾桶中的图书ID")
     public List<Long> getTrashedBookIds(Long userId) {
         return bookTrashRepository.findByUserIdOrderByCreatedAtDesc(userId)
                 .stream().map(BookTrash::getBookId).collect(Collectors.toList());

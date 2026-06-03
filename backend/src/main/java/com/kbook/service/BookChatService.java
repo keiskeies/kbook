@@ -3,6 +3,8 @@ package com.kbook.service;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
@@ -42,6 +44,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@LogModule("图书问答")
 @RequiredArgsConstructor
 public class BookChatService {
 
@@ -98,6 +101,7 @@ public class BookChatService {
      * @param bookId 书籍ID
      * @return 推荐问题列表
      */
+    @LogAction("获取推荐问题")
     public List<String> getSuggestedQuestions(Long bookId) {
         List<BookSuggestedQuestion> existing = suggestedQuestionRepository.findByBookId(bookId);
         if (!existing.isEmpty()) {
@@ -155,6 +159,7 @@ public class BookChatService {
      * @param sessionId 会话ID（可为空，自动生成）
      * @return SseEmitter 流式发射器
      */
+    @LogAction("SSE图书问答")
     public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId) {
         log.info("========== 图书问答请求 ==========");
         log.info("userId={}, bookId={}, question={}", userId, bookId, question);
@@ -392,6 +397,7 @@ public class BookChatService {
      * @param sessionId 会话ID（指定则返回该会话，否则返回最新会话）
      * @return 对话记录列表
      */
+    @LogAction("获取问答历史")
     public List<AiConversation> getBookChatHistory(Long userId, Long bookId, String sessionId) {
         if (sessionId != null && !sessionId.isBlank()) {
             return conversationRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
@@ -410,6 +416,7 @@ public class BookChatService {
      * @param bookId 书籍ID
      * @return 会话列表
      */
+    @LogAction("获取问答会话列表")
     public List<AiSession> getBookChatSessions(Long userId, Long bookId) {
         return sessionRepository.findByUserIdAndTypeAndBookIdOrderByUpdatedAtDesc(userId, TYPE, bookId);
     }
@@ -422,6 +429,7 @@ public class BookChatService {
      * @param answer   AI 回答
      * @return 深入追问问题列表（最多3个）
      */
+    @LogAction("生成深入追问")
     public List<String> generateFollowUpQuestions(Long bookId, String question, String answer) {
         if (answer == null || answer.isBlank() || question == null || question.isBlank()) {
             return Collections.emptyList();
@@ -1051,6 +1059,7 @@ public class BookChatService {
      * @param questions 追问问题列表
      */
     @org.springframework.transaction.annotation.Transactional
+    @LogAction("保存追问问题")
     public void saveFollowUpQuestions(Long userId, String sessionId, Long bookId, List<String> questions) {
         try {
             List<AiConversation> records = conversationRepository

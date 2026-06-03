@@ -2,6 +2,8 @@ package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.dto.BookProjection;
 import com.kbook.dto.CommentVO;
 import com.kbook.entity.*;
@@ -27,6 +29,7 @@ import java.util.List;
  */
 @Slf4j
 @Service
+@LogModule("评论")
 @RequiredArgsConstructor
 public class CommentService {
 
@@ -49,6 +52,7 @@ public class CommentService {
      * @return 评论视图对象
      */
     @Transactional // 开启事务保证数据一致性
+    @LogAction("发表评论")
     public CommentVO createComment(Long userId, Long bookId, String chapterId, Long parentId, String content) {
         // 验证评论内容不为空
         if (content == null || content.trim().isEmpty()) {
@@ -142,6 +146,7 @@ public class CommentService {
      * @param userId 操作用户ID（只能删除自己的评论）
      */
     @Transactional // 开启事务保证数据一致性
+    @LogAction("删除评论")
     public void deleteComment(Long commentId, Long userId) {
         // 查找要删除的评论，不存在则抛出异常
         Comment comment = commentRepository.findById(commentId)
@@ -189,6 +194,7 @@ public class CommentService {
      * @param currentUserId 当前用户ID（用于判断点赞和收藏状态）
      * @return 分页的评论视图对象列表
      */
+    @LogAction("获取书籍评论列表")
     public PageResult<CommentVO> getBookComments(Long bookId, int page, int size, Long currentUserId) {
         // 构建分页请求：按点赞数降序，点赞数相同则按创建时间降序
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "likeCount").and(Sort.by(Sort.Direction.DESC, "createdAt")));
@@ -211,6 +217,7 @@ public class CommentService {
      * @param currentUserId 当前用户ID（用于判断点赞和收藏状态）
      * @return 分页的评论视图对象列表
      */
+    @LogAction("获取章节评论列表")
     public PageResult<CommentVO> getChapterComments(Long bookId, String chapterId, int page, int size, Long currentUserId) {
         // 构建分页请求：按点赞数降序，点赞数相同则按创建时间降序
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "likeCount").and(Sort.by(Sort.Direction.DESC, "createdAt")));
@@ -230,6 +237,7 @@ public class CommentService {
      * @param currentUserId 当前用户ID（用于判断点赞和收藏状态）
      * @return 回复评论的视图对象列表
      */
+    @LogAction("获取评论回复列表")
     public List<CommentVO> getReplies(Long parentId, Long currentUserId) {
         // 查询父评论下的所有回复，按创建时间升序排列
         List<Comment> replies = commentRepository.findByParentIdOrderByCreatedAtAsc(parentId);
@@ -246,6 +254,7 @@ public class CommentService {
      * @param currentUserId 当前用户ID（用于判断点赞和收藏状态）
      * @return 分页的高赞评论视图对象列表
      */
+    @LogAction("获取高赞书评列表")
     public PageResult<CommentVO> getTopRatedComments(int minLikes, int page, int size, Long currentUserId) {
         // 构建分页请求：按点赞数降序，点赞数相同则按创建时间降序
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "likeCount").and(Sort.by(Sort.Direction.DESC, "createdAt")));
@@ -265,6 +274,7 @@ public class CommentService {
      * @param userId 点赞用户ID
      */
     @Transactional // 开启事务保证数据一致性
+    @LogAction("点赞评论")
     public void likeComment(Long commentId, Long userId) {
         // 检查用户是否已经点赞过，避免重复点赞
         if (commentLikeRepository.existsByCommentIdAndUserId(commentId, userId)) {
@@ -341,6 +351,7 @@ public class CommentService {
      * @param userId 取消点赞的用户ID
      */
     @Transactional // 开启事务保证数据一致性
+    @LogAction("取消点赞评论")
     public void unlikeComment(Long commentId, Long userId) {
         // 检查用户是否已经点赞过，未点赞则抛出异常
         if (!commentLikeRepository.existsByCommentIdAndUserId(commentId, userId)) {
@@ -364,6 +375,7 @@ public class CommentService {
      * @param userId 收藏用户ID
      */
     @Transactional // 开启事务保证数据一致性
+    @LogAction("收藏评论")
     public void favoriteComment(Long commentId, Long userId) {
         // 检查用户是否已经收藏过，避免重复收藏
         if (commentFavoriteRepository.existsByCommentIdAndUserId(commentId, userId)) {
@@ -393,6 +405,7 @@ public class CommentService {
      * @param userId 取消收藏的用户ID
      */
     @Transactional // 开启事务保证数据一致性
+    @LogAction("取消收藏评论")
     public void unfavoriteComment(Long commentId, Long userId) {
         // 检查用户是否已经收藏过，未收藏则抛出异常
         if (!commentFavoriteRepository.existsByCommentIdAndUserId(commentId, userId)) {
@@ -418,6 +431,7 @@ public class CommentService {
      * @param currentUserId 当前用户ID（用于判断点赞和收藏状态）
      * @return 分页的评论视图对象列表
      */
+    @LogAction("获取用户评论列表")
     public PageResult<CommentVO> getUserComments(Long userId, int page, int size, Long currentUserId) {
         // 构建分页请求：按创建时间降序
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
@@ -436,6 +450,7 @@ public class CommentService {
      * @param bookId 书籍ID
      * @return 评论数量
      */
+    @LogAction("统计书籍评论数")
     public long countBookComments(Long bookId) {
         // 查询书籍ID匹配且章节ID为空的评论数量（即书籍顶级评论）
         return commentRepository.countByBookIdAndChapterIdIsNull(bookId);

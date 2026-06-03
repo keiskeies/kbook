@@ -3,6 +3,7 @@ package com.kbook.service;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
@@ -35,6 +36,7 @@ import java.util.concurrent.Executors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@LogModule("图书管理对话")
 public class BookAdminChatService {
 
     /** 会话类型标识：管理员 */

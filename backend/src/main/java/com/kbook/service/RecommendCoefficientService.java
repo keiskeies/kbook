@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.RecommendCoefficient;
 import com.kbook.entity.RecommendFeedbackEvent;
 import com.kbook.repository.RecommendCoefficientRepository;
@@ -39,6 +40,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@LogModule("推荐系数")
 public class RecommendCoefficientService {
 
     private final RecommendCoefficientRepository coefficientRepository;

@@ -1,6 +1,8 @@
 package com.kbook.service;
 
 import com.kbook.common.exception.BusinessException;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.dto.BookshelfItem;
 import com.kbook.entity.Book;
 import com.kbook.entity.Bookshelf;
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@LogModule("书架")
 @RequiredArgsConstructor
 public class BookshelfService {
 
@@ -45,6 +48,7 @@ public class BookshelfService {
      * 加入书架
      */
     @Transactional
+    @LogAction("加入书架")
     public void addToBookshelf(Long userId, Long bookId) {
         if (!bookRepository.existsById(bookId)) {
             throw new BusinessException("图书不存在");
@@ -65,6 +69,7 @@ public class BookshelfService {
      * 从书架移除
      */
     @Transactional
+    @LogAction("移出书架")
     public void removeFromBookshelf(Long userId, Long bookId) {
         bookshelfRepository.deleteByUserIdAndBookId(userId, bookId);
         bookTrashService.reverseDimensionScoresOnBookshelf(userId, bookId);
@@ -74,6 +79,7 @@ public class BookshelfService {
     /**
      * 检查是否在书架中
      */
+    @LogAction("检查书架状态")
     public boolean isInBookshelf(Long userId, Long bookId) {
         return bookshelfRepository.existsByUserIdAndBookId(userId, bookId);
     }
@@ -81,6 +87,7 @@ public class BookshelfService {
     /**
      * 获取书架列表（含图书详情和阅读进度）
      */
+    @LogAction("获取书架列表")
     public List<BookshelfItem> getBookshelf(Long userId) {
         List<Bookshelf> items = bookshelfRepository.findByUserIdOrderBySortOrderDescAddedAtDesc(userId);
         if (items.isEmpty()) return new ArrayList<>();
@@ -122,6 +129,7 @@ public class BookshelfService {
     /**
      * 获取书架数量
      */
+    @LogAction("获取书架数量")
     public long getBookshelfCount(Long userId) {
         return bookshelfRepository.countByUserId(userId);
     }

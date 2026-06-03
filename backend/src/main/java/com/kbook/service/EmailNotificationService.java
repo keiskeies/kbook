@@ -1,6 +1,8 @@
 package com.kbook.service;
 
 import com.kbook.config.properties.NotificationProperties;
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import jakarta.mail.internet.MimeMessage;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@LogModule("邮件通知")
 public class EmailNotificationService {
 
     private final JavaMailSender mailSender;
@@ -61,6 +64,7 @@ public class EmailNotificationService {
     /**
      * 发送验证码邮件
      */
+    @LogAction("发送验证码邮件")
     public void sendVerificationCode(String toEmail, String sceneName, String code, int expireMinutes) {
         Map<String, Object> data = Map.of(
                 "sceneName", sceneName,
@@ -75,6 +79,7 @@ public class EmailNotificationService {
      *
      * @return 邀请码
      */
+    @LogAction("发送邀请邮件")
     public String sendInvitation(String toEmail, String inviterName, String bookTitle) {
         // 生成邀请码
         String inviteCode = UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
@@ -108,6 +113,7 @@ public class EmailNotificationService {
      * @param commentPreview 书评预览
      * @param replyCount     当前回复数
      */
+    @LogAction("检查并发送回复达标通知")
     public void checkAndSendReplyThresholdNotification(
             Long commentId, String toEmail, String replierName,
             String bookTitle, String commentPreview, int replyCount) {
@@ -149,6 +155,7 @@ public class EmailNotificationService {
      * @param commentPreview 书评预览
      * @param likeCount      当前点赞数
      */
+    @LogAction("检查并发送点赞达标通知")
     public void checkAndSendLikeThresholdNotification(
             Long commentId, String toEmail, String likerName,
             String bookTitle, String commentPreview, int likeCount) {
@@ -181,6 +188,7 @@ public class EmailNotificationService {
     /**
      * 通用HTML邮件发送
      */
+    @LogAction("发送HTML邮件")
     @Async
     public void sendHtmlEmail(String to, String subject, EmailType type, Map<String, Object> data) {
         if (!notificationProps.isSendEnabled()) {

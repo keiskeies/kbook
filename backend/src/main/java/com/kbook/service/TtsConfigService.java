@@ -1,5 +1,7 @@
 package com.kbook.service;
 
+import com.kbook.config.annotation.LogAction;
+import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.TtsConfig;
 import com.kbook.repository.TtsConfigRepository;
 import com.kbook.service.tts.TtsCache;
@@ -17,6 +19,7 @@ import java.util.List;
 
 @Slf4j
 @Service
+@LogModule("语音合成")
 @RequiredArgsConstructor
 public class TtsConfigService {
 
@@ -24,15 +27,18 @@ public class TtsConfigService {
     private final TtsEngineFactory ttsEngineFactory;
     private final TtsCache ttsCache;
 
+    @LogAction("获取TTS配置列表")
     public List<TtsConfig> listAll() {
         return ttsConfigRepository.findByOrderByIsDefaultDescUpdatedAtDesc();
     }
 
+    @LogAction("获取活跃TTS配置")
     public TtsConfig getActiveConfig() {
         return ttsConfigRepository.findByIsDefaultTrueAndEnabledTrue().orElse(null);
     }
 
     @Transactional
+    @LogAction("创建TTS配置")
     public TtsConfig create(TtsConfig config) {
         if (config.getIsDefault() == null) {
             config.setIsDefault(false);
@@ -47,6 +53,7 @@ public class TtsConfigService {
     }
 
     @Transactional
+    @LogAction("更新TTS配置")
     public TtsConfig update(Long id, TtsConfig config) {
         TtsConfig existing = ttsConfigRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("TTS 配置不存在"));
@@ -74,12 +81,14 @@ public class TtsConfigService {
     }
 
     @Transactional
+    @LogAction("删除TTS配置")
     public void delete(Long id) {
         ttsConfigRepository.deleteById(id);
         log.info("TTS config deleted: id={}", id);
     }
 
     @Transactional
+    @LogAction("切换默认TTS配置")
     public TtsConfig switchDefault(Long id) {
         TtsConfig config = ttsConfigRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("TTS 配置不存在"));
@@ -90,6 +99,7 @@ public class TtsConfigService {
         return saved;
     }
 
+    @LogAction("语音合成")
     public byte[] synthesize(String text, Long configId) {
         TtsConfig config = resolveConfig(configId);
 
@@ -104,11 +114,13 @@ public class TtsConfigService {
         return audio;
     }
 
+    @LogAction("检查流式合成支持")
     public boolean supportsStreaming(Long configId) {
         TtsConfig config = resolveConfig(configId);
         return Boolean.TRUE.equals(config.getStreaming()) && ttsEngineFactory.getEngine(config).supportsStreaming(config);
     }
 
+    @LogAction("流式语音合成")
     public void synthesizeStream(String text, Long configId, SseEmitter emitter) {
         TtsConfig config = resolveConfig(configId);
         TtsEngine engine = ttsEngineFactory.getEngine(config);
