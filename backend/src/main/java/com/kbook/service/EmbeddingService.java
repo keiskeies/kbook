@@ -85,8 +85,8 @@ public class EmbeddingService {
     public void init() {
         // 1. 创建 Qdrant Collection（即使模型未就绪也应创建，这样后续扫描时可直接写入）
         try {
-            createCollectionIfNotExists(qdrantProps.getBookCollection());
-            createCollectionIfNotExists(qdrantProps.getContentCollection());
+            createCollectionIfNotExists(qdrantProps.getBookCollection(), false);
+            createCollectionIfNotExists(qdrantProps.getContentCollection(), true);
         } catch (Exception e) {
             log.error("Qdrant Collection 创建失败: {}", e.getMessage(), e);
         }
@@ -164,7 +164,7 @@ public class EmbeddingService {
     /**
      * 在 Qdrant 中创建 Collection（如果不存在），并配置标量量化
      */
-    private void createCollectionIfNotExists(String collectionName) {
+    private void createCollectionIfNotExists(String collectionName, boolean enableQuantization) {
         try {
             if (qdrantClient == null) {
                 log.warn("QdrantClient 未初始化，无法创建 Collection: {}", collectionName);
@@ -184,8 +184,7 @@ public class EmbeddingService {
                                         .build())
                                 .build());
 
-                // 标量量化配置：float32 → int8，内存占用降约 75%
-                if (qdrantProps.getQuantization().isEnabled()) {
+                if (enableQuantization && qdrantProps.getQuantization().isEnabled()) {
                     ScalarQuantization scalarQuant = ScalarQuantization.newBuilder()
                             .setType(QuantizationType.Int8)
                             .setQuantile(qdrantProps.getQuantization().getQuantile())
@@ -200,9 +199,8 @@ public class EmbeddingService {
                 }
 
                 qdrantClient.createCollectionAsync(collectionBuilder.build()).get();
-                log.info("Qdrant Collection 创建成功: {} (量化={}, onDisk={})", collectionName, qdrantProps.getQuantization().isEnabled(), qdrantProps.isVectorsOnDisk());
+                log.info("Qdrant Collection 创建成功: {} (量化={}, onDisk={})", collectionName, enableQuantization, qdrantProps.isVectorsOnDisk());
 
-                // 设置 indexing_threshold 为较低值（默认 20000 过高，少量数据时不会创建 HNSW 索引导致搜索异常）
                 try {
                     var optimizersConfig = io.qdrant.client.grpc.Collections.OptimizersConfigDiff.newBuilder()
                             .setIndexingThreshold(1000)
@@ -217,8 +215,9 @@ public class EmbeddingService {
                 }
             } else {
                 log.debug("Qdrant Collection 已存在: {}", collectionName);
-                // 已存在的 Collection：更新量化配置
-                updateQuantizationConfig(collectionName);
+                if (enableQuantization) {
+                    updateQuantizationConfig(collectionName);
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -586,7 +585,7 @@ public class EmbeddingService {
     /**
      * 为图书生成 RAG 内容向量（返回 chunk 数量）
      * <p>
-     * 使用线程池并行处理多个 batch，大幅提升 embedding 生成速度。
+     * 单线程顺序处理所有 batch。
      */
     public int generateContentEmbeddingWithCount(Long bookId, String content) {
         try {
@@ -609,39 +608,15 @@ public class EmbeddingService {
             removeContentEmbedding(bookId);
 
             int totalChunks = chunks.size();
-            int concurrency = chatModelFactory.getEmbeddingConcurrency();
-            log.info("内容向量生成: bookId={}, chunks={}, concurrency={}", bookId, totalChunks, concurrency);
+            log.info("内容向量生成: bookId={}, chunks={}", bookId, totalChunks);
 
-            ExecutorService executor = Executors.newFixedThreadPool(concurrency);
-            AtomicInteger processed = new AtomicInteger(0);
-            List<Future<Integer>> futures = new ArrayList<>();
-
+            int totalProcessed = 0;
             for (int batchStart = 0; batchStart < totalChunks; batchStart += EMBED_BATCH_SIZE) {
                 int batchEnd = Math.min(batchStart + EMBED_BATCH_SIZE, totalChunks);
                 List<String> batchChunks = chunks.subList(batchStart, batchEnd);
-                final int start = batchStart;
-
-                futures.add(executor.submit(() -> {
-                    int count = processContentBatch(bookId, batchChunks, start, totalChunks);
-                    int done = processed.addAndGet(count);
-                    if (done % 100 == 0 || done >= totalChunks) {
-                        long elapsed = System.currentTimeMillis() - startTime;
-                        log.info("内容向量生成进度: bookId={}, {}/{}, elapsed={}ms",
-                                bookId, done, totalChunks, elapsed);
-                    }
-                    return count;
-                }));
-            }
-
-            executor.shutdown();
-            executor.awaitTermination(1, TimeUnit.HOURS);
-
-            int totalProcessed = 0;
-            for (Future<Integer> f : futures) {
-                try {
-                    totalProcessed += f.get();
-                } catch (Exception e) {
-                    log.warn("批次处理失败: {}", e.getMessage());
+                totalProcessed += processContentBatch(bookId, batchChunks, batchStart, totalChunks);
+                if (totalProcessed % 100 == 0 || totalProcessed >= totalChunks) {
+                    log.info("内容向量生成进度: bookId={}, {}/{}", bookId, totalProcessed, totalChunks);
                 }
             }
 
@@ -1587,12 +1562,12 @@ public class EmbeddingService {
         sb.append("作者:").append(book.getAuthor() != null ? book.getAuthor() : "").append(";");
         sb.append("评分:").append(book.getRating() != null ? book.getRating() : 0.0).append(";");
 
-        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
-            String tags = TAGS_CLEAN_PATTERN.matcher(book.getFormatTags()).replaceAll("").replace(',', '、');
-            sb.append("标签:").append(tags).append(";");
-        } else {
-            sb.append("标签:;");
-        }
+//        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+//            String tags = TAGS_CLEAN_PATTERN.matcher(book.getFormatTags()).replaceAll("").replace(',', '、');
+//            sb.append("标签:").append(tags).append(";");
+//        } else {
+//            sb.append("标签:;");
+//        }
 
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
             String desc = book.getDescription().length() > 1500
@@ -1603,17 +1578,17 @@ public class EmbeddingService {
             sb.append("简介:;");
         }
 
-        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-            String summary = book.getChapterSummary().length() > 500
-                    ? book.getChapterSummary().substring(0, 500)
-                    : book.getChapterSummary();
-            sb.append("章节摘要:").append(summary).append(";");
-        } else if (book.getToc() != null && !book.getToc().isBlank()) {
-            String toc = book.getToc().length() > 800
-                    ? book.getToc().substring(0, 800)
-                    : book.getToc();
-            sb.append("目录:").append(toc).append(";");
-        }
+//        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+//            String summary = book.getChapterSummary().length() > 500
+//                    ? book.getChapterSummary().substring(0, 500)
+//                    : book.getChapterSummary();
+//            sb.append("章节摘要:").append(summary).append(";");
+//        } else if (book.getToc() != null && !book.getToc().isBlank()) {
+//            String toc = book.getToc().length() > 800
+//                    ? book.getToc().substring(0, 800)
+//                    : book.getToc();
+//            sb.append("目录:").append(toc).append(";");
+//        }
 
         return sb.toString();
     }

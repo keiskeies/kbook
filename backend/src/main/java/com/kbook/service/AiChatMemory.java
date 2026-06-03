@@ -107,7 +107,8 @@ public class AiChatMemory implements ChatMemoryStore {
         List<AiConversation> history = conversationRepository
                 .findBySessionIdOrderByCreatedAtAsc(sessionId);
         messages = new ArrayList<>();
-        messages.add(SystemMessage.from(AiPromptConstants.AI_CHAT_SYSTEM_PROMPT));
+        messages.add(SystemMessage.from(AiPromptConstants.AI_CHAT_SYSTEM_PROMPT
+                    .replace("{{userId}}", String.valueOf(userId))));
 
         for (AiConversation conv : history) {
             String content = conv.getCompressedContent();
