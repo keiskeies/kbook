@@ -71,6 +71,7 @@ public class AiChatService {
         return sessionId;
     }
 
+
     /**
      * SSE 流式对话：发送消息并通过 SSE 逐 token 推送响应
      * @param userId 用户ID
@@ -92,7 +93,9 @@ public class AiChatService {
         }
 
         ensureSession(userId, sessionId, userMessage);
-        saveMessage(userId, sessionId, "user", userMessage);
+
+        chatMemoryStore.compressHistoryIfNeeded(userId, sessionId);
+        chatMemoryStore.deleteMessages(sessionId);
 
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
         SecurityContext securityContext = SecurityContextHolder.getContext();
@@ -119,6 +122,7 @@ public class AiChatService {
                     emitter.send(SseEmitter.event().name("message").data(hint));
                     emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                     emitter.complete();
+                    saveMessage(userId, sessionId, "user", userMessage);
                     saveMessage(userId, sessionId, "assistant", hint);
                     updateSessionTimestamp(sessionId);
                     return;
@@ -180,6 +184,7 @@ public class AiChatService {
                             } catch (Exception ignored) {
                             }
 
+                            saveMessage(userId, sessionId, "user", userMessage);
                             saveMessage(userId, sessionId, "assistant", text,
                                     fullThinking.length() > 0 ? fullThinking.toString() : null);
                             updateSessionTimestamp(sessionId);
@@ -202,6 +207,7 @@ public class AiChatService {
                                     emitter.complete();
                                 } catch (Exception ignored) {
                                 }
+                                saveMessage(userId, sessionId, "user", userMessage);
                                 saveMessage(userId, sessionId, "assistant", text);
                                 updateSessionTimestamp(sessionId);
                                 return;
@@ -219,6 +225,7 @@ public class AiChatService {
                             } catch (Exception ignored) {
                             }
                             if (!fullResponse.isEmpty()) {
+                                saveMessage(userId, sessionId, "user", userMessage);
                                 saveMessage(userId, sessionId, "assistant", fullResponse.toString());
                                 updateSessionTimestamp(sessionId);
                             }

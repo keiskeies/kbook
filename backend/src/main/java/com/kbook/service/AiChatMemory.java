@@ -1,10 +1,12 @@
 package com.kbook.service;
 
+import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
@@ -29,19 +32,34 @@ import java.util.function.Function;
 @Component
 public class AiChatMemory implements ChatMemoryStore {
 
-    /** 默认最大 token 数 */
+    /**
+     * 按 sessionId 分组存储对话消息的内存容器
+     */
+    private final ConcurrentHashMap<String, List<ChatMessage>> store = new ConcurrentHashMap<>();
+
+    /**
+     * 默认最大 token 数
+     */
     private static final int DEFAULT_MAX_TOKENS = 32768;
 
-    /** token 与字符的估算比例（1 token ≈ 1.5 字符） */
+    /**
+     * token 与字符的估算比例（1 token ≈ 1.5 字符）
+     */
     private static final double TOKEN_TO_CHAR_RATIO = 1.5;
 
-    /** 压缩触发阈值：历史达到上限的 80% 时触发压缩 */
+    /**
+     * 压缩触发阈值：历史达到上限的 80% 时触发压缩
+     */
     private static final double COMPRESS_TRIGGER_RATIO = 0.8;
 
-    /** 压缩目标比例：压缩后目标为上限的 60% */
+    /**
+     * 压缩目标比例：压缩后目标为上限的 60%
+     */
     private static final double COMPRESS_TARGET_RATIO = 0.6;
 
-    /** 估算字符数 */
+    /**
+     * 估算字符数
+     */
     private static final Function<String, Integer> CHAR_LENGTH_ESTIMATE =
             s -> s != null ? s.length() : 0;
 
@@ -67,7 +85,14 @@ public class AiChatMemory implements ChatMemoryStore {
      */
     @Override
     public List<ChatMessage> getMessages(Object memoryId) {
+
+
         String sessionId = memoryId.toString();
+
+        List<ChatMessage> messages = new CopyOnWriteArrayList<>(store.getOrDefault(sessionId, List.of()));
+        if (!messages.isEmpty()) {
+            return messages;
+        }
 
         // 先查 AiSession 获取 userId
         var sessionOpt = sessionRepository.findBySessionId(sessionId);
@@ -78,13 +103,11 @@ public class AiChatMemory implements ChatMemoryStore {
 
         Long userId = sessionOpt.get().getUserId();
 
-        // 检查并压缩历史
-        compressHistoryIfNeeded(userId, sessionId);
-
         // 从数据库加载历史，使用 compressed_content
         List<AiConversation> history = conversationRepository
                 .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
-        List<ChatMessage> messages = new ArrayList<>();
+        messages = new ArrayList<>();
+        messages.add(SystemMessage.from(AiPromptConstants.AI_CHAT_SYSTEM_PROMPT));
 
         for (AiConversation conv : history) {
             String content = conv.getCompressedContent();
@@ -104,25 +127,26 @@ public class AiChatMemory implements ChatMemoryStore {
     }
 
     /**
-     * 更新消息列表（本实现不使用内存缓存，直接忽略）
-     * <p>
-     * LangChain4j 框架在对话完成后会自动调用此方法，但我们每次都从数据库加载，
-     * 所以不需要缓存更新。
+     * 更新指定会话的消息列表（全量替换）
+     *
+     * @param memoryId 会话标识（sessionId）
+     * @param messages 新的完整消息列表
      */
     @Override
     public void updateMessages(Object memoryId, List<ChatMessage> messages) {
-        // 直接忽略，我们每次都从数据库读
-        log.debug("updateMessages 被调用（已忽略）: sessionId={}, messages={}",
-                memoryId.toString(), messages.size());
+        String sessionId = memoryId.toString();
+        store.put(sessionId, new CopyOnWriteArrayList<>(messages));
     }
 
     /**
      * 删除指定会话的所有消息
+     *
+     * @param memoryId 会话标识（sessionId）
      */
     @Override
     public void deleteMessages(Object memoryId) {
-        // 不删除，会话历史通过 AiChatService.deleteSession 统一管理
-        log.debug("deleteMessages 被调用（已忽略）: sessionId={}", memoryId.toString());
+        String sessionId = memoryId.toString();
+        store.remove(sessionId);
     }
 
     /**
@@ -131,7 +155,7 @@ public class AiChatMemory implements ChatMemoryStore {
      * 当会话历史总字符数超过触发阈值时，从最老的未压缩 AI 回复开始逐条压缩。
      * 通用对话无 RAG 上下文，直接用历史长度判断。
      */
-    private void compressHistoryIfNeeded(Long userId, String sessionId) {
+    public void compressHistoryIfNeeded(Long userId, String sessionId) {
         // 计算字符数限制和压缩目标值
         AiProviderConfigService configService = providerConfigServiceProvider.getIfAvailable();
         Integer maxTokens = configService != null ? configService.getActiveMaxTokens() : null;
