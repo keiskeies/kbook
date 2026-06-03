@@ -19,6 +19,7 @@ interface BookChatSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   initialQuestion?: string
+  side?: 'bottom' | 'right'
 }
 
 const CHAT_STYLES = [
@@ -28,7 +29,7 @@ const CHAT_STYLES = [
   { value: 'WITTY', label: '幽默', desc: '轻松调侃、玩梗' },
 ]
 
-export default function BookChatSheet({ book, open, onOpenChange, initialQuestion }: BookChatSheetProps) {
+export default function BookChatSheet({ book, open, onOpenChange, initialQuestion, side = 'bottom' }: BookChatSheetProps) {
   const [messages, setMessages] = useState<AiMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -412,7 +413,14 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) handleClose(); else onOpenChange(true) }}>
-      <SheetContent side="bottom" className="h-[85vh] rounded-t-2xl border-t p-0 flex flex-col [&>button]:hidden">
+      <SheetContent
+        side={side}
+        className={`p-0 flex flex-col [&>button]:hidden ${
+          side === 'right'
+            ? 'h-full w-full sm:max-w-xl rounded-l-2xl border-l'
+            : 'h-[85vh] rounded-t-2xl border-t'
+        }`}
+      >
         <SheetHeader className="shrink-0 border-b px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">

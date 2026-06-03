@@ -9,6 +9,8 @@ import com.kbook.service.BookService;
 import com.kbook.service.RankService;
 import com.kbook.service.ReadingProgressService;
 import com.kbook.service.RecommendService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -28,6 +30,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/home")
 @RequiredArgsConstructor
+@Tag(name = "首页")
 public class HomeController {
 
     private final BookService bookService;
@@ -42,6 +45,7 @@ public class HomeController {
     /**
      * 获取筛选标签列表（独立接口，供搜索页使用）
      */
+    @Operation(summary = "获取筛选标签")
     @GetMapping("/tags")
     public Result<List<TagStat>> getFilterTags() {
         return Result.ok(getTopTags(100));
@@ -50,6 +54,7 @@ public class HomeController {
     /**
      * 获取阅读统计
      */
+    @Operation(summary = "获取阅读统计")
     @GetMapping("/stats")
     public Result<ReadingStatsVO> getStats(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -60,6 +65,7 @@ public class HomeController {
     /**
      * 获取最近阅读（继续阅读）
      */
+    @Operation(summary = "获取最近阅读")
     @GetMapping("/recent")
     public Result<List<RecentBookVO>> getRecentBooks(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -84,6 +90,7 @@ public class HomeController {
     /**
      * 获取猜你喜欢（个性化推荐）
      */
+    @Operation(summary = "获取猜你喜欢")
     @GetMapping("/personalized")
     public Result<List<RecommendedBook>> getPersonalized(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -102,6 +109,7 @@ public class HomeController {
     /**
      * 获取高分佳作 — 4分以上随机6本（定时刷新缓存）
      */
+    @Operation(summary = "获取高分佳作")
     @GetMapping("/top-rated")
     public Result<List<SimpleBookVO>> getTopRated() {
         var topRated = rankService.getHighRatedRandom();
@@ -111,6 +119,7 @@ public class HomeController {
     /**
      * 获取新书速递 — 全部书籍随机12本（定时刷新缓存）
      */
+    @Operation(summary = "获取新书速递")
     @GetMapping("/new-books")
     public Result<List<SimpleBookVO>> getNewBooks() {
         var newBooks = rankService.getNewArrivalsRandom();
@@ -120,6 +129,7 @@ public class HomeController {
     /**
      * 获取热门榜单
      */
+    @Operation(summary = "获取热门榜单")
     @GetMapping("/popular")
     public Result<List<SimpleBookVO>> getPopular() {
         var popular = rankService.getReadRank(1, 6).getList();
@@ -129,6 +139,7 @@ public class HomeController {
     /**
      * 获取热门标签
      */
+    @Operation(summary = "获取热门标签")
     @GetMapping("/categories")
     public Result<List<TagStat>> getCategories() {
         return Result.ok(getTopTags(20));

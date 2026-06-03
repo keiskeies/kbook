@@ -22,6 +22,8 @@ import com.kbook.service.CommentService;
 import com.kbook.service.UserBookPreferenceService;
 import com.kbook.service.UserFollowService;
 import com.kbook.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
@@ -41,6 +43,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/user")
 @RequiredArgsConstructor
+@Tag(name = "用户")
 public class UserController {
 
     private final UserService userService;
@@ -52,12 +55,14 @@ public class UserController {
     private final CommentService commentService;
     private final UserBookPreferenceService preferenceService;
 
+    @Operation(summary = "获取当前用户信息")
     @GetMapping("/me")
     public Result<User> getCurrentUser(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(userService.getUserById(userId));
     }
 
+    @Operation(summary = "更新用户资料")
     @PutMapping("/profile")
     public Result<User> updateProfile(Authentication authentication,
                                        @RequestParam(required = false) String nickname,
@@ -67,6 +72,7 @@ public class UserController {
         return Result.ok(userService.updateProfile(userId, nickname, avatar, bio));
     }
 
+    @Operation(summary = "更新用户特征")
     @PutMapping("/profile/traits")
     public Result<User> updateTraits(Authentication authentication,
                                       @RequestBody UpdateTraitsRequest req) {
@@ -77,6 +83,7 @@ public class UserController {
                 req.getAspirationEducation(), req.getEntrepreneurship(), req.getAspirationIncome()));
     }
 
+    @Operation(summary = "更新心情")
     @PutMapping("/profile/mood")
     public Result<User> updateMood(Authentication authentication,
                                     @RequestParam(required = false) String mood) {
@@ -84,6 +91,7 @@ public class UserController {
         return Result.ok(userService.updateMood(userId, mood));
     }
 
+    @Operation(summary = "更新图书对话风格")
     @PutMapping("/profile/book-chat-style")
     public Result<User> updateBookChatStyle(Authentication authentication,
                                              @RequestParam(required = false) String style) {
@@ -91,6 +99,7 @@ public class UserController {
         return Result.ok(userService.updateBookChatStyle(userId, style));
     }
 
+    @Operation(summary = "上传头像")
     @PostMapping("/avatar")
     public Result<User> uploadAvatar(Authentication authentication,
                                       @RequestParam("file") MultipartFile file) {
@@ -98,6 +107,7 @@ public class UserController {
         return Result.ok(userService.uploadAvatar(userId, file));
     }
 
+    @Operation(summary = "获取头像")
     @GetMapping("/avatar/{filename:.+}")
     public ResponseEntity<Resource> getAvatar(@PathVariable String filename) {
         Path avatarDir = Paths.get(storageProps.getUpload().getAvatarDir());
@@ -110,6 +120,7 @@ public class UserController {
         return CommonUtils.buildImageResponse(imagePath, filename);
     }
 
+    @Operation(summary = "关注用户")
     @PostMapping("/follow/{userId}")
     public Result<Void> follow(Authentication auth, @PathVariable Long userId) {
         Long currentUserId = (Long) auth.getPrincipal();
@@ -117,6 +128,7 @@ public class UserController {
         return Result.ok();
     }
 
+    @Operation(summary = "取关用户")
     @DeleteMapping("/follow/{userId}")
     public Result<Void> unfollow(Authentication auth, @PathVariable Long userId) {
         Long currentUserId = (Long) auth.getPrincipal();
@@ -124,22 +136,26 @@ public class UserController {
         return Result.ok();
     }
 
+    @Operation(summary = "检查是否关注")
     @GetMapping("/follow/is-following/{userId}")
     public Result<Boolean> isFollowing(Authentication auth, @PathVariable Long userId) {
         Long currentUserId = (Long) auth.getPrincipal();
         return Result.ok(userFollowService.isFollowing(currentUserId, userId));
     }
 
+    @Operation(summary = "获取关注列表")
     @GetMapping("/{userId}/followings")
     public Result<List<FollowUserVO>> getFollowings(@PathVariable Long userId) {
         return Result.ok(toFollowUserVOs(userFollowService.getFollowings(userId), true));
     }
 
+    @Operation(summary = "获取粉丝列表")
     @GetMapping("/{userId}/followers")
     public Result<List<FollowUserVO>> getFollowers(@PathVariable Long userId) {
         return Result.ok(toFollowUserVOs(userFollowService.getFollowers(userId), false));
     }
 
+    @Operation(summary = "获取用户主页")
     @GetMapping("/{userId}/profile")
     public Result<UserProfileVO> getUserProfile(@PathVariable Long userId, Authentication auth) {
         Long currentUserId = auth != null ? (Long) auth.getPrincipal() : null;
@@ -173,6 +189,7 @@ public class UserController {
         return Result.ok(vo);
     }
 
+    @Operation(summary = "获取用户图书")
     @GetMapping("/{userId}/books")
     public Result<UserBooksVO> getUserBooks(@PathVariable Long userId) {
         UserBooksVO vo = new UserBooksVO();
@@ -188,6 +205,7 @@ public class UserController {
         return Result.ok(vo);
     }
 
+    @Operation(summary = "获取用户评论")
     @GetMapping("/{userId}/comments")
     public Result<PageResult<CommentVO>> getUserComments(
             @PathVariable Long userId,
@@ -200,6 +218,7 @@ public class UserController {
         return Result.ok(result);
     }
 
+    @Operation(summary = "更新个人简介")
     @PutMapping("/profile/bio")
     public Result<User> updateBio(Authentication auth, @RequestBody UpdateBioRequest req) {
         Long userId = (Long) auth.getPrincipal();
@@ -209,6 +228,7 @@ public class UserController {
         return Result.ok(user);
     }
 
+    @Operation(summary = "添加排除偏好")
     @PostMapping("/preferences/exclude")
     public Result<UserBookPreference> addExcludePreference(
             Authentication auth,
@@ -222,6 +242,7 @@ public class UserController {
         return Result.ok(preferenceService.addExcludePreference(userId, category, value));
     }
 
+    @Operation(summary = "移除排除偏好")
     @DeleteMapping("/preferences/exclude")
     public Result<Void> removeExcludePreference(
             Authentication auth,
@@ -232,12 +253,14 @@ public class UserController {
                 ? Result.ok(null) : Result.fail("偏好不存在");
     }
 
+    @Operation(summary = "获取排除偏好")
     @GetMapping("/preferences/exclude")
     public Result<List<UserBookPreference>> getExcludePreferences(Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         return Result.ok(preferenceService.getExcludePreferences(userId));
     }
 
+    @Operation(summary = "添加包含偏好")
     @PostMapping("/preferences/include")
     public Result<UserBookPreference> addIncludePreference(
             Authentication auth,
@@ -251,6 +274,7 @@ public class UserController {
         return Result.ok(preferenceService.addIncludePreference(userId, category, value));
     }
 
+    @Operation(summary = "移除包含偏好")
     @DeleteMapping("/preferences/include")
     public Result<Void> removeIncludePreference(
             Authentication auth,
@@ -261,12 +285,14 @@ public class UserController {
                 ? Result.ok(null) : Result.fail("偏好不存在");
     }
 
+    @Operation(summary = "获取包含偏好")
     @GetMapping("/preferences/include")
     public Result<List<UserBookPreference>> getIncludePreferences(Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         return Result.ok(preferenceService.getIncludePreferences(userId));
     }
 
+    @Operation(summary = "获取全部偏好")
     @GetMapping("/preferences")
     public Result<List<UserBookPreference>> getAllPreferences(Authentication auth) {
         Long userId = Long.parseLong(auth.getName());

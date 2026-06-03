@@ -8,6 +8,8 @@ import com.kbook.dto.response.ChatMessageVO;
 import com.kbook.dto.response.ConversationVO;
 import com.kbook.entity.ChatMessage;
 import com.kbook.service.ChatService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,17 +34,20 @@ import java.util.concurrent.TimeUnit;
 @RestController
 @RequestMapping("/api/chat")
 @RequiredArgsConstructor
+@Tag(name = "聊天")
 public class ChatController {
 
     private final ChatService chatService;
     private final BookStorageProperties storageProps;
 
+    @Operation(summary = "获取会话列表")
     @GetMapping("/conversations")
     public Result<List<ConversationVO>> getConversations(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(chatService.getConversations(userId));
     }
 
+    @Operation(summary = "搜索会话")
     @GetMapping("/conversations/search")
     public Result<List<ConversationVO>> searchConversations(
             Authentication authentication,
@@ -51,6 +56,7 @@ public class ChatController {
         return Result.ok(chatService.searchConversations(userId, keyword));
     }
 
+    @Operation(summary = "发起会话")
     @PostMapping("/conversations")
     public Result<ConversationVO> startConversation(
             Authentication authentication,
@@ -59,6 +65,7 @@ public class ChatController {
         return Result.ok(chatService.startConversation(userId, recipientId));
     }
 
+    @Operation(summary = "获取会话详情")
     @GetMapping("/conversations/{conversationId}")
     public Result<ConversationVO> getConversation(
             Authentication authentication,
@@ -67,6 +74,7 @@ public class ChatController {
         return Result.ok(chatService.getConversation(userId, conversationId));
     }
 
+    @Operation(summary = "标记会话已读")
     @PutMapping("/conversations/{conversationId}/read")
     public Result<Void> markAsRead(
             Authentication authentication,
@@ -76,6 +84,7 @@ public class ChatController {
         return Result.ok();
     }
 
+    @Operation(summary = "删除会话")
     @DeleteMapping("/conversations/{conversationId}")
     public Result<Void> deleteConversation(
             Authentication authentication,
@@ -85,6 +94,7 @@ public class ChatController {
         return Result.ok();
     }
 
+    @Operation(summary = "获取聊天消息")
     @GetMapping("/conversations/{conversationId}/messages")
     public Result<List<ChatMessageVO>> getMessages(
             Authentication authentication,
@@ -96,6 +106,7 @@ public class ChatController {
         return Result.ok(messages);
     }
 
+    @Operation(summary = "发送消息")
     @PostMapping("/messages")
     public Result<ConversationVO> sendMessage(
             Authentication authentication,
@@ -116,6 +127,7 @@ public class ChatController {
         return Result.ok(conversation);
     }
 
+    @Operation(summary = "获取未读数")
     @GetMapping("/unread-count")
     public Result<Map<String, Long>> getUnreadCount(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -123,6 +135,7 @@ public class ChatController {
         return Result.ok(Map.of("count", count));
     }
 
+    @Operation(summary = "上传聊天文件")
     @PostMapping("/files")
     public Result<Map<String, String>> uploadFile(
             Authentication authentication,
@@ -133,6 +146,7 @@ public class ChatController {
         return Result.ok(Map.of("url", fileUrl));
     }
 
+    @Operation(summary = "获取聊天文件")
     @GetMapping("/files/{conversationId}/{filename:.+}")
     public ResponseEntity<Resource> serveFile(
             @PathVariable Long conversationId,

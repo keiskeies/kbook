@@ -6,9 +6,11 @@ import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import type { AiMessage, AiSessionItem } from '@/types/ai'
 import { useUiStore } from '@/store/ui'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 export default function AIPage() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const tabBarVisible = useUiStore((s) => s.tabBarVisible)
   const setTabBarVisible = useUiStore((s) => s.setTabBarVisible)
   const [sessions, setSessions] = useState<AiSessionItem[]>([])
@@ -31,8 +33,9 @@ export default function AIPage() {
     }
   }, [setTabBarVisible])
 
-  // 监听视觉视口变化（键盘弹起/收起）
+  // 监听视觉视口变化（键盘弹起/收起）— 仅移动端
   useEffect(() => {
+    if (!isMobile) return
     const visualViewport = window.visualViewport
     if (!visualViewport) return
 
@@ -258,10 +261,11 @@ export default function AIPage() {
   }, [loading, messages, handleSend])
 
   const handleFocus = useCallback(() => {
-    setTabBarVisible(false)
-  }, [setTabBarVisible])
+    if (isMobile) setTabBarVisible(false)
+  }, [setTabBarVisible, isMobile])
 
   const handleBlur = useCallback(() => {
+    if (!isMobile) return
     // 等待键盘收起动画完成后再检测，避免 TabBar 在键盘收起过程中闪现
     setTimeout(() => {
       const vv = window.visualViewport
@@ -275,7 +279,7 @@ export default function AIPage() {
         setTabBarVisible(true)
       }
     }, 300)
-  }, [setTabBarVisible])
+  }, [setTabBarVisible, isMobile])
 
   const formatTime = (dateStr: string) => {
     const d = new Date(dateStr)
@@ -292,8 +296,54 @@ export default function AIPage() {
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-background">
-      <header className="relative z-10 flex shrink-0 items-center border-b border-border/50 bg-background/80 px-4 pt-safe-top pb-3 backdrop-blur-xl">
+    <div className="fixed inset-0 z-40 flex flex-col md:flex-row md:static md:inset-auto md:h-full">
+      {/* PC端：侧边会话列表常驻 */}
+      <div className="hidden md:flex md:w-64 lg:w-72 md:flex-col md:border-r border-border/50">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <h2 className="text-sm font-bold">历史会话</h2>
+          <button
+            onClick={handleNewChat}
+            className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto overscroll-y-contain p-2">
+          {sessions.length === 0 ? (
+            <p className="py-8 text-center text-xs text-muted-foreground">暂无会话</p>
+          ) : (
+            sessions.map((session) => (
+              <div
+                key={session.id}
+                className={`group flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm cursor-pointer hover:bg-muted transition-colors ${
+                  session.sessionId === currentSessionId ? 'bg-muted' : ''
+                }`}
+                onClick={() => loadHistory(session.sessionId)}
+              >
+                <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-xs">
+                  {session.title || session.sessionId.slice(0, 8) + '...'}
+                </span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {formatTime(session.updatedAt)}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDeleteSession(session.sessionId)
+                  }}
+                  className="hidden shrink-0 group-hover:block"
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* 移动端头部 */}
+      <header className="relative z-10 flex shrink-0 items-center border-b border-border/50 bg-background/80 px-4 pt-safe-top pb-3 backdrop-blur-xl md:hidden">
         <button
           onClick={() => setShowSidebar(!showSidebar)}
           className="mr-3 flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
@@ -312,16 +362,19 @@ export default function AIPage() {
         </button>
       </header>
 
-      <div className="relative -mt-12 flex-1 overflow-hidden">
+      {/* 聊天区域：消息列表 + 输入框 */}
+      <div className="relative flex-1 flex flex-col overflow-hidden">
+        {/* 移动端侧边栏遮罩 */}
         {showSidebar && (
           <div
-            className="absolute inset-0 z-20 bg-black/30"
+            className="absolute inset-0 z-20 bg-black/30 md:hidden"
             onClick={() => setShowSidebar(false)}
           />
         )}
 
+        {/* 移动端侧边栏抽屉 */}
         {showSidebar && (
-          <div className="absolute inset-y-0 left-0 z-30 w-64 border-r bg-background shadow-lg">
+          <div className="absolute inset-y-0 left-0 z-30 w-64 border-r bg-background shadow-lg md:hidden">
             <div className="flex items-center justify-between border-b px-3 py-2">
               <span className="text-sm font-medium">历史会话</span>
               <button onClick={() => setShowSidebar(false)} className="text-xs text-muted-foreground">
@@ -366,7 +419,9 @@ export default function AIPage() {
           </div>
         )}
 
-        <div className="h-full overflow-y-auto overscroll-y-contain px-4 pt-12 pb-4">
+        {/* 消息滚动区域 */}
+        <div className="flex-1 overflow-y-auto overscroll-y-contain px-4 pt-12 pb-4 md:pt-4 md:px-6">
+          <div className="mx-auto max-w-3xl">
           {messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
@@ -496,40 +551,42 @@ export default function AIPage() {
               <div ref={messagesEndRef} />
             </div>
           )}
+          </div>
         </div>
-      </div>
 
-      <div className="shrink-0 border-t bg-background px-4 pt-3" style={{ paddingBottom: tabBarVisible ? 'calc(0.75rem + 5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onInput={() => {
-              const el = textareaRef.current
-              if (!el) return
-              el.style.height = 'auto'
-              el.style.height = Math.min(el.scrollHeight, 160) + 'px'
-            }}
-            enterKeyHint="enter"
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            placeholder="输入你的问题..."
-            disabled={loading}
-            className="flex-1 resize-none rounded-xl bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50 overflow-y-auto"
-          />
-          <button
-            onClick={() => handleSend()}
-            disabled={loading || !input.trim()}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </button>
+        {/* 输入区域 — 固定在底部 */}
+        <div className="shrink-0 border-t bg-background px-4 pt-3 md:px-6" style={{ paddingBottom: isMobile ? (tabBarVisible ? 'calc(0.75rem + 5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)') : '0.75rem' }}>
+          <div className="flex items-end gap-2 max-w-3xl mx-auto">
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onInput={() => {
+                const el = textareaRef.current
+                if (!el) return
+                el.style.height = 'auto'
+                el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+              }}
+              enterKeyHint="enter"
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+              placeholder="输入你的问题..."
+              disabled={loading}
+              className="flex-1 resize-none rounded-xl bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50 overflow-y-auto"
+            />
+            <button
+              onClick={() => handleSend()}
+              disabled={loading || !input.trim()}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -15,6 +15,8 @@ import com.kbook.dto.AdminSendCodeRequest;
 import com.kbook.dto.BindEmailRequest;
 import com.kbook.dto.InviteRequest;
 import com.kbook.dto.InviteResult;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -35,6 +37,7 @@ import java.util.Map;
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "系统管理")
 public class AdminController {
 
     private final UserService userService;
@@ -47,6 +50,7 @@ public class AdminController {
     /**
      * 审核统计
      */
+    @Operation(summary = "审核统计")
     @GetMapping("/stats")
     public Result<Map<String, Long>> getStats() {
         return Result.ok(userService.getReviewStats());
@@ -57,6 +61,7 @@ public class AdminController {
     /**
      * 分页查询待审核用户
      */
+    @Operation(summary = "获取待审核用户")
     @GetMapping("/users/pending")
     public Result<PageResult<User>> getPendingUsers(
             @RequestParam(defaultValue = "1") int page,
@@ -69,6 +74,7 @@ public class AdminController {
      *
      * @param statuses 状态列表，如 ?statuses=PENDING&statuses=BANNED
      */
+    @Operation(summary = "按状态筛选用户")
     @GetMapping("/users")
     public Result<PageResult<User>> getUsersByStatus(
             @RequestParam(required = false) List<String> statuses,
@@ -80,6 +86,7 @@ public class AdminController {
     /**
      * 搜索用户（关键词 + 状态）
      */
+    @Operation(summary = "搜索用户")
     @GetMapping("/users/search")
     public Result<PageResult<User>> searchUsers(
             @RequestParam(required = false) String keyword,
@@ -94,6 +101,7 @@ public class AdminController {
     /**
      * 审核通过
      */
+    @Operation(summary = "审核通过")
     @PostMapping("/users/{userId}/approve")
     public Result<Void> approveUser(@PathVariable Long userId) {
         userService.approveUser(userId);
@@ -103,6 +111,7 @@ public class AdminController {
     /**
      * 批量审核通过
      */
+    @Operation(summary = "批量审核通过")
     @PostMapping("/users/batch-approve")
     public Result<AdminBatchResult> batchApprove(@RequestBody AdminBatchRequest req) {
         int count = userService.batchApprove(req.getUserIds());
@@ -112,6 +121,7 @@ public class AdminController {
     /**
      * 审核拒绝（封禁）
      */
+    @Operation(summary = "审核拒绝")
     @PostMapping("/users/{userId}/reject")
     public Result<Void> rejectUser(@PathVariable Long userId) {
         userService.rejectUser(userId);
@@ -121,6 +131,7 @@ public class AdminController {
     /**
      * 批量拒绝
      */
+    @Operation(summary = "批量拒绝")
     @PostMapping("/users/batch-reject")
     public Result<AdminBatchResult> batchReject(@RequestBody AdminBatchRequest req) {
         int count = userService.batchReject(req.getUserIds());
@@ -130,6 +141,7 @@ public class AdminController {
     /**
      * 解封用户
      */
+    @Operation(summary = "解封用户")
     @PostMapping("/users/{userId}/unban")
     public Result<Void> unbanUser(@PathVariable Long userId) {
         userService.unbanUser(userId);
@@ -139,6 +151,7 @@ public class AdminController {
     /**
      * 封禁用户（封禁已通过的用户）
      */
+    @Operation(summary = "封禁用户")
     @PostMapping("/users/{userId}/ban")
     public Result<Void> banUser(@PathVariable Long userId) {
         userService.banUser(userId);
@@ -150,6 +163,7 @@ public class AdminController {
     /**
      * 管理员发送绑定邮箱验证码
      */
+    @Operation(summary = "发送绑定邮箱验证码")
     @PostMapping("/bind-email/send-code")
     public Result<Void> sendBindEmailCode(Authentication authentication,
                                           @RequestBody @jakarta.validation.Valid AdminSendCodeRequest req) {
@@ -166,6 +180,7 @@ public class AdminController {
      * 管理员绑定邮箱（需验证码）
      * 绑定后开启密码重置功能
      */
+    @Operation(summary = "绑定邮箱")
     @PostMapping("/bind-email")
     public Result<UserInfo> bindEmail(Authentication authentication,
                                       @RequestBody @jakarta.validation.Valid BindEmailRequest req) {
@@ -183,6 +198,7 @@ public class AdminController {
     /**
      * 管理员发送邀请邮件
      */
+    @Operation(summary = "发送邀请邮件")
     @PostMapping("/invite")
     public Result<InviteResult> sendInvitation(Authentication authentication,
                                                @RequestBody @jakarta.validation.Valid InviteRequest req) {

@@ -308,7 +308,6 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
           height: '100%',
           spread: 'none',
           flow: 'scrolled-doc',
-          manager: 'continuous',
         })
         renditionRef.current = rendition
 
@@ -594,16 +593,20 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
     applyTheme(rendition, settings)
   }, [settings, applyTheme])
 
-  // 翻页
+  // 翻页（scrolled-doc 模式下 prev/next 不可靠，使用章节跳转）
   const goPage = useCallback((direction: 'next' | 'prev') => {
     const rendition = renditionRef.current
     if (!rendition) return
-    if (direction === 'next') {
-      rendition.next()
-    } else {
-      rendition.prev()
+    const chs = chaptersRef.current
+    if (chs.length === 0) return
+    const nextIndex = direction === 'next'
+      ? Math.min(currentChapterIndex + 1, chs.length - 1)
+      : Math.max(currentChapterIndex - 1, 0)
+    if (nextIndex !== currentChapterIndex) {
+      rendition.display(chs[nextIndex].href)
+      setCurrentChapterIndex(nextIndex)
     }
-  }, [])
+  }, [currentChapterIndex])
 
   // 跳转章节
   const goToChapter = useCallback((chapterIndex: number) => {

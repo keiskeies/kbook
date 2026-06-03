@@ -8,6 +8,8 @@ import com.kbook.dto.*;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.service.*;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +33,7 @@ import java.util.List;
 @RequestMapping("/api/books")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "图书")
 public class BookController {
 
     private final BookService bookService;
@@ -52,6 +55,7 @@ public class BookController {
      * @param filename 封面文件名
      * @return 图片资源响应
      */
+    @Operation(summary = "获取封面图片")
     @GetMapping(value = "/cover/{filename:.+}")
     public ResponseEntity<Resource> getCover(@PathVariable String filename) {
         Path coverDir = Paths.get(coverPath);
@@ -67,6 +71,7 @@ public class BookController {
     /**
      * 获取图书详情
      */
+    @Operation(summary = "获取图书详情")
     @GetMapping("/{id}")
     public Result<Book> getBook(@PathVariable Long id) {
         return Result.ok(bookService.getBookById(id));
@@ -75,6 +80,7 @@ public class BookController {
     /**
      * 搜索图书（关键词优先，书名/作者匹配排前）
      */
+    @Operation(summary = "搜索图书")
     @GetMapping("/search")
     public Result<PageResult<BookDocument>> searchBooks(
             @RequestParam(required = false) String keyword,
@@ -87,6 +93,7 @@ public class BookController {
     /**
      * 搜索建议（前缀匹配标题）
      */
+    @Operation(summary = "搜索建议")
     @GetMapping("/suggest")
     public Result<List<String>> suggestBooks(
             @RequestParam String keyword) {
@@ -96,6 +103,7 @@ public class BookController {
     /**
      * 阅读排行
      */
+    @Operation(summary = "阅读排行")
     @GetMapping("/rank/read")
     public Result<PageResult<BookProjection>> getReadRank(
             @RequestParam(defaultValue = "1") int page,
@@ -106,6 +114,7 @@ public class BookController {
     /**
      * 评分排行
      */
+    @Operation(summary = "评分排行")
     @GetMapping("/rank/rating")
     public Result<PageResult<BookProjection>> getRatingRank(
             @RequestParam(defaultValue = "1") int page,
@@ -116,6 +125,7 @@ public class BookController {
     /**
      * 新书榜
      */
+    @Operation(summary = "新书榜")
     @GetMapping("/rank/new")
     public Result<PageResult<BookProjection>> getNewBooksRank(
             @RequestParam(defaultValue = "1") int page,
@@ -126,6 +136,7 @@ public class BookController {
     /**
      * 按格式筛选
      */
+    @Operation(summary = "按格式筛选图书")
     @GetMapping("/format/{format}")
     public Result<PageResult<BookProjection>> getBooksByFormat(
             @PathVariable String format,
@@ -137,6 +148,7 @@ public class BookController {
     /**
      * 按标签筛选
      */
+    @Operation(summary = "按标签筛选图书")
     @GetMapping("/tag/{tag}")
     public Result<PageResult<BookProjection>> getBooksByTag(
             @PathVariable String tag,
@@ -148,6 +160,7 @@ public class BookController {
     /**
      * 图书入库（管理员）
      */
+    @Operation(summary = "图书入库")
     @PostMapping
     public Result<Book> createBook(@RequestBody CreateBookRequest req) {
         Book book = Book.builder()
@@ -167,6 +180,7 @@ public class BookController {
     /**
      * 更新格式标签（管理员）
      */
+    @Operation(summary = "更新格式标签")
     @PutMapping("/{id}/tags")
     public Result<Book> updateFormatTags(@PathVariable Long id, @RequestBody UpdateTagsRequest req) {
         return Result.ok(bookService.updateFormatTags(id, req.getTags()));
@@ -175,6 +189,7 @@ public class BookController {
     /**
      * 用户评分
      */
+    @Operation(summary = "评分")
     @PostMapping("/{id}/rate")
     public Result<Book> rateBook(@PathVariable Long id, @Valid @RequestBody RateRequest req,
                                  Authentication authentication) {
@@ -197,11 +212,13 @@ public class BookController {
     /**
      * 重建 ES 索引（管理员）
      */
+    @Operation(summary = "重建ES索引")
     @PostMapping("/reindex")
     public Result<Long> rebuildIndex() {
         return Result.ok(bookSearchService.rebuildIndex());
     }
 
+    @Operation(summary = "获取速读摘要")
     @GetMapping("/{id}/speed-read")
     public Result<BookSpeedReadVO> getSpeedRead(@PathVariable Long id, Authentication authentication) {
         Book book = bookService.getBookById(id);
@@ -236,6 +253,7 @@ public class BookController {
                 .build());
     }
 
+    @Operation(summary = "流式获取速读摘要")
     @PostMapping(value = "/{id}/speed-read/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamSpeedRead(@PathVariable Long id, Authentication authentication) {
         Long userId = null;

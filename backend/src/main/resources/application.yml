@@ -251,5 +251,3 @@ logging:
     dev.langchain4j: DEBUG
     # Ollama HTTP 客户端日志（查看实际请求和响应内容）
     dev.langchain4j.model.ollama: DEBUG
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

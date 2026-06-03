@@ -4,6 +4,7 @@ import { useGoBack } from '@/hooks/useGoBack'
 import {
   ArrowLeft, Settings, List,
   Loader2, AlertCircle, Volume2, VolumeX,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useReaderStore } from '@/store/reader'
 import { useProgressStore } from '@/store/progress'
@@ -256,6 +257,39 @@ export default function ReaderPage() {
   // TTS 当前朗读的段索引
   const ttsSegmentIndex = ttsReader.isCurrentBook ? ttsReader.currentSegmentIndex : -1
 
+  // ===== 键盘快捷键（PC 端翻页、返回） =====
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 如果焦点在输入框中，不拦截
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        goBack()
+        return
+      }
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault()
+        if (format === 'TXT' && txtReader.currentChapterIndex > 0) txtReader.goToChapter(txtReader.currentChapterIndex - 1)
+        else if (format === 'EPUB') epubGoPageRef.current('prev')
+        else if (format === 'PDF' && pdfReader.currentPage > 1) pdfReader.goToPage?.(pdfReader.currentPage - 1)
+        return
+      }
+
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+        e.preventDefault()
+        if (format === 'TXT' && txtReader.currentChapterIndex < txtReader.chapters.length - 1) txtReader.goToChapter(txtReader.currentChapterIndex + 1)
+        else if (format === 'EPUB') epubGoPageRef.current('next')
+        else if (format === 'PDF' && pdfReader.currentPage < pdfReader.totalPages) pdfReader.goToPage?.(pdfReader.currentPage + 1)
+        return
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [format, goBack, txtReader, epubGoPageRef, pdfReader])
+
   if (readerState.error) {
     return (
       <div className="flex fixed inset-0 items-center justify-center" style={{ backgroundColor: theme.bg }}>
@@ -274,10 +308,10 @@ export default function ReaderPage() {
   }
 
   return (
-    <div className="relative fixed inset-0 select-none" style={{ backgroundColor: theme.bg }}>
+    <div className="fixed inset-0 md:relative md:inset-auto md:h-full flex flex-col select-none" style={{ backgroundColor: theme.bg }}>
       {/* 顶部工具栏 */}
       <div
-        className="fixed inset-x-0 top-0 z-40 flex items-center gap-3 border-b px-4 py-3 backdrop-blur-xl"
+        className="shrink-0 z-40 flex items-center gap-3 border-b px-4 py-3 backdrop-blur-xl"
         style={{ backgroundColor: theme.bg + 'e6', color: theme.fg, borderColor: theme.fg + '15' }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -329,56 +363,127 @@ export default function ReaderPage() {
 
       {/* 内容区域 */}
       <div
-        className="h-full pt-[52px] pb-8"
+        className="flex-1 min-h-0 flex items-stretch"
         onContextMenu={(e) => e.preventDefault()}
-        style={{ position: 'relative', touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' as any }}
+        style={{ touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' as any }}
       >
-        {(loading || readerState.loading) && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: theme.bg }}>
-            <div className="text-center">
-              <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
-              <p className="mt-3 text-sm text-muted-foreground">加载中...</p>
+        {/* PC端左侧翻页按钮 */}
+        <button
+          onClick={() => {
+            if (format === 'TXT' && txtReader.currentChapterIndex > 0) txtReader.goToChapter(txtReader.currentChapterIndex - 1)
+            else if (format === 'EPUB') epubGoPageRef.current('prev')
+            else if (format === 'PDF' && pdfReader.currentPage > 1) pdfReader.goToPage?.(pdfReader.currentPage - 1)
+          }}
+          className="hidden md:flex md:w-12 lg:w-16 items-center justify-center hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0"
+          style={{ color: theme.fg + '40' }}
+          title="上一页 (←)"
+        >
+          <ChevronLeft className="h-6 w-6" />
+        </button>
+
+        {/* 阅读内容 — PC端限宽 */}
+        <div className="flex-1 min-h-0 min-w-0">
+          <div className="mx-auto h-full max-w-3xl">
+              {(loading || readerState.loading) && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: theme.bg }}>
+                  <div className="text-center">
+                    <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+                    <p className="mt-3 text-sm text-muted-foreground">加载中...</p>
+                  </div>
+                </div>
+              )}
+              {format === 'TXT' && (
+                <TxtRenderer
+                  text={txtReader.currentChapterText}
+                  chapters={txtReader.chapters}
+                  currentChapterIndex={txtReader.currentChapterIndex}
+                  containerRef={txtReader.containerRef}
+                  onScroll={txtReader.handleScroll}
+                  ttsSegmentIndex={ttsSegmentIndex}
+                />
+              )}
+              {format === 'EPUB' && (
+                <EpubRenderer
+                  chapters={epubReader.chapters}
+                  currentChapterIndex={epubReader.currentChapterIndex}
+                  containerRef={epubReader.containerRef}
+                />
+              )}
+              {format === 'PDF' && (
+                <PdfRenderer
+                  totalPages={pdfReader.totalPages}
+                  currentPage={pdfReader.currentPage}
+                  scale={settings.pdfScale}
+                  containerRef={pdfReader.containerRef}
+                  onScroll={pdfReader.handleScroll}
+                  onRenderPage={pdfReader.renderPage}
+                  rendering={pdfReader.rendering}
+                />
+              )}
             </div>
           </div>
-        )}
-        {format === 'TXT' && (
-          <TxtRenderer
-            text={txtReader.currentChapterText}
-            chapters={txtReader.chapters}
-            currentChapterIndex={txtReader.currentChapterIndex}
-            containerRef={txtReader.containerRef}
-            onScroll={txtReader.handleScroll}
-            ttsSegmentIndex={ttsSegmentIndex}
-          />
-        )}
-        {format === 'EPUB' && (
-          <EpubRenderer
-            chapters={epubReader.chapters}
-            currentChapterIndex={epubReader.currentChapterIndex}
-            containerRef={epubReader.containerRef}
-          />
-        )}
-        {format === 'PDF' && (
-          <PdfRenderer
-            totalPages={pdfReader.totalPages}
-            currentPage={pdfReader.currentPage}
-            scale={settings.pdfScale}
-            containerRef={pdfReader.containerRef}
-            onScroll={pdfReader.handleScroll}
-            onRenderPage={pdfReader.renderPage}
-            rendering={pdfReader.rendering}
-          />
-        )}
+
+          {/* PC端右侧翻页按钮 */}
+          <button
+            onClick={() => {
+              if (format === 'TXT' && txtReader.currentChapterIndex < txtReader.chapters.length - 1) txtReader.goToChapter(txtReader.currentChapterIndex + 1)
+              else if (format === 'EPUB') epubGoPageRef.current('next')
+              else if (format === 'PDF' && pdfReader.currentPage < pdfReader.totalPages) pdfReader.goToPage?.(pdfReader.currentPage + 1)
+            }}
+            className="hidden md:flex md:w-12 lg:w-16 items-center justify-center hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0"
+            style={{ color: theme.fg + '40' }}
+            title="下一页 (→)"
+          >
+            <ChevronRight className="h-6 w-6" />
+          </button>
       </div>
 
-      {/* 底部进度 — 左下角小百分比 */}
+      {/* 底部 — 移动端EPUB翻页+进度 / 其他仅进度 */}
       <div
-        className="fixed bottom-2 left-2 z-30 pointer-events-none"
+        className="md:hidden shrink-0 flex items-center justify-between px-3 py-2 z-30"
+        style={{ backgroundColor: theme.bg + 'f0', borderTop: `1px solid ${theme.fg}15` }}
         onClick={(e) => e.stopPropagation()}
       >
+        <button
+          onClick={() => {
+            if (format === 'TXT' && txtReader.currentChapterIndex > 0) txtReader.goToChapter(txtReader.currentChapterIndex - 1)
+            else if (format === 'EPUB') epubGoPageRef.current('prev')
+            else if (format === 'PDF' && pdfReader.currentPage > 1) pdfReader.goToPage?.(pdfReader.currentPage - 1)
+          }}
+          className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium active:scale-95 transition-transform"
+          style={{ color: theme.fg + '80' }}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          上一页
+        </button>
         <span
-          className="text-[10px] font-medium opacity-40 rounded px-1.5 py-0.5"
-          style={{ color: theme.fg, backgroundColor: theme.bg + '60' }}
+          className="text-xs font-medium opacity-50"
+          style={{ color: theme.fg }}
+        >
+          {Math.round(progress * 100)}%
+        </span>
+        <button
+          onClick={() => {
+            if (format === 'TXT' && txtReader.currentChapterIndex < txtReader.chapters.length - 1) txtReader.goToChapter(txtReader.currentChapterIndex + 1)
+            else if (format === 'EPUB') epubGoPageRef.current('next')
+            else if (format === 'PDF' && pdfReader.currentPage < pdfReader.totalPages) pdfReader.goToPage?.(pdfReader.currentPage + 1)
+          }}
+          className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium active:scale-95 transition-transform"
+          style={{ color: theme.fg + '80' }}
+        >
+          下一页
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* PC端底部进度栏 */}
+      <div
+        className="hidden md:flex shrink-0 h-8 items-center justify-center"
+        style={{ borderTop: `1px solid ${theme.fg}10` }}
+      >
+        <span
+          className="text-xs font-medium opacity-40"
+          style={{ color: theme.fg }}
         >
           {Math.round(progress * 100)}%
         </span>

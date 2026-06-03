@@ -5,6 +5,7 @@ import com.kbook.common.exception.BusinessException;
 import com.kbook.dto.TextInfoResponse;
 import com.kbook.entity.Book;
 import com.kbook.service.BookService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -28,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 @RestController
 @RequestMapping("/api/books")
 @RequiredArgsConstructor
+@Tag(name = "图书文件")
 public class BookFileController {
 
     private final BookService bookService;

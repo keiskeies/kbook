@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { TabBar } from './TabBar'
+import { DesktopSidebar } from './DesktopSidebar'
 import { useUiStore } from '@/store/ui'
 import { useKeepAliveStore } from '@/store/keepAlive'
 import { ROUTES } from '@/constants'
@@ -113,26 +114,33 @@ export function AppLayout() {
           height: 100dvh;
         }
       `}</style>
-      <div className="app-layout-container relative flex flex-col overflow-hidden bg-background">
-        <div className="relative flex-1 overflow-hidden">
-          {TAB_ROUTES.map(({ path, component: Page }) => {
-            const isActive = isOnTabPage && path === currentTabPath
-            return (
-              <TabPageShell key={path} tabPath={path} isActive={isActive}>
-                <Suspense fallback={<LazyFallback />}>
-                  <Page />
-                </Suspense>
-              </TabPageShell>
-            )
-          })}
+      <div className="app-layout-container flex overflow-hidden bg-background">
+        {/* PC 侧边栏 - 移动端隐藏 */}
+        <DesktopSidebar />
 
-          {!isOnTabPage && (
-            <div className="absolute inset-0 overflow-y-auto overscroll-contain">
-              <Outlet />
-            </div>
-          )}
+        {/* 主内容区 */}
+        <div className="relative flex-1 flex flex-col overflow-hidden min-w-0">
+          <div className="relative flex-1 overflow-hidden">
+            {TAB_ROUTES.map(({ path, component: Page }) => {
+              const isActive = isOnTabPage && path === currentTabPath
+              return (
+                <TabPageShell key={path} tabPath={path} isActive={isActive}>
+                  <Suspense fallback={<LazyFallback />}>
+                    <Page />
+                  </Suspense>
+                </TabPageShell>
+              )
+            })}
+
+            {!isOnTabPage && (
+              <div className="absolute inset-0 overflow-y-auto overscroll-contain">
+                <Outlet />
+              </div>
+            )}
+          </div>
+          {/* 移动端底部 TabBar - PC隐藏 */}
+          {isOnTabPage && tabBarVisible && <TabBar />}
         </div>
-        {isOnTabPage && tabBarVisible && <TabBar />}
       </div>
     </>
   )

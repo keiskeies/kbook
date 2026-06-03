@@ -30,6 +30,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useMatchScores } from '@/hooks/useMatchScores'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { useAuthStore } from '@/store/auth'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
 import { createSsePostConnection } from '@/utils/sse-request'
 
@@ -145,7 +146,7 @@ function MatchScoreCard({ bookId, ms }: { bookId: number; ms: number | undefined
 
   if (loading) {
     return (
-      <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+      <div className="mb-4 rounded-2xl border border-border/50 bg-card p-4">
         <div className="flex items-center gap-3">
           <div className="h-14 w-14 animate-pulse rounded-full bg-muted" />
           <div className="flex-1 space-y-2">
@@ -170,7 +171,7 @@ function MatchScoreCard({ bookId, ms }: { bookId: number; ms: number | undefined
   }
 
   return (
-    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-gradient-to-br from-card to-muted/20 p-4">
+    <div className="mb-4 rounded-2xl border border-border/50 bg-gradient-to-br from-card to-muted/20 p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <CircularProgress percentage={overallPct} />
@@ -224,10 +225,9 @@ function MatchScoreCard({ bookId, ms }: { bookId: number; ms: number | undefined
   )
 }
 
-function SpeedReadCard({ bookId }: { bookId: number }) {
+function useSpeedRead(bookId: number) {
   const [data, setData] = useState<BookSpeedRead | null>(null)
   const [loading, setLoading] = useState(true)
-  const [expanded, setExpanded] = useState(true)
   const bufferRef = useRef('')
   const currentSectionRef = useRef('')
   const currentItemRef = useRef('')
@@ -312,6 +312,12 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
 
     return () => controller.abort()
   }, [bookId, flushCurrentItem])
+
+  return { data, loading }
+}
+
+function SpeedReadCard({ data, loading }: { data: BookSpeedRead | null; loading: boolean }) {
+  const [expanded, setExpanded] = useState(true)
 
   const getDifficultyBadge = (difficulty: string) => {
     const d = difficulty?.toLowerCase() || ''
@@ -459,7 +465,7 @@ function SpeedReadCard({ bookId }: { bookId: number }) {
   if (!loading && !data) return null
 
   return (
-    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-gradient-to-br from-card to-muted/20 p-4">
+    <div className="mb-4 rounded-2xl border border-border/50 bg-gradient-to-br from-card to-muted/20 p-4">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center justify-between"
@@ -530,7 +536,7 @@ function AiQaEntry({
   const hasMore = questions.length > 6
 
   return (
-    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-gradient-to-br from-primary/5 to-primary/[0.02] p-4">
+    <div className="mb-4 rounded-2xl border border-border/50 bg-gradient-to-br from-primary/5 to-primary/[0.02] p-4">
       <div className="flex items-center gap-2 mb-3">
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
           <MessageCircle className="h-4 w-4 text-primary" />
@@ -811,10 +817,12 @@ export default function BookDetailPage() {
 
   const { userInfo } = useAuthStore()
   const isAdmin = userInfo?.role === 'ADMIN'
+  const isMobile = useIsMobile()
 
   const id = Number(bookId)
   const matchScores = useMatchScores(book ? [book.id] : [])
   const ms = book ? matchScores?.[String(book.id)] : null
+  const { data: speedReadData, loading: speedReadLoading } = useSpeedRead(id)
 
   const loadComments = useCallback(async (page: number = 1) => {
     try {
@@ -1077,9 +1085,9 @@ export default function BookDetailPage() {
   const tags = parseFormatTags(book.formatTags)
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
-      {/* 顶部导航 */}
-      <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
+    <div className="fixed inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
+      {/* 顶部导航 — 移动端 */}
+      <header className="md:hidden shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
         <button onClick={() => goBack()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -1098,8 +1106,45 @@ export default function BookDetailPage() {
         </button>
       </header>
 
-      {/* 内容区域 - 可滚动 */}
+      {/* PC端顶部导航 */}
+      <header className="hidden md:flex shrink-0 items-center gap-3 border-b border-border/50 bg-background/80 px-6 py-3 backdrop-blur-xl z-20">
+        <button onClick={() => goBack()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <h1 className="flex-1 truncate text-base font-bold">{book.title}</h1>
+        {!inTrash && (
+          <button onClick={handleTrash} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
+            <Trash2 className="h-5 w-5 text-muted-foreground" />
+          </button>
+        )}
+        <button onClick={toggleShelf} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
+          {inShelf ? (
+            <BookmarkCheck className="h-5 w-5 text-primary" />
+          ) : (
+            <Bookmark className="h-5 w-5" />
+          )}
+        </button>
+        <button
+          onClick={() => navigate(`/reader/${book.id}`)}
+          className="flex items-center gap-2 rounded-xl bg-muted px-4 py-2 text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
+        >
+          <BookOpen className="h-4 w-4" />
+          {progress > 0 ? '继续阅读' : '开始阅读'}
+        </button>
+        <button
+          onClick={() => handleOpenChat()}
+          className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/25"
+        >
+          <BlinkingBot className="h-4 w-4" />
+          AI 问答
+        </button>
+      </header>
+
+      {/* 内容区域 - 移动端单列 / PC端双栏 */}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain">
+
+      {/* 移动端: 原始单列布局 */}
+      <div className="md:hidden">
 
       {/* 图书信息 — 渐变背景 */}
       <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
@@ -1209,14 +1254,13 @@ export default function BookDetailPage() {
       </div>
 
       {/* 匹配度卡片 */}
-      <MatchScoreCard bookId={id} ms={ms} />
+      <div className="px-4">
+        <MatchScoreCard bookId={id} ms={ms} />
+        <SpeedReadCard data={speedReadData} loading={speedReadLoading} />
 
-      {/* 3分钟速读 */}
-      <SpeedReadCard bookId={id} />
-
-      {/* 简介 */}
-      {(book.description || isAdmin) && (
-        <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-4">
+        {/* 简介 */}
+        {(book.description || isAdmin) && (
+          <div className="mb-4 rounded-2xl border border-border/50 bg-card p-4">
           <div className="mb-2 flex items-center gap-1.5">
             <h3 className="text-sm font-bold">简介</h3>
             {isAdmin && (
@@ -1250,8 +1294,9 @@ export default function BookDetailPage() {
         </div>
       )}
 
-      {/* AI 深度问答入口 */}
-      <AiQaEntry bookId={id} onOpenChat={handleOpenChat} />
+        {/* AI 深度问答入口 */}
+        <AiQaEntry bookId={id} onOpenChat={handleOpenChat} />
+      </div>
 
       {/* 评论区 */}
       <div className="px-4 border-t border-border/50 pt-4">
@@ -1267,10 +1312,154 @@ export default function BookDetailPage() {
           </button>
         )}
       </div>
+      </div>{/* end md:hidden */}
+
+      {/* PC端：左右两栏布局 */}
+      <div className="hidden md:block">
+        <div className="px-4 lg:px-6 py-6">
+          <div className="flex gap-6">
+            {/* 左栏：图书信息 + 简介 + 评论 */}
+            <div className="w-[380px] lg:w-[420px] shrink-0">
+              <div>
+                {/* 封面 */}
+                <div onClick={handleCoverClick} className={`flex justify-center mb-6 ${book.coverUrl || isAdmin ? 'cursor-pointer' : ''}`}>
+                  <BookCover coverUrl={book.coverUrl} title={book.title} author={book.author} size="lg" className="w-44 lg:w-52 shadow-xl rounded-xl" />
+                </div>
+
+                {/* 标题 + 作者 */}
+                <div className="text-center mb-4">
+                  <div className="flex items-start justify-center gap-2">
+                    <h2 className="text-2xl font-bold leading-tight">{book.title}</h2>
+                    {isAdmin && (
+                      <button onClick={() => setEditTitleOpen(true)} className="mt-1 shrink-0 rounded-md p-1 text-muted-foreground/50 hover:text-primary hover:bg-primary/10 transition-colors">
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-center gap-1.5 mt-1">
+                    {book.author && <p className="text-base text-muted-foreground">{book.author}</p>}
+                    {isAdmin && (
+                      <button onClick={() => setEditAuthorOpen(true)} className="shrink-0 rounded-md p-0.5 text-muted-foreground/50 hover:text-primary hover:bg-primary/10 transition-colors">
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 元信息 */}
+                <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground mb-4">
+                  <button
+                    onClick={() => userRating > 0 ? undefined : setShowRating(!showRating)}
+                    className={`flex items-center gap-1 transition-transform ${userRating > 0 ? 'cursor-default opacity-60' : 'active:scale-95'}`}
+                    disabled={userRating > 0}
+                  >
+                    <RatingBadgeCN rating={book.rating} />
+                    {book.rating <= 0 && <span className="text-xs text-muted-foreground">暂无评分</span>}
+                    <span className="text-[10px] text-primary ml-1">{userRating > 0 ? '已评' : '评'}</span>
+                  </button>
+                  <MatchBadgeCN score={ms} />
+                  <span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />{book.readCount} 阅读</span>
+                  <span className="rounded-md bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary">{book.format}</span>
+                  {book.fileSize && <span>{formatFileSize(book.fileSize)}</span>}
+                </div>
+
+                {/* 标签 */}
+                {(tags.length > 0 || isAdmin) && (
+                  <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+                    {tags.map((tag) => (
+                      <span key={tag} className="shrink-0 whitespace-nowrap rounded-full bg-primary/8 px-3 py-1 text-xs font-semibold text-primary border border-primary/10">{tag}</span>
+                    ))}
+                    {isAdmin && (
+                      <button onClick={() => setEditTagsOpen(true)} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-dashed border-primary/30 px-3 py-1 text-xs font-medium text-primary/60 hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-colors">
+                        <Pencil className="h-3 w-3" />编辑标签
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* 阅读进度 */}
+                {progress > 0 && (
+                  <div className="mb-4 max-w-sm mx-auto">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">阅读进度</span>
+                      <span className="font-bold text-primary">{formatProgress(progress)}</span>
+                    </div>
+                    <div className="mt-1.5 h-2 rounded-full bg-primary/10">
+                      <div className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70 transition-all" style={{ width: `${Math.round(progress * 100)}%` }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* 评分 */}
+                {showRating && (
+                  <div className="mb-4 rounded-2xl bg-card p-4 border border-border/50 inline-flex flex-col mx-auto">
+                    <p className="text-sm font-semibold mb-3">为这本书评分</p>
+                    <div className="flex items-center gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button key={star} onClick={() => handleRate(star)} onMouseEnter={() => setHoverStar(star)} onMouseLeave={() => setHoverStar(0)} className="transition-transform active:scale-90">
+                          <Star className={`h-9 w-9 transition-colors ${(hoverStar || userRating) >= star ? 'fill-warning text-warning' : 'text-muted-foreground/30 hover:text-warning/50'}`} />
+                        </button>
+                      ))}
+                      <span className="ml-2 text-sm font-semibold text-foreground">{hoverStar || userRating || ''}{(hoverStar || userRating) ? ' 星' : ''}</span>
+                    </div>
+                    <p className="mt-2 text-[10px] text-muted-foreground">点击星星评分（1-5 星）</p>
+                  </div>
+                )}
+
+                {/* 简介 */}
+                {(book.description || isAdmin) && (
+                  <div className="mb-4 rounded-2xl border border-border/50 bg-card p-4">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <h3 className="text-sm font-bold">简介</h3>
+                      {isAdmin && (
+                        <button onClick={() => setEditDescOpen(true)} className="rounded-md p-0.5 text-muted-foreground/50 hover:text-primary hover:bg-primary/10 transition-colors">
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                    {book.description ? (
+                      <>
+                        <p className={`text-sm leading-relaxed text-muted-foreground text-justify ${!descExpanded ? 'line-clamp-6' : ''}`}>{book.description}</p>
+                        {book.description.length > 120 && (
+                          <button onClick={() => setDescExpanded(!descExpanded)} className="mt-1 text-xs font-medium text-primary">{descExpanded ? '收起' : '展开'}</button>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground/50 italic">暂无简介</p>
+                    )}
+                  </div>
+                )}
+
+                {/* 评论 */}
+                <div className="rounded-2xl border border-border/50 bg-card p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <MessageSquare className="h-4 w-4 text-primary" />
+                    <h3 className="text-sm font-bold">评论</h3>
+                    <span className="text-xs text-muted-foreground">({commentCount})</span>
+                  </div>
+                  <CommentList comments={comments} bookId={id} onRefresh={refreshComments} />
+                  {hasMoreComments && comments.length > 0 && (
+                    <button onClick={() => { const next = commentPage + 1; setCommentPage(next); loadComments(next) }} className="mt-3 w-full rounded-xl bg-muted py-2 text-sm font-medium text-muted-foreground">
+                      加载更多评论
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 右栏：内容卡片 */}
+            <div className="flex-1 min-w-0 space-y-4">
+              <MatchScoreCard bookId={id} ms={ms} />
+              <SpeedReadCard data={speedReadData} loading={speedReadLoading} />
+              <AiQaEntry bookId={id} onOpenChat={handleOpenChat} />
+            </div>
+          </div>
+        </div>
+      </div>
       </div>
 
-      {/* 底部操作栏 */}
-      <div className="shrink-0 border-t border-border/50 bg-background/95 backdrop-blur-xl px-3 pt-3 z-20" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
+      {/* 底部操作栏 — 仅移动端 */}
+      <div className="md:hidden shrink-0 border-t border-border/50 bg-background/95 backdrop-blur-xl px-3 pt-3 z-20" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
         <div className="flex gap-2">
           <button
             onClick={toggleShelf}
@@ -1308,6 +1497,7 @@ export default function BookDetailPage() {
             if (!open) setChatInitialQuestion(undefined)
           }}
           initialQuestion={chatInitialQuestion}
+          side={isMobile ? 'bottom' : 'right'}
         />
       )}
 

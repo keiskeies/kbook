@@ -29,11 +29,11 @@ export default defineConfig({
       manifest: {
         name: 'KBook - 智能阅读平台',
         short_name: 'KBook',
-        description: 'KBook 智能移动阅读平台',
+        description: 'KBook 智能阅读平台',
         theme_color: '#6366f1',
         background_color: '#ffffff',
         display: 'standalone',
-        orientation: 'portrait',
+        orientation: 'any',
         start_url: '/',
         icons: [
           {

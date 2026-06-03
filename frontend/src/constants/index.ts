@@ -26,6 +26,8 @@ export const ROUTES = {
   FOLLOW_LIST: '/user/:userId/follow',
   CHAT: '/chat',
   CHAT_ROOM: '/chat/:conversationId',
+  TERMS: '/terms',
+  PRIVACY: '/privacy',
 } as const
 
 export const USER_STATUS = {

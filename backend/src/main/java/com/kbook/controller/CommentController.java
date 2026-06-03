@@ -9,6 +9,8 @@ import com.kbook.repository.BookRepository;
 import com.kbook.repository.UserRepository;
 import com.kbook.service.CommentService;
 import com.kbook.dto.CreateCommentRequest;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -24,6 +26,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/comments")
 @RequiredArgsConstructor
+@Tag(name = "评论")
 public class CommentController {
 
     private final CommentService commentService;
@@ -31,6 +34,7 @@ public class CommentController {
     private final BookRepository bookRepository;
 
     /** 发表评论 */
+    @Operation(summary = "添加评论")
     @PostMapping
     public Result<CommentVO> createComment(Authentication auth, @Valid @RequestBody CreateCommentRequest req) {
         Long userId = (Long) auth.getPrincipal();
@@ -40,6 +44,7 @@ public class CommentController {
     }
 
     /** 删除评论 */
+    @Operation(summary = "删除评论")
     @DeleteMapping("/{id}")
     public Result<Void> deleteComment(Authentication auth, @PathVariable Long id) {
         Long userId = (Long) auth.getPrincipal();
@@ -48,6 +53,7 @@ public class CommentController {
     }
 
     /** 获取书籍评论 */
+    @Operation(summary = "获取书籍评论")
     @GetMapping("/book/{bookId}")
     public Result<PageResult<CommentVO>> getBookComments(
             @PathVariable Long bookId,
@@ -61,6 +67,7 @@ public class CommentController {
     }
 
     /** 获取章节评论 */
+    @Operation(summary = "获取章节评论")
     @GetMapping("/chapter/{bookId}")
     public Result<PageResult<CommentVO>> getChapterComments(
             @PathVariable Long bookId,
@@ -75,6 +82,7 @@ public class CommentController {
     }
 
     /** 获取评论回复 */
+    @Operation(summary = "获取评论回复")
     @GetMapping("/{commentId}/replies")
     public Result<List<CommentVO>> getReplies(@PathVariable Long commentId, Authentication auth) {
         Long currentUserId = auth != null ? (Long) auth.getPrincipal() : null;
@@ -84,6 +92,7 @@ public class CommentController {
     }
 
     /** 高分书评 */
+    @Operation(summary = "获取高分书评")
     @GetMapping("/top-rated")
     public Result<PageResult<CommentVO>> getTopRatedComments(
             @RequestParam(defaultValue = "1") int minLikes,
@@ -97,6 +106,7 @@ public class CommentController {
     }
 
     /** 点赞 */
+    @Operation(summary = "点赞评论")
     @PostMapping("/{id}/like")
     public Result<Void> likeComment(Authentication auth, @PathVariable Long id) {
         Long userId = (Long) auth.getPrincipal();
@@ -105,6 +115,7 @@ public class CommentController {
     }
 
     /** 取消点赞 */
+    @Operation(summary = "取消点赞")
     @DeleteMapping("/{id}/like")
     public Result<Void> unlikeComment(Authentication auth, @PathVariable Long id) {
         Long userId = (Long) auth.getPrincipal();
@@ -113,6 +124,7 @@ public class CommentController {
     }
 
     /** 收藏 */
+    @Operation(summary = "收藏评论")
     @PostMapping("/{id}/favorite")
     public Result<Void> favoriteComment(Authentication auth, @PathVariable Long id) {
         Long userId = (Long) auth.getPrincipal();
@@ -121,6 +133,7 @@ public class CommentController {
     }
 
     /** 取消收藏 */
+    @Operation(summary = "取消收藏")
     @DeleteMapping("/{id}/favorite")
     public Result<Void> unfavoriteComment(Authentication auth, @PathVariable Long id) {
         Long userId = (Long) auth.getPrincipal();
@@ -129,6 +142,7 @@ public class CommentController {
     }
 
     /** 统计书籍评论数 */
+    @Operation(summary = "统计书籍评论数")
     @GetMapping("/count/book/{bookId}")
     public Result<Long> countBookComments(@PathVariable Long bookId) {
         return Result.ok(commentService.countBookComments(bookId));

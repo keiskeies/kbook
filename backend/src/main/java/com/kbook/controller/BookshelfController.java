@@ -5,6 +5,8 @@ import com.kbook.dto.BookshelfItem;
 import com.kbook.service.BookshelfService;
 import com.kbook.service.RecommendCoefficientService;
 import com.kbook.service.RecommendService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +19,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/bookshelf")
 @RequiredArgsConstructor
+@Tag(name = "书架")
 public class BookshelfController {
 
     private final BookshelfService bookshelfService;
@@ -26,6 +29,7 @@ public class BookshelfController {
     /**
      * 获取书架列表（含图书详情和阅读进度）
      */
+    @Operation(summary = "获取书架列表")
     @GetMapping
     public Result<List<BookshelfItem>> getBookshelf(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -35,6 +39,7 @@ public class BookshelfController {
     /**
      * 加入书架
      */
+    @Operation(summary = "加入书架")
     @PostMapping("/{bookId}")
     public Result<Void> addToBookshelf(Authentication authentication, @PathVariable Long bookId) {
         Long userId = (Long) authentication.getPrincipal();
@@ -50,6 +55,7 @@ public class BookshelfController {
     /**
      * 从书架移除
      */
+    @Operation(summary = "移除书架")
     @DeleteMapping("/{bookId}")
     public Result<Void> removeFromBookshelf(Authentication authentication, @PathVariable Long bookId) {
         Long userId = (Long) authentication.getPrincipal();
@@ -60,6 +66,7 @@ public class BookshelfController {
     /**
      * 检查是否在书架中
      */
+    @Operation(summary = "检查书架状态")
     @GetMapping("/check/{bookId}")
     public Result<Boolean> isInBookshelf(Authentication authentication, @PathVariable Long bookId) {
         Long userId = (Long) authentication.getPrincipal();
@@ -69,6 +76,7 @@ public class BookshelfController {
     /**
      * 获取书架数量
      */
+    @Operation(summary = "获取书架数量")
     @GetMapping("/count")
     public Result<Long> getBookshelfCount(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();

@@ -76,11 +76,11 @@ export default function BookshelfPage() {
 
   if (loading) {
     return (
-      <div className="px-4 page-enter pb-20">
-        <header className="sticky top-0 z-10 -mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
+      <div className="px-4 md:px-6 lg:px-8 page-enter pb-20 md:pb-6">
+        <header className="sticky top-0 z-10 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
           <h1 className="text-lg font-bold">我的书架</h1>
         </header>
-        <div className="grid grid-cols-3 gap-3 mt-4">
+        <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 mt-4">
           {Array.from({ length: 6 }, (_, i) => (
             <div key={i} className="space-y-3">
               <div className="aspect-[3/4] w-full rounded-2xl skeleton" />
@@ -95,8 +95,8 @@ export default function BookshelfPage() {
 
   if (items.length === 0) {
     return (
-      <div className="px-4 page-enter pb-20">
-        <header className="-mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
+      <div className="px-4 md:px-6 lg:px-8 page-enter pb-20 md:pb-6">
+        <header className="-mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
           <h1 className="text-lg font-bold">我的书架</h1>
         </header>
         <div className="flex h-[60vh] flex-col items-center justify-center">
@@ -118,8 +118,8 @@ export default function BookshelfPage() {
   }
 
   return (
-    <div className="px-4 page-enter pb-20">
-      <header className="sticky top-0 z-10 -mx-4 px-4 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
+    <div className="px-4 md:px-6 lg:px-8 page-enter pb-20 md:pb-6">
+      <header className="sticky top-0 z-10 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 pt-safe-top pb-3 bg-background/80 backdrop-blur-xl border-b border-border/50">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold">我的书架</h1>
@@ -183,7 +183,7 @@ export default function BookshelfPage() {
           <button onClick={() => setFilterFormat('')} className="mt-2 text-xs text-primary">清除筛选</button>
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-3 mt-4">
+        <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4 mt-4">
           {filteredAndSorted.map((item, index) => (
             <div
               key={item.bookshelfId}

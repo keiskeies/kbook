@@ -246,13 +246,28 @@ public class BookChatService {
                     } catch (Exception ignored) {
                     }
 
-                    int chunkCount = bookParserService.generateContentEmbeddingWithCount(bookId);
-                    if (chunkCount > 0) {
-                        book.setContentEmbedded(true);
-                        bookService.updateBook(bookId, book);
-                        log.info("按需生成内容向量成功: bookId={}, chunks={}", bookId, chunkCount);
-                    } else {
-                        SseHelper.sendErrorAndComplete(emitter, "该书无法提取文本内容，无法进行 AI 问答");
+                    boolean done = false;
+                    long deadline = System.currentTimeMillis() + 3600_000L;
+                    while (!done && System.currentTimeMillis() < deadline) {
+                        Boolean result = bookParserService.ensureContentEmbedded(bookId);
+                        if (result == null) {
+                            try { Thread.sleep(2000); } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                        } else {
+                            done = true;
+                            if (result) {
+                                book.setContentEmbedded(true);
+                                log.info("按需生成内容向量成功: bookId={}", bookId);
+                            } else {
+                                SseHelper.sendErrorAndComplete(emitter, "该书无法提取文本内容，无法进行 AI 问答");
+                                return;
+                            }
+                        }
+                    }
+                    if (!done) {
+                        SseHelper.sendErrorAndComplete(emitter, "内容向量生成等待超时，请稍后重试");
                         return;
                     }
                 }

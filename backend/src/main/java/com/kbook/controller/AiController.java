@@ -6,6 +6,8 @@ import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.service.AiChatService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -26,6 +28,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/ai")
 @RequiredArgsConstructor
+@Tag(name = "AI助手")
 public class AiController extends BaseController {
 
     /** AI 对话服务 */
@@ -49,6 +52,7 @@ public class AiController extends BaseController {
      * 创建新的 AI 对话会话
      * @return 包含 sessionId 的结果
      */
+    @Operation(summary = "创建对话会话")
     @PostMapping("/sessions")
     public Result<Map<String, String>> createSession() {
         Long userId = extractUserId();
@@ -61,6 +65,7 @@ public class AiController extends BaseController {
      * @param body 包含 sessionId 和 message 的请求体
      * @return SSE 事件流
      */
+    @Operation(summary = "AI流式对话")
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(@RequestBody Map<String, String> body) {
         Long userId = extractUserId();
@@ -86,6 +91,7 @@ public class AiController extends BaseController {
      * @param body 包含 sessionId 和 message 的请求体
      * @return 包含 sessionId 和 response 的结果
      */
+    @Operation(summary = "AI对话")
     @PostMapping("/chat")
     public Result<Map<String, String>> chat(@RequestBody Map<String, String> body) {
         Long userId = extractUserId();
@@ -112,6 +118,7 @@ public class AiController extends BaseController {
      * @param sessionId 会话ID
      * @return 对话记录列表
      */
+    @Operation(summary = "获取对话历史")
     @GetMapping("/history")
     public Result<List<AiConversation>> getHistory(@RequestParam String sessionId) {
         Long userId = extractUserId();
@@ -122,6 +129,7 @@ public class AiController extends BaseController {
      * 获取当前用户的所有会话列表
      * @return 会话列表
      */
+    @Operation(summary = "获取会话列表")
     @GetMapping("/sessions")
     public Result<List<AiSession>> getSessions() {
         Long userId = extractUserId();
@@ -132,6 +140,7 @@ public class AiController extends BaseController {
      * 删除指定会话及其对话历史
      * @param sessionId 会话ID
      */
+    @Operation(summary = "删除对话会话")
     @DeleteMapping("/sessions/{sessionId}")
     public Result<Void> deleteSession(@PathVariable String sessionId) {
         Long userId = extractUserId();
@@ -146,6 +155,7 @@ public class AiController extends BaseController {
      * @param count 返回数量，默认4
      * @return 热门提问列表
      */
+    @Operation(summary = "获取热门提问")
     @GetMapping("/hot-prompts")
     public Result<List<String>> getHotPrompts(
             @RequestParam(defaultValue = "4") int count) {
@@ -165,6 +175,7 @@ public class AiController extends BaseController {
      * 获取 AI 供应商预设列表
      * @return 供应商预设配置列表
      */
+    @Operation(summary = "获取AI供应商预设")
     @GetMapping("/providers/presets")
     public Result<List<AiProviderProperties.ProviderPreset>> getProviderPresets() {
         return Result.ok(aiProviderProperties.getProviders());

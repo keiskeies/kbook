@@ -15,6 +15,8 @@ import com.kbook.service.RecommendMatchCalculator;
 import com.kbook.service.RecommendService;
 import com.kbook.service.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -33,6 +35,7 @@ import java.util.concurrent.CompletableFuture;
 @RestController
 @RequestMapping("/api/recommend")
 @RequiredArgsConstructor
+@Tag(name = "推荐")
 public class RecommendController {
 
     private final RecommendService recommendService;
@@ -47,6 +50,7 @@ public class RecommendController {
     /**
      * 获取个性化推荐（从 Redis Sorted Set 取 top N）
      */
+    @Operation(summary = "获取推荐")
     @GetMapping
     public Result<List<RecommendedItem>> getRecommendations(
             Authentication authentication,
@@ -60,6 +64,7 @@ public class RecommendController {
     /**
      * 分页查询推荐结果（从 Redis Sorted Set）
      */
+    @Operation(summary = "分页获取推荐")
     @GetMapping("/page")
     public Result<Map<String, Object>> getRecommendationsPage(
             Authentication authentication,
@@ -72,6 +77,7 @@ public class RecommendController {
     /**
      * 清除推荐缓存（用户更新画像后调用）
      */
+    @Operation(summary = "清除推荐缓存")
     @DeleteMapping("/cache")
     public Result<Void> clearCache(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -84,6 +90,7 @@ public class RecommendController {
      * SSE 流式生成推荐（带进度报告）
      * 清除缓存后重新计算，通过 SSE 实时推送进度
      */
+    @Operation(summary = "流式生成推荐")
     @GetMapping(value = "/generate", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter generateRecommendations(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -103,6 +110,7 @@ public class RecommendController {
      * 批量获取规则匹配分（轻量级，基于用户画像+书籍relevanceScores）
      * 用于在图书列表中展示"与你的匹配度"
      */
+    @Operation(summary = "批量获取匹配分")
     @GetMapping("/match-scores")
     public Result<Map<Long, Double>> getMatchScores(
             Authentication authentication,
@@ -112,6 +120,7 @@ public class RecommendController {
         return Result.ok(scores);
     }
 
+    @Operation(summary = "获取匹配详情")
     @GetMapping("/match-detail/{bookId}")
     public Result<MatchScoreDetailVO> getMatchScoreDetail(
             Authentication authentication,

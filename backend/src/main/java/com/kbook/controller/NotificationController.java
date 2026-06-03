@@ -7,6 +7,8 @@ import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
 import com.kbook.service.NotificationService;
 import com.kbook.dto.NotificationVO;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.security.core.Authentication;
@@ -22,12 +24,14 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/user/notifications")
 @RequiredArgsConstructor
+@Tag(name = "通知")
 public class NotificationController {
 
     private final NotificationService notificationService;
     private final UserRepository userRepository;
 
     /** 获取通知列表 */
+    @Operation(summary = "获取通知列表")
     @GetMapping
     public Result<PageResult<NotificationVO>> getNotifications(
             Authentication auth,
@@ -41,6 +45,7 @@ public class NotificationController {
     }
 
     /** 未读数 */
+    @Operation(summary = "获取未读通知数")
     @GetMapping("/unread-count")
     public Result<Long> getUnreadCount(Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
@@ -48,6 +53,7 @@ public class NotificationController {
     }
 
     /** 标记已读 */
+    @Operation(summary = "标记通知已读")
     @PutMapping("/{id}/read")
     public Result<Void> markAsRead(Authentication auth, @PathVariable Long id) {
         Long userId = (Long) auth.getPrincipal();
@@ -56,6 +62,7 @@ public class NotificationController {
     }
 
     /** 全部已读 */
+    @Operation(summary = "全部标记已读")
     @PutMapping("/read-all")
     public Result<Void> markAllAsRead(Authentication auth) {
         Long userId = (Long) auth.getPrincipal();

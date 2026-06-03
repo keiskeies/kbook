@@ -5,6 +5,8 @@ import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.service.BookChatService;
 import com.kbook.service.ReadingProgressService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -24,6 +26,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/books")
 @RequiredArgsConstructor
+@Tag(name = "图书问答")
 public class BookChatController extends BaseController {
 
     /** 图书 AI 对话服务 */
@@ -38,6 +41,7 @@ public class BookChatController extends BaseController {
      * @param body 包含 message 和 sessionId 的请求体
      * @return SSE 事件流
      */
+    @Operation(summary = "图书问答")
     @PostMapping(value = "/{bookId}/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamBookChat(
             @PathVariable Long bookId,
@@ -68,6 +72,7 @@ public class BookChatController extends BaseController {
      * @param bookId 图书ID
      * @return 推荐提问列表
      */
+    @Operation(summary = "获取推荐问题")
     @GetMapping("/{bookId}/chat/suggestions")
     public Result<List<String>> getSuggestedQuestions(@PathVariable Long bookId) {
         return Result.ok(bookChatService.getSuggestedQuestions(bookId));
@@ -79,6 +84,7 @@ public class BookChatController extends BaseController {
      * @param sessionId 可选的会话ID，用于筛选特定会话
      * @return 对话记录列表
      */
+    @Operation(summary = "获取图书对话历史")
     @GetMapping("/{bookId}/chat/history")
     public Result<List<AiConversation>> getBookChatHistory(
             @PathVariable Long bookId,
@@ -93,6 +99,7 @@ public class BookChatController extends BaseController {
      * @param bookId 图书ID
      * @return 会话列表
      */
+    @Operation(summary = "获取图书对话会话")
     @GetMapping("/{bookId}/chat/sessions")
     public Result<List<AiSession>> getBookChatSessions(@PathVariable Long bookId) {
         Long userId = extractUserId();
@@ -107,6 +114,7 @@ public class BookChatController extends BaseController {
      * @param body 包含 question、answer 和 sessionId 的请求体
      * @return 追问问题列表
      */
+    @Operation(summary = "生成追问问题")
     @PostMapping("/{bookId}/chat/follow-up")
     public Result<List<String>> generateFollowUpQuestions(
             @PathVariable Long bookId,

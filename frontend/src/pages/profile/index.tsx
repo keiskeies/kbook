@@ -19,6 +19,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import FooterVersion from '@/components/common/FooterVersion'
 import AvatarCropModal from '@/components/common/AvatarCropModal'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
 
@@ -157,6 +158,8 @@ export default function ProfilePage() {
 
   const isAdmin = userInfo?.role === 'ADMIN'
   const needBindEmail = isAdmin && !userInfo?.emailBound
+  const isMobile = useIsMobile()
+  const sheetSide = isMobile ? 'bottom' : 'right'
 
   const getTraitsSummary = () => {
     const parts: string[] = []
@@ -489,108 +492,120 @@ export default function ProfilePage() {
     : null
 
   return (
-    <div className="px-4 pt-safe-top pb-20 page-enter">
+    <div className="px-4 md:px-6 lg:px-8 pt-safe-top pb-20 md:pb-6 page-enter">
+      <div>
       <div className="h-4" />
       
-      <div className="mb-5 rounded-2xl bg-card p-4 shadow-sm border border-border/50">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate(`/user/${userInfo?.id}`)}
-            className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/20 overflow-hidden"
-          >
-            {avatarFullUrl ? (
-              <img src={avatarFullUrl} alt={userInfo?.nickname} className="h-full w-full object-cover" />
-            ) : (
-              <span className="text-xl font-bold text-primary">
-                {userInfo?.nickname?.[0] || 'U'}
-              </span>
-            )}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/40 transition-colors">
-              <Camera className="h-5 w-5 text-white opacity-0 hover:opacity-100 transition-opacity" />
-            </div>
-          </button>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold">
-                {userInfo?.nickname || '未登录'}
-              </h2>
-              {isAdmin && (
-                <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-bold text-primary">
-                  管理员
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {userInfo?.email || '未设置邮箱'}
-            </p>
-            {needBindEmail && (
-              <p className="mt-1 text-xs text-warning dark:text-warning">
-                绑定邮箱后即可重置密码
-              </p>
-            )}
-          </div>
-          <button
-            onClick={() => setShowProfileModal(true)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors"
-          >
-            <Settings className="h-4.5 w-4.5 text-muted-foreground" />
-          </button>
-        </div>
-
-        {stats && (
-          <div className="mt-4 grid grid-cols-3 gap-3 border-t border-primary/10 pt-4">
-            <div className="text-center">
-              <p className="text-xl font-bold text-primary">{stats.totalBooks}</p>
-              <p className="text-[10px] text-muted-foreground font-medium">在读/读过</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xl font-bold text-success">{stats.readingBooks}</p>
-              <p className="text-[10px] text-muted-foreground font-medium">在读</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xl font-bold text-warning">{stats.completedBooks}</p>
-              <p className="text-[10px] text-muted-foreground font-medium">已读完</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {isAdmin && (
-        <div className="mb-4 rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
-          <div className="px-4 pt-3 pb-1">
-            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">管理员功能</h3>
-          </div>
-          {adminMenuItems.map((item, i) => {
-            const Icon = item.icon
-            return (
+      {/* PC端：左右分栏；移动端：单列 */}
+      <div className="md:flex md:gap-6">
+        {/* 左栏：用户卡片 + 管理员 */}
+        <div className="md:w-[320px] lg:w-[360px] md:shrink-0 space-y-4">
+          {/* 用户卡片 */}
+          <div className="rounded-2xl bg-card p-4 md:p-6 shadow-sm border border-border/50">
+            <div className="flex items-center gap-4 md:gap-6">
               <button
-                key={item.label}
-                onClick={() => item.path && navigate(item.path)}
-                className={`flex w-full items-center justify-between px-4 py-3 active:bg-muted/50 transition-colors ${
-                  i < adminMenuItems.length - 1 ? 'border-b border-border/50' : ''
-                }`}
+                onClick={() => navigate(`/user/${userInfo?.id}`)}
+                className="relative flex h-14 w-14 md:h-20 md:w-20 shrink-0 items-center justify-center rounded-full bg-primary/10 ring-2 ring-primary/20 overflow-hidden"
               >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/8">
-                    <Icon className="h-3.5 w-3.5 text-primary" />
-                  </div>
-                  <span className="text-sm font-medium">{item.label}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {item.badge && (
-                    <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-bold text-warning dark:text-warning">
-                      {item.badge}
-                    </span>
-                  )}
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                {avatarFullUrl ? (
+                  <img src={avatarFullUrl} alt={userInfo?.nickname} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-xl md:text-2xl font-bold text-primary">
+                    {userInfo?.nickname?.[0] || 'U'}
+                  </span>
+                )}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/40 transition-colors">
+                  <Camera className="h-5 w-5 text-white opacity-0 hover:opacity-100 transition-opacity" />
                 </div>
               </button>
-            )
-          })}
-        </div>
-      )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base md:text-xl font-bold truncate">
+                    {userInfo?.nickname || '未登录'}
+                  </h2>
+                  {isAdmin && (
+                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-bold text-primary">
+                      管理员
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground truncate">
+                  {userInfo?.email || '未设置邮箱'}
+                </p>
+                {needBindEmail && (
+                  <p className="mt-1 text-xs text-warning dark:text-warning">
+                    绑定邮箱后即可重置密码
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setShowProfileModal(true)}
+                className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors"
+              >
+                <Settings className="h-4.5 w-4.5 text-muted-foreground" />
+              </button>
+            </div>
 
-      <div className="space-y-4">
+            {stats && (
+              <div className="mt-4 md:mt-6 grid grid-cols-3 gap-3 md:gap-6 border-t border-primary/10 pt-4 md:pt-6">
+                <div className="text-center">
+                  <p className="text-xl md:text-2xl font-bold text-primary">{stats.totalBooks}</p>
+                  <p className="text-[10px] md:text-xs text-muted-foreground font-medium">在读/读过</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xl md:text-2xl font-bold text-success">{stats.readingBooks}</p>
+                  <p className="text-[10px] md:text-xs text-muted-foreground font-medium">在读</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xl md:text-2xl font-bold text-warning">{stats.completedBooks}</p>
+                  <p className="text-[10px] md:text-xs text-muted-foreground font-medium">已读完</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 管理员功能 */}
+          {isAdmin && (
+            <div className="rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
+              <div className="px-4 pt-3 pb-1">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">管理员功能</h3>
+              </div>
+              <div>
+              {adminMenuItems.map((item, i) => {
+                const Icon = item.icon
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => item.path && navigate(item.path)}
+                    className={`flex w-full items-center justify-between px-4 py-3 active:bg-muted/50 md:hover:bg-muted/50 transition-colors ${
+                      i < adminMenuItems.length - 1 ? 'border-b border-border/50' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/8">
+                        <Icon className="h-3.5 w-3.5 text-primary" />
+                      </div>
+                      <span className="text-sm font-medium">{item.label}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {item.badge && (
+                        <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-bold text-warning dark:text-warning">
+                          {item.badge}
+                        </span>
+                      )}
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </button>
+                )
+              })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 右栏：菜单分组 */}
+        <div className="flex-1 min-w-0 mt-4 md:mt-0">
+          <div className="space-y-4">
         {menuGroups.map((group) => {
           const GroupIcon = group.titleIcon
           return (
@@ -612,7 +627,7 @@ export default function ProfilePage() {
                         else if (item.path) navigate(item.path)
                       }
                     })}
-                    className={`flex w-full items-center justify-between px-4 py-3 ${isCustom ? '' : 'active:bg-muted/50'} transition-colors ${
+                    className={`flex w-full items-center justify-between px-4 py-3 ${isCustom ? '' : 'active:bg-muted/50 md:hover:bg-muted/50'} transition-colors ${
                       i < group.items.length - 1 ? 'border-b border-border/50' : ''
                     }`}
                   >
@@ -643,17 +658,20 @@ export default function ProfilePage() {
       {userInfo && (
         <button
           onClick={handleLogout}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-card py-3.5 text-sm font-medium text-destructive shadow-sm border border-border/50 active:scale-[0.98] transition-transform"
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-card py-3.5 text-sm font-medium text-destructive shadow-sm border border-border/50 active:scale-[0.98] md:hover:bg-destructive/5 transition-all"
         >
           <LogOut className="h-4 w-4" />
           退出登录
         </button>
       )}
 
-      <FooterVersion />
+          </div>{/* 右栏结束 */}
+        </div>{/* 左右分栏结束 */}
+
+        <FooterVersion />
 
       <Sheet open={showProfileModal} onOpenChange={setShowProfileModal}>
-        <SheetContent side="bottom" className="max-h-[85vh] flex flex-col rounded-t-3xl bg-card p-5 gap-0">
+        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-md rounded-l-2xl'}`}>
           <SheetHeader className="p-0 shrink-0 pb-4">
             <SheetTitle className="text-base font-bold">编辑个人信息</SheetTitle>
             <SheetDescription className="sr-only">编辑你的昵称、头像、简介和心情</SheetDescription>
@@ -753,7 +771,7 @@ export default function ProfilePage() {
       </Sheet>
 
       <Sheet open={showTraitsModal} onOpenChange={setShowTraitsModal}>
-        <SheetContent side="bottom" className="max-h-[85vh] flex flex-col rounded-t-3xl bg-card p-5 gap-0">
+        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-md rounded-l-2xl'}`}>
           <SheetHeader className="p-0 shrink-0 pb-4">
             <SheetTitle className="text-base font-bold">编辑我的画像</SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</SheetDescription>
@@ -968,7 +986,7 @@ export default function ProfilePage() {
       </Sheet>
 
       <Sheet open={showPreferenceModal} onOpenChange={setShowPreferenceModal}>
-        <SheetContent side="bottom" className="max-h-[85vh] flex flex-col rounded-t-3xl bg-card p-5 gap-0">
+        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-md rounded-l-2xl'}`}>
           <SheetHeader className="p-0 shrink-0 pb-4">
             <SheetTitle className="text-lg font-bold">阅读偏好</SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">
@@ -1101,7 +1119,7 @@ export default function ProfilePage() {
       />
 
       <Sheet open={showStylePicker} onOpenChange={setShowStylePicker}>
-        <SheetContent side="bottom" className="rounded-t-3xl bg-card p-5 max-h-[50vh]">
+        <SheetContent side={sheetSide} className={`p-5 ${isMobile ? 'rounded-t-3xl max-h-[50vh]' : 'h-full sm:max-w-md rounded-l-2xl'}`}>
           <SheetHeader className="p-0 pb-3">
             <SheetTitle className="text-base font-bold">AI 对话风格</SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">选择 AI 图书问答的语气风格</SheetDescription>
@@ -1136,6 +1154,7 @@ export default function ProfilePage() {
         </SheetContent>
       </Sheet>
 
+      </div>
     </div>
   )
 }

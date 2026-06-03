@@ -37,8 +37,8 @@ public class ClickCaptchaService {
     private static final int TARGET_COUNT = 2; // 需要点击的目标数量
 
     private static final String[] SHAPES = {"circle", "triangle", "square", "diamond", "star", "heart"};
-    private static final String[] COLORS = {"red", "blue", "green", "orange", "purple", "cyan"};
-    private static final String[] SIZES = {"small", "medium", "large"};
+    private static final String[] COLORS = {"red", "blue", "green", "orange", "purple", "pink"};
+    private static final String[] SIZES = {"small", "large"};
 
     private static final Map<String, String> COLOR_HEX = Map.of(
             "red", "#ef4444",
@@ -46,7 +46,7 @@ public class ClickCaptchaService {
             "green", "#22c55e",
             "orange", "#f97316",
             "purple", "#a855f7",
-            "cyan", "#06b6d4"
+            "pink", "#ec4899"
     );
 
     private static final Map<String, String> SHAPE_CN = Map.of(
@@ -64,12 +64,11 @@ public class ClickCaptchaService {
             "green", "绿色",
             "orange", "橙色",
             "purple", "紫色",
-            "cyan", "青色"
+            "pink", "粉色"
     );
 
     private static final Map<String, String> SIZE_CN = Map.of(
             "small", "小",
-            "medium", "中",
             "large", "大"
     );
 

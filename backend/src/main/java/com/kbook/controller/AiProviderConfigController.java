@@ -6,6 +6,7 @@ import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
 import com.kbook.service.AiProviderConfigService;
 import dev.langchain4j.model.chat.ChatModel;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +26,7 @@ import java.util.List;
 @RequestMapping("/api/admin/ai-config")
 @PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
+@Tag(name = "AI配置")
 public class AiProviderConfigController {
 
     private final AiProviderConfigRepository configRepository;

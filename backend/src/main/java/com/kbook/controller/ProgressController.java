@@ -12,6 +12,8 @@ import com.kbook.service.RecommendCoefficientService;
 import com.kbook.service.RecommendService;
 import com.kbook.dto.ProgressBatchGetRequest;
 import com.kbook.dto.ProgressReportRequest;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +27,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/progress")
 @RequiredArgsConstructor
+@Tag(name = "进度")
 public class ProgressController {
 
     private final ReadingProgressService progressService;
@@ -35,6 +38,7 @@ public class ProgressController {
     /**
      * 上报阅读进度
      */
+    @Operation(summary = "上报进度")
     @PostMapping
     public Result<ReadingProgress> reportProgress(Authentication authentication,
                                                    @RequestBody ProgressReportRequest req) {
@@ -68,6 +72,7 @@ public class ProgressController {
     /**
      * 批量上报进度（断网恢复后）
      */
+    @Operation(summary = "批量上报进度")
     @PostMapping("/batch")
     public Result<Void> batchReportProgress(Authentication authentication,
                                               @RequestBody List<ProgressBatchItem> items) {
@@ -85,6 +90,7 @@ public class ProgressController {
     /**
      * 获取某本书的阅读进度
      */
+    @Operation(summary = "获取进度")
     @GetMapping("/{bookId}")
     public Result<ReadingProgress> getProgress(Authentication authentication,
                                                 @PathVariable Long bookId) {
@@ -95,6 +101,7 @@ public class ProgressController {
     /**
      * 批量获取进度
      */
+    @Operation(summary = "批量获取进度")
     @PostMapping("/batch-get")
     public Result<Map<Long, ReadingProgress>> getProgressBatch(Authentication authentication,
                                                                  @RequestBody ProgressBatchGetRequest req) {
@@ -105,6 +112,7 @@ public class ProgressController {
     /**
      * 分页获取用户阅读历史（含图书信息）
      */
+    @Operation(summary = "获取阅读历史")
     @GetMapping("/history")
     public Result<PageResult<ReadingHistoryVO>> getUserReadingHistory(
             Authentication authentication,
@@ -117,6 +125,7 @@ public class ProgressController {
     /**
      * 获取最近阅读
      */
+    @Operation(summary = "获取最近阅读")
     @GetMapping("/recent")
     public Result<List<ReadingProgress>> getRecentReading(Authentication authentication,
                                                            @RequestParam(defaultValue = "10") int limit) {
@@ -127,6 +136,7 @@ public class ProgressController {
     /**
      * 获取阅读统计
      */
+    @Operation(summary = "获取阅读统计")
     @GetMapping("/stats")
     public Result<ReadingStats> getReadingStats(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();

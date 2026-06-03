@@ -5,6 +5,8 @@ import com.kbook.common.util.SseHelper;
 import com.kbook.dto.request.TtsSynthesizeRequest;
 import com.kbook.entity.TtsConfig;
 import com.kbook.service.TtsConfigService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +23,7 @@ import java.util.concurrent.Executor;
 @Slf4j
 @RestController
 @RequiredArgsConstructor
+@Tag(name = "语音合成")
 public class TtsConfigController {
 
     private final TtsConfigService ttsConfigService;
@@ -29,6 +32,7 @@ public class TtsConfigController {
     @Qualifier("sseExecutor")
     private final Executor sseExecutor;
 
+    @Operation(summary = "获取当前TTS配置")
     @GetMapping("/api/tts/config/active")
     public Result<TtsConfig> getActiveConfig() {
         TtsConfig config = ttsConfigService.getActiveConfig();
@@ -38,6 +42,7 @@ public class TtsConfigController {
         return Result.ok(config);
     }
 
+    @Operation(summary = "语音合成")
     @PostMapping("/api/tts/synthesize")
     public ResponseEntity<byte[]> synthesize(@Valid @RequestBody TtsSynthesizeRequest request) {
         log.info("TTS synthesize request: textLength={}, configId={}", 
@@ -50,6 +55,7 @@ public class TtsConfigController {
                 .body(audio);
     }
 
+    @Operation(summary = "流式语音合成")
     @PostMapping("/api/tts/synthesize/stream")
     public SseEmitter synthesizeStream(@Valid @RequestBody TtsSynthesizeRequest request) {
         log.info("TTS stream request: textLength={}, configId={}",
@@ -76,6 +82,7 @@ public class TtsConfigController {
         return emitter;
     }
 
+    @Operation(summary = "是否支持流式合成")
     @GetMapping("/api/tts/streaming-supported")
     public Result<Boolean> isStreamingSupported(@RequestParam(required = false) Long configId) {
         try {
@@ -85,12 +92,14 @@ public class TtsConfigController {
         }
     }
 
+    @Operation(summary = "获取所有TTS配置")
     @GetMapping("/api/admin/tts-config")
     @PreAuthorize("hasRole('ADMIN')")
     public Result<List<TtsConfig>> listAll() {
         return Result.ok(ttsConfigService.listAll());
     }
 
+    @Operation(summary = "获取当前TTS配置(管理端)")
     @GetMapping("/api/admin/tts-config/active")
     @PreAuthorize("hasRole('ADMIN')")
     public Result<TtsConfig> getActiveConfigAdmin() {
@@ -101,6 +110,7 @@ public class TtsConfigController {
         return Result.ok(config);
     }
 
+    @Operation(summary = "创建TTS配置")
     @PostMapping("/api/admin/tts-config")
     @PreAuthorize("hasRole('ADMIN')")
     public Result<TtsConfig> create(@RequestBody TtsConfig config) {
@@ -113,6 +123,7 @@ public class TtsConfigController {
         return Result.ok(ttsConfigService.create(config));
     }
 
+    @Operation(summary = "更新TTS配置")
     @PutMapping("/api/admin/tts-config/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public Result<TtsConfig> update(@PathVariable Long id, @RequestBody TtsConfig config) {
@@ -123,6 +134,7 @@ public class TtsConfigController {
         }
     }
 
+    @Operation(summary = "删除TTS配置")
     @DeleteMapping("/api/admin/tts-config/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public Result<Void> delete(@PathVariable Long id) {
@@ -130,6 +142,7 @@ public class TtsConfigController {
         return Result.ok();
     }
 
+    @Operation(summary = "切换默认TTS配置")
     @PostMapping("/api/admin/tts-config/{id}/switch-default")
     @PreAuthorize("hasRole('ADMIN')")
     public Result<TtsConfig> switchDefault(@PathVariable Long id) {

@@ -4,6 +4,8 @@ import { useReaderStore } from '@/store/reader'
 import { useTtsStore } from '@/store/tts'
 import { READER_THEMES } from '@/constants'
 import TtsSettingsPanel from './TtsSettingsPanel'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 const FONT_OPTIONS = [
   { label: '系统', value: 'system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif' },
@@ -128,17 +130,24 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
     </div>
   )
 
+  const isMobile = useIsMobile()
+
   return (
-    <div className="fixed inset-0 z-50" onClick={toggleSettings}>
-      <div className="absolute inset-0 bg-black/30" />
-      <div
-        className="absolute inset-x-0 bottom-0 flex max-h-[75vh] flex-col rounded-t-2xl bg-card shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+    <Sheet open onOpenChange={(open) => { if (!open) toggleSettings() }}>
+      <SheetContent
+        side={isMobile ? 'bottom' : 'right'}
+        className={isMobile
+          ? 'h-[75vh] rounded-t-2xl border-t p-0'
+          : 'w-[360px] sm:max-w-[360px] p-0'
+        }
       >
-        {/* 顶部拖动条 */}
-        <div className="flex shrink-0 justify-center py-2">
-          <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
-        </div>
+        <SheetTitle className="sr-only">阅读设置</SheetTitle>
+        {/* 顶部拖动条 — 仅移动端 */}
+        {isMobile && (
+          <div className="flex shrink-0 justify-center py-2">
+            <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+          </div>
+        )}
 
         {/* Tab 栏 — 固定不随内容滚动 */}
         <div className="flex shrink-0 border-b px-4 bg-card">
@@ -357,7 +366,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
           )}
         </div>
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   )
 }

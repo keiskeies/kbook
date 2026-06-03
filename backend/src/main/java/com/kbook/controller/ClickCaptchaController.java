@@ -3,6 +3,7 @@ package com.kbook.controller;
 import com.kbook.common.api.Result;
 import com.kbook.dto.ClickVerifyRequest;
 import com.kbook.service.ClickCaptchaService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/captcha")
 @RequiredArgsConstructor
+@Tag(name = "验证码")
 public class ClickCaptchaController {
 
     private final ClickCaptchaService clickCaptchaService;

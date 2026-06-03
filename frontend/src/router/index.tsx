@@ -31,6 +31,8 @@ const ChatListPage = lazy(() => import('@/pages/chat'))
 const ChatRoomPage = lazy(() => import('@/pages/chat/room'))
 const NotFoundPage = lazy(() => import('@/pages/not-found'))
 const OnboardingPage = lazy(() => import('@/pages/auth/onboarding'))
+const TermsPage = lazy(() => import('@/pages/legal/terms'))
+const PrivacyPage = lazy(() => import('@/pages/legal/privacy'))
 
 export const router = createBrowserRouter([
   {
@@ -83,6 +85,14 @@ export const router = createBrowserRouter([
       {
         path: ROUTES.RESET_PASSWORD,
         element: <LazyLoad><ResetPasswordPage /></LazyLoad>,
+      },
+      {
+        path: ROUTES.TERMS,
+        element: <LazyLoad><TermsPage /></LazyLoad>,
+      },
+      {
+        path: ROUTES.PRIVACY,
+        element: <LazyLoad><PrivacyPage /></LazyLoad>,
       },
     ],
   },

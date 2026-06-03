@@ -9,6 +9,8 @@ import com.kbook.service.BookSearchService;
 import com.kbook.service.BookService;
 import com.kbook.service.EmbeddingService;
 import com.kbook.config.properties.BookStorageProperties;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
@@ -35,6 +37,7 @@ import java.util.concurrent.CompletableFuture;
 @RequestMapping("/api/books/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "图书管理")
 public class BookAdminController {
 
     private final BookScanService bookScanService;
@@ -48,6 +51,7 @@ public class BookAdminController {
      * 刷新图书 — SSE 流式扫描，实时推送进度
      * @param skipBeforeId 跳过 ID 小于此值的已有图书（断点续扫，默认不跳过）
      */
+    @Operation(summary = "扫描图书")
     @GetMapping(value = "/scan", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter scanBooks(@RequestParam(value = "skipBeforeId", required = false) Long skipBeforeId) {
         return bookScanService.scanAllWithProgress(skipBeforeId);
@@ -56,6 +60,7 @@ public class BookAdminController {
     /**
      * 查询扫描状态及进度
      */
+    @Operation(summary = "获取扫描状态")
     @GetMapping("/scan/status")
     public Result<Map<String, Object>> scanStatus() {
         return Result.ok(bookScanService.getScanProgress());
@@ -64,6 +69,7 @@ public class BookAdminController {
     /**
      * 重置扫描状态（异常恢复用）
      */
+    @Operation(summary = "重置扫描状态")
     @PostMapping("/scan/reset")
     public Result<Void> resetScanStatus() {
         bookScanService.resetScanState();
@@ -74,6 +80,7 @@ public class BookAdminController {
      * 上传图书文件 — 管理员手动上传
      * 完整流程与扫描一致：解析 → 入库/更新 → 封面 → AI标签/评分/相关度 → ES索引 → 向量库
      */
+    @Operation(summary = "上传图书")
     @PostMapping("/upload")
     public Result<Book> uploadBook(
             @RequestParam("file") MultipartFile file,
@@ -119,6 +126,7 @@ public class BookAdminController {
     /**
      * 获取封面图片
      */
+    @Operation(summary = "获取封面图片")
     @GetMapping(value = "/cover/{filename:.+}", produces = MediaType.IMAGE_JPEG_VALUE)
     public ResponseEntity<Resource> getCover(@PathVariable String filename) {
         // 注意：此接口映射在 /api/books/admin/cover，但前端使用 /api/books/cover
@@ -136,6 +144,7 @@ public class BookAdminController {
     /**
      * 删除指定作者的所有书籍（全链路：JPA + ES + Qdrant + Redis + 封面）
      */
+    @Operation(summary = "按作者删除图书")
     @DeleteMapping("/delete-by-author")
     public Result<Map<String, Object>> deleteBooksByAuthor(@RequestParam String author) {
         int count = bookService.deleteBooksByAuthor(author);
@@ -145,6 +154,7 @@ public class BookAdminController {
     /**
      * 合并同名书籍（以 EPUB 为主，其他格式的关联数据迁移后删除）
      */
+    @Operation(summary = "合并同名图书")
     @PostMapping("/merge-by-title")
     public Result<Map<String, Object>> mergeBooksByTitle(@RequestParam String title) {
         String result = bookService.mergeBooksByTitle(title);
@@ -155,6 +165,7 @@ public class BookAdminController {
      * 更新图书封面（管理员）
      * 上传新封面图片，自动压缩至最大宽度 300px
      */
+    @Operation(summary = "更新图书封面")
     @PostMapping("/{id}/cover")
     public Result<Book> updateBookCover(
             @PathVariable Long id,
@@ -180,6 +191,7 @@ public class BookAdminController {
     /**
      * 更新图书书名（管理员）
      */
+    @Operation(summary = "更新图书书名")
     @PutMapping("/{id}/title")
     public Result<Book> updateBookTitle(@PathVariable Long id, @RequestBody Map<String, String> body) {
         String title = body.get("title");
@@ -195,6 +207,7 @@ public class BookAdminController {
     /**
      * 更新图书作者（管理员）
      */
+    @Operation(summary = "更新图书作者")
     @PutMapping("/{id}/author")
     public Result<Book> updateBookAuthor(@PathVariable Long id, @RequestBody Map<String, String> body) {
         String author = body.get("author");
@@ -207,6 +220,7 @@ public class BookAdminController {
     /**
      * 更新图书简介（管理员）
      */
+    @Operation(summary = "更新图书简介")
     @PutMapping("/{id}/description")
     public Result<Book> updateBookDescription(@PathVariable Long id, @RequestBody Map<String, String> body) {
         String description = body.get("description");
@@ -220,6 +234,7 @@ public class BookAdminController {
     /**
      * 获取内容向量统计信息
      */
+    @Operation(summary = "获取向量统计")
     @GetMapping("/embeddings/stats")
     public Result<Map<String, Object>> embeddingStats() {
         long totalBooks = bookRepository.count();
@@ -238,6 +253,7 @@ public class BookAdminController {
     /**
      * 清空内容向量库（kbook_content 集合）
      */
+    @Operation(summary = "清空内容向量库")
     @PostMapping("/vector/clear-content")
     public Result<Map<String, Object>> clearContentVectors() {
         long deletedCount = embeddingService.clearAllContentEmbeddings();
@@ -252,6 +268,7 @@ public class BookAdminController {
     /**
      * 全量重建 ES 索引 — SSE 流式推送进度
      */
+    @Operation(summary = "重建ES索引")
     @GetMapping(value = "/es/reindex", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter rebuildEsIndex() {
         SseEmitter emitter = new SseEmitter(600_000L); // 10分钟超时

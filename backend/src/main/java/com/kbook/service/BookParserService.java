@@ -16,6 +16,8 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.kbook.config.annotation.RedisLock;
+import java.util.concurrent.TimeUnit;
 import nl.siegmann.epublib.domain.MediaType;
 import nl.siegmann.epublib.domain.TOCReference;
 import nl.siegmann.epublib.epub.EpubReader;
@@ -1321,6 +1323,25 @@ public class BookParserService {
         } catch (Exception e) {
             log.warn("触发RAG内容向量生成失败: bookId={} - {}", bookId, e.getMessage());
         }
+    }
+
+    /**
+     * 确保图书内容向量已生成（分布式锁）
+     * <p>
+     * 多个线程同时请求同一本无向量的书时，只有一个线程执行向量化，
+     * 其他线程获取锁失败，通过 {@code null} 返回值告知调用方等待重试。
+     *
+     * @param bookId 图书ID
+     * @return {@link Boolean#TRUE} 成功，{@link Boolean#FALSE} 失败，{@code null} 锁被占用
+     */
+    @RedisLock(key = "'book:content:embed:' + #bookId", leaseTime = 60, timeUnit = TimeUnit.MINUTES)
+    public Boolean ensureContentEmbedded(Long bookId) {
+        Book book = bookService.getBookById(bookId);
+        if (Boolean.TRUE.equals(book.getContentEmbedded())) {
+            return true;
+        }
+        int count = generateContentEmbeddingWithCount(bookId);
+        return count > 0;
     }
 
     /**
