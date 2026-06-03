@@ -86,32 +86,6 @@ public class AiController extends BaseController {
         return chatService.streamChat(userId, sessionId, message);
     }
 
-    /**
-     * 非流式 AI 对话
-     * @param body 包含 sessionId 和 message 的请求体
-     * @return 包含 sessionId 和 response 的结果
-     */
-    @Operation(summary = "AI对话")
-    @PostMapping("/chat")
-    public Result<Map<String, String>> chat(@RequestBody Map<String, String> body) {
-        Long userId = extractUserId();
-        String sessionId = body.get("sessionId");
-        String message = body.get("message");
-
-        // 若未传 sessionId，自动创建新会话
-        if (sessionId == null || sessionId.isBlank()) {
-            sessionId = chatService.createSession(userId);
-        }
-        if (message == null || message.isBlank()) {
-            return Result.fail("消息不能为空");
-        }
-
-        String response = chatService.chat(userId, sessionId, message);
-        return Result.ok(Map.of(
-                "sessionId", sessionId,
-                "response", response
-        ));
-    }
 
     /**
      * 获取指定会话的对话历史

@@ -71,90 +71,6 @@ public class AiChatService {
     }
 
     /**
-     * 非流式对话：发送消息并等待完整响应
-     * @param userId 用户ID
-     * @param sessionId 会话ID
-     * @param userMessage 用户消息内容
-     * @return AI 回复文本
-     */
-    @Transactional
-    public String chat(Long userId, String sessionId, String userMessage) {
-        log.info("========== AI 对话请求 ==========");
-        log.info("用户ID: {}", userId);
-        log.info("会话ID: {}", sessionId);
-        log.info("问题内容: {}", userMessage);
-
-        ensureSession(userId, sessionId, userMessage);
-        saveMessage(userId, sessionId, "user", userMessage);
-
-        AiAssistant assistant = providerConfigService.getChatAssistant();
-        if (assistant == null) {
-            log.warn("AI 助理未配置: userId={}", userId);
-            return "AI 助理暂未配置，请联系管理员在后台配置 LLM 接口后再试。";
-        }
-        try {
-            long startTime = System.currentTimeMillis();
-            Result<String> result = assistant.chatWithResponse(sessionId, userId, userMessage);
-            long elapsed = System.currentTimeMillis() - startTime;
-            String text = result.content();
-
-            String thinkingContent = null;
-            int thinkingLength = 0;
-            int apiInputTokens = 0;
-            int apiOutputTokens = 0;
-            if (result.finalResponse() != null && result.finalResponse().aiMessage() != null) {
-                thinkingContent = result.finalResponse().aiMessage().thinking();
-                thinkingLength = thinkingContent != null ? thinkingContent.length() : 0;
-            }
-            if (result.tokenUsage() != null) {
-                apiInputTokens = result.tokenUsage().inputTokenCount() != null ? result.tokenUsage().inputTokenCount() : 0;
-                apiOutputTokens = result.tokenUsage().outputTokenCount() != null ? result.tokenUsage().outputTokenCount() : 0;
-            }
-
-            log.info("========== AI 对话完整响应 ==========");
-            log.info("耗时: {}ms", elapsed);
-            log.info("Thinking长度: {} 字符 | Thinking前200字: {}",
-                    thinkingLength,
-                    thinkingContent != null && thinkingContent.length() > 200
-                            ? thinkingContent.substring(0, 200) + "..."
-                            : thinkingContent);
-            log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-            log.info("Answer: {}", text != null && text.length() > 500 ? text.substring(0, 500) + "..." : text);
-            log.info("FinishReason: {}", result.finishReason());
-            log.info("======================================");
-
-            saveMessage(userId, sessionId, "assistant", text);
-            updateSessionTimestamp(sessionId);
-
-            CommonUtils.logAiCall("对话", elapsed, apiInputTokens, apiOutputTokens, text);
-            return text;
-        } catch (Exception e) {
-            if (isConnectionReset(e)) {
-                log.warn("检测到 Connection reset，自动重试一次: userId={}, sessionId={}", userId, sessionId);
-                try {
-                    long startTime = System.currentTimeMillis();
-                    Result<String> result = assistant.chatWithResponse(sessionId, userId, userMessage);
-                    long elapsed = System.currentTimeMillis() - startTime;
-                    String text = result.content();
-                    log.info("重试成功: userId={}, sessionId={}, 耗时={}ms", userId, sessionId, elapsed);
-                    saveMessage(userId, sessionId, "assistant", text);
-                    updateSessionTimestamp(sessionId);
-                    CommonUtils.logAiCall("对话(重试)", elapsed, 0, 0, text);
-                    return text;
-                } catch (Exception retryEx) {
-                    log.error("重试仍然失败: userId={}, sessionId={}, error={}", userId, sessionId, retryEx.getMessage());
-                    providerConfigService.clearAssistantCache();
-                    throw retryEx;
-                }
-            }
-            log.error("AI 对话异常: userId={}, sessionId={}, error={}", userId, sessionId, e.getMessage());
-            log.info("====================================\n");
-            providerConfigService.clearAssistantCache();
-            throw e;
-        }
-    }
-
-    /**
      * SSE 流式对话：发送消息并通过 SSE 逐 token 推送响应
      * @param userId 用户ID
      * @param sessionId 会话ID
@@ -396,6 +312,7 @@ public class AiChatService {
                 .type(TYPE)
                 .role(role)
                 .content(content)
+                .compressedContent(content) // 初始时压缩内容等于原始内容
                 .thinkingContent(thinkingContent)
                 .build();
         conversationRepository.save(record);
