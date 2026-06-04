@@ -42,7 +42,7 @@ public class ChatModelManager {
     // 核心 AI 调用模板
     // ================================================================
 
-    private String callAi(String logName, String logDetail,
+    public String callAi(String logName, String logDetail,
                           Supplier<ChatModel> modelSupplier, List<ChatMessage> messages) {
         ChatModel model = modelSupplier.get();
         if (model == null) {
@@ -64,7 +64,7 @@ public class ChatModelManager {
         return text;
     }
 
-    private String callAi(String logName, String logDetail,
+    public String callAi(String logName, String logDetail,
                           Supplier<ChatModel> modelSupplier, String userPrompt) {
         return callAi(logName, logDetail, modelSupplier, List.of(UserMessage.from(userPrompt)));
     }
@@ -283,6 +283,44 @@ public class ChatModelManager {
         }
 
         return rewrites;
+    }
+
+    /** 向量搜索查询扩展：从多个维度推断用户真正的阅读需求，生成多组检索关键词 */
+    public List<String> expandVectorSearchQuery(String query) {
+        try {
+            String prompt = String.format("""
+                    你是一个图书搜索查询扩展器。用户输入了口语化的搜索词，你的任务是推断用户真正的阅读需求，从多个维度生成检索关键词。
+
+                    关键原则：不要改写或解释用户的原话，而是思考——一个有这种需求的人，真正需要读什么书？从哪些不同方向能找到能满足他的书？
+
+                    规则：
+                    1. 生成3-5个不同维度的关键词短语，每行一个
+                    2. 每个短语2-8个字，简洁精准
+                    3. 各关键词覆盖不同维度，有本质差异，避免同义重复
+                    4. 关键词应是书籍标签、分类或简介中可能出现的短语
+                    5. 只输出关键词，不要序号、引号或任何额外文字
+
+                    用户查询：%s
+                    """, query);
+
+            String result = callAi("向量查询扩展",
+                    String.format("q=%s", query.substring(0, Math.min(20, query.length()))), prompt);
+            if (result != null) {
+                List<String> expanded = Arrays.stream(result.split("\n"))
+                        .map(String::trim)
+                        .filter(line -> !line.isBlank() && line.length() <= 30)
+                        .distinct()
+                        .limit(5)
+                        .collect(Collectors.toList());
+                if (!expanded.isEmpty()) {
+                    log.debug("向量查询扩展: '{}' → {}", query, expanded);
+                    return expanded;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("向量查询扩展失败，使用原始查询: {}", e.getMessage());
+        }
+        return List.of(query);
     }
 
     /** 生成 3 分钟速读摘要 */

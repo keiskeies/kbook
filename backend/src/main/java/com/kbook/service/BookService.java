@@ -247,6 +247,9 @@ public class BookService {
         if (updates.getCoverUrl() != null) book.setCoverUrl(updates.getCoverUrl());
         if (updates.getDescription() != null) book.setDescription(updates.getDescription());
         if (updates.getFormatTags() != null) book.setFormatTags(updates.getFormatTags());
+        if (updates.getConceptTags() != null) book.setConceptTags(updates.getConceptTags());
+        if (updates.getReaderNeedTags() != null) book.setReaderNeedTags(updates.getReaderNeedTags());
+        if (updates.getTargetReaderTags() != null) book.setTargetReaderTags(updates.getTargetReaderTags());
         if (updates.getTotalUnits() != null) book.setTotalUnits(updates.getTotalUnits());
         if (updates.getRelevanceScores() != null) book.setRelevanceScores(updates.getRelevanceScores());
         // 注意：rating 和 ratingCount 不通过 updateBook 更新，必须使用 setAiRating 或 rateBook 方法
@@ -275,6 +278,9 @@ public class BookService {
         if (updates.getCoverUrl() != null) book.setCoverUrl(updates.getCoverUrl());
         if (updates.getDescription() != null) book.setDescription(updates.getDescription());
         if (updates.getFormatTags() != null) book.setFormatTags(updates.getFormatTags());
+        if (updates.getConceptTags() != null) book.setConceptTags(updates.getConceptTags());
+        if (updates.getReaderNeedTags() != null) book.setReaderNeedTags(updates.getReaderNeedTags());
+        if (updates.getTargetReaderTags() != null) book.setTargetReaderTags(updates.getTargetReaderTags());
         if (updates.getTotalUnits() != null) book.setTotalUnits(updates.getTotalUnits());
         if (updates.getRelevanceScores() != null) book.setRelevanceScores(updates.getRelevanceScores());
         if (updates.getRating() != null) book.setRating(updates.getRating());
@@ -362,7 +368,7 @@ public class BookService {
      * 结合向量语义和关键词，适合模糊意图理解
      */
     @LogAction("混合搜索图书")
-    public PageResult<BookDocument> searchBooksEs(String keyword, String tag, int page, int size) {
+    public PageResult<BookDocument> hybridSearch(String keyword, String tag, int page, int size) {
         log.debug("混合搜索: keyword={}, tag={}, page={}, size={}", keyword, tag, page, size);
         return bookSearchService.hybridSearch(keyword, tag, page, size);
     }
@@ -371,7 +377,7 @@ public class BookService {
      * 搜索图书（JPA 原始方法，保留兼容 — 供内部/AI工具使用）
      * <p>
      * 注意：此方法仅走 MySQL LIKE，不经过 Qdrant/ES。
-     * 需要混合搜索请使用 {@link #searchBooksEs}。
+     * 需要混合搜索请使用 {@link #hybridSearch}。
      */
     @LogAction("搜索图书")
     public PageResult<BookProjection> searchBooks(String keyword, int page, int size) {
@@ -695,6 +701,15 @@ public class BookService {
             }
             if (mainBook.getFormatTags() == null && other.getFormatTags() != null) {
                 mainBook.setFormatTags(other.getFormatTags());
+            }
+            if (mainBook.getConceptTags() == null && other.getConceptTags() != null) {
+                mainBook.setConceptTags(other.getConceptTags());
+            }
+            if (mainBook.getReaderNeedTags() == null && other.getReaderNeedTags() != null) {
+                mainBook.setReaderNeedTags(other.getReaderNeedTags());
+            }
+            if (mainBook.getTargetReaderTags() == null && other.getTargetReaderTags() != null) {
+                mainBook.setTargetReaderTags(other.getTargetReaderTags());
             }
             if (mainBook.getRelevanceScores() == null && other.getRelevanceScores() != null) {
                 mainBook.setRelevanceScores(other.getRelevanceScores());

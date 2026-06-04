@@ -60,6 +60,18 @@ public class Book extends BaseEntity {
     @Column(name = "format_tags", length = 500)
     private String formatTags;
 
+    /** 核心概念标签（JSON 数组） */
+    @Column(name = "concept_tags", length = 500)
+    private String conceptTags;
+
+    /** 读者需求标签（JSON 数组） */
+    @Column(name = "reader_need_tags", length = 500)
+    private String readerNeedTags;
+
+    /** 目标读者标签（JSON 数组） */
+    @Column(name = "target_reader_tags", length = 500)
+    private String targetReaderTags;
+
     /** 目录（从 EPUB/PDF 提取的章节标题，每行一个） */
     @Column(name = "toc", columnDefinition = "TEXT")
     private String toc;

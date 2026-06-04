@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Lists;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
@@ -52,6 +53,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -1184,6 +1186,9 @@ public class BookParserService {
             log.info("========== AI合并调用结果 start ==========");
             log.info("AI合并调用结果: bookId={}", bookId);
             log.info("AI合并调用结果: tags: {}", result != null ? result.tags : "null");
+            log.info("AI合并调用结果: concept: {}", result != null ? result.concept : "null");
+            log.info("AI合并调用结果: readerNeed: {}", result != null ? result.readerNeed : "null");
+            log.info("AI合并调用结果: targetReader: {}", result != null ? result.targetReader : "null");
             log.info("AI合并调用结果: rating: {}", result != null ? result.rating : "null");
             log.info("AI合并调用结果: relevanceScoresJson: {}", result != null ? result.relevanceScoresJson : "null");
             log.info("AI合并调用结果: description: {}", result != null ? result.description : "null");
@@ -1201,6 +1206,30 @@ public class BookParserService {
                         .map(t -> "\"" + t + "\"") // 为每个标签添加引号
                         .collect(Collectors.joining(",", "[", "]")); // 拼接为JSON数组
                 book.setFormatTags(tagsJson); // 设置标签
+            }
+
+            // 填充核心概念标签
+            if (result.concept != null && !result.concept.isEmpty()) {
+                String conceptJson = result.concept.stream()
+                        .map(t -> "\"" + t + "\"")
+                        .collect(Collectors.joining(",", "[", "]"));
+                book.setConceptTags(conceptJson);
+            }
+
+            // 填充读者需求标签
+            if (result.readerNeed != null && !result.readerNeed.isEmpty()) {
+                String readerNeedJson = result.readerNeed.stream()
+                        .map(t -> "\"" + t + "\"")
+                        .collect(Collectors.joining(",", "[", "]"));
+                book.setReaderNeedTags(readerNeedJson);
+            }
+
+            // 填充目标读者标签
+            if (result.targetReader != null && !result.targetReader.isEmpty()) {
+                String targetReaderJson = result.targetReader.stream()
+                        .map(t -> "\"" + t + "\"")
+                        .collect(Collectors.joining(",", "[", "]"));
+                book.setTargetReaderTags(targetReaderJson);
             }
 
             // 填充评分
@@ -1610,7 +1639,7 @@ public class BookParserService {
     /**
      * 合并AI调用结果
      */
-    private record CombinedAiResult(List<String> tags, Double rating, String relevanceScoresJson, String description) {
+    private record CombinedAiResult(List<String> tags, List<String> concept, List<String> readerNeed, List<String> targetReader, Double rating, String relevanceScoresJson, String description) {
     }
 
     /**
@@ -1619,7 +1648,12 @@ public class BookParserService {
     private CombinedAiResult callAiCombined(String content) {
         String rawResult = chatModelManager.callAi(AI_OP_COMBINED,
                 String.format("输入: %s", content.replaceAll("\\n", " ").substring(0, Math.min(100, content.length()))),
-                AiPromptConstants.COMBINED_PROMPT, content);
+                chatModelFactory::buildChatModelWithoutThinking,
+                Lists.newArrayList(
+                        SystemMessage.from(AiPromptConstants.COMBINED_PROMPT_SYSTEM_PROMPT),
+                        UserMessage.from(content)
+                )
+        );
         if (rawResult == null) return null;
 
         try {
@@ -1645,6 +1679,69 @@ public class BookParserService {
                             .map(String::trim)
                             .filter(t -> !t.isBlank())
                             .toList();
+                }
+            }
+
+            // 解析核心概念标签
+            List<String> concept = null;
+            if (root.has("concept") && !root.get("concept").isNull()) {
+                JsonNode conceptNode = root.get("concept");
+                if (conceptNode.isArray()) {
+                    concept = StreamSupport.stream(conceptNode.spliterator(), false)
+                            .map(JsonNode::asText)
+                            .map(String::trim)
+                            .filter(t -> !t.isBlank())
+                            .toList();
+                } else {
+                    String conceptStr = conceptNode.asText();
+                    if (conceptStr != null && !conceptStr.isBlank()) {
+                        concept = Stream.of(conceptStr.split("[,，、]"))
+                                .map(String::trim)
+                                .filter(t -> !t.isBlank())
+                                .toList();
+                    }
+                }
+            }
+
+            // 解析读者需求标签
+            List<String> readerNeed = null;
+            if (root.has("reader_need") && !root.get("reader_need").isNull()) {
+                JsonNode readerNeedNode = root.get("reader_need");
+                if (readerNeedNode.isArray()) {
+                    readerNeed = StreamSupport.stream(readerNeedNode.spliterator(), false)
+                            .map(JsonNode::asText)
+                            .map(String::trim)
+                            .filter(t -> !t.isBlank())
+                            .toList();
+                } else {
+                    String readerNeedStr = readerNeedNode.asText();
+                    if (readerNeedStr != null && !readerNeedStr.isBlank()) {
+                        readerNeed = Stream.of(readerNeedStr.split("[,，、]"))
+                                .map(String::trim)
+                                .filter(t -> !t.isBlank())
+                                .toList();
+                    }
+                }
+            }
+
+            // 解析目标读者标签
+            List<String> targetReader = null;
+            if (root.has("target_reader") && !root.get("target_reader").isNull()) {
+                JsonNode targetReaderNode = root.get("target_reader");
+                if (targetReaderNode.isArray()) {
+                    targetReader = StreamSupport.stream(targetReaderNode.spliterator(), false)
+                            .map(JsonNode::asText)
+                            .map(String::trim)
+                            .filter(t -> !t.isBlank())
+                            .toList();
+                } else {
+                    String targetReaderStr = targetReaderNode.asText();
+                    if (targetReaderStr != null && !targetReaderStr.isBlank()) {
+                        targetReader = Stream.of(targetReaderStr.split("[,，、]"))
+                                .map(String::trim)
+                                .filter(t -> !t.isBlank())
+                                .toList();
+                    }
                 }
             }
 
@@ -1678,11 +1775,11 @@ public class BookParserService {
             }
 
             // 至少有一项结果才算成功
-            if (tags == null && rating == null && relevanceScoresJson == null && description == null) {
+            if (tags == null && concept == null && readerNeed == null && targetReader == null && rating == null && relevanceScoresJson == null && description == null) {
                 return null;
             }
 
-            return new CombinedAiResult(tags, rating, relevanceScoresJson, description);
+            return new CombinedAiResult(tags, concept, readerNeed, targetReader, rating, relevanceScoresJson, description);
 
         } catch (Exception e) {
             log.warn("AI 合并调用结果解析失败: {}", e.getMessage());

@@ -40,6 +40,7 @@ public class BookSearchService {
     private final BookSearchRepository searchRepository;
     private final BookRepository bookRepository;
     private final EmbeddingService embeddingService;
+    private final ChatModelManager chatModelManager;
 
     /** ES 是否可用标志 */
     private volatile boolean esAvailable = true;
@@ -47,7 +48,7 @@ public class BookSearchService {
     /** 各路召回上限 */
     private static final int RECALL_SIZE = 100;
     /** 向量召回最低相似度 */
-    private static final double MIN_VECTOR_SCORE = 0.3;
+    private static final double MIN_VECTOR_SCORE = 0.7;
 
     private static final List<String> SEMANTIC_KEYWORDS = List.of(
             "推荐", "适合", "类似", "风格", "关于", "有没有", "好看", "什么",
@@ -62,10 +63,12 @@ public class BookSearchService {
 
     public BookSearchService(BookSearchRepository searchRepository,
                              BookRepository bookRepository,
-                             @Lazy EmbeddingService embeddingService) {
+                             @Lazy EmbeddingService embeddingService,
+                             ChatModelManager chatModelManager) {
         this.searchRepository = searchRepository;
         this.bookRepository = bookRepository;
         this.embeddingService = embeddingService;
+        this.chatModelManager = chatModelManager;
     }
 
     // ==================== 混合搜索（对外主入口） ====================
@@ -237,13 +240,21 @@ public class BookSearchService {
             return scores;
         }
         try {
-            List<EmbeddingMatch<TextSegment>> matches =
-                    embeddingService.searchSimilarBooks(queryText, RECALL_SIZE, MIN_VECTOR_SCORE, List.of());
-            for (EmbeddingMatch<TextSegment> match : matches) {
-                if (match.embedded() != null && match.embedded().metadata() != null) {
-                    Long bookId = match.embedded().metadata().getLong("bookId");
-                    if (bookId != null) {
-                        scores.putIfAbsent(bookId, match.score());
+            List<String> queries = new ArrayList<>();
+            queries.add(queryText);
+            queries.addAll(chatModelManager.expandVectorSearchQuery(queryText));
+
+            int size = RECALL_SIZE / queries.size();
+
+            for (String query : queries) {
+                List<EmbeddingMatch<TextSegment>> matches =
+                        embeddingService.searchSimilarBooks(query, size, MIN_VECTOR_SCORE, List.of());
+                for (EmbeddingMatch<TextSegment> match : matches) {
+                    if (match.embedded() != null && match.embedded().metadata() != null) {
+                        Long bookId = match.embedded().metadata().getLong("bookId");
+                        if (bookId != null) {
+                            scores.merge(bookId, match.score(), Math::max);
+                        }
                     }
                 }
             }

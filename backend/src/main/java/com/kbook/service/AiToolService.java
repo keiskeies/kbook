@@ -85,7 +85,7 @@ public class AiToolService {
         log.debug("[AI Tool] searchBooks: keyword={}", keyword);
         try {
             PageResult<BookDocument> result =
-                    bookService.searchBooksEs(keyword, null, 1, 10);
+                    bookService.hybridSearch(keyword, null, 1, 10);
             if (result.getList().isEmpty()) {
                 return "没有找到相关图书。";
             }

@@ -1,14 +1,11 @@
 package com.kbook.service;
 
-import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
@@ -26,8 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutionException;
 
 import static io.qdrant.client.ConditionFactory.match;
 import static io.qdrant.client.PointIdFactory.id;
@@ -491,15 +487,13 @@ public class EmbeddingService {
 
     /**
      * 核心方法：为单本书生成并写入元数据向量
-     *
-     * @return 是否成功写入
      */
-    public boolean upsertBookEmbedding(Book book) {
+    public void upsertBookEmbedding(Book book) {
         Long bookId = book.getId();
         String metadataText = buildBookMetadataText(book);
         if (metadataText.isBlank()) {
             log.debug("书籍元数据为空，跳过向量生成: bookId={}", bookId);
-            return false;
+            return;
         }
 
         Embedding embedding = embeddingModel.embed(metadataText).content();
@@ -508,7 +502,7 @@ public class EmbeddingService {
         if (norm < 0.001) {
             log.error("生成的 embedding 向量为零! bookId={}, model={}, norm={}",
                     bookId, currentEmbeddingModelName, String.format("%.6f", norm));
-            return false;
+            return;
         }
 
         TextSegment segment = TextSegment.from(metadataText,
@@ -524,7 +518,6 @@ public class EmbeddingService {
         boolean exists = hasBookEmbedding(bookId);
         log.info("书籍元数据向量生成完成: bookId={}, textLen={}, storeId={}, qdrantVerified={}, vectorNorm={}",
                 bookId, metadataText.length(), id, exists, String.format("%.4f", norm));
-        return exists;
     }
 
     /**
@@ -545,8 +538,7 @@ public class EmbeddingService {
         }
 
         try {
-            String expandedQuery = expandBookSearchQuery(queryText);
-            Embedding queryEmbedding = embeddingModel.embed(expandedQuery).content();
+            Embedding queryEmbedding = embeddingModel.embed(queryText).content();
 
             EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
                     .queryEmbedding(queryEmbedding)
@@ -556,6 +548,10 @@ public class EmbeddingService {
 
             List<EmbeddingMatch<TextSegment>> matches = bookEmbeddingStore.search(request)
                     .matches();
+
+            for (EmbeddingMatch<TextSegment> match : matches) {
+                log.debug("向量搜索结果: score={}, bookId={}, textLen={}", match.score(), match.embedded().metadata().getLong("bookId"), match.embedded().text());
+            }
 
             // 排除已读书籍
             if (excludeBookIds != null && !excludeBookIds.isEmpty()) {
@@ -1128,10 +1124,6 @@ public class EmbeddingService {
         return context.toString().trim();
     }
 
-    private String expandBookSearchQuery(String query) {
-        return query; // LLM 改写在搜索相关服务中处理
-    }
-
     /**
      * 获取指定书籍已存储向量的 embedding 模型标识
      * 从已有的低分搜索结果中提取 payload 的 embeddingModel 字段
@@ -1562,12 +1554,27 @@ public class EmbeddingService {
         sb.append("作者:").append(book.getAuthor() != null ? book.getAuthor() : "").append(";");
         sb.append("评分:").append(book.getRating() != null ? book.getRating() : 0.0).append(";");
 
-//        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
-//            String tags = TAGS_CLEAN_PATTERN.matcher(book.getFormatTags()).replaceAll("").replace(',', '、');
-//            sb.append("标签:").append(tags).append(";");
-//        } else {
-//            sb.append("标签:;");
-//        }
+        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+            String tags = TAGS_CLEAN_PATTERN.matcher(book.getFormatTags()).replaceAll("").replace(',', '、');
+            sb.append("标签:").append(tags).append(";");
+        } else {
+            sb.append("标签:;");
+        }
+
+        if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+            String concept = TAGS_CLEAN_PATTERN.matcher(book.getConceptTags()).replaceAll("").replace(',', '、');
+            sb.append("核心概念:").append(concept).append(";");
+        }
+
+        if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+            String readerNeed = TAGS_CLEAN_PATTERN.matcher(book.getReaderNeedTags()).replaceAll("").replace(',', '、');
+            sb.append("读者需求:").append(readerNeed).append(";");
+        }
+
+        if (book.getTargetReaderTags() != null && !book.getTargetReaderTags().isBlank()) {
+            String targetReader = TAGS_CLEAN_PATTERN.matcher(book.getTargetReaderTags()).replaceAll("").replace(',', '、');
+            sb.append("目标读者:").append(targetReader).append(";");
+        }
 
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
             String desc = book.getDescription().length() > 1500
@@ -1578,17 +1585,17 @@ public class EmbeddingService {
             sb.append("简介:;");
         }
 
-//        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-//            String summary = book.getChapterSummary().length() > 500
-//                    ? book.getChapterSummary().substring(0, 500)
-//                    : book.getChapterSummary();
-//            sb.append("章节摘要:").append(summary).append(";");
-//        } else if (book.getToc() != null && !book.getToc().isBlank()) {
-//            String toc = book.getToc().length() > 800
-//                    ? book.getToc().substring(0, 800)
-//                    : book.getToc();
-//            sb.append("目录:").append(toc).append(";");
-//        }
+        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            String summary = book.getChapterSummary().length() > 500
+                    ? book.getChapterSummary().substring(0, 500)
+                    : book.getChapterSummary();
+            sb.append("章节摘要:").append(summary).append(";");
+        } else if (book.getToc() != null && !book.getToc().isBlank()) {
+            String toc = book.getToc().length() > 800
+                    ? book.getToc().substring(0, 800)
+                    : book.getToc();
+            sb.append("目录:").append(toc).append(";");
+        }
 
         return sb.toString();
     }
