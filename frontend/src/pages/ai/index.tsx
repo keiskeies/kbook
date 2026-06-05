@@ -296,7 +296,7 @@ export default function AIPage() {
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col md:flex-row md:static md:inset-auto md:h-full">
+    <div className="absolute inset-0 z-40 flex flex-col md:flex-row md:static md:inset-auto md:h-full">
       {/* PC端：侧边会话列表常驻 */}
       <div className="hidden md:flex md:w-64 lg:w-72 md:flex-col md:border-r border-border/50">
         <div className="flex items-center justify-between border-b px-4 py-3">

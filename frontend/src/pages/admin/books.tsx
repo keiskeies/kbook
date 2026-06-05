@@ -423,7 +423,7 @@ export default function AdminBooksPage() {
   const currentErrors: ScanError[] = scanResult?.errors || progress?.errors || []
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background">
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-background">
       {/* 顶部 */}
       <header className="shrink-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
@@ -434,332 +434,340 @@ export default function AdminBooksPage() {
         </div>
       </header>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-4">
-        {/* 扫描图书 */}
-        <section className="rounded-xl bg-card p-4 shadow-xs">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <Scan className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold">扫描图书目录</h3>
-              <p className="text-xs text-muted-foreground">自动扫描 EPUB/PDF/TXT 目录并入库</p>
-            </div>
-          </div>
-          <div className="flex gap-2 text-xs text-muted-foreground mb-3">
-            <span className="rounded bg-red-50 px-2 py-1 text-red-600">EPUB</span>
-            <span className="rounded bg-info/10 px-2 py-1 text-info">PDF</span>
-            <span className="rounded bg-green-50 px-2 py-1 text-green-600">TXT</span>
-          </div>
-
-          {/* 断点续扫配置 */}
-          <div className="mb-3 flex items-center gap-2">
-            <label className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">跳过 ID &lt;</label>
-            <input
-              type="number"
-              min="1"
-              value={skipBeforeId}
-              onChange={(e) => setSkipBeforeId(e.target.value)}
-              placeholder="如 1800"
-              disabled={scanning}
-              className="h-8 w-28 rounded-lg border border-border bg-background px-2.5 text-xs outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-            />
-            <span className="text-[10px] text-muted-foreground">断点续扫：跳过 ID 小于此值的已有图书</span>
-          </div>
-
-          {/* 进度条 */}
-          {scanning && progress && (
-            <div className="mb-3 space-y-2">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="truncate max-w-[60%]">{progress.currentFile}</span>
-                <span>{progress.current}/{progress.total} ({progressPercent}%)</span>
-              </div>
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-              <div className="flex gap-3 text-xs text-muted-foreground">
-                <span className="text-green-600">+{progress.added} 新增</span>
-                <span className="text-info">↑{progress.updated} 更新</span>
-                <span>○{progress.skipped} 跳过</span>
-                {progress.failed > 0 && <span className="text-red-600">✕{progress.failed} 失败</span>}
-              </div>
-              {progress.failed > 0 && progress.errors && progress.errors.length > 0 && (
-                <button
-                  onClick={() => setShowErrors(!showErrors)}
-                  className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
-                >
-                  <AlertTriangle className="h-3 w-3" />
-                  查看错误详情
-                  {showErrors ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* 错误详情 */}
-          {showErrors && currentErrors.length > 0 && (
-            <div className="mb-3 max-h-48 overflow-y-auto overscroll-y-contain rounded-lg bg-red-50 p-3 text-xs space-y-2 dark:bg-red-950/20">
-              {currentErrors.map((err, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="shrink-0 text-red-400">{i + 1}.</span>
-                  <div className="min-w-0">
-                    <span className="font-medium text-red-700 dark:text-red-400 break-all">{err.file}</span>
-                    <p className="text-red-500 dark:text-red-400/80 break-all mt-0.5">{err.reason}</p>
-                  </div>
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain p-4">
+        {/* PC 两栏布局 */}
+        <div className="md:grid md:grid-cols-2 md:gap-4 space-y-4 md:space-y-0">
+          {/* 左栏：图书操作与说明 */}
+          <div className="space-y-4">
+            {/* 扫描图书 */}
+            <section className="rounded-xl bg-card p-4 shadow-xs">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                  <Scan className="h-5 w-5 text-primary" />
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* 扫描完成结果 */}
-          {scanResult && !scanning && (
-            <div className="mb-3 space-y-2">
-              <div className="rounded-lg bg-green-50 p-3 text-xs space-y-1 dark:bg-green-950/30">
-                <div className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-400">
-                  <CheckCircle2 className="h-4 w-4" />
-                  扫描完成
-                </div>
-                <div className="flex gap-3 text-green-600 dark:text-green-400">
-                  <span>+{scanResult.added} 新增</span>
-                  <span>↑{scanResult.updated} 更新</span>
-                  <span>○{scanResult.skipped} 跳过</span>
-                  {scanResult.failed > 0 && <span className="text-red-500">✕{scanResult.failed} 失败</span>}
-                </div>
-                {scanResult.elapsed > 0 && (
-                  <span className="text-muted-foreground">耗时 {(scanResult.elapsed / 1000).toFixed(1)}s</span>
-                )}
-              </div>
-              {scanResult.failed > 0 && scanResult.errors && scanResult.errors.length > 0 && (
                 <div>
-                  <button
-                    onClick={() => setShowErrors(!showErrors)}
-                    className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
-                  >
-                    <AlertTriangle className="h-3 w-3" />
-                    {showErrors ? '收起错误详情' : `查看 ${scanResult.failed} 个错误详情`}
-                    {showErrors ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                  </button>
-                  {showErrors && (
-                    <div className="mt-2 max-h-48 overflow-y-auto overscroll-y-contain rounded-lg bg-red-50 p-3 text-xs space-y-2 dark:bg-red-950/20">
-                      {scanResult.errors.map((err, i) => (
-                        <div key={i} className="flex gap-2">
-                          <span className="shrink-0 text-red-400">{i + 1}.</span>
-                          <div className="min-w-0">
-                            <span className="font-medium text-red-700 dark:text-red-400 break-all">{err.file}</span>
-                            <p className="text-red-500 dark:text-red-400/80 break-all mt-0.5">{err.reason}</p>
-                          </div>
+                  <h3 className="text-sm font-semibold">扫描图书目录</h3>
+                  <p className="text-xs text-muted-foreground">自动扫描 EPUB/PDF/TXT 目录并入库</p>
+                </div>
+              </div>
+              <div className="flex gap-2 text-xs text-muted-foreground mb-3">
+                <span className="rounded bg-red-50 px-2 py-1 text-red-600">EPUB</span>
+                <span className="rounded bg-info/10 px-2 py-1 text-info">PDF</span>
+                <span className="rounded bg-green-50 px-2 py-1 text-green-600">TXT</span>
+              </div>
+
+              {/* 断点续扫配置 */}
+              <div className="mb-3 flex items-center gap-2">
+                <label className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">跳过 ID &lt;</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={skipBeforeId}
+                  onChange={(e) => setSkipBeforeId(e.target.value)}
+                  placeholder="如 1800"
+                  disabled={scanning}
+                  className="h-8 w-28 rounded-lg border border-border bg-background px-2.5 text-xs outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                />
+                <span className="text-[10px] text-muted-foreground">断点续扫：跳过 ID 小于此值的已有图书</span>
+              </div>
+
+              {/* 进度条 */}
+              {scanning && progress && (
+                <div className="mb-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="truncate max-w-[60%]">{progress.currentFile}</span>
+                    <span>{progress.current}/{progress.total} ({progressPercent}%)</span>
+                  </div>
+                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                  <div className="flex gap-3 text-xs text-muted-foreground">
+                    <span className="text-green-600">+{progress.added} 新增</span>
+                    <span className="text-info">↑{progress.updated} 更新</span>
+                    <span>○{progress.skipped} 跳过</span>
+                    {progress.failed > 0 && <span className="text-red-600">✕{progress.failed} 失败</span>}
+                  </div>
+                  {progress.failed > 0 && progress.errors && progress.errors.length > 0 && (
+                    <button
+                      onClick={() => setShowErrors(!showErrors)}
+                      className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+                    >
+                      <AlertTriangle className="h-3 w-3" />
+                      查看错误详情
+                      {showErrors ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* 错误详情 */}
+              {showErrors && currentErrors.length > 0 && (
+                <div className="mb-3 max-h-48 overflow-y-auto overscroll-y-contain rounded-lg bg-red-50 p-3 text-xs space-y-2 dark:bg-red-950/20">
+                  {currentErrors.map((err, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="shrink-0 text-red-400">{i + 1}.</span>
+                      <div className="min-w-0">
+                        <span className="font-medium text-red-700 dark:text-red-400 break-all">{err.file}</span>
+                        <p className="text-red-500 dark:text-red-400/80 break-all mt-0.5">{err.reason}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 扫描完成结果 */}
+              {scanResult && !scanning && (
+                <div className="mb-3 space-y-2">
+                  <div className="rounded-lg bg-green-50 p-3 text-xs space-y-1 dark:bg-green-950/30">
+                    <div className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-400">
+                      <CheckCircle2 className="h-4 w-4" />
+                      扫描完成
+                    </div>
+                    <div className="flex gap-3 text-green-600 dark:text-green-400">
+                      <span>+{scanResult.added} 新增</span>
+                      <span>↑{scanResult.updated} 更新</span>
+                      <span>○{scanResult.skipped} 跳过</span>
+                      {scanResult.failed > 0 && <span className="text-red-500">✕{scanResult.failed} 失败</span>}
+                    </div>
+                    {scanResult.elapsed > 0 && (
+                      <span className="text-muted-foreground">耗时 {(scanResult.elapsed / 1000).toFixed(1)}s</span>
+                    )}
+                  </div>
+                  {scanResult.failed > 0 && scanResult.errors && scanResult.errors.length > 0 && (
+                    <div>
+                      <button
+                        onClick={() => setShowErrors(!showErrors)}
+                        className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+                      >
+                        <AlertTriangle className="h-3 w-3" />
+                        {showErrors ? '收起错误详情' : `查看 ${scanResult.failed} 个错误详情`}
+                        {showErrors ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      </button>
+                      {showErrors && (
+                        <div className="mt-2 max-h-48 overflow-y-auto overscroll-y-contain rounded-lg bg-red-50 p-3 text-xs space-y-2 dark:bg-red-950/20">
+                          {scanResult.errors.map((err, i) => (
+                            <div key={i} className="flex gap-2">
+                              <span className="shrink-0 text-red-400">{i + 1}.</span>
+                              <div className="min-w-0">
+                                <span className="font-medium text-red-700 dark:text-red-400 break-all">{err.file}</span>
+                                <p className="text-red-500 dark:text-red-400/80 break-all mt-0.5">{err.reason}</p>
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
                   )}
                 </div>
               )}
-            </div>
-          )}
 
-          <div className="flex gap-2">
-            <button
-              onClick={handleScan}
-              disabled={scanning}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            >
-              <RefreshCw className={`h-4 w-4 ${scanning ? 'animate-spin' : ''}`} />
-              {scanning ? '扫描中...' : '开始扫描'}
-            </button>
-            {scanning && (
-              <button
-                onClick={handleResetScan}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
-              >
-                <XCircle className="h-4 w-4" />
-                重置
-              </button>
-            )}
-          </div>
-        </section>
-
-        {/* 上传图书 */}
-        <section className="rounded-xl bg-card p-4 shadow-xs">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50">
-              <Upload className="h-5 w-5 text-orange-500" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold">上传图书</h3>
-              <p className="text-xs text-muted-foreground">手动上传 EPUB/PDF/TXT 文件</p>
-            </div>
-          </div>
-          <div className="mb-3">
-            <input
-              type="text"
-              value={uploadTitle}
-              onChange={(e) => setUploadTitle(e.target.value)}
-              placeholder="自定义书名（可选，默认使用文件名）"
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".epub,.pdf,.txt"
-            onChange={handleUpload}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            <Upload className={`h-4 w-4 ${uploading ? 'animate-bounce' : ''}`} />
-            {uploading ? '上传中...' : '选择文件上传'}
-          </button>
-        </section>
-
-        {/* 向量管理 */}
-        <section className="rounded-xl bg-card p-4 shadow-xs">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-success/10">
-              <Database className="h-5 w-5 text-success" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold">向量管理</h3>
-              <p className="text-xs text-muted-foreground">管理 Qdrant 向量存储</p>
-            </div>
-          </div>
-
-          {/* 统计信息 */}
-          {embedStats && (
-            <div className="mb-3 grid grid-cols-3 gap-2 text-xs">
-              <div className="rounded-lg bg-muted/50 p-2.5 text-center">
-                <div className="text-lg font-bold text-foreground">{embedStats.totalBooks}</div>
-                <div className="text-muted-foreground">总书籍</div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleScan}
+                  disabled={scanning}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${scanning ? 'animate-spin' : ''}`} />
+                  {scanning ? '扫描中...' : '开始扫描'}
+                </button>
+                {scanning && (
+                  <button
+                    onClick={handleResetScan}
+                    className="flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    重置
+                  </button>
+                )}
               </div>
-              <div className="rounded-lg bg-success/10 dark:bg-success/10 p-2.5 text-center">
-                <div className="text-lg font-bold text-success">{embedStats.embeddedBooks}</div>
-                <div className="text-success/80">已嵌入</div>
+            </section>
+
+            {/* 上传图书 */}
+            <section className="rounded-xl bg-card p-4 shadow-xs">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50">
+                  <Upload className="h-5 w-5 text-orange-500" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">上传图书</h3>
+                  <p className="text-xs text-muted-foreground">手动上传 EPUB/PDF/TXT 文件</p>
+                </div>
               </div>
-              <div className="rounded-lg bg-muted/50 p-2.5 text-center">
-                <div className="text-lg font-bold text-foreground">{embedStats.totalContentVectors.toLocaleString()}</div>
-                <div className="text-muted-foreground">向量总数</div>
-              </div>
-            </div>
-          )}
-
-          {/* 操作按钮 */}
-          <div className="space-y-2">
-            <button
-              onClick={loadEmbedStats}
-              disabled={statsLoading}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
-            >
-              <Database className={`h-4 w-4 ${statsLoading ? 'animate-pulse' : ''}`} />
-              {statsLoading ? '加载中...' : '刷新统计'}
-            </button>
-
-            {/* 清空内容信息 */}
-            <button
-              onClick={handleClearContentVectors}
-              disabled={contentVectorsClearing}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-            >
-              <RefreshCw className={`h-4 w-4 ${contentVectorsClearing ? 'animate-spin' : ''}`} />
-              {contentVectorsClearing ? '清空中...' : '清空内容信息'}
-            </button>
-          </div>
-
-        </section>
-
-        {/* ES 索引管理 */}
-        <section className="rounded-xl bg-card p-4 shadow-xs">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10">
-              <Search className="h-5 w-5 text-warning" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold">ES 索引管理</h3>
-              <p className="text-xs text-muted-foreground">全量刷新 Elasticsearch 搜索索引</p>
-            </div>
-          </div>
-
-          {/* 进度条 */}
-          {esReindexing && esProgress && (
-            <div className="mb-3 space-y-2">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>正在重建索引...</span>
-                <span>{esProgress.current}/{esProgress.total} ({Math.round((esProgress.current / esProgress.total) * 100)}%)</span>
-              </div>
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-warning transition-all duration-300 ease-out"
-                  style={{ width: `${esProgress.total > 0 ? (esProgress.current / esProgress.total) * 100 : 0}%` }}
+              <div className="mb-3">
+                <input
+                  type="text"
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  placeholder="自定义书名（可选，默认使用文件名）"
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
                 />
               </div>
-            </div>
-          )}
-
-          {/* 完成结果 */}
-          {esResult && !esReindexing && (
-            <div className="mb-3 rounded-lg bg-green-50 p-3 text-xs dark:bg-green-950/30">
-              <div className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-400">
-                <CheckCircle2 className="h-4 w-4" />
-                ES 索引重建完成
-              </div>
-              <div className="mt-1 text-green-600 dark:text-green-400">
-                耗时 {(esResult.elapsed / 1000).toFixed(1)}s
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              onClick={handleEsReindex}
-              disabled={esReindexing}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-warning py-2.5 text-sm font-medium text-white disabled:opacity-50"
-            >
-              <RefreshCw className={`h-4 w-4 ${esReindexing ? 'animate-spin' : ''}`} />
-              {esReindexing ? '重建中...' : '全量刷新 ES'}
-            </button>
-            {esReindexing && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".epub,.pdf,.txt"
+                onChange={handleUpload}
+                className="hidden"
+              />
               <button
-                onClick={handleCancelEsReindex}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-2.5 text-sm font-medium text-white disabled:opacity-50"
               >
-                <XCircle className="h-4 w-4" />
-                取消
+                <Upload className={`h-4 w-4 ${uploading ? 'animate-bounce' : ''}`} />
+                {uploading ? '上传中...' : '选择文件上传'}
               </button>
-            )}
-          </div>
-        </section>
+            </section>
 
-        {/* 说明 */}
-        <section className="rounded-xl bg-muted/50 p-4">
-          <h3 className="mb-2 text-sm font-semibold">说明</h3>
-          <ul className="space-y-1.5 text-xs text-muted-foreground">
-            <li className="flex items-center gap-2">
-              {formatIcon('EPUB')}
-              <span><strong>EPUB</strong> — 自动提取作者、封面图片、简介</span>
-            </li>
-            <li className="flex items-center gap-2">
-              {formatIcon('PDF')}
-              <span><strong>PDF</strong> — 首页自动渲染为封面图片</span>
-            </li>
-            <li className="flex items-center gap-2">
-              {formatIcon('TXT')}
-              <span><strong>TXT</strong> — 无封面，自动计算字符数</span>
-            </li>
-            <li>书名默认使用文件名（不含扩展名）</li>
-            <li>扫描已入库的文件会自动跳过</li>
-            <li>AI 标签会在入库后自动生成</li>
-            <li>重建功能会完整覆盖图书的元数据、AI 数据、向量数据</li>
-            <li className="flex items-center gap-1">
-              <Sparkles className="h-3 w-3 text-purple-500" />
-              <span>点击右下角紫色圆圈唤醒 AI 管理员，用自然语言管理图书</span>
-            </li>
-          </ul>
-        </section>
+            {/* 说明 */}
+            <section className="rounded-xl bg-muted/50 p-4">
+              <h3 className="mb-2 text-sm font-semibold">说明</h3>
+              <ul className="space-y-1.5 text-xs text-muted-foreground">
+                <li className="flex items-center gap-2">
+                  {formatIcon('EPUB')}
+                  <span><strong>EPUB</strong> — 自动提取作者、封面图片、简介</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  {formatIcon('PDF')}
+                  <span><strong>PDF</strong> — 首页自动渲染为封面图片</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  {formatIcon('TXT')}
+                  <span><strong>TXT</strong> — 无封面，自动计算字符数</span>
+                </li>
+                <li>书名默认使用文件名（不含扩展名）</li>
+                <li>扫描已入库的文件会自动跳过</li>
+                <li>AI 标签会在入库后自动生成</li>
+                <li>重建功能会完整覆盖图书的元数据、AI 数据、向量数据</li>
+                <li className="flex items-center gap-1">
+                  <Sparkles className="h-3 w-3 text-purple-500" />
+                  <span>点击右下角紫色圆圈唤醒 AI 管理员，用自然语言管理图书</span>
+                </li>
+              </ul>
+            </section>
+          </div>
+
+          {/* 右栏：配置与向量管理 */}
+          <div className="space-y-4">
+            {/* ES 索引管理 */}
+            <section className="rounded-xl bg-card p-4 shadow-xs">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10">
+                  <Search className="h-5 w-5 text-warning" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">ES 索引管理</h3>
+                  <p className="text-xs text-muted-foreground">全量刷新 Elasticsearch 搜索索引</p>
+                </div>
+              </div>
+
+              {/* 进度条 */}
+              {esReindexing && esProgress && (
+                <div className="mb-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>正在重建索引...</span>
+                    <span>{esProgress.current}/{esProgress.total} ({Math.round((esProgress.current / esProgress.total) * 100)}%)</span>
+                  </div>
+                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-warning transition-all duration-300 ease-out"
+                      style={{ width: `${esProgress.total > 0 ? (esProgress.current / esProgress.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 完成结果 */}
+              {esResult && !esReindexing && (
+                <div className="mb-3 rounded-lg bg-green-50 p-3 text-xs dark:bg-green-950/30">
+                  <div className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                    ES 索引重建完成
+                  </div>
+                  <div className="mt-1 text-green-600 dark:text-green-400">
+                    耗时 {(esResult.elapsed / 1000).toFixed(1)}s
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleEsReindex}
+                  disabled={esReindexing}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-warning py-2.5 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${esReindexing ? 'animate-spin' : ''}`} />
+                  {esReindexing ? '重建中...' : '全量刷新 ES'}
+                </button>
+                {esReindexing && (
+                  <button
+                    onClick={handleCancelEsReindex}
+                    className="flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    取消
+                  </button>
+                )}
+              </div>
+            </section>
+
+            {/* 向量管理 */}
+            <section className="rounded-xl bg-card p-4 shadow-xs">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-success/10">
+                  <Database className="h-5 w-5 text-success" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">向量管理</h3>
+                  <p className="text-xs text-muted-foreground">管理 Qdrant 向量存储</p>
+                </div>
+              </div>
+
+              {/* 统计信息 */}
+              {embedStats && (
+                <div className="mb-3 grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-lg bg-muted/50 p-2.5 text-center">
+                    <div className="text-lg font-bold text-foreground">{embedStats.totalBooks}</div>
+                    <div className="text-muted-foreground">总书籍</div>
+                  </div>
+                  <div className="rounded-lg bg-success/10 dark:bg-success/10 p-2.5 text-center">
+                    <div className="text-lg font-bold text-success">{embedStats.embeddedBooks}</div>
+                    <div className="text-success/80">已嵌入</div>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-2.5 text-center">
+                    <div className="text-lg font-bold text-foreground">{embedStats.totalContentVectors.toLocaleString()}</div>
+                    <div className="text-muted-foreground">向量总数</div>
+                  </div>
+                </div>
+              )}
+
+              {/* 操作按钮 */}
+              <div className="space-y-2">
+                <button
+                  onClick={loadEmbedStats}
+                  disabled={statsLoading}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                >
+                  <Database className={`h-4 w-4 ${statsLoading ? 'animate-pulse' : ''}`} />
+                  {statsLoading ? '加载中...' : '刷新统计'}
+                </button>
+
+                {/* 清空内容信息 */}
+                <button
+                  onClick={handleClearContentVectors}
+                  disabled={contentVectorsClearing}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${contentVectorsClearing ? 'animate-spin' : ''}`} />
+                  {contentVectorsClearing ? '清空中...' : '清空内容信息'}
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
 
       {/* ===== 可拖动浮动 AI 圆圈 ===== */}

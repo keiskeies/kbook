@@ -1016,7 +1016,7 @@ export default function BookDetailPage() {
 
   if (loading || !book) {
     return (
-      <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
+      <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
         <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
           <div className="h-9 w-9 shrink-0 animate-pulse rounded-xl bg-muted" />
           <div className="h-5 flex-1 animate-pulse rounded bg-muted" />
@@ -1129,7 +1129,7 @@ export default function BookDetailPage() {
   const tags = parseFormatTags(book.formatTags)
 
   return (
-    <div className="fixed inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
+    <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       {/* 顶部导航 — 移动端 */}
       <header className="md:hidden shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
         <button onClick={() => goBack()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">

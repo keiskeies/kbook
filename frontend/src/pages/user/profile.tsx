@@ -104,14 +104,14 @@ export default function UserProfilePage() {
 
   if (loading || !profile) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
+      <div className="absolute inset-0 flex items-center justify-center bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
         <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />

@@ -471,7 +471,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="fixed inset-0 bg-background flex flex-col overscroll-contain">
+    <div className="absolute inset-0 bg-background flex flex-col overscroll-contain">
       {/* 顶部进度条 */}
       {step.id !== 'welcome' && step.id !== 'done' && (
         <div className="px-4 pt-safe-top">

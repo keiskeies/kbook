@@ -54,7 +54,7 @@ export default function ChatListPage() {
   }, [searchKeyword, loadConversations, setConversations])
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter">
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter">
       <header className="shrink-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 py-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">

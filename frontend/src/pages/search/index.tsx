@@ -356,7 +356,7 @@ export default function SearchPage() {
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter">
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter">
       {/* 顶部固定区域：搜索框 + 筛选标签 */}
       <div className="shrink-0 z-10 bg-background/80 backdrop-blur-xl">
         <header className="flex items-center gap-2 border-b border-border/50 px-4 py-3">

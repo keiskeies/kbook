@@ -393,7 +393,7 @@ export default function RecommendPage() {
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter">
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter">
       <div className="shrink-0 z-50 bg-gradient-to-b from-background/95 via-background/80 to-background/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
         <header className="flex items-center gap-3 px-4 py-3">
           <button onClick={() => goBack()} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">

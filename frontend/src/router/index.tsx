@@ -64,6 +64,11 @@ export const router = createBrowserRouter([
       { path: ROUTES.CHAT_ROOM, element: <LazyLoad><ChatRoomPage /></LazyLoad> },
       { path: ROUTES.CHANGE_PASSWORD, element: <LazyLoad><ChangePasswordPage /></LazyLoad> },
       { path: '/onboarding', element: <LazyLoad><OnboardingPage /></LazyLoad> },
+      { path: ROUTES.ADMIN_REVIEW, element: <AdminGuard><LazyLoad><AdminReviewPage /></LazyLoad></AdminGuard> },
+      { path: ROUTES.ADMIN_BIND_EMAIL, element: <AdminGuard><LazyLoad><AdminBindEmailPage /></LazyLoad></AdminGuard> },
+      { path: ROUTES.ADMIN_BOOKS, element: <AdminGuard><LazyLoad><AdminBooksPage /></LazyLoad></AdminGuard> },
+      { path: ROUTES.ADMIN_AI_CONFIG, element: <AdminGuard><LazyLoad><AdminAiConfigPage /></LazyLoad></AdminGuard> },
+      { path: ROUTES.ADMIN_TTS_CONFIG, element: <AdminGuard><LazyLoad><AdminTtsConfigPage /></LazyLoad></AdminGuard> },
     ],
   },
   {
@@ -93,36 +98,6 @@ export const router = createBrowserRouter([
       {
         path: ROUTES.PRIVACY,
         element: <LazyLoad><PrivacyPage /></LazyLoad>,
-      },
-    ],
-  },
-  {
-    element: (
-      <AdminGuard>
-        <BlankLayout />
-      </AdminGuard>
-    ),
-    errorElement: <RouteErrorBoundary />,
-    children: [
-      {
-        path: ROUTES.ADMIN_REVIEW,
-        element: <LazyLoad><AdminReviewPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.ADMIN_BIND_EMAIL,
-        element: <LazyLoad><AdminBindEmailPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.ADMIN_BOOKS,
-        element: <LazyLoad><AdminBooksPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.ADMIN_AI_CONFIG,
-        element: <LazyLoad><AdminAiConfigPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.ADMIN_TTS_CONFIG,
-        element: <LazyLoad><AdminTtsConfigPage /></LazyLoad>,
       },
     ],
   },

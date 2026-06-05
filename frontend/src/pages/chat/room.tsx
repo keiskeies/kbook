@@ -684,7 +684,7 @@ export default function ChatRoomPage() {
   }
 
   return (
-    <div ref={containerRef} className="fixed inset-0 z-40 flex flex-col overscroll-none bg-background">
+    <div ref={containerRef} className="absolute inset-0 z-40 flex flex-col overscroll-none bg-background">
       {/* Header - 固定在顶部 */}
       <header className="flex-shrink-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 pt-safe-top pb-3 backdrop-blur-xl">
         <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
@@ -784,7 +784,7 @@ export default function ChatRoomPage() {
                         )}
                         <button
                           onClick={() => setPreviewFile({ url: msg.fileUrl!, name: msg.fileName || 'file', type: 'FILE' })}
-                          className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:opacity-90 transition-opacity w-[calc(85vw-56px)] ${
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:opacity-90 transition-opacity w-[240px] max-w-full ${
                             isMine(msg) ? 'bg-primary text-primary-foreground' : 'bg-card border border-border/50'
                           }`}
                         >
@@ -881,7 +881,7 @@ export default function ChatRoomPage() {
                               ? 'bg-primary text-primary-foreground rounded-br-md' 
                               : 'bg-card border border-border/50 rounded-bl-md'
                           }`}
-                          style={{ width: 'calc((85vw - 40px) / 2)' }}
+                          style={{ width: '120px' }}
                         >
                           <BroadcastIcon isPlaying={playingMessageId === msg.id} isMine={isMine(msg)} />
                           <span className="text-xs font-medium">

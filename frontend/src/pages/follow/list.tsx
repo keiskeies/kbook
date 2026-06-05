@@ -78,7 +78,7 @@ export default function FollowListPage() {
   const currentList = activeTab === 'followings' ? followings : followers
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       {/* 顶部 */}
       <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
         <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">

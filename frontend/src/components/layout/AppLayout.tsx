@@ -133,7 +133,7 @@ export function AppLayout() {
             })}
 
             {!isOnTabPage && (
-              <div className="absolute inset-0 overflow-y-auto overscroll-contain">
+              <div className="absolute inset-0 overflow-hidden">
                 <Outlet />
               </div>
             )}
