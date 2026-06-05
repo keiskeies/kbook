@@ -228,7 +228,7 @@ langchain4j:
     # 提供商：ollama | openai
     provider: ${AI_PROVIDER:ollama}
     base-url: ${AI_BASE_URL:http://localhost:11434}
-    model-name: ${AI_MODEL:gemma4:e2b}
+    model-name: ${AI_MODEL:gemma4:e4b}
     # OpenAI 兼容 API 的 API Key（Ollama 无需填写）
     api-key: ${AI_API_KEY:}
     temperature: 0.7

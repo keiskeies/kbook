@@ -467,12 +467,13 @@ function AiQaEntry({
         <div className="space-y-2">
           {/* 概述类问题 — 突出显示 */}
           {overviewQuestions.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2">
               {overviewQuestions.slice(0, 1).map((q, idx) => (
                 <button
                   key={`overview-${idx}`}
                   onClick={() => onOpenChat(q)}
                   className="rounded-2xl border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/15 hover:shadow-sm transition-all duration-200 text-left"
+                  style={{ whiteSpace: 'normal', wordWrap: 'break-word', overflowWrap: 'break-word' }}
                 >
                   {q}
                 </button>
@@ -480,12 +481,13 @@ function AiQaEntry({
             </div>
           )}
           {/* 深度问题 */}
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {(showAll ? deepQuestions : deepQuestions.slice(0, 5)).map((q, idx) => (
               <button
                 key={idx}
                 onClick={() => onOpenChat(q)}
                 className="rounded-xl border border-primary/20 bg-white/50 dark:bg-white/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 hover:shadow-sm transition-all duration-200 hover:-translate-y-0.5 text-left"
+                style={{ whiteSpace: 'normal', wordWrap: 'break-word', overflowWrap: 'break-word' }}
               >
                 {q}
               </button>
