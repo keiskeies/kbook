@@ -229,6 +229,17 @@ public class CommonUtils {
     }
 
     /**
+     * 格式化文件大小为人类可读字符串
+     */
+    public static String formatFileSize(Long bytes) {
+        if (bytes == null || bytes <= 0) return "0 B";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+
+    /**
      * 格式化 AI 调用日志
      *
      * @param operation      操作名称（如"标签生成"、"评分生成"）

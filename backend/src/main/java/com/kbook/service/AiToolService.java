@@ -78,9 +78,9 @@ public class AiToolService {
 
     // ==================== 图书查询工具 ====================
 
-    @Tool("搜索图书（混合搜索：Qdrant语义向量 + ES全文检索融合排序）。返回图书列表，包含图书ID、书名、作者、评分等。")
+    @Tool("当用户想找书、搜书、查询书籍时调用。按关键词搜索图书，返回包含图书ID、书名、作者、评分、标签、简介的列表。支持书名、作者名、主题描述等自然语言搜索。")
     public String searchBooks(
-            @P("搜索关键词，如书名或作者名，支持自然语言描述如'适合失恋看的治愈系书籍'") String keyword
+            @P("搜索关键词。精确找书用书名或作者名；主题搜索用简短描述如'科幻'或'治愈'，不要用完整句子") String keyword
     ) {
         log.debug("[AI Tool] searchBooks: keyword={}", keyword);
         try {
@@ -120,35 +120,41 @@ public class AiToolService {
         }
     }
 
-    @Tool("获取图书详细信息，包括完整的简介、格式、文件大小、评分、8维度相关度得分等。需要提供图书ID。")
+    @Tool("当用户想了解某本书的详细信息时调用。需要提供图书ID（可从searchBooks结果中获取[BOOK:id=数字]）。返回书名、作者、格式、评分、阅读次数、完整简介、目录等。")
     public String getBookDetail(
-            @P("图书ID") Long bookId
+            @P("图书ID，从searchBooks结果中的[BOOK:id=数字]获取") Long bookId
     ) {
         log.debug("[AI Tool] getBookDetail: bookId={}", bookId);
         try {
             Book book = bookService.getBookById(bookId);
-            Map<String, Object> detail = new LinkedHashMap<>();
-            detail.put("id", book.getId());
-            detail.put("title", book.getTitle());
-            detail.put("author", book.getAuthor());
-            detail.put("format", book.getFormat());
-            detail.put("rating", book.getRating());
-            detail.put("readCount", book.getReadCount());
-            detail.put("description", book.getDescription());
-            detail.put("fileSize", book.getFileSize());
-            detail.put("formatTags", book.getFormatTags());
-            detail.put("coverUrl", book.getCoverUrl());
-            detail.put("relevanceScores", book.getRelevanceScores());
-            detail.put("toc", book.getToc() != null ? truncate(book.getToc(), 200) : null);
-            detail.put("chapterSummary", book.getChapterSummary() != null ? truncate(book.getChapterSummary(), 200) : null);
-            return detail.toString();
+            StringBuilder sb = new StringBuilder();
+            sb.append("[BOOK:id=").append(book.getId()).append("]《").append(book.getTitle()).append("》\n");
+            sb.append("作者: ").append(book.getAuthor() != null ? book.getAuthor() : "未知").append("\n");
+            sb.append("格式: ").append(book.getFormat()).append("\n");
+            sb.append("评分: ").append(book.getRating()).append("\n");
+            sb.append("阅读次数: ").append(book.getReadCount()).append("\n");
+            if (book.getFileSize() != null) sb.append("文件大小: ").append(book.getFileSize()).append("\n");
+            if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+                sb.append("标签: ").append(book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、")).append("\n");
+            }
+            if (book.getDescription() != null && !book.getDescription().isBlank()) {
+                sb.append("简介: ").append(book.getDescription()).append("\n");
+            }
+            if (book.getToc() != null && !book.getToc().isBlank()) {
+                sb.append("目录: ").append(truncate(book.getToc(), 500)).append("\n");
+            }
+            if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+                sb.append("章节摘要: ").append(truncate(book.getChapterSummary(), 300)).append("\n");
+            }
+            recordBook(book.getTitle(), book.getId());
+            return sb.toString();
         } catch (Exception e) {
             log.error("[AI Tool] getBookDetail error", e);
             return "获取图书详情时发生错误，图书可能不存在。";
         }
     }
 
-    @Tool("获取阅读排行榜，返回阅读次数最多的图书列表。")
+    @Tool("当用户想看热门图书排行时调用。返回阅读次数最多的TOP10图书列表。")
     public String getReadRank() {
         log.debug("[AI Tool] getReadRank");
         try {
@@ -160,8 +166,8 @@ public class AiToolService {
             for (int i = 0; i < result.getList().size(); i++) {
                 BookProjection b = result.getList().get(i);
                 recordBook(b.getTitle(), b.getId());
-                sb.append(String.format("%d. 《%s》 作者:%s 阅读:%d次 评分:%.1f\n",
-                        i + 1, b.getTitle(),
+                sb.append(String.format("%d. [BOOK:id=%d]《%s》 作者:%s 阅读:%d次 评分:%.1f\n",
+                        i + 1, b.getId(), b.getTitle(),
                         b.getAuthor() != null ? b.getAuthor() : "未知",
                         b.getReadCount(), b.getRating()));
             }
@@ -172,7 +178,7 @@ public class AiToolService {
         }
     }
 
-    @Tool("获取评分排行榜，返回评分最高的图书列表。")
+    @Tool("当用户想看高分图书排行时调用。返回评分最高的TOP10图书列表。")
     public String getRatingRank() {
         log.debug("[AI Tool] getRatingRank");
         try {
@@ -184,8 +190,8 @@ public class AiToolService {
             for (int i = 0; i < result.getList().size(); i++) {
                 BookProjection b = result.getList().get(i);
                 recordBook(b.getTitle(), b.getId());
-                sb.append(String.format("%d. 《%s》 作者:%s 评分:%.1f 阅读:%d次\n",
-                        i + 1, b.getTitle(),
+                sb.append(String.format("%d. [BOOK:id=%d]《%s》 作者:%s 评分:%.1f 阅读:%d次\n",
+                        i + 1, b.getId(), b.getTitle(),
                         b.getAuthor() != null ? b.getAuthor() : "未知",
                         b.getRating(), b.getReadCount()));
             }

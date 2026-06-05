@@ -4,7 +4,6 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogModule;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
@@ -31,8 +30,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 管理员 AI 对话服务
  * <p>
  * 为管理员提供独立的 AI 对话能力，使用 BookAdminAssistant 接口，
- * 支持管理员工具调用（如扫描书籍等）。与 AiChatService 不同，
- * 此服务不注入用户ID到系统提示词，且使用独立的 Assistant 缓存。
+ * 支持完整的图书管理工具调用（增删改查、扫描、统计等）。
+ * 与 AiChatService 不同，使用独立的记忆存储和更大的消息窗口。
  */
 @Slf4j
 @Service
@@ -43,11 +42,13 @@ public class BookAdminChatService {
     /** 会话类型标识：管理员 */
     private static final String TYPE = "admin";
 
-    private final AiProviderConfigService providerConfigService;
     private final AiConversationRepository conversationRepository;
     private final AiSessionRepository sessionRepository;
+    /** 通用工具：搜索、推荐、偏好管理 */
     private final ObjectProvider<AiToolService> toolServiceProvider;
-    private final AiChatMemory chatMemoryStore;
+    /** 管理员专用工具：增删改查、统计 */
+    private final ObjectProvider<AdminBookToolService> adminToolServiceProvider;
+    private final BookAdminChatMemory bookAdminChatMemory;
 
     /** SSE 异步执行线程池 */
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
@@ -156,7 +157,6 @@ public class BookAdminChatService {
                         .onError(error -> {
                             if (cancelled.get()) return;
                             log.error("管理员 AI 流式对话异常: sessionId={}", sessionId, error);
-                            providerConfigService.clearAssistantCache();
                             clearCache();
                             String errMsg = SseHelper.extractFriendlyError(error);
                             try {
@@ -177,7 +177,6 @@ public class BookAdminChatService {
             } catch (Exception e) {
                 if (cancelled.get()) return;
                 log.error("管理员 AI 对话启动异常: sessionId={}", sessionId, e);
-                providerConfigService.clearAssistantCache();
                 clearCache();
                 String errMsg = SseHelper.extractFriendlyError(e);
                 try {
@@ -268,7 +267,6 @@ public class BookAdminChatService {
     private BookAdminAssistant buildAdminAssistant() {
         ChatModel chatModel = chatModelFactory.buildChatModel();
         StreamingChatModel streamingChatModel = chatModelFactory.buildStreamingChatModel();
-        AiToolService realToolService = toolServiceProvider.getObject();
 
         log.info("构建管理员 AI Assistant (BookAdminAssistant)...");
         return AiServices.builder(BookAdminAssistant.class)
@@ -276,10 +274,13 @@ public class BookAdminChatService {
                 .streamingChatModel(streamingChatModel)
                 .chatMemoryProvider(sessionId -> dev.langchain4j.memory.chat.MessageWindowChatMemory.builder()
                         .id(sessionId)
-                        .maxMessages(AiPromptConstants.ADMIN_MAX_MESSAGES)
-                        .chatMemoryStore(chatMemoryStore)
+                        .maxMessages(200)
+                        .chatMemoryStore(bookAdminChatMemory)
                         .build())
-                .tools(realToolService)
+                // 通用工具：搜索、推荐、偏好管理
+                .tools(toolServiceProvider.getObject())
+                // 管理员专用工具：增删改查、统计
+                .tools(adminToolServiceProvider.getObject())
                 .build();
     }
 

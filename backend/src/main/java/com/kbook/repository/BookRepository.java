@@ -208,4 +208,11 @@ public interface BookRepository extends JpaRepository<Book, Long> {
 
     @Query("SELECT b FROM Book b WHERE NOT EXISTS (SELECT 1 FROM BookSuggestedQuestion sq WHERE sq.bookId = b.id) ORDER BY b.rating DESC")
     List<Book> findBooksWithoutQuestions();
+
+    // ==================== 统计查询（供 AI 管理员使用） ====================
+    long countByFormat(String format);
+    long countByRatingGreaterThanEqual(Double rating);
+    long countByRatingBetween(Double min, Double max);
+    long countByRatingLessThan(Double rating);
+    long countByRatingIsNull();
 }
