@@ -385,8 +385,17 @@ public class ChatModelFactory {
      * @return AI 提供商配置，如果未找到则返回 null
      */
     private AiProviderConfig resolveChatConfig() {
-        return configRepository.findByPurposeAndIsDefaultTrueAndEnabledTrue(
-                AiProviderConfig.Purpose.CHAT.name()).orElse(null);
+        var result = configRepository.findByPurposeAndIsDefaultTrueAndEnabledTrue(
+                AiProviderConfig.Purpose.CHAT.name());
+        if (result.isPresent()) {
+            AiProviderConfig config = result.get();
+            log.info("resolveChatConfig: 命中数据库配置 id={}, name={}, provider={}, baseUrl={}, model={}, enabled={}, isDefault={}",
+                    config.getId(), config.getName(), config.getProvider(), config.getBaseUrl(), config.getModelName(),
+                    config.getEnabled(), config.getIsDefault());
+        } else {
+            log.warn("resolveChatConfig: 未找到数据库配置(purpose=CHAT, isDefault=true, enabled=true)，将回退到 yml 配置");
+        }
+        return result.orElse(null);
     }
 
     /**

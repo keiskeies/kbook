@@ -350,6 +350,10 @@ export interface BookSpeedRead {
   notSuitableFor: string[]
   takeaways: string[]
   difficulty: string
+  /** 流式接收中的当前行（打字机效果） */
+  currentItem?: string
+  /** 当前正在接收的 section key */
+  currentSection?: string
 }
 
 /** 获取3分钟速读摘要 */

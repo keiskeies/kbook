@@ -42,7 +42,7 @@ public class AiProviderConfig extends BaseEntity {
     private Long id;
 
     /** 配置名称（用于多配置时区分显示，如 "DeepSeek-V4"、"Qwen3-Max"） */
-    @Column(nullable = false, length = 50)
+    @Column(nullable = false, length = 100)
     private String name;
 
     /** 配置用途：CHAT=对话, TAG=标签评分, EMBEDDING=向量, VISION=OCR */

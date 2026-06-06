@@ -390,6 +390,11 @@ function SpeedReadCard({ data, loading }: { data: BookSpeedRead | null; loading:
               {data.difficulty}
             </span>
           )}
+          {loading && data?.currentSection === '难度' && data?.currentItem && (
+            <span className="rounded-full border px-2 py-0.5 text-[10px] font-medium bg-primary/5 text-primary border-primary/20">
+              {data.currentItem}<span className="animate-pulse">|</span>
+            </span>
+          )}
         </div>
         {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
       </button>
@@ -398,8 +403,10 @@ function SpeedReadCard({ data, loading }: { data: BookSpeedRead | null; loading:
         <div className="mt-3 space-y-4">
           {sections.map((section) => {
             const hasData = section.hasData()
-            const content = hasData ? section.renderItems() : (loading ? section.skeleton : null)
-            if (!content) return null
+            const isCurrentSection = data?.currentSection === section.title
+            const showCurrentItem = isCurrentSection && data?.currentItem
+            const content = hasData ? section.renderItems() : (loading && !showCurrentItem ? section.skeleton : null)
+            if (!content && !showCurrentItem) return null
             return (
               <div key={section.key} className="space-y-2">
                 <div className={`flex items-center gap-1.5 text-xs font-semibold ${section.titleClass}`}>
@@ -407,6 +414,14 @@ function SpeedReadCard({ data, loading }: { data: BookSpeedRead | null; loading:
                   {section.title}
                 </div>
                 {content}
+                {showCurrentItem && (
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary animate-pulse">
+                      {(section.key === 'corePoints' ? (data?.corePoints?.length || 0) : section.key === 'suitableFor' ? (data?.suitableFor?.length || 0) : section.key === 'notSuitableFor' ? (data?.notSuitableFor?.length || 0) : (data?.takeaways?.length || 0)) + 1}
+                    </span>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{data.currentItem}<span className="animate-pulse">|</span></p>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -723,6 +738,7 @@ export default function BookDetailPage() {
   const cacheKey = `${DETAIL_CACHE_PREFIX}${bookId}`
   const cached = getPageData<DetailCache>(cacheKey)
   const isCacheValid = cached && Date.now() - cached.timestamp < DETAIL_CACHE_TTL
+  const hasSpeedReadCache = isCacheValid && cached.speedReadData != null && cached.speedReadData.corePoints?.length > 0
 
   const [book, setBook] = useState<Book | null>(() => isCacheValid ? cached.book : null)
   const [inShelf, setInShelf] = useState(() => isCacheValid ? cached.inShelf : false)
@@ -758,8 +774,8 @@ export default function BookDetailPage() {
   const id = Number(bookId)
   const matchScores = useMatchScores(book ? [book.id] : [])
   const ms = book ? matchScores?.[String(book.id)] : null
-  const [speedReadData, setSpeedReadData] = useState<BookSpeedRead | null>(() => isCacheValid ? cached.speedReadData : null)
-  const [speedReadLoading, setSpeedReadLoading] = useState(() => isCacheValid && cached.speedReadData ? false : true)
+  const [speedReadData, setSpeedReadData] = useState<BookSpeedRead | null>(() => hasSpeedReadCache ? cached.speedReadData : null)
+  const [speedReadLoading, setSpeedReadLoading] = useState(() => !hasSpeedReadCache)
 
   // Refs for SSE onDone callback to access latest state (avoids stale closure)
   const bookRef = useRef(book)
@@ -771,6 +787,7 @@ export default function BookDetailPage() {
   const commentCountRef = useRef(commentCount)
   const commentPageRef = useRef(commentPage)
   const hasMoreCommentsRef = useRef(hasMoreComments)
+  const hasSpeedReadCacheRef = useRef(hasSpeedReadCache)
   bookRef.current = book
   inShelfRef.current = inShelf
   inTrashRef.current = inTrash
@@ -780,6 +797,7 @@ export default function BookDetailPage() {
   commentCountRef.current = commentCount
   commentPageRef.current = commentPage
   hasMoreCommentsRef.current = hasMoreComments
+  hasSpeedReadCacheRef.current = hasSpeedReadCache
 
   const updateCache = useCallback((
     b: Book | null,
@@ -804,7 +822,7 @@ export default function BookDetailPage() {
       commentCount: cmtCount,
       commentPage: cmtPage,
       hasMoreComments: hasMore,
-      speedReadData: srData,
+      speedReadData: srData ? { bookId: srData.bookId, corePoints: srData.corePoints, suitableFor: srData.suitableFor, notSuitableFor: srData.notSuitableFor, takeaways: srData.takeaways, difficulty: srData.difficulty } : srData,
       timestamp: Date.now(),
     })
   }, [savePageData, cacheKey])
@@ -847,10 +865,10 @@ export default function BookDetailPage() {
     countBookComments(id).then(res => setCommentCount((res as any)?.data || (res as any) || 0)).catch(() => {})
   }, [bookId, id, loadComments, isCacheValid, updateCache])
 
-  // Speed read SSE — only when no cache
+  // Speed read SSE — only when no speed read cache
   useEffect(() => {
     if (!bookId) return
-    if (isCacheValid) return
+    if (hasSpeedReadCacheRef.current) return
     setSpeedReadLoading(true)
     setSpeedReadData({ bookId: id, corePoints: [], suitableFor: [], notSuitableFor: [], takeaways: [], difficulty: '' })
     const bufferRef = { current: '' }
@@ -865,7 +883,7 @@ export default function BookDetailPage() {
 
       setSpeedReadData(prev => {
         if (!prev) return prev
-        const next = { ...prev }
+        const next = { ...prev, currentItem: undefined, currentSection: undefined }
         if (section === '核心观点') next.corePoints = [...(next.corePoints || []), item]
         else if (section === '适合谁读') next.suitableFor = [...(next.suitableFor || []), item]
         else if (section === '不适合谁读') next.notSuitableFor = [...(next.notSuitableFor || []), item]
@@ -894,6 +912,16 @@ export default function BookDetailPage() {
               flushCurrentItem()
             }
           }
+          // 实时展示 buffer 中正在接收的行（打字机效果）
+          const section = currentSectionRef.current
+          const buffered = bufferRef.current.trim()
+          if (section && buffered && !buffered.startsWith('### ')) {
+            const displayItem = currentItemRef.current ? currentItemRef.current + buffered : buffered
+            setSpeedReadData(prev => {
+              if (!prev) return prev
+              return { ...prev, currentItem: displayItem, currentSection: section }
+            })
+          }
         },
         onDone: () => {
           if (bufferRef.current.trim()) {
@@ -902,7 +930,7 @@ export default function BookDetailPage() {
               flushCurrentItem()
               currentSectionRef.current = trimmed.slice(4).trim()
             } else if (trimmed) {
-              currentItemRef.current = trimmed
+              currentItemRef.current = currentItemRef.current ? currentItemRef.current + trimmed : trimmed
               flushCurrentItem()
             }
           } else {
@@ -917,11 +945,15 @@ export default function BookDetailPage() {
         onError: () => {
           flushCurrentItem()
           setSpeedReadLoading(false)
+          setSpeedReadData(prev => {
+            if (prev && prev.corePoints?.length > 0) updateCache(bookRef.current, inShelfRef.current, inTrashRef.current, progressRef.current, userRatingRef.current, commentsRef.current, commentCountRef.current, commentPageRef.current, hasMoreCommentsRef.current, prev)
+            return prev
+          })
         },
       },
     )
     return () => controller.abort()
-  }, [bookId, id])
+  }, [bookId, id, updateCache])
 
   const toggleShelf = async () => {
     if (!book) return

@@ -228,7 +228,7 @@ langchain4j:
     # 提供商：ollama | openai
     provider: ${AI_PROVIDER:ollama}
     base-url: ${AI_BASE_URL:http://localhost:11434}
-    model-name: ${AI_MODEL:qwen3.5-9b-claude-4.6-opus-reasoning-distilled-v2}
+    model-name: ${AI_MODEL:qwen3.5:9b}
     # OpenAI 兼容 API 的 API Key（Ollama 无需填写）
     api-key: ${AI_API_KEY:}
     temperature: 0.7

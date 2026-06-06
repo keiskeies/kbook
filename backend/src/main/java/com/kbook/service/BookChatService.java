@@ -653,17 +653,13 @@ public class BookChatService {
         if (!ragContext.isBlank()) {
             sb.append("\n【书籍参考内容】（以下是从原著中检索到的与问题相关的片段）\n");
             sb.append(ragContext);
-            sb.append("\n【核心主题提取】\n");
-            sb.append("请先根据上述参考内容提炼本书的 3~5 个核心主题，然后再回答用户的问题。\n");
-            sb.append("核心主题是指这本书真正在探讨的深层议题（如「存在感、自我重塑、安全感」），\n");
-            sb.append("而不是分类标签（如「心理学、励志」）。每个主题用 2~3 个字概括。\n");
         } else {
             sb.append("\n【注意】未从原著中检索到直接相关的内容片段，请根据书籍基本信息谨慎回答。\n");
         }
 
         sb.append("\n【读者的问题】\n").append(question);
 
-        sb.append("\n\n【重要提醒】请用中文直接回答上述问题，不要翻译、分类或解释参考片段。");
+        sb.append("\n\n【重要提醒】请用中文直接回答上述问题，不要翻译、分类或解释参考片段。引用原文时不超过100字，长段落请概括后引用关键句，用 > 引用格式标注原文。");
 
         String prompt = sb.toString();
 
