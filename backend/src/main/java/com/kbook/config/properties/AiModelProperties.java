@@ -31,7 +31,7 @@ public class AiModelProperties {
         /** 服务地址（Ollama 默认 <a href="http://localhost:11434">...</a>，OpenAI 兼容 API 填对应地址） */
         private String baseUrl = "http://localhost:11434";
         /** 模型名称 */
-        private String modelName = "gemma3n:e4b";
+        private String modelName = "gemma4:e4b";
         /** API Key（OpenAI 兼容 API 需要；Ollama 可留空） */
         private String apiKey;
         /** 温度参数（控制生成随机性，0-2） */
@@ -61,7 +61,7 @@ public class AiModelProperties {
 
     @Data
     public static class VisionConfig {
-        /** PDF OCR 视觉模型名称（需支持图片输入，如 llava、gemma3n:e4b、minicpm-v 等） */
+        /** PDF OCR 视觉模型名称（需支持图片输入，如 llava、gemma4:e4b、minicpm-v 等） */
         private String modelName = "";
         /** PDF OCR 视觉模型超时（OCR 处理图片更慢，需要更长超时） */
         private Duration timeout = Duration.ofSeconds(600);

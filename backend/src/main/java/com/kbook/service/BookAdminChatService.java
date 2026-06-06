@@ -44,8 +44,6 @@ public class BookAdminChatService {
 
     private final AiConversationRepository conversationRepository;
     private final AiSessionRepository sessionRepository;
-    /** 通用工具：搜索、推荐、偏好管理 */
-    private final ObjectProvider<AiToolService> toolServiceProvider;
     /** 管理员专用工具：增删改查、统计 */
     private final ObjectProvider<AdminBookToolService> adminToolServiceProvider;
     private final BookAdminChatMemory bookAdminChatMemory;
@@ -277,8 +275,6 @@ public class BookAdminChatService {
                         .maxMessages(200)
                         .chatMemoryStore(bookAdminChatMemory)
                         .build())
-                // 通用工具：搜索、推荐、偏好管理
-                .tools(toolServiceProvider.getObject())
                 // 管理员专用工具：增删改查、统计
                 .tools(adminToolServiceProvider.getObject())
                 .build();

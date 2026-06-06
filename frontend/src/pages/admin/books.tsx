@@ -5,13 +5,17 @@ import {
   BookOpen,
   Bot,
   CheckCircle2,
+  Copy,
+  Check,
   ChevronDown,
   ChevronUp,
   Database,
   File,
   FileText,
+  History,
   Loader2,
   MessageCircle,
+  Plus,
   RefreshCw,
   Scan,
   Search,
@@ -41,20 +45,20 @@ import {
   scanBooksStream,
   uploadBook
 } from '@/api/book'
-import { createAdminSession, streamAdminChat } from '@/api/adminAi'
-import type { AiMessage } from '@/types/ai'
+import { createAdminSession, streamAdminChat, getAdminSessions, getAdminHistory, deleteAdminSession } from '@/api/adminAi'
+import type { AiMessage, AiSessionItem } from '@/types/ai'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import { toast } from 'sonner'
 
 /** 管理员快捷指令 */
 const ADMIN_QUICK_PROMPTS = [
-  '查看热门图书',
-  '搜索重复书籍',
-  '查看低分图书',
-  '统计图书数量',
-  '查看最近入库',
-  '搜索指定书籍',
+  '作者排行 TOP20',
+  '图书格式分布',
+  '最近7天入库趋势',
+  '评分低于3的图书',
+  '扫描进度',
+  '本周入库统计',
 ]
 
 export default function AdminBooksPage() {
@@ -94,6 +98,9 @@ export default function AdminBooksPage() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [chatSessionId, setChatSessionId] = useState('')
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
+  const [historySessions, setHistorySessions] = useState<AiSessionItem[]>([])
 
   // 停止轮询
   const stopPolling = useCallback(() => {
@@ -404,6 +411,79 @@ export default function AdminBooksPage() {
       setChatMessages([])
     } catch { /* ignore */ }
   }
+
+  const handleRegenerate = useCallback(() => {
+    if (chatLoading) return
+
+    if (chatAbortRef.current) {
+      chatAbortRef.current.abort()
+      chatAbortRef.current = null
+    }
+
+    let lastAssistantIdx = -1
+    for (let i = chatMessages.length - 1; i >= 0; i--) {
+      if (chatMessages[i].role === 'assistant' && !chatMessages[i].streaming) {
+        lastAssistantIdx = i
+        break
+      }
+    }
+    if (lastAssistantIdx === -1) return
+
+    let userMsgContent = ''
+    if (lastAssistantIdx > 0 && chatMessages[lastAssistantIdx - 1].role === 'user') {
+      userMsgContent = chatMessages[lastAssistantIdx - 1].content
+    }
+
+    const cutIdx = lastAssistantIdx > 0 && chatMessages[lastAssistantIdx - 1].role === 'user'
+      ? lastAssistantIdx - 1
+      : lastAssistantIdx
+    setChatMessages(chatMessages.slice(0, cutIdx))
+
+    if (userMsgContent) {
+      requestAnimationFrame(() => {
+        handleChatSend(userMsgContent)
+      })
+    }
+  }, [chatMessages, chatLoading, handleChatSend])
+
+  const loadHistorySessions = useCallback(async () => {
+    try {
+      const data = await getAdminSessions() as any
+      setHistorySessions(data)
+    } catch { /* ignore */ }
+  }, [])
+
+  const loadSessionHistory = useCallback(async (targetSessionId: string) => {
+    try {
+      const data = await getAdminHistory(targetSessionId)
+      if (data && data.length > 0) {
+        const history: AiMessage[] = data
+          .filter((c: any) => c.role === 'user' || c.role === 'assistant')
+          .map((c: any) => ({
+            id: `h-${c.id}`,
+            role: c.role as 'user' | 'assistant',
+            content: c.content,
+            timestamp: new Date(c.createdAt).getTime(),
+            thinkingContent: c.thinkingContent || undefined,
+          }))
+        setChatMessages(history)
+        setChatSessionId(targetSessionId)
+      }
+      setShowHistory(false)
+    } catch { /* ignore */ }
+  }, [])
+
+  const handleDeleteSession = useCallback(async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await deleteAdminSession(sessionId)
+      setHistorySessions(prev => prev.filter(s => s.sessionId !== sessionId))
+      if (sessionId === chatSessionId) {
+        setChatMessages([])
+        setChatSessionId('')
+      }
+    } catch { /* ignore */ }
+  }, [chatSessionId])
 
   // ==================== 渲染辅助 ====================
 
@@ -781,11 +861,11 @@ export default function AdminBooksPage() {
         <MessageCircle className="h-6 w-6" />
       </DraggableFab>
 
-      {/* ===== AI 对话弹窗 ===== */}
+      {/* ===== AI 对话弹窗：移动端底部80%高度，PC端右侧抽屉 ===== */}
       {showChat && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
+        <div className="fixed inset-0 z-50 flex items-end md:items-stretch md:justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowChat(false)} />
-          <div className="relative flex w-full flex-col overflow-hidden rounded-t-2xl border-t bg-background max-h-[85vh]">
+          <div className="relative flex w-full flex-col overflow-hidden bg-background h-[80vh] md:h-full md:w-[420px] md:max-w-[420px] rounded-t-2xl md:rounded-none border-t md:border-l md:border-t-0 shadow-xl">
             {/* 标题栏 */}
             <div className="flex items-center gap-3 border-b px-4 py-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 text-white">
@@ -801,9 +881,23 @@ export default function AdminBooksPage() {
                   className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
                   title="新对话"
                 >
-                  <Sparkles className="h-4 w-4" />
+                  <Plus className="h-4 w-4" />
                 </button>
               )}
+              <button
+                onClick={() => {
+                  if (showHistory) {
+                    setShowHistory(false)
+                  } else {
+                    loadHistorySessions()
+                    setShowHistory(true)
+                  }
+                }}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted ${showHistory ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                title="历史记录"
+              >
+                <History className="h-4 w-4" />
+              </button>
               <button
                 onClick={() => setShowChat(false)}
                 className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -812,7 +906,49 @@ export default function AdminBooksPage() {
               </button>
             </div>
 
-            {/* 消息区域 */}
+            {/* 历史记录 / 消息区域 */}
+            {showHistory ? (
+              <div className="flex-1 overflow-y-auto overscroll-y-contain">
+                <div className="flex items-center justify-between border-b px-4 py-2">
+                  <span className="text-sm font-medium">历史对话</span>
+                  <button onClick={() => setShowHistory(false)} className="text-xs text-muted-foreground">
+                    关闭
+                  </button>
+                </div>
+                {historySessions.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <History className="mb-2 h-8 w-8 opacity-40" />
+                    <p className="text-sm">暂无历史对话记录</p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {historySessions.map((session) => (
+                      <button
+                        key={session.id}
+                        className={`w-full px-4 py-3 text-left transition-colors hover:bg-muted/50 group ${
+                          session.sessionId === chatSessionId ? 'bg-muted' : ''
+                        }`}
+                        onClick={() => loadSessionHistory(session.sessionId)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="truncate text-sm font-medium flex-1 min-w-0">{session.title || '未命名对话'}</p>
+                          <span
+                            className="ml-2 shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                            onClick={(e) => handleDeleteSession(session.sessionId, e)}
+                            title="删除"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {session.updatedAt ? new Date(session.updatedAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
             <div className="flex-1 overflow-y-auto overscroll-y-contain p-4 space-y-3">
               {chatMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -824,7 +960,15 @@ export default function AdminBooksPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {chatMessages.map((msg) => (
+                  {(() => {
+                    let lastAssistantId = ''
+                    for (let i = chatMessages.length - 1; i >= 0; i--) {
+                      if (chatMessages[i].role === 'assistant') {
+                        lastAssistantId = chatMessages[i].id
+                        break
+                      }
+                    }
+                    return chatMessages.map((msg) => (
                     <div
                       key={msg.id}
                       className={msg.role === 'user' ? 'flex justify-end' : ''}
@@ -858,13 +1002,57 @@ export default function AdminBooksPage() {
                             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-foreground/40 [animation-delay:300ms]" />
                           </span>
                         )}
+                        {msg.role === 'assistant' && !msg.streaming && (
+                          <div className="mt-1.5 flex items-center gap-1">
+                            {msg.content && (
+                              <button
+                                className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                                onClick={() => {
+                                  const idx = chatMessages.indexOf(msg)
+                                  const userMsg = idx > 0 ? chatMessages[idx - 1] : null
+                                  const text = userMsg && userMsg.role === 'user'
+                                    ? `问题：${userMsg.content}\n回答：${msg.content}`
+                                    : `回答：${msg.content}`
+                                  navigator.clipboard.writeText(text)
+                                  setCopiedId(msg.id)
+                                  setTimeout(() => setCopiedId(null), 2000)
+                                }}
+                                title="复制"
+                              >
+                                {copiedId === msg.id ? (
+                                  <>
+                                    <Check className="h-3.5 w-3.5 text-green-500" />
+                                    <span className="text-green-500">已复制</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="h-3.5 w-3.5" />
+                                    <span>复制</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            {msg.id === lastAssistantId && (
+                              <button
+                                className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                                onClick={() => handleRegenerate()}
+                                disabled={chatLoading}
+                                title="重新生成"
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                <span>重新生成</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ))}
+                  ))})()}
                   <div ref={messagesEndRef} />
                 </div>
               )}
             </div>
+            )}
 
             {/* 预设问题（输入框上方，可左右滑动） */}
             <div className="shrink-0 px-4 pt-2">

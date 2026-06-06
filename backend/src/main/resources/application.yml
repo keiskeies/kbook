@@ -203,7 +203,7 @@ kbook:
       always-ram: ${QDRANT_QUANTIZATION_ALWAYS_RAM:false} # 量化向量常驻 RAM（关闭可大幅节省内存，搜索稍慢）
   # ========================
   # AI 视觉模型配置（PDF OCR 用）
-  # 需支持图片输入的模型，如 Ollama 的 llava、gemma3n:e4b、minicpm-v 等
+  # 需支持图片输入的模型，如 Ollama 的 llava、gemma4:e4b、minicpm-v 等
   # 如果留空，则使用下方 langchain4j.chat-model 的模型
   # ========================
   ai:
@@ -228,7 +228,7 @@ langchain4j:
     # 提供商：ollama | openai
     provider: ${AI_PROVIDER:ollama}
     base-url: ${AI_BASE_URL:http://localhost:11434}
-    model-name: ${AI_MODEL:gemma4:e4b}
+    model-name: ${AI_MODEL:gemma4:e2b}
     # OpenAI 兼容 API 的 API Key（Ollama 无需填写）
     api-key: ${AI_API_KEY:}
     temperature: 0.7
