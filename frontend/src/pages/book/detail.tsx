@@ -761,6 +761,26 @@ export default function BookDetailPage() {
   const [speedReadData, setSpeedReadData] = useState<BookSpeedRead | null>(() => isCacheValid ? cached.speedReadData : null)
   const [speedReadLoading, setSpeedReadLoading] = useState(() => isCacheValid && cached.speedReadData ? false : true)
 
+  // Refs for SSE onDone callback to access latest state (avoids stale closure)
+  const bookRef = useRef(book)
+  const inShelfRef = useRef(inShelf)
+  const inTrashRef = useRef(inTrash)
+  const progressRef = useRef(progress)
+  const userRatingRef = useRef(userRating)
+  const commentsRef = useRef(comments)
+  const commentCountRef = useRef(commentCount)
+  const commentPageRef = useRef(commentPage)
+  const hasMoreCommentsRef = useRef(hasMoreComments)
+  bookRef.current = book
+  inShelfRef.current = inShelf
+  inTrashRef.current = inTrash
+  progressRef.current = progress
+  userRatingRef.current = userRating
+  commentsRef.current = comments
+  commentCountRef.current = commentCount
+  commentPageRef.current = commentPage
+  hasMoreCommentsRef.current = hasMoreComments
+
   const updateCache = useCallback((
     b: Book | null,
     shelf: boolean,
@@ -890,7 +910,7 @@ export default function BookDetailPage() {
           }
           setSpeedReadLoading(false)
           setSpeedReadData(prev => {
-            if (prev) updateCache(book, inShelf, inTrash, progress, userRating, comments, commentCount, commentPage, hasMoreComments, prev)
+            if (prev) updateCache(bookRef.current, inShelfRef.current, inTrashRef.current, progressRef.current, userRatingRef.current, commentsRef.current, commentCountRef.current, commentPageRef.current, hasMoreCommentsRef.current, prev)
             return prev
           })
         },

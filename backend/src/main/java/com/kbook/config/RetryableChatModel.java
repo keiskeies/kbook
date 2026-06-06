@@ -1,14 +1,13 @@
 package com.kbook.config;
 
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
-import java.util.List;
 
 /**
  * ChatModel 重试包装器 — 对 AI API 429 限速/5xx/网络错误自动重试
@@ -34,11 +33,11 @@ public class RetryableChatModel implements ChatModel {
     }
 
     @Override
-    public ChatResponse chat(List<ChatMessage> messages) {
+    public ChatResponse doChat(ChatRequest request) {
         int retries = 0;
         while (true) {
             try {
-                return delegate.chat(messages);
+                return delegate.chat(request);
             } catch (Exception e) {
                 if (isRetryable(e) && retries < maxRetries) {
                     retries++;

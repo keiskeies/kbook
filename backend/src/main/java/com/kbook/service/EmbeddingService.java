@@ -550,7 +550,7 @@ public class EmbeddingService {
                     .matches();
 
             for (EmbeddingMatch<TextSegment> match : matches) {
-                log.debug("向量搜索结果: score={}, bookId={}, textLen={}", match.score(), match.embedded().metadata().getLong("bookId"), match.embedded().text());
+                log.debug("向量搜索结果: score={}, bookId={}, textLen={}", match.score(), match.embedded().metadata().getLong("bookId"), match.embedded().text().replaceAll("\\n",  " "));
             }
 
             // 排除已读书籍
