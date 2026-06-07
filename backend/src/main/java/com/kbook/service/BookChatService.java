@@ -439,11 +439,17 @@ public class BookChatService {
 
         try {
 
-            List<String> subQueries = chatModelManager.expandQuery(question, book.getTitle(), book.getAuthor(), lastAiAnswer);
+            // 确保内容向量存在（RedisLock 防止并发重写）
+            if (!waitForContentEmbedding(book.getId())) {
+                log.debug("内容向量不可用，跳过 RAG 检索: bookId={}", book.getId());
+                return "";
+            }
+
+            List<String> subQueries = chatModelManager.expandQuery(question, book.getTitle(), book.getAuthor(), lastAiAnswer, book.getToc());
             Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
             int rawCount = 0, rawChars = 0;
             // 优化策略：多查询检索 + 相邻片段合并 + 关键词重排序 + 自适应 topK
-            int maxResult = Math.min(topK, !subQueries.isEmpty() ? topK / subQueries.size() * 2 : topK);
+            int maxResult = Math.max(10, Math.min(topK, !subQueries.isEmpty() ? topK / subQueries.size() * 2 : topK));
 
             for (String subQuery : subQueries) {
                 try {
@@ -471,8 +477,35 @@ public class BookChatService {
 
             if (allMatches.isEmpty()) {
                 log.debug("RAG 检索无结果: bookId={}, question={}", book.getId(), question.substring(0, Math.min(30, question.length())));
-                ragHitStatisticsService.recordMiss(book.getId());
-                return "";
+
+                // 检测内容向量是否实际缺失（contentEmbedded 标志可能过时），缺失则强制重建并重试
+                Boolean reEmbedResult = bookParserService.forceReEmbedIfMissing(book.getId());
+                if (reEmbedResult != null && reEmbedResult) {
+                    log.info("内容向量重建成功，重新执行 RAG 检索: bookId={}", book.getId());
+                    for (String subQuery : subQueries) {
+                        try {
+                            List<EmbeddingMatch<TextSegment>> matches =
+                                    embeddingService.searchContent(subQuery, maxResult, book);
+                            for (EmbeddingMatch<TextSegment> match : matches) {
+                                String chunkText = match.embedded() != null ? match.embedded().text() : "";
+                                if (chunkText.isBlank()) continue;
+                                String dedupeKey = chunkText.length() > 80
+                                        ? chunkText.substring(0, 80)
+                                        : chunkText;
+                                dedupedMatches.merge(dedupeKey, match, (existing, incoming) ->
+                                        incoming.score() > existing.score() ? incoming : existing);
+                            }
+                        } catch (Exception e) {
+                            log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
+                        }
+                    }
+                    allMatches = new ArrayList<>(dedupedMatches.values());
+                }
+
+                if (allMatches.isEmpty()) {
+                    ragHitStatisticsService.recordMiss(book.getId());
+                    return "";
+                }
             }
 
             double topScore = allMatches.stream()
@@ -547,6 +580,33 @@ public class BookChatService {
             log.debug("获取上次AI回答失败: {}", e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * 等待图书内容向量就绪，利用 ensureContentEmbedded 的 @RedisLock 防止并发重写
+     *
+     * @return true=向量可用，false=不可用
+     */
+    private boolean waitForContentEmbedding(Long bookId) {
+        Book book = bookService.getBookById(bookId);
+        if (book != null && Boolean.TRUE.equals(book.getContentEmbedded())) {
+            return true;
+        }
+
+        int maxRetries = 30;
+        for (int i = 0; i < maxRetries; i++) {
+            Boolean result = bookParserService.ensureContentEmbedded(bookId);
+            if (result != null) {
+                return result;
+            }
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
     }
 
 
@@ -648,6 +708,10 @@ public class BookChatService {
                     ? book.getToc().substring(0, 1000) + "..."
                     : book.getToc();
             sb.append("目录：\n").append(toc).append("\n");
+        }
+        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            String summary = CommonUtils.truncateText(book.getChapterSummary(), 5000);
+            sb.append("\n【章节摘要】（每章核心内容概述）\n").append(summary).append("\n");
         }
 
         if (!ragContext.isBlank()) {

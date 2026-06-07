@@ -1321,6 +1321,27 @@ public class BookParserService {
     }
 
     /**
+     * 强制重建内容向量（当 contentEmbedded 标志为 true 但 Qdrant 实际向量缺失/损坏时使用）
+     * <p>
+     * 与 {@link #ensureContentEmbedded} 的区别：本方法不信任 contentEmbedded 标志，
+     * 直接检测 Qdrant 中的实际向量状态。如果向量缺失或全零，强制重建。
+     * 同样使用 @RedisLock 防止并发重建。
+     *
+     * @param bookId 图书ID
+     * @return {@link Boolean#TRUE} 重建成功，{@link Boolean#FALSE} 重建失败，{@code null} 锁被占用
+     */
+    @RedisLock(key = "'book:content:embed:' + #bookId", leaseTime = 60, timeUnit = TimeUnit.MINUTES)
+    @LogAction("检测并重建内容向量")
+    public Boolean forceReEmbedIfMissing(Long bookId) {
+        if (!embeddingService.detectZeroContentVectors(bookId)) {
+            return true;
+        }
+        log.info("检测到内容向量缺失/损坏，强制重建: bookId={}", bookId);
+        int count = generateContentEmbeddingWithCount(bookId);
+        return count > 0;
+    }
+
+    /**
      * 为图书全文重新向量化（返回 chunk 数量）
      * 用于管理员手动修复或自动风控触发
      */

@@ -174,8 +174,8 @@ public class ChatModelManager {
         return List.of();
     }
 
-    /** RAG 查询扩展 — 生成 2 个额外的向量搜索查询 */
-    public List<String> expandQuery(String question, String bookTitle, String author, String lastAiAnswer) {
+    /** RAG 查询扩展 — 宏观问题按目录章节生成查询，具体问题生成多粒度查询 */
+    public List<String> expandQuery(String question, String bookTitle, String author, String lastAiAnswer, String toc) {
         List<String> queries = new ArrayList<>();
         queries.add(question);
 
@@ -185,6 +185,12 @@ public class ChatModelManager {
             if (author != null && !author.isBlank()) {
                 contextBuilder.append("作者：").append(author).append("\n");
             }
+            if (toc != null && !toc.isBlank()) {
+                String truncatedToc = toc.length() > 2000
+                        ? toc.substring(0, 2000) + "..."
+                        : toc;
+                contextBuilder.append("目录：\n").append(truncatedToc).append("\n");
+            }
             if (lastAiAnswer != null && !lastAiAnswer.isBlank()) {
                 String truncated = lastAiAnswer.length() > 500
                         ? lastAiAnswer.substring(0, 500) + "..."
@@ -193,37 +199,44 @@ public class ChatModelManager {
             }
 
             String prompt = String.format("""
-                    你是一个向量检索查询生成器。根据以下上下文，为用户的问题生成2个额外的向量搜索查询（不包含原问题本身），每行一个。
-                    
+                    你是一个向量检索查询生成器。根据以下上下文，为用户的问题生成向量搜索查询，每行一个。
+
                     上下文：
                     %s
-                    
+
                     用户问题：%s
-                    
-                    要求：
+
+                    请先判断问题类型，然后按对应策略生成查询：
+
+                    【宏观问题】当用户问的是全书性、概览性问题（如"讲了什么""核心观点""主要内容""框架""概述""思路""核心思想""这本书的主题"等）时，根据目录为每个主要章节生成一个检索查询，确保覆盖全书内容。每个查询用该章节的核心主题词组合而成，使用书中可能出现的措辞。最多8个查询。
+
+                    【具体问题】当用户问的是具体的、局部的问题时，生成2-3个不同粒度的查询：
+                    - 精准定位：提取核心名词/关键论断，组合成书中可能出现的原文级短语
+                    - 宽泛召回：将问题抽象到上一层主题或相关概念，补充检索遗漏
+
+                    通用要求：
                     1. 先解析代词指代（"上面""这些""该理论"等），在查询中替换为具体实体
-                    2. 两个查询必须从不同粒度切入，严禁雷同：
-                       - 查询A（精准定位）：提取问题中的核心名词/关键论断，组合成书中可能出现的原文级短语，用于定位具体出处
-                       - 查询B（宽泛召回）：将问题抽象到上一层的主题或相关概念，用于补充检索遗漏的相关段落
-                    3. 如果用户追问上轮回答，查询应指向书中原文出处而非复述AI回答
-                    4. 使用书籍中可能出现的措辞，避免口语化；若书名/作者信息可用，查询风格应与之匹配
-                    5. 每行只输出查询文本，不带序号、引号或任何额外文字
-                    
-                    示例：
+                    2. 如果用户追问上轮回答，查询应指向书中原文出处而非复述AI回答
+                    3. 使用书籍中可能出现的措辞，避免口语化
+                    4. 每行只输出查询文本，不带序号、引号或任何额外文字
+
+                    示例（宏观问题）：
+                    用户问题：这本书主要讲了什么？
+                    输出：
+                    情绪心理学的基本概念与理论框架
+                    情绪的生理基础与神经机制
+                    认知评价理论的核心观点
+                    情绪建构论的主要论点与证据
+                    情绪调节的策略与心理过程
+                    情绪与社会互动的关系
+                    情绪的个体差异与文化影响
+
+                    示例（具体问题）：
                     用户问题：情绪是否完全由生理反应决定？
                     输出：
                     情绪理论中生理反应与认知评价的关系
                     情绪产生的生理机制与詹姆斯-兰格理论
-                    
-                    用户问题：概念化对情绪体验有什么作用？
-                    输出：
-                    概念化在情绪建构论中的作用机制
-                    情绪建构理论的核心观点与证据
-                    
-                    用户问题：上面说的身体感觉怎么影响情绪？
-                    输出：
-                    身体感觉作为情绪建构的原材料
-                    情绪体验中身体感觉与概念的相互作用
+                    情绪建构论对生理反应的解释
                     """, contextBuilder.toString().trim(), question);
 
             String aiText = callAi("RAG查询扩展",
@@ -233,7 +246,7 @@ public class ChatModelManager {
                     line = line.trim();
                     if (!line.isBlank() && !line.equals(question)) {
                         queries.add(line);
-                        if (queries.size() >= 3) break;
+                        if (queries.size() >= 9) break;
                     }
                 }
             }
