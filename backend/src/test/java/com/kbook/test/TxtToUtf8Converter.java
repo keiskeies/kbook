@@ -23,7 +23,7 @@ public class TxtToUtf8Converter {
 
     public static void main(String[] args) throws IOException {
         Path inputDir = Paths.get("G:\\图书\\txt");
-        Path outputDir = Paths.get("G:\\图书\\txt1");
+        Path outputDir = Paths.get("G:\\图书\\txt2");
 
         if (!Files.isDirectory(inputDir)) {
             System.err.println("输入目录不存在或不是一个目录: " + inputDir);

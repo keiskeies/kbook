@@ -26,7 +26,7 @@ import java.util.stream.Stream;
 @ActiveProfiles("test")
 public class EpubImportTool {
 
-    private static final String SOURCE_DIR = "H:\\reader\\storage\\data\\admin\\webdav";
+    private static final String SOURCE_DIR = "G:\\图书\\new_epub";
 
     @Autowired
     private BookStorageProperties storageProps;

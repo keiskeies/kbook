@@ -23,6 +23,12 @@
         </encoder>
     </appender>
 
+    <!-- 默认兜底（测试等无 profile 场景） -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+    <logger name="com.kbook" level="DEBUG"/>
+
     <!-- 开发环境 -->
     <springProfile name="default|dev">
         <root level="INFO">

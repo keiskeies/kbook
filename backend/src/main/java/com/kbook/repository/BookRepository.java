@@ -32,6 +32,9 @@ public interface BookRepository extends JpaRepository<Book, Long> {
      */
     List<Book> findAllByOrderByRatingDesc();
 
+
+    List<Book> findAllByIdGreaterThan(Long idIsGreaterThan);
+
     /**
      * 根据封面URL集合批量查询图书
      */

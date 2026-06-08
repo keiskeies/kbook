@@ -1694,12 +1694,21 @@ public class BookParserService {
             // 解析标签
             List<String> tags = null;
             if (root.has("tags") && !root.get("tags").isNull()) {
-                String tagsStr = root.get("tags").asText();
-                if (tagsStr != null && !tagsStr.isBlank()) {
-                    tags = Stream.of(tagsStr.split("[,，、]"))
+                JsonNode conceptNode = root.get("tags");
+                if (conceptNode.isArray()) {
+                    tags = StreamSupport.stream(conceptNode.spliterator(), false)
+                            .map(JsonNode::asText)
                             .map(String::trim)
                             .filter(t -> !t.isBlank())
                             .toList();
+                } else {
+                    String conceptStr = conceptNode.asText();
+                    if (conceptStr != null && !conceptStr.isBlank()) {
+                        tags = Stream.of(conceptStr.split("[,，、]"))
+                                .map(String::trim)
+                                .filter(t -> !t.isBlank())
+                                .toList();
+                    }
                 }
             }
 

@@ -40,8 +40,9 @@ public class BookInfoServiceTest {
 
     @Test
     public void updateBookBaseInfo() {
-        List<Book> allBooks0 = bookRepository.findAllByOrderByRatingDesc();
-        List<Book> allBooks = allBooks0.stream().filter(book -> null == book.getReaderNeedTags() || book.getConceptTags() == null || book.getTargetReaderTags() == null).toList();
+        List<Book> allBooks = bookRepository.findAllByIdGreaterThan(24625L);
+//        List<Book> allBooks0 = bookRepository.findAllByOrderByRatingDesc();
+//        List<Book> allBooks = allBooks0.stream().filter(book -> null == book.getReaderNeedTags() || book.getConceptTags() == null || book.getTargetReaderTags() == null).toList();
         System.out.println("共 " + allBooks.size() + " 本图书需要处理");
 
         long totalStartTime = System.currentTimeMillis();
@@ -98,29 +99,29 @@ public class BookInfoServiceTest {
                     }
                     bookParserService.parseAndFill(book, filePath);
                     bookParserService.finalizeCover(book);
-                    //bookParserService.generateAllAiData(book);
+                    bookParserService.generateAllAiData(book);
                     // 将请求文字写入项目根目录下的questions目录
-                    try {
-                        String content = book.getParsedContent();
-                        if (content == null || content.isBlank()) {
-                            java.lang.reflect.Method method = bookParserService.getClass()
-                                    .getDeclaredMethod("extractContentForTags", Book.class);
-                            method.setAccessible(true);
-                            content = (String) method.invoke(bookParserService, book);
-                        }
-                        if (content != null && !content.isBlank()) {
-                            String prompt = AiPromptConstants.COMBINED_PROMPT_SYSTEM_PROMPT;
-                            String safeTitle = book.getTitle().replaceAll("[\\\\/:*?\"<>|]", "_");
-                            String filename = book.getId() + "_" + safeTitle + ".txt";
-                            java.nio.file.Path questionsDir = java.nio.file.Paths.get("..", "questions");
-                            java.nio.file.Files.createDirectories(questionsDir);
-                            String fileContent = "问题:\n1. 提示词:" + prompt + "\n2. 问题内容:" + content + "\n回答:\n";
-                            java.nio.file.Files.writeString(questionsDir.resolve(filename), fileContent, java.nio.charset.StandardCharsets.UTF_8);
-                        }
-                    } catch (Exception e) {
-                        System.err.printf("  ✗ [%d] 写入请求文件失败: id=%d %s — %s%n", index + 1, book.getId(), book.getTitle(), e.getMessage());
-                    }
-//                    bookService.updateBookAll(book.getId(), book);
+//                    try {
+//                        String content = book.getParsedContent();
+//                        if (content == null || content.isBlank()) {
+//                            java.lang.reflect.Method method = bookParserService.getClass()
+//                                    .getDeclaredMethod("extractContentForTags", Book.class);
+//                            method.setAccessible(true);
+//                            content = (String) method.invoke(bookParserService, book);
+//                        }
+//                        if (content != null && !content.isBlank()) {
+//                            String prompt = AiPromptConstants.COMBINED_PROMPT_SYSTEM_PROMPT;
+//                            String safeTitle = book.getTitle().replaceAll("[\\\\/:*?\"<>|]", "_");
+//                            String filename = book.getId() + "_" + safeTitle + ".txt";
+//                            java.nio.file.Path questionsDir = java.nio.file.Paths.get("..", "questions");
+//                            java.nio.file.Files.createDirectories(questionsDir);
+//                            String fileContent = "问题:\n1. 提示词:" + prompt + "\n2. 问题内容:" + content + "\n回答:\n";
+//                            java.nio.file.Files.writeString(questionsDir.resolve(filename), fileContent, java.nio.charset.StandardCharsets.UTF_8);
+//                        }
+//                    } catch (Exception e) {
+//                        System.err.printf("  ✗ [%d] 写入请求文件失败: id=%d %s — %s%n", index + 1, book.getId(), book.getTitle(), e.getMessage());
+//                    }
+                    bookService.updateBookAll(book.getId(), book);
 
                     successCount.incrementAndGet();
                     System.out.printf("  ✓ [%d] id=%d %s%n", index + 1, book.getId(), book.getTitle());

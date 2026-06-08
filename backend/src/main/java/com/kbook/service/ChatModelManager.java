@@ -60,6 +60,7 @@ public class ChatModelManager {
         if (text != null && !text.isBlank()) {
             text = text.trim();
         }
+        log.debug("logName: {}, logDetail: {}", logName, logDetail);
         CommonUtils.logAiCall(logName, elapsed, inputTokens, outputTokens, logDetail);
         return text;
     }
@@ -467,7 +468,7 @@ public class ChatModelManager {
                         【书籍信息】
                         %s
 
-                        请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行：
+                        请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行,每个标题占一行，标题下的每条内容各占一行,每个标题占一行，标题下的每条内容各占一行：
 
                         ### 核心观点
                         xxxxx
