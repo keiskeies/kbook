@@ -671,7 +671,7 @@ export default function ProfilePage() {
         <FooterVersion />
 
       <Sheet open={showProfileModal} onOpenChange={setShowProfileModal}>
-        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-md rounded-l-2xl'}`}>
+        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
           <SheetHeader className="p-0 shrink-0 pb-4">
             <SheetTitle className="text-base font-bold">编辑个人信息</SheetTitle>
             <SheetDescription className="sr-only">编辑你的昵称、头像、简介和心情</SheetDescription>
@@ -771,7 +771,7 @@ export default function ProfilePage() {
       </Sheet>
 
       <Sheet open={showTraitsModal} onOpenChange={setShowTraitsModal}>
-        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-md rounded-l-2xl'}`}>
+        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
           <SheetHeader className="p-0 shrink-0 pb-4">
             <SheetTitle className="text-base font-bold">编辑我的画像</SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</SheetDescription>
@@ -986,7 +986,7 @@ export default function ProfilePage() {
       </Sheet>
 
       <Sheet open={showPreferenceModal} onOpenChange={setShowPreferenceModal}>
-        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-md rounded-l-2xl'}`}>
+        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
           <SheetHeader className="p-0 shrink-0 pb-4">
             <SheetTitle className="text-lg font-bold">阅读偏好</SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">
@@ -1119,7 +1119,7 @@ export default function ProfilePage() {
       />
 
       <Sheet open={showStylePicker} onOpenChange={setShowStylePicker}>
-        <SheetContent side={sheetSide} className={`p-5 ${isMobile ? 'rounded-t-3xl max-h-[50vh]' : 'h-full sm:max-w-md rounded-l-2xl'}`}>
+        <SheetContent side={sheetSide} className={`p-5 ${isMobile ? 'rounded-t-3xl max-h-[50vh]' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
           <SheetHeader className="p-0 pb-3">
             <SheetTitle className="text-base font-bold">AI 对话风格</SheetTitle>
             <SheetDescription className="text-xs text-muted-foreground">选择 AI 图书问答的语气风格</SheetDescription>

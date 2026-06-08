@@ -121,12 +121,12 @@ public class BookChatController extends BaseController {
             @PathVariable Long bookId,
             @RequestBody Map<String, String> body
     ) {
+        Long userId = extractUserId();
         String question = body.get("question");
         String answer = body.get("answer");
         String sessionId = body.get("sessionId");
-        List<String> followUps = bookChatService.generateFollowUpQuestions(bookId, question, answer);
+        List<String> followUps = bookChatService.generateFollowUpQuestions(userId, bookId, question, answer);
         if (!followUps.isEmpty() && sessionId != null && !sessionId.isBlank()) {
-            Long userId = extractUserId();
             bookChatService.saveFollowUpQuestions(userId, sessionId, bookId, followUps);
         }
         return Result.ok(followUps);

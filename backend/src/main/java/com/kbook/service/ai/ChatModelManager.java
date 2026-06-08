@@ -139,31 +139,89 @@ public class ChatModelManager {
         }
     }
 
-    /** 根据已有问答生成深入追问问题 */
-    public List<String> generateFollowUpQuestions(String title, String question, String answer) {
+    /**
+     * 根据已有问答生成深入追问问题（包含用户画像和图书信息）
+     */
+    public List<String> generateFollowUpQuestions(String title, String question, String answer, User user, Book book) {
         if (answer == null || answer.isBlank() || question == null || question.isBlank()) {
             return List.of();
         }
 
+        String userProfileDesc = buildUserProfileDesc(user);
+
+        // 构建图书基本信息
+        StringBuilder bookInfoBuilder = new StringBuilder();
+        bookInfoBuilder.append("《").append(title).append("》");
+        if (book != null) {
+            if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
+                bookInfoBuilder.append("，作者：").append(book.getAuthor());
+            }
+            if (book.getDescription() != null && !book.getDescription().isBlank()) {
+                String desc = book.getDescription().length() > 300
+                        ? book.getDescription().substring(0, 300) + "..."
+                        : book.getDescription();
+                bookInfoBuilder.append("\n简介：").append(desc);
+            }
+            if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+                String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+                bookInfoBuilder.append("\n标签：").append(tags);
+            }
+        }
+        String bookInfo = bookInfoBuilder.toString();
+
         try {
-            String prompt = String.format("""
-                    你正在和读者讨论《%s》这本书。你刚给出了一个回答。
-                    
-                    读者问：%s
-                    你回答：%s
-                    
-                    现在，审视你刚才的回答，找出其中3个最可能引发读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
-                    - 你说了一个结论，但没有给出这个结论成立的条件或前提
-                    - 你使用了一个关键概念，但它的含义在语境中可能被误解
-                    - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
-                    - 你提出了一个判断，但没有说明它适用的边界或反例
-                    
-                    要求：
-                    - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
-                    - 问题的提问对象是你这个AI，问题本身你必须能回答
-                    - 每行一个，不超25字，无序号
-                    """,
-                    title, question, answer);
+            String prompt;
+            if (!userProfileDesc.isBlank()) {
+                prompt = String.format("""
+                        你正在和读者讨论一本书，以下是这本书的基本信息：
+
+                        【图书信息】
+                        %s
+
+                        【读者画像】
+                        %s
+
+                        读者问：%s
+                        你回答：%s
+
+                        现在，审视你刚才的回答，找出其中3个最可能引发这位读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
+                        - 你说了一个结论，但没有给出这个结论成立的条件或前提
+                        - 你使用了一个关键概念，但它的含义在语境中可能被误解
+                        - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
+                        - 你提出了一个判断，但没有说明它适用的边界或反例
+
+                        要求：
+                        - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
+                        - 问题要贴合读者的背景和处境，能引发他的共鸣或思考
+                        - 问题要与本书内容紧密相关，不要偏离书籍主题
+                        - 问题的提问对象是你这个AI，问题本身你必须能回答
+                        - 每行一个，不超25字，无序号
+                        """,
+                        bookInfo, userProfileDesc, question, answer);
+            } else {
+                prompt = String.format("""
+                        你正在和读者讨论一本书，以下是这本书的基本信息：
+
+                        【图书信息】
+                        %s
+
+                        读者问：%s
+                        你回答：%s
+
+                        现在，审视你刚才的回答，找出其中3个最可能引发读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
+                        - 你说了一个结论，但没有给出这个结论成立的条件或前提
+                        - 你使用了一个关键概念，但它的含义在语境中可能被误解
+                        - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
+                        - 你提出了一个判断，但没有说明它适用的边界或反例
+
+                        要求：
+                        - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
+                        - 问题要与本书内容紧密相关，不要偏离书籍主题
+                        - 问题的提问对象是你这个AI，问题本身你必须能回答
+                        - 每行一个，不超25字，无序号
+                        """,
+                        bookInfo, question, answer);
+            }
 
             String aiText = callAi("生成深入追问问题",
                     String.format("title=%s", title), prompt);

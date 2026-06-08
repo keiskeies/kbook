@@ -138,7 +138,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
         side={isMobile ? 'bottom' : 'right'}
         className={isMobile
           ? 'h-[75vh] rounded-t-2xl border-t p-0'
-          : 'w-[360px] sm:max-w-[360px] p-0'
+          : 'w-[576px] sm:max-w-[576px] p-0'
         }
       >
         <SheetTitle className="sr-only">阅读设置</SheetTitle>

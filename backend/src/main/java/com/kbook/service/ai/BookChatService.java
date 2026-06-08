@@ -18,6 +18,7 @@ import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.entity.Book;
 import com.kbook.entity.BookSuggestedQuestion;
+import com.kbook.entity.User;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
 import com.kbook.repository.BookSuggestedQuestionRepository;
@@ -362,15 +363,16 @@ public class BookChatService {
     }
 
     /**
-     * 根据已有问答生成深入追问问题
+     * 根据已有问答生成深入追问问题（包含用户画像和图书信息）
      *
+     * @param userId   用户ID
      * @param bookId   书籍ID
      * @param question 原始问题
      * @param answer   AI 回答
      * @return 深入追问问题列表（最多3个）
      */
     @LogAction("生成深入追问")
-    public List<String> generateFollowUpQuestions(Long bookId, String question, String answer) {
+    public List<String> generateFollowUpQuestions(Long userId, Long bookId, String question, String answer) {
         if (answer == null || answer.isBlank() || question == null || question.isBlank()) {
             return Collections.emptyList();
         }
@@ -381,7 +383,8 @@ public class BookChatService {
             title = book.getTitle();
         }
 
-        return chatModelManager.generateFollowUpQuestions(title, question, answer);
+        User user = userService.getUserById(userId);
+        return chatModelManager.generateFollowUpQuestions(title, question, answer, user, book);
     }
 
     /**
