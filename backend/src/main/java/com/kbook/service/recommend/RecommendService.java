@@ -459,6 +459,14 @@ public class RecommendService {
         return null;
     }
 
+    /**
+     * 计算用户推荐评分（内部辅助方法）
+     * 从数据库加载全部图书，执行评分逻辑
+     *
+     * @param userId     用户ID
+     * @param restartKey 重算标识key，用于检测画像变更
+     * @return 评分结果列表
+     */
     private List<ScoredBook> computeScoredBooksWithRestart(Long userId, String restartKey) {
         List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
         return scoreAllBooks(userId, allBooks, restartKey, null);
@@ -530,6 +538,15 @@ public class RecommendService {
     }
 
 
+    /**
+     * 添加探索发现书籍到推荐列表
+     * 包括随机采样书籍和热门书籍，用于拓展用户视野
+     * 探索书籍的得分上限设为正常推荐最低分的40%，确保排在规则匹配之后
+     *
+     * @param user        用户实体
+     * @param excludeSet  需要排除的书籍ID集合（已读/回收站）
+     * @param scoredBooks 已评分书籍列表（会被修改，添加探索书籍）
+     */
     private void addExploreBooks(User user, Set<Long> excludeSet, List<ScoredBook> scoredBooks) {
         int exploreRandomCount = (int) coefficientService.getCoefficient("OTHER", "explore_random_count", 30);
         Set<Long> existingIds = scoredBooks.stream()
@@ -573,6 +590,13 @@ public class RecommendService {
         }
     }
 
+    /**
+     * 通过临时Set写入推荐结果（原子操作）
+     * 先写入临时key，再删除旧key并重命名，避免读取时出现空窗口
+     *
+     * @param userId      用户ID
+     * @param scoredBooks 评分书籍列表
+     */
     private void saveToSortedSetWithTemp(Long userId, List<ScoredBook> scoredBooks) {
         try {
             String tempKey = SORTED_KEY_PREFIX + userId + SORTED_TEMP_SUFFIX;
@@ -589,6 +613,13 @@ public class RecommendService {
         }
     }
 
+    /**
+     * 直接写入推荐结果到Sorted Set（用于SSE推送场景）
+     * 删除旧key后重新写入，适用于实时推荐生成
+     *
+     * @param userId      用户ID
+     * @param scoredBooks 评分书籍列表
+     */
     void saveToSortedSetDirect(Long userId, List<ScoredBook> scoredBooks) {
         try {
             String sortedKey = SORTED_KEY_PREFIX + userId;
@@ -601,6 +632,13 @@ public class RecommendService {
         }
     }
 
+    /**
+     * 计算单本图书的推荐得分并加入推荐列表
+     * 用于新书入库或手动刷新时的增量计算
+     *
+     * @param userId 用户ID
+     * @param bookId 书籍ID
+     */
     @LogAction("计算单本图书推荐得分")
     public void computeAndAddSingleBook(Long userId, Long bookId) {
         try {
@@ -634,6 +672,15 @@ public class RecommendService {
         }
     }
 
+    /**
+     * 计算用户与书籍的完整匹配度得分（含新鲜度和偏好加成）
+     * 用于批量计算和单本书计算场景
+     *
+     * @param user 用户实体
+     * @param book 书籍投影
+     * @param userId 用户ID（用于获取偏好）
+     * @return 最终匹配度得分（0~1）
+     */
     @LogAction("计算图书匹配度得分")
     public double computeFullScore(User user, BookProjection book, Long userId) {
         List<String> includedTags = getIncludedTags(userId);
@@ -651,6 +698,22 @@ public class RecommendService {
         return finalScore;
     }
 
+    /**
+     * 对单本书进行评分计算
+     * 核心评分逻辑：匹配度×0.9 + 新鲜度×0.05 + 偏好加成×0.05
+     *
+     * @param user               用户实体
+     * @param book               书籍投影
+     * @param excludeSet         排除的书籍ID集合
+     * @param excludedTags       排除的标签
+     * @param excludedAuthors    排除的作者
+     * @param excludedFormats    排除的格式
+     * @param includedTags       偏好标签
+     * @param includedAuthors    偏好作者
+     * @param includedFormats    偏好格式
+     * @param ruleMinScore       规则召回最低匹配分阈值
+     * @return 评分结果，不符合条件时返回null
+     */
     private ScoredBook scoreBook(User user, BookProjection book,
                                   Set<Long> excludeSet,
                                   List<String> excludedTags, List<String> excludedAuthors, List<String> excludedFormats,
@@ -671,6 +734,13 @@ public class RecommendService {
         return new ScoredBook(book, finalScore, matchScore, 0.0, "RULE");
     }
 
+    /**
+     * 计算图书质量加分
+     * 基于评分分段计算：低分压制，高分加成
+     *
+     * @param rating 图书评分（1~5分）
+     * @return 质量加分值
+     */
     private double calculateQualityBonus(Double rating) {
         if (rating == null || rating <= 0) return -0.05;
         if (rating < 2.0) return -0.15 + (rating - 1.0) * 0.07;
@@ -679,6 +749,13 @@ public class RecommendService {
         else return 0.04 + (rating - 4.0) * 0.06;
     }
 
+    /**
+     * 计算图书新鲜度加分
+     * 7天内有加成，30天后衰减为0
+     *
+     * @param createdAt 图书创建时间
+     * @return 新鲜度加分值（0~0.05）
+     */
     private double calculateFreshnessBonus(LocalDateTime createdAt) {
         if (createdAt == null) return 0;
         long daysAgo = ChronoUnit.DAYS.between(createdAt, LocalDateTime.now());
@@ -688,6 +765,16 @@ public class RecommendService {
         return 0;
     }
 
+    /**
+     * 计算偏好匹配加成
+     * 根据用户偏好（标签/作者/格式）与图书属性的匹配度计算加成
+     *
+     * @param book             书籍投影
+     * @param includedTags     偏好标签列表
+     * @param includedAuthors  偏好作者列表
+     * @param includedFormats  偏好格式列表
+     * @return 偏好加成值
+     */
     private double calculateIncludeBonus(BookProjection book, List<String> includedTags,
                                           List<String> includedAuthors, List<String> includedFormats) {
         double tagBonus = coefficientService.getCoefficient("PREFERENCE", "tag_bonus", 0.12);
@@ -720,6 +807,16 @@ public class RecommendService {
         return bonus;
     }
 
+    /**
+     * 检查图书是否被偏好排除
+     * 匹配排除标签、排除作者、排除格式任一条件即返回true
+     *
+     * @param book             书籍投影
+     * @param excludedTags     排除的标签列表
+     * @param excludedAuthors  排除的作者列表
+     * @param excludedFormats  排除的格式列表
+     * @return true=应排除，false=不排除
+     */
     private boolean isExcludedByPreference(BookProjection book, List<String> excludedTags,
                                             List<String> excludedAuthors, List<String> excludedFormats) {
         if (!excludedFormats.isEmpty() && book.getFormat() != null
@@ -735,6 +832,13 @@ public class RecommendService {
         return false;
     }
 
+    /**
+     * 获取用户已读书籍ID列表
+     * 合并阅读历史和阅读进度中的书籍ID（去重）
+     *
+     * @param userId 用户ID
+     * @return 已读书籍ID列表
+     */
     private List<Long> getReadBookIds(Long userId) {
         Set<Long> ids = new LinkedHashSet<>();
         ids.addAll(readHistoryRepository.findAllInteractedBookIdsByUserId(userId));
@@ -742,36 +846,79 @@ public class RecommendService {
         return new ArrayList<>(ids);
     }
 
+    /**
+     * 获取用户排除的标签偏好
+     *
+     * @param userId 用户ID
+     * @return 排除的标签列表
+     */
     private List<String> getExcludedTags(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "EXCLUDE")
                 .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
     }
 
+    /**
+     * 获取用户排除的作者偏好
+     *
+     * @param userId 用户ID
+     * @return 排除的作者列表
+     */
     private List<String> getExcludedAuthors(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "EXCLUDE")
                 .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
     }
 
+    /**
+     * 获取用户排除的格式偏好
+     *
+     * @param userId 用户ID
+     * @return 排除的格式列表
+     */
     private List<String> getExcludedFormats(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "EXCLUDE")
                 .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
     }
 
+    /**
+     * 获取用户偏好的标签
+     *
+     * @param userId 用户ID
+     * @return 偏好标签列表
+     */
     private List<String> getIncludedTags(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "INCLUDE")
                 .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
     }
 
+    /**
+     * 获取用户偏好的作者
+     *
+     * @param userId 用户ID
+     * @return 偏好作者列表
+     */
     private List<String> getIncludedAuthors(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "INCLUDE")
                 .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
     }
 
+    /**
+     * 获取用户偏好的格式
+     *
+     * @param userId 用户ID
+     * @return 偏好格式列表
+     */
     private List<String> getIncludedFormats(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "INCLUDE")
                 .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
     }
 
+    /**
+     * 解析格式标签字符串为集合
+     * 支持JSON数组格式和逗号分隔格式
+     *
+     * @param formatTags 标签字符串（如 "[\"科幻\",\"奇幻\"]" 或 "科幻,奇幻"）
+     * @return 标签集合
+     */
     private Set<String> parseTags(String formatTags) {
         if (formatTags == null || formatTags.isBlank()) return Set.of();
         return Arrays.stream(formatTags.replaceAll("[\\[\\]\"]", "").split("[,，]"))

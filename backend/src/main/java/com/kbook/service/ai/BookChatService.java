@@ -577,6 +577,13 @@ public class BookChatService {
         }
     }
 
+    /**
+     * 获取指定会话中最近一次 AI 回复内容
+     *
+     * @param userId    用户ID
+     * @param sessionId 会话ID
+     * @return 最近一条 assistant 消息的内容，无则返回 null
+     */
     private String getLastAiAnswer(Long userId, String sessionId) {
         try {
             List<AiConversation> history = conversationRepository
@@ -620,6 +627,14 @@ public class BookChatService {
     }
 
 
+    /**
+     * 计算片段与用户问题的关键词匹配加分
+     * 去除中文停用词后，按单字匹配统计命中数，每个命中加 0.01 分
+     *
+     * @param match    向量检索匹配结果
+     * @param question 用户问题
+     * @return 关键词匹配加分值
+     */
     private double keywordRelevanceBonus(EmbeddingMatch<TextSegment> match, String question) {
         if (match.embedded() == null || match.embedded().text() == null) return 0;
         String chunkText = match.embedded().text();
@@ -633,6 +648,13 @@ public class BookChatService {
         return hitCount * 0.01;
     }
 
+    /**
+     * 合并相邻的文本片段，减少重复上下文
+     * 按 chunkIndex 排序后，将索引差 ≤ 2 且合并后不超过 2000 字符的片段拼接
+     *
+     * @param matches 原始匹配结果列表
+     * @return 合并后的匹配结果列表
+     */
     private List<EmbeddingMatch<TextSegment>> mergeAdjacentChunks(List<EmbeddingMatch<TextSegment>> matches) {
         if (matches.size() <= 1) return matches;
 
@@ -673,6 +695,12 @@ public class BookChatService {
         return merged;
     }
 
+    /**
+     * 从片段元数据中提取 chunkIndex，用于判断片段在书籍中的位置顺序
+     *
+     * @param match 向量检索匹配结果
+     * @return 片段索引，元数据缺失时返回 0
+     */
     private int getChunkIndex(EmbeddingMatch<TextSegment> match) {
         if (match.embedded() != null && match.embedded().metadata() != null) {
             Long idx = match.embedded().metadata().getLong("chunkIndex");
@@ -681,6 +709,14 @@ public class BookChatService {
         return 0;
     }
 
+    /**
+     * 根据模板创建合并后的匹配结果，复用模板的 embeddingId 和元数据
+     *
+     * @param text     合并后的文本内容
+     * @param template 原始匹配结果（用于复用元数据）
+     * @param score    合并后的得分
+     * @return 新的匹配结果对象
+     */
     private EmbeddingMatch<TextSegment> createMergedMatch(String text, EmbeddingMatch<TextSegment> template, double score) {
         TextSegment segment = TextSegment.from(text,
                 template.embedded() != null ? template.embedded().metadata() : new dev.langchain4j.data.document.Metadata());
@@ -811,6 +847,13 @@ public class BookChatService {
         return "DEEP";
     }
 
+    /**
+     * 根据对话风格标识返回对应的系统提示词常量
+     * 支持 CASUAL（轻松）、CONCISE（简洁）、WITTY（幽默）、DEEP（深入）四种风格
+     *
+     * @param style 对话风格标识
+     * @return 对应的系统提示词文本
+     */
     private String getSystemPromptForStyle(String style) {
         if (style != null) {
             return switch (style.toUpperCase()) {

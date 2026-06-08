@@ -90,6 +90,15 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     }
 
 
+    /**
+     * 计算热门标签（带分布式锁，防止并发重复计算）
+     * <p>
+     * 从评分排行前5000本书中统计标签出现频率，取前120个热门标签。
+     * 使用 Redis 分布式锁 + 双重检查确保高并发下只计算一次。
+     * 结果缓存72小时，过期后自动重新计算。
+     *
+     * @return 热门标签列表（按出现次数降序排列）
+     */
     @LogAction("计算热门标签")
     @RedisLock(key = "'kbook:lock:top_tags'", leaseTime = 30)
     public List<TagStat> computeTopTagsWithLock() {

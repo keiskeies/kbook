@@ -115,6 +115,12 @@ public class BookScanService {
         return emitter;
     }
 
+    /**
+     * 重置扫描进度状态
+     * <p>
+     * 清空所有进度计数器和错误列表，为新一轮扫描做准备。
+     * 在每次扫描开始时调用，确保状态干净。
+     */
     private void resetScanProgress() {
         scanTotal = 0;
         scanAdded = 0;
@@ -127,6 +133,18 @@ public class BookScanService {
         stepTimer.reset();
     }
 
+    /**
+     * 执行扫描并推送进度（核心扫描逻辑）
+     * <p>
+     * 扫描流程：
+     * 1. 收集所有待处理文件（EPUB/PDF/TXT）
+     * 2. 按格式优先级和文件大小排序
+     * 3. 逐文件处理，每完成一个推送SSE进度事件
+     * 4. 发送最终完成事件
+     *
+     * @param emitter      SSE事件发射器
+     * @param skipBeforeId 跳过ID小于此值的已有图书（用于断点续扫）
+     */
     private void doScanWithProgress(SseEmitter emitter, Long skipBeforeId) {
         log.info("开始扫描图书目录... (skipBeforeId={})", skipBeforeId);
         long startTime = System.currentTimeMillis();
@@ -378,6 +396,15 @@ public class BookScanService {
         emitterCompleted = true;
     }
 
+    /**
+     * 将对象序列化为JSON字符串
+     * <p>
+     * 用于SSE事件数据的序列化。
+     * 序列化失败时返回空JSON对象"{}"，避免SSE发送失败。
+     *
+     * @param obj 要序列化的对象
+     * @return JSON字符串，失败时返回"{}"
+     */
     private String toJson(Object obj) {
         try {
             return objectMapper.writeValueAsString(obj);

@@ -37,7 +37,7 @@ public class NovelFilterTool {
     private static final Path OUTPUT_DIR = Paths.get("G:\\图书\\txt1");
     private static final int READ_BYTES = 262144;
     private static final int SAMPLE_CHARS = 6000;
-    private static final int THREAD_COUNT = 3;
+    private static final int THREAD_COUNT = 16;
 
     private static final Charset[] CANDIDATE_CHARSETS = {
             StandardCharsets.UTF_8,

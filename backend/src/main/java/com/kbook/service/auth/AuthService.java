@@ -301,6 +301,13 @@ public class AuthService {
 
     // ==================== 私有方法 ====================
 
+    /**
+     * 校验验证码（内部方法，支持多场景隔离）
+     * @param email 邮箱地址
+     * @param code 用户输入的验证码
+     * @param scene 场景（register/login/reset/bind）
+     * @throws BusinessException 验证码错误、过期或错误次数过多时抛出
+     */
     void validateCode(String email, String code, String scene) {
         String codeKey = CODE_KEY_PREFIX + scene + ":" + email;
         String attemptKey = CODE_ATTEMPT_PREFIX + scene + ":" + email;
@@ -327,6 +334,11 @@ public class AuthService {
         redisTemplate.delete(attemptKey);
     }
 
+    /**
+     * 生成登录结果（包含AccessToken和RefreshToken）
+     * @param user 用户实体
+     * @return 登录结果DTO
+     */
     private LoginResult generateLoginResult(User user) {
         String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getEmail(), user.getRole());
         String refreshToken = jwtUtil.generateRefreshToken(user.getId());
@@ -338,6 +350,10 @@ public class AuthService {
                 .build();
     }
 
+    /**
+     * 生成随机数字验证码
+     * @return 指定长度的数字字符串
+     */
     private String generateCode() {
         SecureRandom random = new SecureRandom();
         StringBuilder sb = new StringBuilder(verificationProps.getCodeLength());
@@ -347,6 +363,12 @@ public class AuthService {
         return sb.toString();
     }
 
+    /**
+     * 发送验证码邮件
+     * @param email 收件人邮箱
+     * @param code 验证码
+     * @param scene 场景（用于邮件标题显示）
+     */
     private void sendCodeEmail(String email, String code, String scene) {
         String sceneName = switch (scene) {
             case "register" -> "注册";
@@ -358,6 +380,11 @@ public class AuthService {
         emailNotificationService.sendVerificationCode(email, sceneName, code, verificationProps.getExpireMinutes());
     }
 
+    /**
+     * 校验密码强度
+     * @param password 密码
+     * @throws BusinessException 密码长度不符合要求或缺少字母/数字时抛出
+     */
     private void validatePassword(String password) {
         if (password == null || password.length() < 6 || password.length() > 20) {
             throw new BusinessException("密码长度应为6-20位");
@@ -369,6 +396,10 @@ public class AuthService {
         }
     }
 
+    /**
+     * 将Token加入黑名单（用于登出/刷新时作废旧Token）
+     * @param token JWT Token
+     */
     private void blacklistToken(String token) {
         try {
             var claims = jwtUtil.parseToken(token);
@@ -386,6 +417,11 @@ public class AuthService {
         }
     }
 
+    /**
+     * 检查Token是否在黑名单中
+     * @param token JWT Token
+     * @return true=已在黑名单中（已失效）
+     */
     private boolean isTokenBlacklisted(String token) {
         return Boolean.TRUE.equals(redisTemplate.hasKey(TOKEN_BLACKLIST_PREFIX + token));
     }

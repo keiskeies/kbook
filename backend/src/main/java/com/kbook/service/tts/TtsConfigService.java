@@ -18,6 +18,11 @@ import java.io.IOException;
 import java.util.Base64;
 import java.util.List;
 
+/**
+ * TTS配置管理服务类
+ * 提供TTS（文本转语音）配置的增删改查、切换默认配置、语音合成等功能
+ * 支持普通合成和流式合成，集成缓存机制提高性能
+ */
 @Slf4j
 @Service
 @LogModule("语音合成")
@@ -30,16 +35,32 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
     @Autowired
     private TtsCache ttsCache;
 
+    /**
+     * 获取所有TTS配置列表
+     * 按默认配置优先、更新时间倒序排列
+     * @return 配置列表
+     */
     @LogAction("获取TTS配置列表")
     public List<TtsConfig> listAll() {
         return ttsConfigRepository.findByOrderByIsDefaultDescUpdatedAtDesc();
     }
 
+    /**
+     * 获取当前活跃的TTS配置
+     * 返回默认且启用的配置，如果没有则返回null
+     * @return 活跃配置或null
+     */
     @LogAction("获取活跃TTS配置")
     public TtsConfig getActiveConfig() {
         return ttsConfigRepository.findByIsDefaultTrueAndEnabledTrue().orElse(null);
     }
 
+    /**
+     * 创建新的TTS配置
+     * 如果设置为默认配置，会先取消其他配置的默认状态
+     * @param config 配置信息
+     * @return 保存后的配置
+     */
     @Transactional
     @LogAction("创建TTS配置")
     public TtsConfig create(TtsConfig config) {
@@ -55,6 +76,13 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
         return saved;
     }
 
+    /**
+     * 更新TTS配置
+     * 支持部分字段更新，如果设置为默认配置会取消其他默认配置
+     * @param id 配置ID
+     * @param config 更新的配置信息
+     * @return 更新后的配置
+     */
     @Transactional
     @LogAction("更新TTS配置")
     public TtsConfig update(Long id, TtsConfig config) {
@@ -85,6 +113,10 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
         return saved;
     }
 
+    /**
+     * 删除TTS配置
+     * @param id 配置ID
+     */
     @Transactional
     @LogAction("删除TTS配置")
     public void delete(Long id) {
@@ -92,6 +124,12 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
         log.info("TTS config deleted: id={}", id);
     }
 
+    /**
+     * 切换默认TTS配置
+     * 将指定配置设为默认，同时取消其他配置的默认状态
+     * @param id 配置ID
+     * @return 更新后的配置
+     */
     @Transactional
     @LogAction("切换默认TTS配置")
     public TtsConfig switchDefault(Long id) {
@@ -106,6 +144,13 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
         return saved;
     }
 
+    /**
+     * 执行普通语音合成
+     * 优先从缓存获取，缓存未命中则调用引擎合成并缓存结果
+     * @param text 待合成文本
+     * @param configId 配置ID，为null时使用默认配置
+     * @return 音频字节数组
+     */
     @LogAction("语音合成")
     public byte[] synthesize(String text, Long configId) {
         TtsConfig config = resolveConfig(configId);

@@ -563,6 +563,13 @@ public class AiToolService {
 
     // ==================== 辅助方法 ====================
 
+    /**
+     * 截断文本到指定最大长度，超出部分以省略号替代
+     *
+     * @param text   原始文本
+     * @param maxLen 最大字符数
+     * @return 截断后的文本
+     */
     private String truncate(String text, int maxLen) {
         return CommonUtils.truncateText(text, maxLen);
     }

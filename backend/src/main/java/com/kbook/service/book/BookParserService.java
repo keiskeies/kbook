@@ -1067,6 +1067,16 @@ public class BookParserService {
         return sb.toString();
     }
 
+    /**
+     * 构建用于AI标签/评分/简介生成的内容摘要
+     * <p>
+     * 组合图书元数据（书名、作者、简介）和正文内容，
+     * 为大模型提供完整的上下文信息，用于生成标签、评分和简介。
+     *
+     * @param book         图书实体对象
+     * @param extraContent 额外的正文内容（如目录、章节摘要等）
+     * @return 格式化后的完整内容字符串
+     */
     private String buildContentForTags(Book book, String extraContent) {
         StringBuilder sb = new StringBuilder();
         sb.append("书名：").append(book.getTitle()).append("\n");
@@ -1862,14 +1872,43 @@ public class BookParserService {
         }
     }
 
+    /**
+     * 生成图书速读摘要（无用户上下文）
+     * <p>
+     * 基于图书内容生成速读摘要，包括核心观点、关键章节等，
+     * 帮助读者快速了解图书主旨和精华内容。
+     *
+     * @param book 图书实体对象
+     * @return 速读摘要VO对象
+     */
     public BookSpeedReadVO generateSpeedRead(Book book) {
         return chatModelManager.generateSpeedRead(book);
     }
 
+    /**
+     * 生成图书速读摘要（带用户上下文）
+     * <p>
+     * 结合用户阅读偏好和历史，生成个性化的速读摘要，
+     * 根据用户兴趣突出相关章节和观点。
+     *
+     * @param book 图书实体对象
+     * @param user 用户实体对象
+     * @return 个性化速读摘要VO对象
+     */
     public BookSpeedReadVO generateSpeedRead(Book book, User user) {
         return chatModelManager.generateSpeedRead(book, user);
     }
 
+    /**
+     * 流式生成图书速读摘要（SSE推送）
+     * <p>
+     * 通过SSE（Server-Sent Events）实时推送速读摘要生成过程，
+     * 提升用户体验，避免长时间等待。
+     *
+     * @param bookId 图书ID
+     * @param userId 用户ID（可选，用于个性化摘要）
+     * @return SseEmitter对象，用于流式推送生成结果
+     */
     @LogAction("流式生成速读摘要")
     public SseEmitter streamSpeedRead(Long bookId, Long userId) {
         SseEmitter emitter = new SseEmitter(360_000L);

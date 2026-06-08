@@ -85,26 +85,35 @@ public class AiChatService {
         log.info("会话ID: {}", sessionId);
         log.info("问题内容: {}", userMessage);
 
+        // 创建 SSE 发送器，设置 1 小时超时
         SseEmitter emitter = new SseEmitter(3_600_000L);
 
+        // 发送初始思考状态
         try {
             emitter.send(SseEmitter.event().name("thinking").data("正在思考..."));
         } catch (Exception ignored) {
         }
 
+        // 确保会话记录存在
         ensureSession(userId, sessionId, userMessage);
 
+        // 压缩历史消息以控制内存使用，然后清空当前会话的聊天记忆
         chatMemoryStore.compressHistoryIfNeeded(userId, sessionId);
         chatMemoryStore.deleteMessages(sessionId);
 
+        // 保存当前线程的请求上下文和安全上下文，以便在异步线程中使用
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
         SecurityContext securityContext = SecurityContextHolder.getContext();
 
+        // 在独立线程中执行 AI 对话，避免阻塞主线程
         sseExecutor.execute(() -> {
+            // 恢复安全上下文
             SecurityContextHolder.setContext(securityContext);
+            // 恢复请求上下文
             if (requestAttributes != null) {
                 RequestContextHolder.setRequestAttributes(requestAttributes);
             }
+            // 创建工具结果上下文，用于收集 AI 工具调用的结果
             ToolResultContext ctx = new ToolResultContext();
             ToolResultContext.bind(ctx);
             if (requestAttributes != null) {
@@ -128,33 +137,40 @@ public class AiChatService {
                     return;
                 }
 
+                // 启动流式对话
                 TokenStream tokenStream = assistant.chatStream(sessionId, userId, userMessage);
                 tokenStream
+                        // 处理思考过程（如果有）
                         .onPartialThinking(pt -> {
                             if (cancelled.get()) return;
                             String thinking = pt.text();
                             if (thinking != null && !thinking.isEmpty()) {
                                 fullThinking.append(thinking);
+                                // 发送思考内容到前端
                                 if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinking)) {
                                     cancelled.set(true);
                                     throw new RuntimeException("Client disconnected");
                                 }
                             }
                         })
+                        // 处理部分响应（逐 token）
                         .onPartialResponse(token -> {
                             if (cancelled.get()) return;
                             fullResponse.append(token);
                             if (!token.isEmpty()) {
+                                // 发送 token 到前端
                                 if (!SseHelper.safeSendEvent(emitter, "message", token)) {
                                     cancelled.set(true);
                                     throw new RuntimeException("Client disconnected");
                                 }
                             }
                         })
+                        // 响应完成
                         .onCompleteResponse(response -> {
                             if (cancelled.get()) return;
                             long elapsed = System.currentTimeMillis() - startTime;
 
+                            // 统计 token 使用量
                             int apiInputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
                                     ? response.tokenUsage().inputTokenCount() : 0;
                             int apiOutputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
@@ -166,8 +182,10 @@ public class AiChatService {
                             log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
                             log.info("Answer: {}", text.length() > 500 ? text.substring(0, 500) + "..." : text);
 
+                            // 记录 AI 调用日志
                             CommonUtils.logAiCall("流式对话", elapsed, apiInputTokens, apiOutputTokens, text);
 
+                            // 如果有书籍工具调用结果，发送 book_map 事件
                             try {
                                 if (ctx.hasBooks()) {
                                     String bookMapJson = new com.fasterxml.jackson.databind.ObjectMapper()
@@ -178,19 +196,23 @@ public class AiChatService {
                             } catch (Exception ignored) {
                             }
 
+                            // 发送完成事件
                             try {
                                 emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                                 emitter.complete();
                             } catch (Exception ignored) {
                             }
 
+                            // 持久化对话消息
                             saveMessage(userId, sessionId, "user", userMessage);
                             saveMessage(userId, sessionId, "assistant", text,
                                     fullThinking.length() > 0 ? fullThinking.toString() : null);
                             updateSessionTimestamp(sessionId);
                         })
+                        // 错误处理
                         .onError(error -> {
                             if (Thread.currentThread().isInterrupted()) return;
+                            // 连接重置但已有部分响应时，视为成功
                             if (isConnectionReset(error) && !fullResponse.isEmpty()) {
                                 log.warn("Connection reset 但已有部分响应，视为成功: sessionId={}, 已接收={}字符",
                                         sessionId, fullResponse.length());
@@ -212,6 +234,7 @@ public class AiChatService {
                                 updateSessionTimestamp(sessionId);
                                 return;
                             }
+                            // 其他错误
                             log.error("流式对话异常: sessionId={}", sessionId, error);
                             providerConfigService.clearAssistantCache();
                             String errMsg = SseHelper.extractFriendlyError(error);
@@ -224,6 +247,7 @@ public class AiChatService {
                                 emitter.complete();
                             } catch (Exception ignored) {
                             }
+                            // 如果有部分响应，仍然保存
                             if (!fullResponse.isEmpty()) {
                                 saveMessage(userId, sessionId, "user", userMessage);
                                 saveMessage(userId, sessionId, "assistant", fullResponse.toString());
@@ -233,6 +257,7 @@ public class AiChatService {
                         .start();
 
             } catch (Exception e) {
+                // 启动异常处理
                 if (cancelled.get()) return;
                 log.error("流式对话启动异常: sessionId={}", sessionId, e);
                 providerConfigService.clearAssistantCache();
@@ -247,6 +272,7 @@ public class AiChatService {
                 } catch (Exception ignored) {
                 }
             } finally {
+                // 清理线程上下文
                 ToolResultContext.unbind();
                 SecurityContextHolder.clearContext();
                 RequestContextHolder.resetRequestAttributes();

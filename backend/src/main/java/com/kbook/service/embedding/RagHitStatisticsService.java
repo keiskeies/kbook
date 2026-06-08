@@ -310,6 +310,12 @@ public class RagHitStatisticsService {
         }
     }
 
+    /**
+     * 获取Redis计数器的值
+     *
+     * @param key Redis键
+     * @return 计数值，解析失败返回0
+     */
     private long getCounter(String key) {
         String val = redisTemplate.opsForValue().get(key);
         if (val == null) return 0;

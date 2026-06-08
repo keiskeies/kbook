@@ -77,6 +77,9 @@ public class UserService extends AbstractServiceImpl<User, Long> {
 
     /**
      * 分页查询待审核用户
+     * @param page 页码（从1开始）
+     * @param size 每页数量
+     * @return 分页结果，包含待审核用户列表和总数
      */
     @LogAction("查询待审核用户")
     public PageResult<User> getPendingUsers(int page, int size) {
@@ -113,7 +116,8 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 审核统计
+     * 获取审核统计数据
+     * @return 状态统计Map，包含PENDING/APPROVED/BANNED各状态数量和TOTAL总数
      */
     @LogAction("获取审核统计")
     public Map<String, Long> getReviewStats() {
@@ -131,7 +135,9 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 审核通过
+     * 审核通过单个用户
+     * @param userId 用户ID
+     * @throws BusinessException 用户状态不是待审核时抛出
      */
     @Transactional
     @LogAction("审核通过")
@@ -146,7 +152,9 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 批量审核通过
+     * 批量审核通过用户
+     * @param userIds 用户ID列表
+     * @return 实际通过的用户数量（跳过非待审核状态的用户）
      */
     @Transactional
     @LogAction("批量审核通过")
@@ -165,7 +173,8 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 审核拒绝（封禁）
+     * 审核拒绝单个用户（设置为封禁状态）
+     * @param userId 用户ID
      */
     @Transactional
     @LogAction("审核拒绝")
@@ -177,7 +186,9 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 批量拒绝
+     * 批量审核拒绝用户
+     * @param userIds 用户ID列表
+     * @return 拒绝的用户数量
      */
     @Transactional
     @LogAction("批量审核拒绝")
@@ -190,7 +201,9 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 解封用户
+     * 解封被封禁的用户（恢复为已通过状态）
+     * @param userId 用户ID
+     * @throws BusinessException 用户状态不是封禁时抛出
      */
     @Transactional
     @LogAction("解封用户")
@@ -205,7 +218,9 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 封禁用户（封禁已通过的用户）
+     * 封禁已通过审核的用户
+     * @param userId 用户ID
+     * @throws BusinessException 用户状态不是已通过时抛出
      */
     @Transactional
     @LogAction("封禁用户")
@@ -220,7 +235,12 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 更新用户信息
+     * 更新用户基本信息（昵称、头像、简介）
+     * @param userId 用户ID
+     * @param nickname 新昵称（null则不更新）
+     * @param avatar 新头像URL（null则不更新）
+     * @param bio 新简介（null则不更新）
+     * @return 更新后的用户实体
      */
     @Transactional
     @LogAction("更新用户信息")
@@ -258,7 +278,10 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 更新图书对话风格
+     * 更新用户的图书对话风格偏好
+     * @param userId 用户ID
+     * @param style 对话风格（如DEEP等，不区分大小写）
+     * @return 更新后的用户实体
      */
     @Transactional
     @LogAction("更新图书对话风格")
@@ -269,7 +292,10 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 更新当前心情状态
+     * 更新用户当前心情状态，变更后异步触发推荐重算
+     * @param userId 用户ID
+     * @param mood 心情状态（null则清除心情）
+     * @return 更新后的用户实体
      */
     @Transactional
     @LogAction("更新心情状态")
@@ -346,7 +372,11 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     }
 
     /**
-     * 管理员绑定邮箱（简化版，供 Controller 调用，验证码由 AuthService 校验）
+     * 管理员为用户绑定邮箱（简化版，验证码由AuthService校验）
+     * @param userId 用户ID
+     * @param email 要绑定的邮箱地址
+     * @return 更新后的用户实体
+     * @throws BusinessException 邮箱已绑定或已被使用时抛出
      */
     @Transactional
     @LogAction("绑定邮箱")

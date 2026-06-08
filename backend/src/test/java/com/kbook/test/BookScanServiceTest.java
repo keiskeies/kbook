@@ -2,7 +2,7 @@ package com.kbook.test;
 
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
-import com.kbook.service.BookScanService;
+import com.kbook.service.book.BookScanService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

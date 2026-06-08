@@ -30,6 +30,22 @@ import java.util.List;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+/**
+ * AI 模型调用管理器，封装所有与大语言模型交互的通用方法。
+ * <p>
+ * 职责：
+ * 1. 提供统一的 AI 调用入口，屏蔽底层模型工厂的复杂性；
+ * 2. 封装常见的 AI 业务逻辑，如内容压缩、元数据推断、问题生成、RAG 查询扩展等；
+ * 3. 管理流式与非流式两种调用模式，支持 SSE 实时推送；
+ * 4. 提供用户画像构建、书籍内容格式化等公共工具方法。
+ * </p>
+ * <p>
+ * 所有方法均包含异常处理与日志记录，确保 AI 调用失败时不会影响主业务流程。
+ * </p>
+ *
+ * @author kbook
+ * @since 1.0.0
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -44,20 +60,35 @@ public class ChatModelManager {
     // 核心 AI 调用模板
     // ================================================================
 
+    /**
+     * 核心 AI 调用方法，通过模型供应器获取 ChatModel 并执行对话。
+     *
+     * @param logName       日志标识，用于区分不同的 AI 调用场景
+     * @param logDetail     日志详情，记录调用参数或上下文信息
+     * @param modelSupplier 模型供应器，延迟获取 ChatModel 实例（避免空指针）
+     * @param messages      对话消息列表，包含系统消息和用户消息
+     * @return AI 响应文本，如果模型未配置或调用失败则返回 null
+     */
     public String callAi(String logName, String logDetail,
                           Supplier<ChatModel> modelSupplier, List<ChatMessage> messages) {
+        // 获取 ChatModel 实例，如果模型未配置则直接返回 null
         ChatModel model = modelSupplier.get();
         if (model == null) {
             log.warn("AI 模型未配置，跳过: {}", logName);
             return null;
         }
+        // 记录调用开始时间，用于计算耗时
         long startTime = System.currentTimeMillis();
+        // 执行 AI 对话
         ChatResponse response = model.chat(messages);
+        // 计算耗时
         long elapsed = System.currentTimeMillis() - startTime;
+        // 提取 token 使用量（输入和输出），避免空指针
         int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
                 ? response.tokenUsage().inputTokenCount() : 0;
         int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
                 ? response.tokenUsage().outputTokenCount() : 0;
+        // 获取 AI 响应文本并去除首尾空白
         String text = response.aiMessage().text();
         if (text != null && !text.isBlank()) {
             text = text.trim();
@@ -67,6 +98,15 @@ public class ChatModelManager {
         return text;
     }
 
+    /**
+     * 简化版 AI 调用，仅传入用户提示词。
+     *
+     * @param logName       日志标识
+     * @param logDetail     日志详情
+     * @param modelSupplier 模型供应器
+     * @param userPrompt    用户提示词
+     * @return AI 响应文本
+     */
     public String callAi(String logName, String logDetail,
                           Supplier<ChatModel> modelSupplier, String userPrompt) {
         return callAi(logName, logDetail, modelSupplier, List.of(UserMessage.from(userPrompt)));
@@ -76,10 +116,27 @@ public class ChatModelManager {
     // 公共 AI 调用入口
     // ================================================================
 
+    /**
+     * 公共 AI 调用入口，使用默认的不带思考的 ChatModel。
+     *
+     * @param logName    日志标识
+     * @param logDetail  日志详情
+     * @param userPrompt 用户提示词
+     * @return AI 响应文本
+     */
     public String callAi(String logName, String logDetail, String userPrompt) {
         return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinkingFromYml, userPrompt);
     }
 
+    /**
+     * 带系统提示词的公共 AI 调用入口。
+     *
+     * @param logName      日志标识
+     * @param logDetail    日志详情
+     * @param systemPrompt 系统提示词，定义 AI 的角色和行为约束
+     * @param userPrompt   用户提示词
+     * @return AI 响应文本
+     */
     public String callAi(String logName, String logDetail, String systemPrompt, String userPrompt) {
         return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinkingFromYml,
                 List.of(SystemMessage.from(systemPrompt), UserMessage.from(userPrompt)));
@@ -89,20 +146,39 @@ public class ChatModelManager {
     // 业务方法
     // ================================================================
 
-    /** 将内容压缩到 200 字以内；无需压缩或失败时返回 null */
+    /**
+     * 将内容压缩到 200 字以内，用于历史对话记忆的精简。
+     *
+     * <p>压缩策略：如果内容长度小于等于 200 字则直接返回原内容，否则调用 AI 进行压缩。
+     * 压缩失败时返回 null，由调用方决定如何处理。</p>
+     *
+     * @param original 原始内容文本
+     * @return 压缩后的内容，无需压缩或失败时返回 null
+     */
     public String compressContent(String original) {
+        // 如果内容为空或已足够短，直接返回原内容
         if (original == null || original.length() <= 200) return original;
         try {
+            // 调用 AI 进行内容压缩，提示词明确要求保留核心观点
             return callAi("历史压缩", String.format("%d→? chars", original.length()),
                     chatModelFactory::buildChatModelWithoutThinkingFromYml,
                     String.format("将以下内容压缩到200字以内，保留核心观点和信息：\n\n%s", original));
         } catch (Exception e) {
+            // 压缩失败不影响主流程，返回 null 由调用方处理
             log.warn("调用 AI 压缩内容失败: {}", e.getMessage());
             return null;
         }
     }
 
-    /** 从文本内容推断书名/作者/简介，并更新 Book 实体 */
+    /**
+     * 从文本内容推断书籍的作者和简介，并更新 Book 实体。
+     *
+     * <p>适用于 TXT、PDF 等无法自动提取元数据的格式。AI 会分析内容片段，
+     * 尝试识别作者信息和生成内容概要。仅当对应字段为空时才更新，避免覆盖已有数据。</p>
+     *
+     * @param book    书籍实体，将被更新作者和简介字段
+     * @param content 书籍内容文本（会被截断到 2000 字以内）
+     */
     public void inferMetadataFromContent(Book book, String content) {
         try {
             String prompt = "根据以下书籍内容，推断并提取以下信息，以JSON格式返回：\n" +
@@ -111,12 +187,15 @@ public class ChatModelManager {
                     "只返回JSON，不要其他文字。\n\n" +
                     "书籍内容：\n" + CommonUtils.truncateText(content, 2000);
 
+            // 调用 AI 推断元数据，使用专用的系统提示词
             String result = callAi("元数据推断", "TXT/PDF 元数据推断",
                     chatModelFactory::buildChatModelWithoutThinkingFromYml,
                     List.of(SystemMessage.from(AiPromptConstants.BOOK_INFO_EXTRACT_SYSTEM_PROMPT),
                             UserMessage.from(prompt)));
+            // 移除 AI 响应中的代码围栏
             result = stripCodeFence(result);
             if (result != null) {
+                // 解析 JSON 响应
                 var node = objectMapper.readTree(result);
 
                 if ((book.getAuthor() == null || book.getAuthor().isBlank())
@@ -140,34 +219,27 @@ public class ChatModelManager {
     }
 
     /**
-     * 根据已有问答生成深入追问问题（包含用户画像和图书信息）
+     * 根据已有问答生成深入追问问题，引导读者进行深度思考。
+     *
+     * <p>基于 AI 刚才的回答，找出其中 3 个逻辑缝隙（如未说明的前提、可质疑的预设等），
+     * 将其转化为追问问题。如果提供了用户画像，会生成更贴合读者背景的问题。</p>
+     *
+     * @param title    书籍标题
+     * @param question 用户问题
+     * @param answer   AI 回答
+     * @param user     用户实体（可为 null，影响问题个性化程度）
+     * @param book     书籍实体，提供图书信息作为上下文
+     * @return 生成的追问问题列表（最多 3 个），失败时返回空列表
      */
     public List<String> generateFollowUpQuestions(String title, String question, String answer, User user, Book book) {
+        // 如果回答或问题为空，无法生成追问
         if (answer == null || answer.isBlank() || question == null || question.isBlank()) {
             return List.of();
         }
 
+        // 构建用户画像和书籍信息作为上下文
         String userProfileDesc = buildUserProfileDesc(user);
-
-        // 构建图书基本信息
-        StringBuilder bookInfoBuilder = new StringBuilder();
-        bookInfoBuilder.append("《").append(title).append("》");
-        if (book != null) {
-            if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
-                bookInfoBuilder.append("，作者：").append(book.getAuthor());
-            }
-            if (book.getDescription() != null && !book.getDescription().isBlank()) {
-                String desc = book.getDescription().length() > 300
-                        ? book.getDescription().substring(0, 300) + "..."
-                        : book.getDescription();
-                bookInfoBuilder.append("\n简介：").append(desc);
-            }
-            if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
-                String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
-                bookInfoBuilder.append("\n标签：").append(tags);
-            }
-        }
-        String bookInfo = bookInfoBuilder.toString();
+        String bookInfo = buildSpeedReadContent(book);
 
         try {
             String prompt;
@@ -235,12 +307,30 @@ public class ChatModelManager {
         return List.of();
     }
 
-    /** RAG 查询扩展 — 宏观问题按目录章节生成查询，具体问题生成多粒度查询 */
+    /**
+     * RAG 查询扩展，根据问题类型生成多组检索查询以提高召回率。
+     *
+     * <p>策略：
+     * <ul>
+     *   <li>宏观问题（如"讲了什么"）：按目录章节生成多个查询，确保覆盖全书内容</li>
+     *   <li>具体问题：生成精准定位和宽泛召回两种粒度的查询</li>
+     * </ul>
+     * </p>
+     *
+     * @param question      用户原始问题
+     * @param bookTitle     书籍标题
+     * @param author        作者（可为 null）
+     * @param lastAiAnswer 上一轮 AI 回答摘要（可为 null，用于追问场景）
+     * @param toc           书籍目录（可为 null）
+     * @return 扩展后的查询列表（最多 9 个），包含原始查询
+     */
     public List<String> expandQuery(String question, String bookTitle, String author, String lastAiAnswer, String toc) {
+        // 初始化查询列表，首先添加原始查询
         List<String> queries = new ArrayList<>();
         queries.add(question);
 
         try {
+            // 构建上下文信息，用于让 AI 理解问题背景
             StringBuilder contextBuilder = new StringBuilder();
             contextBuilder.append("书名：《").append(bookTitle).append("》\n");
             if (author != null && !author.isBlank()) {
@@ -320,12 +410,23 @@ public class ChatModelManager {
         return queries;
     }
 
-    /** 生成查询改写（Multi-Query Retrieval） */
+    /**
+     * 生成查询改写版本，用于 Multi-Query Retrieval 策略。
+     *
+     * <p>通过同义词替换、句式变换等方式生成 2 个语义相似但表达不同的改写版本，
+     * 提高向量检索的召回率。改写保持原始查询的核心意图不变。</p>
+     *
+     * @param query   原始查询
+     * @param context 上下文信息（如书籍信息、对话历史）
+     * @return 改写后的查询列表（最多 3 个，包含原始查询）
+     */
     public List<String> generateQueryRewrites(String query, String context) {
+        // 初始化改写列表，首先添加原始查询
         List<String> rewrites = new ArrayList<>();
         rewrites.add(query);
 
         try {
+            // 构建提示词，要求 AI 生成语义相似但表达不同的改写版本
             String prompt = String.format("""
                     请为以下用户查询生成 2 个语义相似的改写版本，用于向量检索召回。
 
@@ -359,9 +460,18 @@ public class ChatModelManager {
         return rewrites;
     }
 
-    /** 向量搜索查询扩展：从多个维度推断用户真正的阅读需求，生成多组检索关键词 */
+    /**
+     * 向量搜索查询扩展，将口语化搜索词转化为多维度检索关键词。
+     *
+     * <p>核心思路：不改写用户原话，而是推断用户真正的阅读需求，从不同方向生成关键词短语，
+     * 提高图书推荐的匹配精度。生成的关键词应是书籍标签、分类或简介中可能出现的短语。</p>
+     *
+     * @param query 用户口语化搜索词
+     * @return 扩展后的关键词列表（3-5 个），失败时返回原始查询
+     */
     public List<String> expandVectorSearchQuery(String query) {
         try {
+            // 构建提示词，指导 AI 从多维度推断用户需求并生成关键词
             String prompt = String.format("""
                     你是一个图书搜索查询扩展器。用户输入了口语化的搜索词，你的任务是推断用户真正的阅读需求，从多个维度生成检索关键词。
 
@@ -377,9 +487,11 @@ public class ChatModelManager {
                     用户查询：%s
                     """, query);
 
+            // 调用 AI 生成扩展关键词
             String result = callAi("向量查询扩展",
                     String.format("q=%s", query.substring(0, Math.min(20, query.length()))), prompt);
             if (result != null) {
+                // 解析 AI 响应，按行分割并过滤无效内容
                 List<String> expanded = Arrays.stream(result.split("\n"))
                         .map(String::trim)
                         .filter(line -> !line.isBlank() && line.length() <= 30)
@@ -392,19 +504,37 @@ public class ChatModelManager {
                 }
             }
         } catch (Exception e) {
+            // 扩展失败时使用原始查询，不影响搜索功能
             log.warn("向量查询扩展失败，使用原始查询: {}", e.getMessage());
         }
+        // 默认返回原始查询
         return List.of(query);
     }
 
-    /** 生成 3 分钟速读摘要 */
+    /**
+     * 生成 3 分钟速读摘要（不含用户画像）。
+     *
+     * @param book 书籍实体
+     * @return 速读摘要 VO，失败时返回 null
+     * @see #generateSpeedRead(Book, User)
+     */
     public BookSpeedReadVO generateSpeedRead(Book book) {
         return generateSpeedRead(book, null);
     }
 
-    /** 生成 3 分钟速读摘要（含读者画像） */
+    /**
+     * 生成 3 分钟速读摘要，包含读者画像的个性化推荐。
+     *
+     * <p>基于书籍信息（标题、作者、标签、简介、章节摘要）和读者画像（年龄、职业、MBTI 等），
+     * 生成结构化的速读摘要，包括核心观点、适合人群、不适合人群、阅读收获和难度等级。</p>
+     *
+     * @param book 书籍实体
+     * @param user 用户实体（可为 null，影响摘要的个性化程度）
+     * @return 速读摘要 VO，失败时返回 null
+     */
     public BookSpeedReadVO generateSpeedRead(Book book, User user) {
         try {
+            // 构建书籍内容和用户画像
             String bookContent = buildSpeedReadContent(book);
             String userProfileDesc = buildUserProfileDesc(user);
 
@@ -482,7 +612,15 @@ public class ChatModelManager {
     // 公共工具方法（供其他服务使用，如流式速读）
     // ================================================================
 
-    /** 构建速读摘要的书籍内容部分 */
+    /**
+     * 构建速读摘要的书籍内容部分，格式化为结构化文本。
+     *
+     * <p>包含书名、作者、标签、简介、章节摘要或目录。内容会被截断以避免超出 AI 上下文长度限制。
+     * 优先使用章节摘要，如果没有则使用目录。</p>
+     *
+     * @param book 书籍实体
+     * @return 格式化后的书籍内容文本
+     */
     public static String buildSpeedReadContent(Book book) {
         StringBuilder contentBuilder = new StringBuilder();
         contentBuilder.append("书名：《").append(book.getTitle()).append("》\n");
@@ -505,15 +643,26 @@ public class ChatModelManager {
         return contentBuilder.toString();
     }
 
-    /** 流式生成 3 分钟速读摘要 */
+    /**
+     * 流式生成 3 分钟速读摘要，通过 SSE 实时推送内容。
+     *
+     * <p>与 {@link #generateSpeedRead(Book, User)} 功能相同，但使用流式模型逐字输出，
+     * 提升用户体验。输出格式为 Markdown 标题 + 内容行，便于前端渲染。</p>
+     *
+     * @param book    书籍实体
+     * @param user    用户实体（可为 null）
+     * @param emitter SSE 发送器，用于推送流式数据
+     */
     public void streamSpeedRead(Book book, User user, SseEmitter emitter) {
         try {
+            // 获取流式模型实例
             StreamingChatModel model = chatModelFactory.buildStreamingChatModelWithoutThinkingFromYml();
             if (model == null) {
                 SseHelper.sendErrorAndComplete(emitter, "AI 模型未配置，无法生成速读摘要");
                 return;
             }
 
+            // 构建书籍内容和用户画像
             String bookContent = buildSpeedReadContent(book);
             String userProfileDesc = buildUserProfileDesc(user);
 
@@ -652,10 +801,21 @@ public class ChatModelManager {
         }
     }
 
-    /** 构建用户画像描述 */
+    /**
+     * 构建用户画像描述文本，用于个性化 AI 推荐。
+     *
+     * <p>从用户实体中提取年龄、性别、婚姻状况、子女信息、MBTI、职业、
+     * 期望学历、创业意向、期望收入、阅读意图和心情等信息，
+     * 格式化为结构化文本供 AI 模型使用。</p>
+     *
+     * @param user 用户实体（可为 null）
+     * @return 用户画像描述文本，用户为 null 时返回空字符串
+     */
     public static String buildUserProfileDesc(User user) {
+        // 用户为 null 时返回空字符串
         if (user == null) return "";
         StringBuilder profileBuilder = new StringBuilder();
+        // 计算年龄
         if (user.getBirthday() != null) {
             int age = Period.between(user.getBirthday(), LocalDate.now()).getYears();
             profileBuilder.append("年龄：").append(age).append("岁\n");
@@ -711,20 +871,39 @@ public class ChatModelManager {
     // 私有工具方法
     // ================================================================
 
+    /**
+     * 移除 AI 响应中的代码围栏标记（```json ... ```）。
+     *
+     * <p>AI 模型有时会将 JSON 响应包裹在代码围栏中，此方法用于提取纯 JSON 内容。</p>
+     *
+     * @param text AI 原始响应文本
+     * @return 去除围栏后的文本，输入为 null 时返回 null
+     */
     private static String stripCodeFence(String text) {
+        // 空值检查
         if (text == null) return null;
         String result = text.trim();
+        // 移除开头的代码围栏标记
         if (result.startsWith("```json")) {
             result = result.substring(7);
         } else if (result.startsWith("```")) {
             result = result.substring(3);
         }
+        // 移除结尾的代码围栏标记
         if (result.endsWith("```")) {
             result = result.substring(0, result.length() - 3);
         }
         return result.trim();
     }
 
+    /**
+     * 解析 AI 生成的问题列表文本。
+     *
+     * <p>按行分割，去除序号、空白行和过短的行，返回最多 20 个去重后的问题。</p>
+     *
+     * @param text AI 生成的多行问题文本
+     * @return 解析后的问题列表
+     */
     private List<String> parseQuestions(String text) {
         return Arrays.stream(text.split("\n"))
                 .map(String::trim)

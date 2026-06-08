@@ -1,4 +1,4 @@
-﻿package com.kbook.test;
+package com.kbook.test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.config.ChatModelFactory;
@@ -9,7 +9,10 @@ import com.kbook.entity.User;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.CommentRepository;
 import com.kbook.repository.UserRepository;
-import com.kbook.service.*;
+import com.kbook.service.book.BookParserService;
+import com.kbook.service.recommend.RecommendCoefficientService;
+import com.kbook.service.recommend.RecommendMatchCalculator;
+import com.kbook.service.tools.DimensionStatsService;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;

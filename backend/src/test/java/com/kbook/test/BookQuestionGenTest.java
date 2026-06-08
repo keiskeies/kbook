@@ -6,7 +6,7 @@ import com.kbook.entity.Book;
 import com.kbook.entity.BookSuggestedQuestion;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.BookSuggestedQuestionRepository;
-import com.kbook.service.AiProviderConfigService;
+import com.kbook.service.ai.AiProviderConfigService;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;

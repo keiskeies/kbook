@@ -405,6 +405,14 @@ public class AdminBookToolService {
             "coverUrl", "rating", "contentEmbedded"
     );
 
+    /**
+     * 通过反射设置 Book 实体的指定字段值
+     * 自动进行类型转换（通过 BookService.convertToFieldType）
+     *
+     * @param book  书籍实体
+     * @param field 字段名
+     * @param value 字段值（字符串类型）
+     */
     private void setFieldValue(Book book, String field, Object value) {
         try {
             java.lang.reflect.Field declaredField = Book.class.getDeclaredField(field);
@@ -418,6 +426,13 @@ public class AdminBookToolService {
 
     // ==================== 格式化输出 ====================
 
+    /**
+     * 将书籍列表格式化为可读的文本列表，包含序号、ID、书名、作者、格式、评分、阅读次数
+     *
+     * @param books 书籍列表
+     * @param title 列表标题（可为 null）
+     * @return 格式化后的文本字符串
+     */
     private String formatBookList(java.util.List<Book> books, String title) {
         if (books == null || books.isEmpty()) return "没有找到图书。";
         StringBuilder sb = new StringBuilder();
@@ -439,6 +454,12 @@ public class AdminBookToolService {
         return sb.toString();
     }
 
+    /**
+     * 将单本书籍格式化为详细信息文本
+     *
+     * @param b 书籍实体
+     * @return 格式化后的详细信息文本
+     */
     private String formatBookDetail(Book b) {
         if (b == null) return "图书不存在。";
         StringBuilder sb = new StringBuilder();
@@ -464,6 +485,12 @@ public class AdminBookToolService {
 
     // ==================== 辅助方法 ====================
 
+    /**
+     * 根据字段名返回对应的中文统计标题
+     *
+     * @param field 字段名（英文）
+     * @return 中文统计标题
+     */
     private String getFieldLabel(String field) {
         return switch (field.toLowerCase()) {
             case "author" -> "作者排行";
@@ -477,6 +504,13 @@ public class AdminBookToolService {
         };
     }
 
+    /**
+     * 根据时间范围自动推断合适的聚合粒度
+     * ≤90天按天聚合，≤400天按月聚合，否则按年聚合
+     *
+     * @param range 时间范围
+     * @return 时间聚合粒度枚举
+     */
     private TimeDeltaEnum resolveTimeDelta(TimeRange range) {
         if (range.start == null) return TimeDeltaEnum.ALL_MONTHS;
         long days = java.time.Duration.between(range.start, range.end != null ? range.end : LocalDateTime.now()).toDays();
@@ -485,6 +519,13 @@ public class AdminBookToolService {
         return TimeDeltaEnum.YEAR;
     }
 
+    /**
+     * 解析时间范围字符串为 TimeRange 对象
+     * 支持预设范围（本周、本月、本年、近7天等）和自定义范围（格式：起始日期~结束日期）
+     *
+     * @param timeRange 时间范围字符串
+     * @return 解析后的时间范围对象
+     */
     private TimeRange parseTimeRange(String timeRange) {
         if (timeRange == null || timeRange.isBlank() || "全部".equals(timeRange)) {
             return new TimeRange(null, null);
@@ -513,6 +554,19 @@ public class AdminBookToolService {
         };
     }
 
+    /**
+     * 时间范围数据类
+     *
+     * @param start 起始时间（可为 null 表示不限）
+     * @param end   结束时间（可为 null 表示不限）
+     */
     private record TimeRange(LocalDateTime start, LocalDateTime end) {}
+
+    /**
+     * 排序信息数据类
+     *
+     * @param ascList  升序字段列表
+     * @param descList 降序字段列表
+     */
     private record SortInfo(java.util.List<String> ascList, java.util.List<String> descList) {}
 }

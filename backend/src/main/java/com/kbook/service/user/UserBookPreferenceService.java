@@ -17,7 +17,9 @@ import java.util.stream.Collectors;
 
 /**
  * 用户书籍偏好服务
- * 管理用户不喜欢的书籍标签/作者/格式（排除），以及喜欢的书籍标签/作者/格式（想看）
+ * <p>
+ * 管理用户不喜欢的书籍标签/作者/格式（排除），以及喜欢的书籍标签/作者/格式（想看）。
+ * 偏好变更时会自动清空用户推荐缓存并异步触发推荐重算。
  */
 @Slf4j
 @Service
@@ -33,6 +35,10 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
 
     /**
      * 添加用户排除偏好（不想看某类书）
+     * @param userId 用户ID
+     * @param category 偏好类别（TAG/AUTHOR/FORMAT）
+     * @param value 偏好值（具体标签/作者名/格式名）
+     * @return 保存后的偏好实体
      */
     @LogAction("添加排除偏好")
     @Transactional
@@ -64,6 +70,10 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
 
     /**
      * 恢复/取消排除偏好（用户反悔，想看该类书了）
+     * @param userId 用户ID
+     * @param category 偏好类别（TAG/AUTHOR/FORMAT）
+     * @param value 偏好值
+     * @return true=删除成功，false=偏好不存在
      */
     @LogAction("移除排除偏好")
     @Transactional
@@ -81,6 +91,8 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
 
     /**
      * 获取用户所有排除偏好
+     * @param userId 用户ID
+     * @return 排除偏好列表
      */
     @LogAction("获取排除偏好")
     public List<UserBookPreference> getExcludePreferences(Long userId) {
@@ -89,6 +101,8 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
 
     /**
      * 获取用户排除的标签列表
+     * @param userId 用户ID
+     * @return 排除的标签值列表
      */
     @LogAction("获取排除标签")
     public List<String> getExcludedTags(Long userId) {
@@ -100,6 +114,8 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
 
     /**
      * 获取用户排除的作者列表
+     * @param userId 用户ID
+     * @return 排除的作者名列表
      */
     @LogAction("获取排除作者")
     public List<String> getExcludedAuthors(Long userId) {
@@ -111,6 +127,8 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
 
     /**
      * 获取用户排除的格式列表
+     * @param userId 用户ID
+     * @return 排除的格式值列表
      */
     @LogAction("获取排除格式")
     public List<String> getExcludedFormats(Long userId) {
@@ -121,7 +139,9 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
     }
 
     /**
-     * 获取用户所有偏好
+     * 获取用户所有偏好（包括排除和喜欢）
+     * @param userId 用户ID
+     * @return 所有偏好列表
      */
     @LogAction("获取所有偏好")
     public List<UserBookPreference> getAllPreferences(Long userId) {
@@ -132,6 +152,10 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
 
     /**
      * 添加用户喜欢偏好（想看某类书）
+     * @param userId 用户ID
+     * @param category 偏好类别（TAG/AUTHOR/FORMAT）
+     * @param value 偏好值（具体标签/作者名/格式名）
+     * @return 保存后的偏好实体
      */
     @LogAction("添加喜欢偏好")
     @Transactional
@@ -156,6 +180,10 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
 
     /**
      * 取消喜欢偏好
+     * @param userId 用户ID
+     * @param category 偏好类别（TAG/AUTHOR/FORMAT）
+     * @param value 偏好值
+     * @return true=删除成功，false=偏好不存在
      */
     @LogAction("取消喜欢偏好")
     @Transactional
@@ -171,27 +199,43 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
         return false;
     }
 
-    /** 获取用户所有喜欢偏好 */
+    /**
+     * 获取用户所有喜欢偏好
+     * @param userId 用户ID
+     * @return 喜欢偏好列表
+     */
     @LogAction("获取喜欢偏好")
     public List<UserBookPreference> getIncludePreferences(Long userId) {
         return preferenceRepository.findByUserIdAndType(userId, "INCLUDE");
     }
 
-    /** 获取用户喜欢的标签列表 */
+    /**
+     * 获取用户喜欢的标签列表
+     * @param userId 用户ID
+     * @return 喜欢的标签值列表
+     */
     @LogAction("获取喜欢标签")
     public List<String> getIncludedTags(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "INCLUDE")
                 .stream().map(UserBookPreference::getValue).collect(Collectors.toList());
     }
 
-    /** 获取用户喜欢的作者列表 */
+    /**
+     * 获取用户喜欢的作者列表
+     * @param userId 用户ID
+     * @return 喜欢的作者名列表
+     */
     @LogAction("获取喜欢作者")
     public List<String> getIncludedAuthors(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "INCLUDE")
                 .stream().map(UserBookPreference::getValue).collect(Collectors.toList());
     }
 
-    /** 获取用户喜欢的格式列表 */
+    /**
+     * 获取用户喜欢的格式列表
+     * @param userId 用户ID
+     * @return 喜欢的格式值列表
+     */
     @LogAction("获取喜欢格式")
     public List<String> getIncludedFormats(Long userId) {
         return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "INCLUDE")

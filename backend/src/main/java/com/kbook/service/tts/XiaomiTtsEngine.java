@@ -18,20 +18,35 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+/**
+ * 小米 MiMo TTS 引擎
+ * <p>
+ * 基于小米 MiMo 大模型的文本转语音实现，支持普通合成和 SSE 流式合成。
+ * 使用 OpenAI 兼容的 Chat Completions API 格式，通过 user/assistant 角色对话触发语音生成。
+ * 默认模型：mimo-v2.5-tts，默认音色：冰糖。
+ */
 @Slf4j
 @Component
 public class XiaomiTtsEngine implements TtsEngine {
 
+    /** HTTP 客户端，连接超时10秒 */
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
+    /** JSON 序列化/反序列化工具 */
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** 默认 API 基础地址 */
     private static final String DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
+    /** 默认语音音色 */
     private static final String DEFAULT_VOICE = "冰糖";
+    /** 默认模型名称 */
     private static final String DEFAULT_MODEL = "mimo-v2.5-tts";
 
+    /**
+     * 判断是否支持小米 LLM 类型 TTS 配置
+     */
     @Override
     public boolean supports(TtsConfig config) {
         return config.getProvider() == TtsConfig.Provider.XIAOMI
@@ -130,6 +145,16 @@ public class XiaomiTtsEngine implements TtsEngine {
         }
     }
 
+    /**
+     * 构建小米 TTS API 请求体
+     * 使用 user/assistant 角色对话格式触发语音生成
+     *
+     * @param text   待合成文本
+     * @param config TTS 配置
+     * @param format 音频格式（wav/pcm16）
+     * @param stream 是否流式
+     * @return 请求体 Map
+     */
     private Map<String, Object> buildRequestBody(String text, TtsConfig config, String format, boolean stream) {
         Map<String, Object> audio = new java.util.LinkedHashMap<>();
         audio.put("format", format);

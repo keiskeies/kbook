@@ -72,7 +72,7 @@ public class ClickCaptchaService {
 
     /**
      * 生成点击验证码
-     * 返回 captchaId、提示文字、图形列表
+     * @return 验证码数据，包含captchaId、提示文字、图形列表
      */
     public CaptchaData generateCaptcha() {
         String captchaId = UUID.randomUUID().toString().replace("-", "");
@@ -140,7 +140,10 @@ public class ClickCaptchaService {
     }
 
     /**
-     * 验证点击结果
+     * 验证用户点击结果
+     * @param captchaId 验证码ID
+     * @param clickedPositions 用户点击的位置索引列表
+     * @throws BusinessException 验证码过期或点击位置错误时抛出
      */
     public void verifyClick(String captchaId, List<Integer> clickedPositions) {
         String key = CAPTCHA_PREFIX + captchaId;
@@ -179,6 +182,8 @@ public class ClickCaptchaService {
 
     /**
      * 校验验证码是否已通过验证（供登录/发送验证码时调用，一次性消费）
+     * @param captchaId 验证码ID
+     * @throws BusinessException 验证码未通过或已过期时抛出
      */
     public void checkCaptchaVerified(String captchaId) {
         if (captchaId == null || captchaId.isBlank()) {
@@ -199,12 +204,32 @@ public class ClickCaptchaService {
 
     // ========== DTO ==========
 
+    /**
+     * 验证码数据DTO
+     * @param captchaId 验证码唯一标识
+     * @param hint 提示文字（如"红色大三角形"）
+     * @param items 图形网格列表
+     */
     public record CaptchaData(String captchaId, String hint, List<CaptchaItem> items) {
     }
 
+    /**
+     * 单个图形项DTO
+     * @param index 位置索引（0-8）
+     * @param shape 形状（circle/triangle/square/diamond/star/heart）
+     * @param color 颜色（red/blue/green/yellow）
+     * @param size 大小（small/large）
+     * @param colorHex 颜色的十六进制值
+     * @param isTarget 是否为目标图形
+     */
     public record CaptchaItem(int index, String shape, String color, String size, String colorHex, boolean isTarget) {
     }
 
+    /**
+     * 验证码答案（存储在Redis中）
+     * @param captchaId 验证码ID
+     * @param positions 目标图形的位置索引列表
+     */
     record CaptchaAnswer(String captchaId, List<Integer> positions) {
     }
 }

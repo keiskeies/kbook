@@ -49,6 +49,15 @@ public class AiProviderConfigService {
     private volatile long cachedChatAssistantVersion = -1;
 
 
+    /**
+     * 构造函数，通过 Spring 依赖注入所需的 Bean。
+     *
+     * @param chatMemoryStore             对话记忆存储，用于管理会话历史
+     * @param toolServiceProvider         AI 工具服务提供器，延迟获取以避免循环依赖
+     * @param chatModelFactory            聊天模型工厂，负责创建 ChatModel 实例
+     * @param configRepository            AI 配置仓库，用于数据库查询
+     * @param bookAdminChatServiceProvider 管理员聊天服务提供器，延迟获取
+     */
     public AiProviderConfigService(
             AiChatMemory chatMemoryStore,
             ObjectProvider<AiToolService> toolServiceProvider,
@@ -106,6 +115,7 @@ public class AiProviderConfigService {
      */
     @Transactional
     public AiProviderConfig switchDefault(Long configId) {
+        // 查找目标配置，不存在则抛出异常
         AiProviderConfig config = configRepository.findById(configId)
                 .orElseThrow(() -> new RuntimeException("配置不存在: " + configId));
 
@@ -116,7 +126,7 @@ public class AiProviderConfigService {
         config.setIsDefault(true);
         AiProviderConfig saved = configRepository.save(config);
 
-        // 使对话缓存失效
+        // 使对话缓存失效，下次请求将使用新配置
         invalidateChatCache();
 
         log.info("已切换默认配置: id={}, name={}, purpose={}", configId, config.getName(), config.getPurpose());
@@ -131,16 +141,20 @@ public class AiProviderConfigService {
      * 下次获取时将重新构建 Assistant。
      */
     public AiAssistant getChatAssistant() {
+        // 获取当前配置版本号
         long currentVersion = chatConfigVersion.get();
+        // 如果缓存有效，直接返回
         if (cachedChatAssistant != null && cachedChatAssistantVersion == currentVersion) {
             return cachedChatAssistant;
         }
 
+        // 双重检查锁，确保线程安全
         synchronized (this) {
             // 双重检查
             if (cachedChatAssistant != null && cachedChatAssistantVersion == currentVersion) {
                 return cachedChatAssistant;
             }
+            // 缓存失效，重新构建 Assistant
             cachedChatAssistant = buildChatAssistant();
             cachedChatAssistantVersion = currentVersion;
             return cachedChatAssistant;
@@ -173,8 +187,10 @@ public class AiProviderConfigService {
      * 构建对话用途的 AiAssistant（使用数据库配置或 yml 回退）
      */
     private AiAssistant buildChatAssistant() {
+        // 获取数据库配置，如果不存在则使用 yml 默认配置
         AiProviderConfig config = getChatConfig();
         String modelName = config != null ? config.getModelName() : chatModelFactory.getModelName();
+        // 判断模型是否支持工具调用
         boolean toolsSupported = chatModelFactory.isToolsSupported(config);
 
         log.info("构建对话 AI Assistant: source={}, model={}, toolsEnabled={}, baseUrl={}",

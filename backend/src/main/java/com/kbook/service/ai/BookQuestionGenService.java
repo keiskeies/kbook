@@ -49,10 +49,12 @@ public class BookQuestionGenService {
     @LogAction("异步生成预设问题")
     public void asyncGenerateQuestions(Long bookId) {
         log.info("开始异步生成图书预设问题: bookId={}", bookId);
+        // 获取书籍信息
         Book book = bookService.getBookById(bookId);
         if (book == null) return;
 
         try {
+            // 构建提示词，要求 AI 生成 20 个多样化问题
             String prompt = String.format(
                     """
                         你是一位资深阅读引导专家。请根据提供的图书信息，生成20个可以向AI深入探讨本书的问题。
@@ -91,24 +93,29 @@ public class BookQuestionGenService {
                     book.getChapterSummary() != null ? book.getChapterSummary() : "暂无摘要"
             );
 
+            // 获取 ChatModel 实例
             ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
 
-            // 使用Future实现超时控制
+            // 使用 Future 实现超时控制，防止 AI 调用阻塞线程
             long startTime = System.currentTimeMillis();
             Future<ChatResponse> future = executor.submit(() -> chatModel.chat(List.of(UserMessage.from(prompt))));
             ChatResponse response;
             try {
+                // 设置 2 分钟超时
                 response = future.get(2, TimeUnit.MINUTES);
             } catch (TimeoutException e) {
+                // 超时则取消任务
                 future.cancel(true);
                 throw new RuntimeException("AI调用超时（超过" + 2 + "分钟）", e);
             } catch (InterruptedException e) {
+                // 中断时恢复中断状态
                 Thread.currentThread().interrupt();
                 throw new RuntimeException("AI调用被中断", e);
             } catch (ExecutionException e) {
                 throw new RuntimeException("AI调用执行异常", e.getCause());
             }
             long elapsed = System.currentTimeMillis() - startTime;
+            // 获取 AI 响应文本
             String aiText = response.aiMessage().text();
 
             int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
@@ -116,9 +123,11 @@ public class BookQuestionGenService {
             int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
                     ? response.tokenUsage().outputTokenCount() : 0;
 
+            // 解析 AI 响应，提取问题列表
             if (aiText != null && !aiText.isBlank()) {
                 List<String> generated = parseQuestions(aiText);
                 if (!generated.isEmpty()) {
+                    // 将问题列表转换为实体并批量保存
                     List<BookSuggestedQuestion> toSave = generated.stream()
                             .map(q -> {
                                 BookSuggestedQuestion sq = new BookSuggestedQuestion();
@@ -129,10 +138,12 @@ public class BookQuestionGenService {
                             .collect(Collectors.toList());
                     suggestedQuestionRepository.saveAll(toSave);
                     log.info("AI 生成并保存预设问题成功: bookId={}, count={}", bookId, toSave.size());
+                    // 记录 AI 调用日志
                     CommonUtils.logAiCall("生成预设问题", elapsed, inputTokens, outputTokens,
                             String.format("bookId=%d, questions=%d", bookId, toSave.size()));
                 }
             } else {
+                // AI 响应为空，记录日志
                 CommonUtils.logAiCall("生成预设问题", elapsed, inputTokens, outputTokens,
                         String.format("bookId=%d, questions=0(空)", bookId));
             }
@@ -142,7 +153,12 @@ public class BookQuestionGenService {
     }
 
     /**
-     * 解析 AI 返回的文本，提取问题列表
+     * 解析 AI 返回的文本，提取问题列表。
+     *
+     * <p>按行分割，去除序号、空白行和过短的行，返回最多 20 个去重后的问题。</p>
+     *
+     * @param text AI 生成的多行问题文本
+     * @return 解析后的问题列表
      */
     private List<String> parseQuestions(String text) {
         return Arrays.stream(text.split("\n"))

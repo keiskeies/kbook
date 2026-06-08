@@ -19,14 +19,26 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 讯飞 TTS 引擎
+ * <p>
+ * 基于科大讯飞 WebSocket API 的传统文本转语音实现。
+ * 使用 HMAC-SHA256 签名认证，通过 WebSocket 协议接收二进制音频数据。
+ * 仅支持普通合成，不支持流式合成。
+ */
 @Slf4j
 @Component
 public class IflytekTtsEngine implements TtsEngine {
 
+    /** 讯飞 TTS WebSocket 默认地址 */
     private static final String DEFAULT_URL = "wss://tts-api.xfyun.cn/v2/tts";
 
+    /** JSON 序列化/反序列化工具 */
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /**
+     * 判断是否支持讯飞传统类型 TTS 配置
+     */
     @Override
     public boolean supports(TtsConfig config) {
         return config.getProvider() == TtsConfig.Provider.IFLYTEK
@@ -144,6 +156,13 @@ public class IflytekTtsEngine implements TtsEngine {
         }
     }
 
+    /**
+     * 合并所有音频数据块并完成 Future
+     *
+     * @param future    结果 Future
+     * @param chunks    音频数据块列表
+     * @param errorMsg  错误信息（为空表示成功）
+     */
     private void completeFuture(CompletableFuture<byte[]> future, List<byte[]> chunks, StringBuilder errorMsg) {
         if (future.isDone()) return;
         if (errorMsg.length() > 0) {
@@ -162,12 +181,18 @@ public class IflytekTtsEngine implements TtsEngine {
         }
     }
 
+    /**
+     * 获取当前 RFC1123 格式的日期字符串（用于签名认证）
+     */
     private static String getCurrentRfc1123Date() {
         SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
         sdf.setTimeZone(TimeZone.getTimeZone("GMT"));
         return sdf.format(new Date());
     }
 
+    /**
+     * 计算 HMAC-SHA256 签名并 Base64 编码
+     */
     private static String hmacSha256Base64(String secret, String data) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");

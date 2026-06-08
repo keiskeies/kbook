@@ -21,7 +21,20 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 邮件通知服务 - 统一管理所有邮件发送
+ * 邮件通知服务 — 统一管理所有邮件发送
+ * <p>
+ * 负责平台所有邮件通知的构建和发送，包括：
+ * - 验证码邮件（注册、登录、修改密码等场景）
+ * - 邀请邮件（邀请好友加入平台）
+ * - 书评回复通知邮件
+ * - 书评点赞通知邮件
+ * - 书评里程碑达标邮件（回复数/点赞数达到阈值时触发）
+ * <p>
+ * 设计特点：
+ * - 使用异步发送（@Async）避免阻塞主流程
+ * - 支持开发模式（sendEnabled=false）仅打印日志不实际发送
+ * - 通过 Redis 防止重复发送达标通知
+ * - 统一 HTML 邮件模板，保持品牌风格一致
  */
 @Slf4j
 @Service
@@ -29,26 +42,41 @@ import java.util.stream.Collectors;
 @LogModule("邮件通知")
 public class EmailNotificationService {
 
+    /** Spring Boot 自带的邮件发送器，负责 SMTP 协议的邮件投递 */
     private final JavaMailSender mailSender;
+    /** Redis 操作模板，用于防重复发送标记和邀请码存储 */
     private final StringRedisTemplate redisTemplate;
+    /** 通知相关配置属性（邮件开关、邀请过期时间、阈值等） */
     private final NotificationProperties notificationProps;
 
+    /** 发件人邮箱地址，从 spring.mail.username 读取 */
     @Value("${spring.mail.username:}")
     private String mailFrom;
 
+    /** Redis Key 前缀：邀请码存储，格式为 invite:code:{code} */
     private static final String INVITE_CODE_PREFIX = "invite:code:";
+    /** Redis Key 前缀：回复达标通知防重标记，格式为 notified:reply:{commentId}:{threshold} */
     private static final String REPLY_NOTIFIED_PREFIX = "notified:reply:";
+    /** Redis Key 前缀：点赞达标通知防重标记，格式为 notified:like:{commentId}:{threshold} */
     private static final String LIKE_NOTIFIED_PREFIX = "notified:like:";
 
     /**
      * 邮件类型枚举
+     * <p>
+     * 每种类型对应不同的邮件模板内容和展示风格，
+     * templateId 用于标识模板，displayName 用于日志输出
      */
     @Getter
     public enum EmailType {
+        /** 验证码邮件：注册、登录、修改密码等场景使用 */
         VERIFICATION_CODE("验证码", "verification"),
+        /** 邀请邮件：邀请好友加入平台阅读 */
         INVITATION("邀请通知", "invitation"),
+        /** 评论回复通知：有人回复了用户的书评 */
         COMMENT_REPLY("回复通知", "comment_reply"),
+        /** 评论点赞通知：有人点赞了用户的书评 */
         COMMENT_LIKE("点赞通知", "comment_like"),
+        /** 书评里程碑达标通知：书评回复数或点赞数达到配置阈值 */
         BOOK_REVIEW_THRESHOLD("书评达标通知", "book_review_threshold");
 
         private final String displayName;
@@ -63,6 +91,12 @@ public class EmailNotificationService {
 
     /**
      * 发送验证码邮件
+     * 用于注册、登录、修改密码等需要验证用户身份的场景
+     *
+     * @param toEmail      收件人邮箱地址
+     * @param sceneName    场景名称（如"注册"、"登录"、"修改密码"），展示在邮件标题和正文中
+     * @param code         验证码字符串
+     * @param expireMinutes 验证码有效期（分钟），展示在安全提示中
      */
     @LogAction("发送验证码邮件")
     public void sendVerificationCode(String toEmail, String sceneName, String code, int expireMinutes) {
@@ -76,8 +110,16 @@ public class EmailNotificationService {
 
     /**
      * 生成邀请链接并发送邀请邮件
+     * <p>
+     * 流程：
+     * 1. 生成12位大写随机邀请码
+     * 2. 将邀请信息（邀请人、书籍、邮箱）存储到 Redis，设置过期时间
+     * 3. 拼接邀请链接并通过邮件发送
      *
-     * @return 邀请码
+     * @param toEmail    被邀请人的邮箱地址
+     * @param inviterName 邀请人昵称
+     * @param bookTitle  被分享的书籍标题
+     * @return 生成的邀请码（12位大写字母数字）
      */
     @LogAction("发送邀请邮件")
     public String sendInvitation(String toEmail, String inviterName, String bookTitle) {
@@ -105,13 +147,17 @@ public class EmailNotificationService {
 
     /**
      * 检查并发送书评回复达标通知
+     * <p>
+     * 当书评的回复数恰好等于某个阈值时触发邮件通知。
+     * 通过 Redis 防重机制确保每个阈值只通知一次。
+     * 阈值配置从 NotificationProperties 动态读取，支持运行时调整。
      *
      * @param commentId      书评ID
-     * @param toEmail        收件人邮箱
-     * @param replierName    回复者昵称
+     * @param toEmail        收件人邮箱（书评作者）
+     * @param replierName    最新回复者昵称
      * @param bookTitle      图书标题
-     * @param commentPreview 书评预览
-     * @param replyCount     当前回复数
+     * @param commentPreview 书评内容预览（截取前50字）
+     * @param replyCount     当前回复数（与阈值精确匹配时触发）
      */
     @LogAction("检查并发送回复达标通知")
     public void checkAndSendReplyThresholdNotification(
@@ -147,13 +193,17 @@ public class EmailNotificationService {
 
     /**
      * 检查并发送书评点赞达标通知
+     * <p>
+     * 当书评的点赞数恰好等于某个阈值时触发邮件通知。
+     * 通过 Redis 防重机制确保每个阈值只通知一次。
+     * 阈值配置从 NotificationProperties 动态读取，支持运行时调整。
      *
      * @param commentId      书评ID
-     * @param toEmail        收件人邮箱
-     * @param likerName      点赞者昵称
+     * @param toEmail        收件人邮箱（书评作者）
+     * @param likerName      最新点赞者昵称
      * @param bookTitle      图书标题
-     * @param commentPreview 书评预览
-     * @param likeCount      当前点赞数
+     * @param commentPreview 书评内容预览（截取前50字）
+     * @param likeCount      当前点赞数（与阈值精确匹配时触发）
      */
     @LogAction("检查并发送点赞达标通知")
     public void checkAndSendLikeThresholdNotification(
@@ -186,11 +236,23 @@ public class EmailNotificationService {
     }
 
     /**
-     * 通用HTML邮件发送
+     * 通用 HTML 邮件发送（异步执行）
+     * <p>
+     * 所有邮件最终都通过此方法发送，负责：
+     * 1. 检查邮件开关（开发模式下仅打印日志）
+     * 2. 验证发件人配置
+     * 3. 根据邮件类型构建对应 HTML 内容
+     * 4. 通过 JavaMailSender 发送 MIME 邮件
+     *
+     * @param to      收件人邮箱地址
+     * @param subject 邮件主题
+     * @param type    邮件类型，决定使用哪种 HTML 模板
+     * @param data    模板变量数据，键值对形式传入模板
      */
     @LogAction("发送HTML邮件")
     @Async
     public void sendHtmlEmail(String to, String subject, EmailType type, Map<String, Object> data) {
+        // 开发模式下不实际发送，仅打印邮件信息便于调试
         if (!notificationProps.isSendEnabled()) {
             log.info("====== 邮件发送（开发模式，未实际发送）====== 收件人:{} 主题:{}", to, subject);
             log.info("====== 邮件内容类型: {} ======", type.getDisplayName());
@@ -199,18 +261,21 @@ public class EmailNotificationService {
         }
 
         String from = mailFrom;
+        // 发件人未配置时跳过发送，避免运行时异常
         if (from == null || from.isBlank()) {
             log.warn("邮件发送跳过: 未配置发件人邮箱 (notification.mail-username)");
             return;
         }
 
         try {
+            // 构建 MIME 邮件消息，启用 HTML 和 UTF-8 编码
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setFrom(from);
             helper.setTo(to);
             helper.setSubject(subject);
 
+            // 根据邮件类型构建对应的 HTML 内容
             String htmlContent = buildEmailHtml(type, data);
             helper.setText(htmlContent, true);
 
@@ -222,7 +287,12 @@ public class EmailNotificationService {
     }
 
     /**
-     * 解析阈值字符串为有序集合
+     * 解析阈值配置字符串为有序整数集合
+     * 配置格式为逗号分隔的数字字符串，如 "5,10,20,50"
+     * 返回去重且升序排列的 LinkedHashSet，便于顺序遍历判断达标
+     *
+     * @param thresholdsStr 阈值配置字符串
+     * @return 排序后的阈值集合
      */
     private Set<Integer> parseThresholds(String thresholdsStr) {
         return Arrays.stream(thresholdsStr.split(","))
@@ -234,7 +304,16 @@ public class EmailNotificationService {
     }
 
     /**
-     * 构建统一的HTML邮件模板
+     * 构建统一的 HTML 邮件模板
+     * <p>
+     * 所有邮件共用同一个外层模板框架，包含：
+     * - 品牌头部（KBook 渐变色标题）
+     * - 内容区域（根据邮件类型动态填充）
+     * - 底部信息（系统自动发送提示、发送时间、访问链接）
+     *
+     * @param type 邮件类型，决定内容区域渲染
+     * @param data 模板变量数据
+     * @return 完整的 HTML 邮件内容
      */
     private String buildEmailHtml(EmailType type, Map<String, Object> data) {
         String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
@@ -274,7 +353,12 @@ public class EmailNotificationService {
     }
 
     /**
-     * 根据邮件类型获取内容区域HTML
+     * 根据邮件类型分发到对应的 HTML 内容构建方法
+     * 使用 switch 表达式确保所有类型都有处理，编译期安全
+     *
+     * @param type 邮件类型
+     * @param data 模板变量数据
+     * @return 对应类型的内容区域 HTML 片段
      */
     private String getEmailBody(EmailType type, Map<String, Object> data) {
         return switch (type) {
@@ -287,7 +371,11 @@ public class EmailNotificationService {
     }
 
     /**
-     * 验证码邮件内容
+     * 构建验证码邮件的内容区域 HTML
+     * 包含场景名称、验证码展示块和安全提示信息
+     *
+     * @param data 必须包含 sceneName（场景名）、code（验证码）、expireMinutes（有效期分钟数）
+     * @return 验证码邮件的 HTML 内容片段
      */
     private String buildVerificationCodeBody(Map<String, Object> data) {
         return """
@@ -316,7 +404,12 @@ public class EmailNotificationService {
     }
 
     /**
-     * 邀请邮件内容
+     * 构建邀请邮件的内容区域 HTML
+     * 包含邀请人信息、书籍标题、邀请链接和有效期提示
+     *
+     * @param data 必须包含 inviterName（邀请人昵称）、bookTitle（书籍标题）、
+     *             inviteLink（邀请链接）、expireHours（有效期小时数）、actionText（按钮文本）
+     * @return 邀请邮件的 HTML 内容片段
      */
     private String buildInvitationBody(Map<String, Object> data) {
         return """
@@ -342,7 +435,11 @@ public class EmailNotificationService {
     }
 
     /**
-     * 评论回复邮件内容
+     * 构建评论回复邮件的内容区域 HTML
+     * 包含回复者昵称、书籍标题和评论内容预览
+     *
+     * @param data 必须包含 userName（回复者昵称）、bookTitle（书籍标题）、content（评论内容预览）
+     * @return 评论回复邮件的 HTML 内容片段
      */
     private String buildCommentReplyBody(Map<String, Object> data) {
         return """
@@ -364,7 +461,12 @@ public class EmailNotificationService {
     }
 
     /**
-     * 评论点赞邮件内容
+     * 构建评论点赞邮件的内容区域 HTML
+     * 包含点赞者昵称、累计点赞数、书籍标题和评论内容预览
+     *
+     * @param data 必须包含 userName（点赞者昵称）、count（当前点赞数）、
+     *             bookTitle（书籍标题）、content（评论内容预览）、actionText（按钮文本）
+     * @return 评论点赞邮件的 HTML 内容片段
      */
     private String buildCommentLikeBody(Map<String, Object> data) {
         return """
@@ -392,7 +494,13 @@ public class EmailNotificationService {
     }
 
     /**
-     * 书评达标邮件内容
+     * 构建书评达标邮件的内容区域 HTML
+     * 当书评的回复数或点赞数达到配置阈值时发送，包含里程碑提示
+     *
+     * @param data 必须包含 thresholdType（阈值类型："回复数"/"点赞数"）、
+     *             thresholdValue（阈值数值）、bookTitle（书籍标题）、
+     *             content（书评内容预览）、actionText（按钮文本）
+     * @return 书评达标邮件的 HTML 内容片段
      */
     private String buildThresholdBody(Map<String, Object> data) {
         return """

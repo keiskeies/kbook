@@ -68,6 +68,14 @@ public class AiChatMemory implements ChatMemoryStore {
     private final ObjectProvider<AiProviderConfigService> providerConfigServiceProvider;
     private final ChatModelManager chatModelManager;
 
+    /**
+     * 构造函数，通过 Spring 依赖注入所需的 Bean。
+     *
+     * @param sessionRepository            会话仓库，用于查询会话信息
+     * @param conversationRepository       对话仓库，用于读写对话记录
+     * @param providerConfigServiceProvider AI 配置服务提供器，延迟获取以避免循环依赖
+     * @param chatModelManager             聊天模型管理器，用于内容压缩
+     */
     public AiChatMemory(AiSessionRepository sessionRepository,
                         AiConversationRepository conversationRepository,
                         ObjectProvider<AiProviderConfigService> providerConfigServiceProvider,
@@ -89,6 +97,7 @@ public class AiChatMemory implements ChatMemoryStore {
 
         String sessionId = memoryId.toString();
 
+        // 首先检查内存缓存
         List<ChatMessage> messages = new CopyOnWriteArrayList<>(store.getOrDefault(sessionId, List.of()));
         if (!messages.isEmpty()) {
             return messages;
@@ -103,17 +112,20 @@ public class AiChatMemory implements ChatMemoryStore {
 
         Long userId = sessionOpt.get().getUserId();
 
-        // 从数据库加载历史，使用 compressed_content
+        // 从数据库加载历史，使用 compressed_content（压缩后的内容）
         List<AiConversation> history = conversationRepository
                 .findBySessionIdOrderByCreatedAtAsc(sessionId);
         messages = new ArrayList<>();
+        // 添加系统提示词，替换用户 ID 占位符
         messages.add(SystemMessage.from(AiPromptConstants.AI_CHAT_SYSTEM_PROMPT
                     .replace("{{userId}}", String.valueOf(userId))));
 
+        // 遍历历史记录，转换为 ChatMessage 对象
         for (AiConversation conv : history) {
             String content = conv.getCompressedContent();
             if (content == null || content.isBlank()) continue;
 
+            // 根据角色创建对应的消息类型
             if ("user".equals(conv.getRole())) {
                 messages.add(UserMessage.from(content));
             } else if ("assistant".equals(conv.getRole())) {
@@ -157,24 +169,28 @@ public class AiChatMemory implements ChatMemoryStore {
      * 通用对话无 RAG 上下文，直接用历史长度判断。
      */
     public void compressHistoryIfNeeded(Long userId, String sessionId) {
-        // 计算字符数限制和压缩目标值
+        // 从配置服务获取 token 限制，如果未配置则使用默认值
         AiProviderConfigService configService = providerConfigServiceProvider.getIfAvailable();
         Integer maxTokens = configService != null ? configService.getActiveMaxTokens() : null;
         int tokenLimit = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
+        // 将 token 限制转换为字符限制（1 token ≈ 1.5 字符）
         int charLimit = (int) (tokenLimit * TOKEN_TO_CHAR_RATIO);
+        // 压缩目标：压缩后总字符数应低于此值
         long compressTarget = (long) (charLimit * COMPRESS_TARGET_RATIO);
 
         try {
-            // 检查是否需要压缩（直接用历史长度，无额外 overhead）
+            // 查询当前会话历史的总字符数
             long totalChars = conversationRepository.sumCompressedContentLength(userId, sessionId);
             log.debug("压缩检查: sessionId={}, history={}/{} ({}%)",
                     sessionId, totalChars, charLimit,
                     charLimit > 0 ? totalChars * 100 / charLimit : 0);
+            // 如果未达到触发阈值，直接返回
             if (totalChars < charLimit * COMPRESS_TRIGGER_RATIO) return;
 
-            // 循环压缩最老的未压缩 AI 回复
+            // 循环压缩最老的未压缩 AI 回复，直到总字符数低于目标值
             int compressed = 0;
             while (totalChars >= Math.max(compressTarget, 0)) {
+                // 查找最老的未压缩 AI 回复
                 AiConversation target = conversationRepository
                         .findFirstUncompressedAssistant(userId, sessionId)
                         .orElse(null);
@@ -183,15 +199,19 @@ public class AiChatMemory implements ChatMemoryStore {
                     return;
                 }
 
+                // 调用 AI 压缩内容
                 String original = target.getContent();
                 String summary = chatModelManager.compressContent(original);
                 if (summary == null) {
+                    // 压缩失败则停止，避免无限循环
                     log.warn("压缩失败(跳过): sessionId={}, convId={}", sessionId, target.getId());
                     break;
                 }
 
+                // 更新压缩后的内容并保存
                 target.setCompressedContent(summary);
                 conversationRepository.save(target);
+                // 更新总字符数
                 totalChars = totalChars - CHAR_LENGTH_ESTIMATE.apply(original) + CHAR_LENGTH_ESTIMATE.apply(summary);
                 compressed++;
                 log.info("压缩历史消息: sessionId={}, convId={}, {}→{} chars",

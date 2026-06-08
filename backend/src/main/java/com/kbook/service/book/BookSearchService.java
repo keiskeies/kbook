@@ -324,6 +324,18 @@ public class BookSearchService {
 
     // ==================== 动态权重 ====================
 
+    /**
+     * 分析查询意图，确定初始权重分配
+     * <p>
+     * 根据查询文本特征判断搜索意图：
+     * - 短查询（≤4字符）：优先关键词匹配（如书名"三体"）
+     * - 包含语义关键词：优先向量搜索（如"推荐适合失恋看的书"）
+     * - 长查询（≥15字符）：优先向量搜索（语义更丰富）
+     * - 其他：均衡分配
+     *
+     * @param keyword 搜索关键词
+     * @return 权重分配结果
+     */
     private SearchWeights analyzeQueryIntent(String keyword) {
         String trimmed = keyword.trim();
         int len = trimmed.length();
@@ -344,6 +356,20 @@ public class BookSearchService {
         return SearchWeights.of(0.5, 0.5);
     }
 
+    /**
+     * 根据召回结果质量动态调整权重
+     * <p>
+     * 自适应调整策略：
+     * 1. 某一路召回为空时，大幅提高另一路权重
+     * 2. 计算两路召回的置信度（基于最高分和召回数量）
+     * 3. 置信度高的一方获得更多权重
+     * 4. 两路结果重叠度高时，减少调整幅度（避免过度偏移）
+     *
+     * @param prior         初始权重
+     * @param vectorScores  向量召回结果（bookId → 相似度分数）
+     * @param keywordRanks  关键词召回结果（bookId → 排名）
+     * @return 调整后的权重
+     */
     private SearchWeights adjustWeightsByRecall(SearchWeights prior,
                                                  Map<Long, Double> vectorScores,
                                                  Map<Long, Integer> keywordRanks) {

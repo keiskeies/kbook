@@ -2,8 +2,10 @@ package com.kbook.test;
 
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
-import com.kbook.service.BookParserService;
-import com.kbook.service.BookService;
+import com.kbook.service.book.BookParserService;
+import com.kbook.service.book.BookSearchService;
+import com.kbook.service.book.BookService;
+import com.kbook.service.embedding.EmbeddingService;
 import net.minidev.json.JSONArray;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,17 +34,17 @@ public class BookInfoServiceTest {
     private BookParserService bookParserService;
 
     @Autowired
-    private com.kbook.service.BookSearchService bookSearchService;
+    private BookSearchService bookSearchService;
 
     @Autowired
-    private com.kbook.service.EmbeddingService embeddingService;
+    private EmbeddingService embeddingService;
 
 
     @Test
     public void updateBookBaseInfo() {
-        List<Book> allBooks = bookRepository.findAllByIdGreaterThan(24625L);
-//        List<Book> allBooks0 = bookRepository.findAllByOrderByRatingDesc();
-//        List<Book> allBooks = allBooks0.stream().filter(book -> null == book.getReaderNeedTags() || book.getConceptTags() == null || book.getTargetReaderTags() == null).toList();
+//        List<Book> allBooks = bookRepository.findAllByIdGreaterThan(24625L);
+        List<Book> allBooks0 = bookRepository.findAllByOrderByRatingDesc();
+        List<Book> allBooks = allBooks0.stream().filter(book -> null == book.getReaderNeedTags() || book.getConceptTags() == null || book.getTargetReaderTags() == null).toList();
         System.out.println("共 " + allBooks.size() + " 本图书需要处理");
 
         long totalStartTime = System.currentTimeMillis();

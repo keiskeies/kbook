@@ -33,7 +33,12 @@ public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Lon
     @Autowired
     private UserRepository userRepository;
 
-    /** 关注用户 */
+    /**
+     * 关注用户
+     * @param followerId 关注者ID
+     * @param followingId 被关注者ID
+     * @throws BusinessException 不能关注自己、用户不存在、已关注时抛出
+     */
     @Transactional
     @LogAction("关注用户")
     public void followUser(Long followerId, Long followingId) {
@@ -64,7 +69,12 @@ public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Lon
         log.info("用户关注: follower={}, following={}", followerId, followingId);
     }
 
-    /** 取消关注 */
+    /**
+     * 取消关注用户
+     * @param followerId 关注者ID
+     * @param followingId 被关注者ID
+     * @throws BusinessException 未关注该用户时抛出
+     */
     @Transactional
     @LogAction("取消关注")
     public void unfollowUser(Long followerId, Long followingId) {
@@ -88,25 +98,42 @@ public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Lon
         log.info("取消关注: follower={}, following={}", followerId, followingId);
     }
 
-    /** 是否已关注 */
+    /**
+     * 检查用户是否已关注另一个用户
+     * @param followerId 关注者ID
+     * @param followingId 被关注者ID
+     * @return true=已关注，false=未关注
+     */
     @LogAction("检查关注状态")
     public boolean isFollowing(Long followerId, Long followingId) {
         return middleService.exist(followerId, followingId);
     }
 
-    /** 获取用户的关注ID列表 */
+    /**
+     * 获取用户关注的用户ID列表
+     * @param userId 用户ID
+     * @return 关注的用户ID列表
+     */
     @LogAction("获取关注列表ID")
     public List<Long> getFollowingIds(Long userId) {
         return userFollowRepository.findFollowingIds(userId);
     }
 
-    /** 获取粉丝列表 */
+    /**
+     * 获取用户的粉丝列表
+     * @param userId 用户ID
+     * @return 粉丝关系列表
+     */
     @LogAction("获取粉丝列表")
     public List<UserFollow> getFollowers(Long userId) {
         return userFollowRepository.findFollowers(userId);
     }
 
-    /** 获取关注列表 */
+    /**
+     * 获取用户的关注列表
+     * @param userId 用户ID
+     * @return 关注关系列表
+     */
     @LogAction("获取关注列表")
     public List<UserFollow> getFollowings(Long userId) {
         return userFollowRepository.findFollowings(userId);

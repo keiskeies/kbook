@@ -57,14 +57,22 @@ import java.util.stream.Collectors;
 public abstract class AbstractServiceImpl<T extends IEntity<ID>, ID>
         implements IService<T, ID> {
 
+    /** JPA 实体管理器，用于构建 CriteriaQuery 动态查询 */
     @PersistenceContext
     protected EntityManager entityManager;
+    /** JPA Repository 实例，提供基础的 CRUD 操作 */
     @Autowired
     protected JpaRepository<T, ID> jpaRepository;
 
+    /** 当前服务所操作的实体 Class 类型（通过泛型反射获取） */
     protected final Class<T> tClass;
+    /** 实体类的简单名称，用于日志输出 */
     protected final String tClassSimpleName;
 
+    /**
+     * 构造函数 — 通过反射获取泛型参数的 Class 类型
+     * 子类无需手动指定 T 的 Class，框架自动推断
+     */
     @SuppressWarnings("unchecked")
     public AbstractServiceImpl() {
         ParameterizedType parameterizedType = ((ParameterizedType) this.getClass().getGenericSuperclass());

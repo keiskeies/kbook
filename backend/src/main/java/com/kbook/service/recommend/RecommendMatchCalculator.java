@@ -74,18 +74,18 @@ public class RecommendMatchCalculator {
      */
     enum MatchWeight {
         // ---- 主维度权重 ----
-        RATING("rating_weight", 0.5),                          // 图书评分：客观质量信号，适度权重让好书有加分
+        RATING("rating_weight", 0.3),                          // 图书评分：客观质量信号，适度权重让好书有加分
         AGE("age_weight", 1.5),                                // 年龄：核心画像维度，不同年龄段阅读偏好差异大，权重最高
         GENDER("gender_weight", 0.8),                          // 性别：中等权重，配合反向惩罚（OPPOSITE_PENALTY）使用
         MARRIED("married_weight", 0.8),                        // 婚姻状态：中等权重，配合反向惩罚使用
         CHILDREN("children_weight", 0.8),                      // 子女年龄区间：中等权重，配合邻近衰减（CHILDREN_ADJACENT_DECAY）使用
-        MBTI("mbti_weight", 1.3),                              // MBTI 性格类型：较高权重，性格对阅读偏好影响显著
-        OCCUPATION("occupation_weight", 1.0),                  // 职业：中等权重，配合邻近衰减使用
+        MBTI("mbti_weight", 1.5),                              // MBTI 性格类型：较高权重，性格对阅读偏好影响显著
+        OCCUPATION("occupation_weight", 1.2),                  // 职业：中等权重，配合邻近衰减使用
         EDUCATION("education_weight", 0.8),                    // 学历：中等权重，配合邻近衰减使用
         ENTREPRENEURSHIP("entrepreneurship_weight", 0.6),      // 创业意向：辅助权重，二值维度无邻近衰减
         INCOME("income_weight", 0.5),                          // 收入区间：辅助权重，配合邻近衰减使用
         INTENT("intent_weight", 1.2),                          // 阅读意图：中等权重，瞬时状态辅助信号（充电成长/共鸣陪伴/逃离放松/新鲜刺激/答案解惑）
-        MOOD("mood_weight", 1.2),                              // 心情：中等权重，瞬时状态辅助信号（开心/平静/焦虑/低落/烦躁/疲惫）
+        MOOD("mood_weight", 1.5),                              // 心情：中等权重，瞬时状态辅助信号（开心/平静/焦虑/低落/烦躁/疲惫）
 
         // ---- 衰减/惩罚系数 ----
         ADJACENT_DECAY("adjacent_decay", 0.4),                 // 邻近维度衰减系数：邻近维度的权重 = 主权重 × 此值

@@ -421,6 +421,10 @@ public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCo
     /**
      * 归一化四路召回权重，使其总和为 1.0
      */
+    /**
+     * 归一化四路召回权重，使其总和为 1.0
+     * 权重调整后必须归一化，否则会导致概率分布异常
+     */
     private void normalizeFusionWeights() {
         String[] keys = {"weight_rule", "weight_vector", "weight_collab", "weight_explore"};
         double sum = 0;
@@ -449,6 +453,15 @@ public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCo
      * 如果用户平均评分偏高（>3.5），说明低质量因子压制效果好，可以保持或增强
      * 如果用户平均评分偏低（<2.5），说明推荐了太多低质量书，需要增强压制
      */
+    /**
+     * 调整质量因子
+     * 根据用户平均评分动态调整低分书籍的压制力度：
+     * - 平均评分低（<2.5）：增强低分压制，减少低质量书籍推荐
+     * - 平均评分高（>3.5）：适当放松压制，允许更多书籍被推荐
+     *
+     * @param avgRating    用户平均评分
+     * @param learningRate 学习率
+     */
     private void tuneQualityFactors(double avgRating, double learningRate) {
         if (avgRating < 2.5) {
             // 平均评分低 → 增强低分压制（降低 very_low 和 low）
@@ -464,6 +477,14 @@ public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCo
 
     /**
      * 微调单个系数（考虑 locked 和 min/max 钳位）
+     */
+    /**
+     * 微调单个系数（考虑锁定状态和范围钳位）
+     * 自动调参时使用，管理员手动设置的系数（locked=true）不会被修改
+     *
+     * @param category 系数类别（如 FUSION、QUALITY）
+     * @param key      系数键名
+     * @param delta    调整增量（正数增加，负数减少）
      */
     private void adjustCoefficient(String category, String key, double delta) {
         coefficientRepository.findByCategoryAndCoeffKey(category, key).ifPresent(rc -> {
