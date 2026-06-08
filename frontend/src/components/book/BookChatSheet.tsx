@@ -417,7 +417,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
         side={side}
         className={`p-0 flex flex-col [&>button]:hidden ${
           side === 'right'
-            ? 'h-full w-full sm:max-w-xl rounded-l-2xl border-l'
+            ? 'h-full w-full sm:max-w-2xl rounded-l-2xl border-l'
             : 'h-[85vh] rounded-t-2xl border-t'
         }`}
       >
