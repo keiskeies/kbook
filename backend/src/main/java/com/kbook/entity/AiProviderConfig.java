@@ -9,8 +9,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * AI 供应商配置实体 — 支持管理员在后台动态配置不同用途的 AI 模型
  * <p>
@@ -89,26 +87,6 @@ public class AiProviderConfig extends BaseEntity {
 
     /** 模型上下文长度（token 数），用于计算历史压缩阈值。为空则默认 32768 (32K) */
     private Integer maxTokens;
-
-    /** 创建时间 */
-    @Column(updatable = false)
-    private LocalDateTime createdAt;
-
-    /** 更新时间 */
-    private LocalDateTime updatedAt;
-
-    /** JPA 持久化前回调，自动设置创建和更新时间 */
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    /** JPA 更新前回调，自动设置更新时间 */
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 
     /** 配置用途枚举 */
     public enum Purpose {

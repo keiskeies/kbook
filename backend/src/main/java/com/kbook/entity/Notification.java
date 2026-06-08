@@ -8,8 +8,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 系统通知实体
  * 类型：COMMENT_REPLY(评论被回复) / COMMENT_LIKED(评论被点赞) / COMMENT_FAVORITED(评论被收藏) / NEW_REVIEW(关注的人发书评)
@@ -56,16 +54,6 @@ public class Notification extends BaseEntity {
     @Column(name = "is_read", nullable = false)
     @Builder.Default
     private Boolean isRead = false;
-
-    /** 创建时间 */
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    /** JPA 持久化前回调，自动设置创建时间 */
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

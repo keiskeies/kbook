@@ -8,8 +8,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 用户书籍偏好实体
  * 记录用户不喜欢的书籍标签/类型，推荐时排除
@@ -53,16 +51,6 @@ public class UserBookPreference extends BaseEntity {
     @Column(nullable = false, length = 20)
     @Builder.Default
     private String type = "EXCLUDE";
-
-    /** 创建时间 */
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    /** JPA 持久化前回调，自动设置创建时间 */
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

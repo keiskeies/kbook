@@ -1,9 +1,9 @@
 package com.kbook.dto;
 
-import com.kbook.enums.ConditionEnum;
-import com.kbook.enums.chart.CalcType;
-import com.kbook.enums.chart.ColumnType;
-import com.kbook.enums.chart.TimeDeltaEnum;
+import com.kbook.common.enums.ConditionEnum;
+import com.kbook.common.enums.chart.CalcType;
+import com.kbook.common.enums.chart.ColumnType;
+import com.kbook.common.enums.chart.TimeDeltaEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

@@ -2,12 +2,14 @@ package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -43,21 +45,18 @@ import java.util.UUID;
 @Slf4j
 @Service
 @LogModule("用户")
-public class UserService {
+public class UserService extends AbstractServiceImpl<User, Long> {
 
-    /** 用户数据仓库 */
-    private final UserRepository userRepository;
+    /** 用户数据仓库（自定义查询方法） */
+    @Autowired
+    private UserRepository userRepository;
     /** 文件存储配置 */
-    private final BookStorageProperties storageProps;
+    @Autowired
+    private BookStorageProperties storageProps;
     /** 推荐服务（@Lazy 避免循环依赖） */
-    private final RecommendService recommendService;
-
-    public UserService(UserRepository userRepository, BookStorageProperties storageProps,
-                       @Lazy RecommendService recommendService) {
-        this.userRepository = userRepository;
-        this.storageProps = storageProps;
-        this.recommendService = recommendService;
-    }
+    @Autowired
+    @Lazy
+    private RecommendService recommendService;
 
     /**
      * 根据ID获取用户，不存在则抛出异常
@@ -66,8 +65,11 @@ public class UserService {
      */
     @LogAction("获取用户详情")
     public User getUserById(Long id) {
-        return userRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("用户不存在"));
+        User user = findOneById(id);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+        return user;
     }
 
     /**
@@ -121,7 +123,7 @@ public class UserService {
         stats.putIfAbsent("PENDING", 0L);
         stats.putIfAbsent("APPROVED", 0L);
         stats.putIfAbsent("BANNED", 0L);
-        stats.put("TOTAL", userRepository.count());
+        stats.put("TOTAL", getCount(List.of()));
         return stats;
     }
 
@@ -136,7 +138,7 @@ public class UserService {
             throw new BusinessException("用户状态不是待审核");
         }
         user.setStatus("APPROVED");
-        userRepository.save(user);
+        updateOne(user);
         log.info("用户审核通过: userId={}", userId);
     }
 
@@ -146,7 +148,7 @@ public class UserService {
     @Transactional
     @LogAction("批量审核通过")
     public int batchApprove(List<Long> userIds) {
-        List<User> users = userRepository.findAllById(userIds);
+        List<User> users = findListByIds(userIds);
         int count = 0;
         for (User user : users) {
             if ("PENDING".equals(user.getStatus())) {
@@ -154,7 +156,7 @@ public class UserService {
                 count++;
             }
         }
-        userRepository.saveAll(users);
+        updateList(users);
         log.info("批量审核通过: total={}, approved={}", users.size(), count);
         return count;
     }
@@ -167,7 +169,7 @@ public class UserService {
     public void rejectUser(Long userId) {
         User user = getUserById(userId);
         user.setStatus("BANNED");
-        userRepository.save(user);
+        updateOne(user);
         log.info("用户审核拒绝: userId={}", userId);
     }
 
@@ -177,9 +179,9 @@ public class UserService {
     @Transactional
     @LogAction("批量审核拒绝")
     public int batchReject(List<Long> userIds) {
-        List<User> users = userRepository.findAllById(userIds);
+        List<User> users = findListByIds(userIds);
         users.forEach(user -> user.setStatus("BANNED"));
-        userRepository.saveAll(users);
+        updateList(users);
         log.info("批量审核拒绝: count={}", users.size());
         return users.size();
     }
@@ -195,7 +197,7 @@ public class UserService {
             throw new BusinessException("用户状态不是封禁");
         }
         user.setStatus("APPROVED");
-        userRepository.save(user);
+        updateOne(user);
         log.info("用户解封: userId={}", userId);
     }
 
@@ -210,7 +212,7 @@ public class UserService {
             throw new BusinessException("只有已通过的用户才能被封禁");
         }
         user.setStatus("BANNED");
-        userRepository.save(user);
+        updateOne(user);
         log.info("用户被封禁: userId={}", userId);
     }
 
@@ -224,7 +226,7 @@ public class UserService {
         if (nickname != null) user.setNickname(nickname);
         if (avatar != null) user.setAvatar(avatar);
         if (bio != null) user.setBio(bio);
-        return userRepository.save(user);
+        return updateOne(user);
     }
 
     /**
@@ -247,7 +249,7 @@ public class UserService {
         if (aspirationEducation != null) user.setAspirationEducation(aspirationEducation);
         if (entrepreneurship != null) user.setEntrepreneurship(entrepreneurship);
         if (aspirationIncome != null) user.setAspirationIncome(aspirationIncome);
-        user = userRepository.save(user);
+        user = updateOne(user);
         recommendService.asyncRecompute(userId);
         return user;
     }
@@ -260,7 +262,7 @@ public class UserService {
     public User updateBookChatStyle(Long userId, String style) {
         User user = getUserById(userId);
         user.setBookChatStyle(style != null && !style.isBlank() ? style.toUpperCase() : "DEEP");
-        return userRepository.save(user);
+        return updateOne(user);
     }
 
     /**
@@ -271,7 +273,7 @@ public class UserService {
     public User updateMood(Long userId, String mood) {
         User user = getUserById(userId);
         user.setMood(mood != null && !mood.isBlank() ? mood : null);
-        user = userRepository.save(user);
+        user = updateOne(user);
         recommendService.asyncRecompute(userId);
         return user;
     }
@@ -330,7 +332,7 @@ public class UserService {
 
             User user = getUserById(userId);
             user.setAvatar(avatarUrl);
-            userRepository.save(user);
+            updateOne(user);
 
             log.info("头像上传成功: userId={}, avatarUrl={}", userId, avatarUrl);
             return user;
@@ -355,7 +357,7 @@ public class UserService {
         }
         user.setEmail(email);
         user.setEmailBound(true);
-        userRepository.save(user);
+        updateOne(user);
         log.info("管理员绑定邮箱: userId={}, email={}", userId, email);
         return user;
     }

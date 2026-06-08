@@ -8,8 +8,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 用户阅读历史实体
  * 记录所有阅读行为（包括书架外的），用于协同过滤和推荐计算
@@ -51,16 +49,6 @@ public class UserReadHistory extends BaseEntity {
     /** 行为详情（如评分值 "4"、进度 "0.85" 等） */
     @Column(name = "action_detail", length = 50)
     private String actionDetail;
-
-    /** 创建时间 */
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    /** JPA 持久化前回调，自动设置创建时间 */
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

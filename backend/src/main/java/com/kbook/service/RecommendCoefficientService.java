@@ -2,13 +2,14 @@ package com.kbook.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.RecommendCoefficient;
 import com.kbook.entity.RecommendFeedbackEvent;
 import com.kbook.repository.RecommendCoefficientRepository;
 import com.kbook.repository.RecommendFeedbackEventRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -39,14 +40,17 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 @LogModule("推荐系数")
-public class RecommendCoefficientService {
+public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCoefficient, Long> {
 
-    private final RecommendCoefficientRepository coefficientRepository;
-    private final RecommendFeedbackEventRepository feedbackEventRepository;
-    private final StringRedisTemplate redisTemplate;
-    private final ObjectMapper objectMapper;
+    @Autowired
+    private RecommendCoefficientRepository coefficientRepository;
+    @Autowired
+    private RecommendFeedbackEventRepository feedbackEventRepository;
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+    @Autowired
+    private ObjectMapper objectMapper;
 
     private static final String REDIS_PREFIX = "kbook:recommend:coeff:";
     private static final String REDIS_ALL_KEY = "kbook:recommend:coeff:all";
@@ -139,7 +143,7 @@ public class RecommendCoefficientService {
      * 如果数据库为空，先写入默认系数
      */
     public void initializeCoefficients() {
-        List<RecommendCoefficient> existing = coefficientRepository.findAll();
+        List<RecommendCoefficient> existing = findList();
         Map<String, RecommendCoefficient> existingMap = new HashMap<>();
         for (RecommendCoefficient rc : existing) {
             String key = rc.getCategory() + ":" + rc.getCoeffKey();
@@ -169,7 +173,7 @@ public class RecommendCoefficientService {
                         .description(description)
                         .locked(false)
                         .build();
-                coefficientRepository.save(rc);
+                saveOne(rc);
                 needsSave = true;
                 log.info("初始化推荐系数: {}.{} = {}", category, coeffKey, defaultValue);
             }
@@ -189,7 +193,7 @@ public class RecommendCoefficientService {
      */
     public void reloadCache() {
         coefficientCache.clear();
-        List<RecommendCoefficient> all = coefficientRepository.findAll();
+        List<RecommendCoefficient> all = findList();
         for (RecommendCoefficient rc : all) {
             String key = rc.getCategory() + ":" + rc.getCoeffKey();
             coefficientCache.put(key, rc.getCoeffValue());
@@ -434,7 +438,7 @@ public class RecommendCoefficientService {
             coefficientRepository.findByCategoryAndCoeffKey("FUSION", key).ifPresent(rc -> {
                 if (!rc.getLocked()) {
                     rc.setCoeffValue(Math.max(rc.getMinValue(), Math.min(rc.getMaxValue(), normalized)));
-                    coefficientRepository.save(rc);
+                    updateOne(rc);
                 }
             });
         }
@@ -470,7 +474,7 @@ public class RecommendCoefficientService {
             double newValue = rc.getCoeffValue() + delta;
             newValue = Math.max(rc.getMinValue(), Math.min(rc.getMaxValue(), newValue));
             rc.setCoeffValue(newValue);
-            coefficientRepository.save(rc);
+            updateOne(rc);
             log.info("自动调参: {}.{} {} → {} (delta={})",
                     category, key, rc.getCoeffValue() - delta, newValue, delta);
         });

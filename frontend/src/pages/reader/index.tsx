@@ -383,7 +383,7 @@ export default function ReaderPage() {
 
         {/* 阅读内容 — PC端限宽 */}
         <div className="flex-1 min-h-0 min-w-0">
-          <div className="mx-auto h-full max-w-3xl">
+          <div className="mx-auto h-full max-w-3xl reader-content">
               {(loading || readerState.loading) && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: theme.bg }}>
                   <div className="text-center">

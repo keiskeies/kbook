@@ -1,14 +1,15 @@
 package com.kbook.service;
 
 import com.kbook.common.exception.BusinessException;
+import com.kbook.common.service.AbstractMiddleServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.User;
 import com.kbook.entity.UserFollow;
 import com.kbook.repository.UserFollowRepository;
 import com.kbook.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,13 +23,15 @@ import java.util.List;
 @Slf4j
 @Service
 @LogModule("关注")
-@RequiredArgsConstructor
-public class UserFollowService {
+public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Long, Long> {
 
     /** 用户关注数据仓库 */
-    private final UserFollowRepository userFollowRepository;
+    @Autowired
+    private UserFollowRepository userFollowRepository;
+
     /** 用户数据仓库 */
-    private final UserRepository userRepository;
+    @Autowired
+    private UserRepository userRepository;
 
     /** 关注用户 */
     @Transactional
@@ -40,14 +43,15 @@ public class UserFollowService {
         if (!userRepository.existsById(followingId)) {
             throw new BusinessException("用户不存在");
         }
-        if (userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId)) {
+        if (middleService.exist(followerId, followingId)) {
             throw new BusinessException("已经关注了该用户");
         }
 
-        userFollowRepository.save(UserFollow.builder()
+        UserFollow follow = UserFollow.builder()
                 .followerId(followerId)
                 .followingId(followingId)
-                .build());
+                .build();
+        middleService.saveOne(follow);
 
         // 更新计数（处理 null 值）
         User follower = userRepository.findById(followerId).orElseThrow();
@@ -64,11 +68,14 @@ public class UserFollowService {
     @Transactional
     @LogAction("取消关注")
     public void unfollowUser(Long followerId, Long followingId) {
-        if (!userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId)) {
+        if (!middleService.exist(followerId, followingId)) {
             throw new BusinessException("尚未关注该用户");
         }
 
-        userFollowRepository.deleteByFollowerIdAndFollowingId(followerId, followingId);
+        UserFollow follow = middleService.findOneById(followerId, followingId);
+        if (follow != null) {
+            middleService.deleteOneById(follow.getId());
+        }
 
         // 更新计数（处理 null 值）
         User follower = userRepository.findById(followerId).orElseThrow();
@@ -84,7 +91,7 @@ public class UserFollowService {
     /** 是否已关注 */
     @LogAction("检查关注状态")
     public boolean isFollowing(Long followerId, Long followingId) {
-        return userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId);
+        return middleService.exist(followerId, followingId);
     }
 
     /** 获取用户的关注ID列表 */

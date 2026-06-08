@@ -1,11 +1,12 @@
 package com.kbook.service;
 
+import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.entity.UserBookPreference;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.repository.UserBookPreferenceRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,14 +19,15 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 @LogModule("用户偏好")
-public class UserBookPreferenceService {
+public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPreference, Long> {
 
     /** 用户偏好数据仓库 */
-    private final UserBookPreferenceRepository preferenceRepository;
+    @Autowired
+    private UserBookPreferenceRepository preferenceRepository;
     /** 推荐服务（偏好变更时触发推荐重算） */
-    private final RecommendService recommendService;
+    @Autowired
+    private RecommendService recommendService;
 
     /**
      * 添加用户排除偏好（不想看某类书）
@@ -39,7 +41,7 @@ public class UserBookPreferenceService {
             // 已存在则更新类型为 EXCLUDE
             UserBookPreference pref = existing.get();
             pref.setType("EXCLUDE");
-            UserBookPreference saved = preferenceRepository.save(pref);
+            UserBookPreference saved = updateOne(pref);
             recommendService.clearUserCache(userId);
             recommendService.asyncRecompute(userId);
             return saved;
@@ -51,7 +53,7 @@ public class UserBookPreferenceService {
                 .value(value)
                 .type("EXCLUDE")
                 .build();
-        UserBookPreference saved = preferenceRepository.save(pref);
+        UserBookPreference saved = saveOne(pref);
         recommendService.clearUserCache(userId);
         recommendService.asyncRecompute(userId);
         log.info("用户添加排除偏好: userId={}, category={}, value={}", userId, category, value);
@@ -66,7 +68,7 @@ public class UserBookPreferenceService {
     public boolean removeExcludePreference(Long userId, String category, String value) {
         var existing = preferenceRepository.findByUserIdAndCategoryAndValue(userId, category, value);
         if (existing.isPresent()) {
-            preferenceRepository.delete(existing.get());
+            deleteOneById(existing.get().getId());
             recommendService.clearUserCache(userId);
             recommendService.asyncRecompute(userId);
             log.info("用户取消排除偏好: userId={}, category={}, value={}", userId, category, value);
@@ -136,14 +138,14 @@ public class UserBookPreferenceService {
         if (existing.isPresent()) {
             UserBookPreference pref = existing.get();
             pref.setType("INCLUDE");
-            UserBookPreference saved = preferenceRepository.save(pref);
+            UserBookPreference saved = updateOne(pref);
             recommendService.clearUserCache(userId);
             recommendService.asyncRecompute(userId);
             return saved;
         }
         UserBookPreference pref = UserBookPreference.builder()
                 .userId(userId).category(category.toUpperCase()).value(value).type("INCLUDE").build();
-        UserBookPreference saved = preferenceRepository.save(pref);
+        UserBookPreference saved = saveOne(pref);
         recommendService.clearUserCache(userId);
         recommendService.asyncRecompute(userId);
         log.info("用户添加喜欢偏好: userId={}, category={}, value={}", userId, category, value);
@@ -158,7 +160,7 @@ public class UserBookPreferenceService {
     public boolean removeIncludePreference(Long userId, String category, String value) {
         var existing = preferenceRepository.findByUserIdAndCategoryAndValueAndType(userId, category, value, "INCLUDE");
         if (existing.isPresent()) {
-            preferenceRepository.delete(existing.get());
+            deleteOneById(existing.get().getId());
             recommendService.clearUserCache(userId);
             recommendService.asyncRecompute(userId);
             log.info("用户取消喜欢偏好: userId={}, category={}, value={}", userId, category, value);

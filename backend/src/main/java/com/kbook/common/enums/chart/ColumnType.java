@@ -1,4 +1,4 @@
-package com.kbook.enums.chart;
+package com.kbook.common.enums.chart;
 
 /**
  * 图表字段类型

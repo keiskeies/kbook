@@ -1,6 +1,6 @@
 package com.kbook.dto;
 
-import com.kbook.enums.ConditionEnum;
+import com.kbook.common.enums.ConditionEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

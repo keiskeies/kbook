@@ -7,9 +7,6 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
-
-import java.time.LocalDateTime;
 
 /**
  * 聊天消息实体
@@ -75,11 +72,6 @@ public class ChatMessage extends BaseEntity {
     @Column(name = "`read`", columnDefinition = "TINYINT(1) DEFAULT 0")
     @Builder.Default
     private Boolean read = false;
-
-    /** 创建时间 */
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
 
     /** 消息类型枚举 */
     public enum MessageType {

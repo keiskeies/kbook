@@ -1,12 +1,13 @@
 package com.kbook.service;
 
+import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.entity.Notification;
 import com.kbook.entity.UserFollow;
 import com.kbook.repository.NotificationRepository;
 import com.kbook.repository.UserFollowRepository;
 import com.kbook.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -24,15 +25,17 @@ import java.util.List;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
-public class NotificationService {
+public class NotificationService extends AbstractServiceImpl<Notification, Long> {
 
     /** 通知数据仓库 */
-    private final NotificationRepository notificationRepository;
+    @Autowired
+    private NotificationRepository notificationRepository;
     /** 用户关注数据仓库（用于查询粉丝列表） */
-    private final UserFollowRepository userFollowRepository;
+    @Autowired
+    private UserFollowRepository userFollowRepository;
     /** 用户数据仓库 */
-    private final UserRepository userRepository;
+    @Autowired
+    private UserRepository userRepository;
 
     /** 评论被回复 */
     @Transactional
@@ -71,7 +74,7 @@ public class NotificationService {
                 .commentId(commentId)
                 .bookId(bookId)
                 .build();
-        notificationRepository.save(notification);
+        saveOne(notification);
     }
 
     /** 获取用户通知列表 */
@@ -88,13 +91,15 @@ public class NotificationService {
     /** 标记单条通知已读 */
     @Transactional
     public void markAsRead(Long notificationId, Long userId) {
-        Notification notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> new RuntimeException("通知不存在"));
+        Notification notification = findOneById(notificationId);
+        if (notification == null) {
+            throw new RuntimeException("通知不存在");
+        }
         if (!notification.getReceiverId().equals(userId)) {
             throw new RuntimeException("无权操作");
         }
         notification.setIsRead(true);
-        notificationRepository.save(notification);
+        updateOne(notification);
     }
 
     /** 全部标记已读 */

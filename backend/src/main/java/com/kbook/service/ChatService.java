@@ -1,6 +1,7 @@
 package com.kbook.service;
 
 import com.kbook.common.exception.BusinessException;
+import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.BookStorageProperties;
@@ -11,8 +12,8 @@ import com.kbook.entity.Conversation;
 import com.kbook.entity.UploadedFile;
 import com.kbook.entity.User;
 import com.kbook.repository.*;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -46,17 +47,24 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("聊天")
-@RequiredArgsConstructor
-public class ChatService {
+public class ChatService extends AbstractServiceImpl<Conversation, Long> {
 
-    private final ConversationRepository conversationRepository;
-    private final ChatMessageRepository chatMessageRepository;
-    private final UserRepository userRepository;
-    private final UserFollowRepository userFollowRepository;
-    private final UploadedFileRepository uploadedFileRepository;
-    private final SimpMessagingTemplate messagingTemplate;
-    private final BookStorageProperties storageProps;
-    private final VideoService videoService;
+    @Autowired
+    private ConversationRepository conversationRepository;
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private UserFollowRepository userFollowRepository;
+    @Autowired
+    private UploadedFileRepository uploadedFileRepository;
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    private BookStorageProperties storageProps;
+    @Autowired
+    private VideoService videoService;
 
     /** 陌生人消息限制：30天内最多发送条数 */
     private static final int MAX_STRANGER_MESSAGES = 1;
@@ -113,7 +121,7 @@ public class ChatService {
             conversation.setUnreadCountUser1(conversation.getUnreadCountUser1() + 1);
         }
 
-        conversation = conversationRepository.save(conversation);
+        conversation = updateOne(conversation);
 
         ChatMessageVO messageVO = ChatMessageVO.fromEntity(message);
         messagingTemplate.convertAndSendToUser(recipientId.toString(), "/queue/messages", messageVO);
@@ -157,7 +165,7 @@ public class ChatService {
                             .user1Deleted(false)
                             .user2Deleted(false)
                             .build();
-                    return conversationRepository.save(conversation);
+                    return saveOne(conversation);
                 });
     }
 
@@ -223,8 +231,10 @@ public class ChatService {
     @Transactional
     @LogAction("获取消息列表")
     public List<ChatMessageVO> getMessages(Long userId, Long conversationId, Long beforeId, int limit) {
-        Conversation conversation = conversationRepository.findById(conversationId)
-                .orElseThrow(() -> new BusinessException("会话不存在"));
+        Conversation conversation = findOneById(conversationId);
+        if (conversation == null) {
+            throw new BusinessException("会话不存在");
+        }
 
         if (!conversation.getUser1Id().equals(userId) && !conversation.getUser2Id().equals(userId)) {
             throw new BusinessException("无权访问此会话");
@@ -252,8 +262,10 @@ public class ChatService {
     @Transactional
     @LogAction("标记已读")
     public void markAsRead(Long userId, Long conversationId) {
-        Conversation conversation = conversationRepository.findById(conversationId)
-                .orElseThrow(() -> new BusinessException("会话不存在"));
+        Conversation conversation = findOneById(conversationId);
+        if (conversation == null) {
+            throw new BusinessException("会话不存在");
+        }
 
         if (!conversation.getUser1Id().equals(userId) && !conversation.getUser2Id().equals(userId)) {
             throw new BusinessException("无权访问此会话");
@@ -276,8 +288,10 @@ public class ChatService {
     @Transactional
     @LogAction("删除会话")
     public void deleteConversation(Long userId, Long conversationId) {
-        Conversation conversation = conversationRepository.findById(conversationId)
-                .orElseThrow(() -> new BusinessException("会话不存在"));
+        Conversation conversation = findOneById(conversationId);
+        if (conversation == null) {
+            throw new BusinessException("会话不存在");
+        }
 
         if (conversation.getUser1Id().equals(userId)) {
             conversationRepository.deleteByUser1(conversationId);
@@ -307,8 +321,10 @@ public class ChatService {
      */
     @LogAction("上传聊天文件")
     public String uploadChatFile(Long userId, Long conversationId, MultipartFile file) throws IOException {
-        Conversation conversation = conversationRepository.findById(conversationId)
-                .orElseThrow(() -> new BusinessException("会话不存在"));
+        Conversation conversation = findOneById(conversationId);
+        if (conversation == null) {
+            throw new BusinessException("会话不存在");
+        }
 
         if (!conversation.getUser1Id().equals(userId) && !conversation.getUser2Id().equals(userId)) {
             throw new BusinessException("无权访问此会话");
@@ -538,8 +554,10 @@ public class ChatService {
      */
     @LogAction("获取会话信息")
     public ConversationVO getConversation(Long userId, Long conversationId) {
-        Conversation conversation = conversationRepository.findById(conversationId)
-                .orElseThrow(() -> new BusinessException("会话不存在"));
+        Conversation conversation = findOneById(conversationId);
+        if (conversation == null) {
+            throw new BusinessException("会话不存在");
+        }
 
         if (!conversation.getUser1Id().equals(userId) && !conversation.getUser2Id().equals(userId)) {
             throw new BusinessException("无权访问此会话");

@@ -1,5 +1,6 @@
 package com.kbook.service;
 
+import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.TtsConfig;
@@ -7,8 +8,8 @@ import com.kbook.repository.TtsConfigRepository;
 import com.kbook.service.tts.TtsCache;
 import com.kbook.service.tts.TtsEngine;
 import com.kbook.service.tts.TtsEngineFactory;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -20,12 +21,14 @@ import java.util.List;
 @Slf4j
 @Service
 @LogModule("语音合成")
-@RequiredArgsConstructor
-public class TtsConfigService {
+public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
 
-    private final TtsConfigRepository ttsConfigRepository;
-    private final TtsEngineFactory ttsEngineFactory;
-    private final TtsCache ttsCache;
+    @Autowired
+    private TtsConfigRepository ttsConfigRepository;
+    @Autowired
+    private TtsEngineFactory ttsEngineFactory;
+    @Autowired
+    private TtsCache ttsCache;
 
     @LogAction("获取TTS配置列表")
     public List<TtsConfig> listAll() {
@@ -46,7 +49,7 @@ public class TtsConfigService {
         if (Boolean.TRUE.equals(config.getIsDefault())) {
             ttsConfigRepository.clearDefaultForOthers(-1L);
         }
-        TtsConfig saved = ttsConfigRepository.save(config);
+        TtsConfig saved = saveOne(config);
         log.info("TTS config created: id={}, name={}, type={}, provider={}",
                 saved.getId(), saved.getName(), saved.getTtsType(), saved.getProvider());
         return saved;
@@ -55,8 +58,10 @@ public class TtsConfigService {
     @Transactional
     @LogAction("更新TTS配置")
     public TtsConfig update(Long id, TtsConfig config) {
-        TtsConfig existing = ttsConfigRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("TTS 配置不存在"));
+        TtsConfig existing = findOneById(id);
+        if (existing == null) {
+            throw new RuntimeException("TTS 配置不存在");
+        }
         if (config.getName() != null) existing.setName(config.getName());
         if (config.getTtsType() != null) existing.setTtsType(config.getTtsType());
         if (config.getProvider() != null) existing.setProvider(config.getProvider());
@@ -75,7 +80,7 @@ public class TtsConfigService {
             ttsConfigRepository.clearDefaultForOthers(id);
             existing.setIsDefault(true);
         }
-        TtsConfig saved = ttsConfigRepository.save(existing);
+        TtsConfig saved = updateOne(existing);
         log.info("TTS config updated: id={}, name={}", saved.getId(), saved.getName());
         return saved;
     }
@@ -83,18 +88,20 @@ public class TtsConfigService {
     @Transactional
     @LogAction("删除TTS配置")
     public void delete(Long id) {
-        ttsConfigRepository.deleteById(id);
+        deleteOneById(id);
         log.info("TTS config deleted: id={}", id);
     }
 
     @Transactional
     @LogAction("切换默认TTS配置")
     public TtsConfig switchDefault(Long id) {
-        TtsConfig config = ttsConfigRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("TTS 配置不存在"));
+        TtsConfig config = findOneById(id);
+        if (config == null) {
+            throw new RuntimeException("TTS 配置不存在");
+        }
         ttsConfigRepository.clearDefaultForOthers(id);
         config.setIsDefault(true);
-        TtsConfig saved = ttsConfigRepository.save(config);
+        TtsConfig saved = updateOne(config);
         log.info("TTS default switched: id={}, name={}", id, saved.getName());
         return saved;
     }
@@ -177,8 +184,10 @@ public class TtsConfigService {
     private TtsConfig resolveConfig(Long configId) {
         TtsConfig config;
         if (configId != null) {
-            config = ttsConfigRepository.findById(configId)
-                    .orElseThrow(() -> new RuntimeException("TTS 配置不存在"));
+            config = findOneById(configId);
+            if (config == null) {
+                throw new RuntimeException("TTS 配置不存在");
+            }
         } else {
             config = getActiveConfig();
             if (config == null) {

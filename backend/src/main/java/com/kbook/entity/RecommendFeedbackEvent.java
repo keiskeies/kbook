@@ -8,8 +8,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 推荐反馈事件实体
  * 记录用户对推荐结果的行为反馈，用于自动调参
@@ -84,16 +82,6 @@ public class RecommendFeedbackEvent extends BaseEntity {
     /** 反馈详情（如评分值 "4"、阅读进度 "0.85" 等） */
     @Column(name = "feedback_detail", length = 100)
     private String feedbackDetail;
-
-    /** 创建时间 */
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    /** JPA 持久化前回调，自动设置创建时间 */
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

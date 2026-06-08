@@ -1,6 +1,7 @@
 package com.kbook.service;
 
 import com.kbook.common.exception.BusinessException;
+import com.kbook.common.service.AbstractMiddleServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.dto.BookshelfItem;
@@ -10,8 +11,8 @@ import com.kbook.entity.ReadingProgress;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.BookshelfRepository;
 import com.kbook.repository.ReadingProgressRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,20 +30,25 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("书架")
-@RequiredArgsConstructor
-public class BookshelfService {
+public class BookshelfService extends AbstractMiddleServiceImpl<Bookshelf, Long, Long> {
 
     /** 书架数据仓库 */
-    private final BookshelfRepository bookshelfRepository;
+    @Autowired
+    private BookshelfRepository bookshelfRepository;
     /** 图书数据仓库 */
-    private final BookRepository bookRepository;
+    @Autowired
+    private BookRepository bookRepository;
     /** 阅读进度数据仓库 */
-    private final ReadingProgressRepository progressRepository;
-    private final BookService bookService;
+    @Autowired
+    private ReadingProgressRepository progressRepository;
+    @Autowired
+    private BookService bookService;
     /** 推荐服务（用于计算书架书籍的匹配度） */
-    private final RecommendService recommendService;
+    @Autowired
+    private RecommendService recommendService;
     /** 图书回收站服务 */
-    private final BookTrashService bookTrashService;
+    @Autowired
+    private BookTrashService bookTrashService;
 
     /**
      * 加入书架
@@ -53,14 +59,14 @@ public class BookshelfService {
         if (!bookRepository.existsById(bookId)) {
             throw new BusinessException("图书不存在");
         }
-        if (bookshelfRepository.existsByUserIdAndBookId(userId, bookId)) {
+        if (middleService.exist(userId, bookId)) {
             throw new BusinessException("已在书架中");
         }
         Bookshelf item = Bookshelf.builder()
                 .userId(userId)
                 .bookId(bookId)
                 .build();
-        bookshelfRepository.save(item);
+        middleService.saveOne(item);
         bookTrashService.updateDimensionScoresOnBookshelf(userId, bookId);
         log.info("加入书架: userId={}, bookId={}", userId, bookId);
     }
@@ -71,7 +77,10 @@ public class BookshelfService {
     @Transactional
     @LogAction("移出书架")
     public void removeFromBookshelf(Long userId, Long bookId) {
-        bookshelfRepository.deleteByUserIdAndBookId(userId, bookId);
+        Bookshelf item = middleService.findOneById(userId, bookId);
+        if (item != null) {
+            middleService.deleteOneById(item.getId());
+        }
         bookTrashService.reverseDimensionScoresOnBookshelf(userId, bookId);
         log.info("移出书架: userId={}, bookId={}", userId, bookId);
     }
@@ -81,7 +90,7 @@ public class BookshelfService {
      */
     @LogAction("检查书架状态")
     public boolean isInBookshelf(Long userId, Long bookId) {
-        return bookshelfRepository.existsByUserIdAndBookId(userId, bookId);
+        return middleService.exist(userId, bookId);
     }
 
     /**

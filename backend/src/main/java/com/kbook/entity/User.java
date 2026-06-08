@@ -9,7 +9,6 @@ import lombok.Setter;
 import lombok.ToString;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 /**
  * 用户实体
@@ -127,27 +126,6 @@ public class User extends BaseEntity {
     @Column(name = "following_count")
     @Builder.Default
     private Integer followingCount = 0;
-
-    /** 创建时间 */
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    /** 更新时间 */
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
-    /** JPA 持久化前回调，自动设置创建和更新时间 */
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    /** JPA 更新前回调，自动设置更新时间 */
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

@@ -7,10 +7,6 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
-
-import java.time.LocalDateTime;
 
 /**
  * 用户间私信会话实体
@@ -56,16 +52,6 @@ public class Conversation extends BaseEntity {
     @Column(name = "unread_count_user2", columnDefinition = "INT DEFAULT 0")
     @Builder.Default
     private Integer unreadCountUser2 = 0;
-
-    /** 创建时间 */
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    /** 更新时间 */
-    @UpdateTimestamp
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
 
     /** 用户1是否已删除该会话 */
     @Column(name = "user1_deleted", columnDefinition = "TINYINT(1) DEFAULT 0")

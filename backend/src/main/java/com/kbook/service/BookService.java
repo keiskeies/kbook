@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.TransactionUtils;
 import com.kbook.config.annotation.LogAction;
@@ -44,7 +45,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("图书")
-public class BookService {
+public class BookService extends AbstractServiceImpl<Book, Long> {
 
     private final BookRepository bookRepository;
     private final BookSearchService bookSearchService;
@@ -228,8 +229,7 @@ public class BookService {
             log.warn("不支持的图书格式: {}", book.getFormat());
             throw new BusinessException("不支持的图书格式: " + book.getFormat());
         }
-        Book saved = bookRepository.save(book);
-        bookSearchService.indexBook(saved);
+        Book saved = saveOne(book);
         log.info("图书入库成功: id={}, title={}", saved.getId(), saved.getTitle());
         return saved;
     }
@@ -257,12 +257,7 @@ public class BookService {
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
-        Book saved = bookRepository.save(book);
-        // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
-        TransactionUtils.afterCommit(() -> {
-            bookSearchService.indexBook(saved);
-            evictBookCache(saved.getId());
-        });
+        Book saved = updateOne(book);
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
     /**
@@ -288,12 +283,7 @@ public class BookService {
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
-        Book saved = bookRepository.save(book);
-        // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
-        TransactionUtils.afterCommit(() -> {
-            bookSearchService.indexBook(saved);
-            evictBookCache(saved.getId());
-        });
+        Book saved = updateOne(book);
         log.info("图书ALL更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
 
@@ -304,8 +294,10 @@ public class BookService {
     @Transactional
     @LogAction("更新图书封面")
     public Book updateBookCover(Long bookId, MultipartFile coverFile) {
-        Book book = bookRepository.findById(bookId)
-                .orElseThrow(() -> new BusinessException("图书不存在: " + bookId));
+        Book book = findOneById(bookId);
+        if (book == null) {
+            throw new BusinessException("图书不存在: " + bookId);
+        }
 
         try {
             BufferedImage original = ImageIO.read(new ByteArrayInputStream(coverFile.getBytes()));
@@ -333,15 +325,7 @@ public class BookService {
             // 更新封面 URL
             String coverUrl = "/api/books/cover/" + tempFileName;
             book.setCoverUrl(coverUrl);
-            Book saved = bookRepository.save(book);
-
-            // 更新 ES 索引
-            bookSearchService.indexBook(saved);
-            // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
-            TransactionUtils.afterCommit(() -> {
-                bookSearchService.indexBook(saved);
-                evictBookCache(saved.getId());
-            });
+            Book saved = updateOne(book);
 
             log.info("封面更新成功: bookId={}, path={}", bookId, coverPath);
             return saved;
@@ -452,8 +436,7 @@ public class BookService {
     public void incrementReadCount(Long bookId) {
         Book book = getBookById(bookId);
         book.setReadCount(book.getReadCount() + 1);
-        Book saved = bookRepository.saveAndFlush(book);
-        bookSearchService.indexBook(saved);
+        Book saved = updateOne(book);
         log.debug("阅读计数增加: bookId={}, readCount={}", bookId, saved.getReadCount());
     }
 
@@ -468,13 +451,7 @@ public class BookService {
                 .map(t -> "\"" + t + "\"")
                 .collect(Collectors.joining(",", "[", "]"));
         book.setFormatTags(tagsJson);
-        Book saved = bookRepository.saveAndFlush(book);
-        // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
-        TransactionUtils.afterCommit(() -> {
-            bookSearchService.indexBook(saved);
-            evictBookCache(saved.getId());
-        });
-        return saved;
+        return updateOne(book);
     }
 
     /**
@@ -485,12 +462,7 @@ public class BookService {
     public void updateRelevanceScores(Long bookId, String scoresJson) {
         Book book = getBookById(bookId);
         book.setRelevanceScores(scoresJson);
-        Book saved = bookRepository.saveAndFlush(book);
-        // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
-        TransactionUtils.afterCommit(() -> {
-            bookSearchService.indexBook(saved);
-            evictBookCache(saved.getId());
-        });
+        updateOne(book);
     }
 
     /**
@@ -506,12 +478,7 @@ public class BookService {
     public void setAiRating(Long bookId, Double rating) {
         Book book = getBookById(bookId);
         book.setRating(rating);
-        Book saved = bookRepository.saveAndFlush(book);
-        // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
-        TransactionUtils.afterCommit(() -> {
-            bookSearchService.indexBook(saved);
-            evictBookCache(saved.getId());
-        });
+        updateOne(book);
         log.info("AI 初始评分: bookId={}, rating={}", bookId, rating);
     }
 
@@ -531,14 +498,7 @@ public class BookService {
         Book book = getBookById(bookId);
         book.setCoverUrl(coverUrl);
 
-        // 持久化到数据库并立即刷新
-        Book saved = bookRepository.saveAndFlush(book);
-
-        // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
-        TransactionUtils.afterCommit(() -> {
-            bookSearchService.indexBook(saved);
-            evictBookCache(saved.getId());
-        });
+        updateOne(book);
 
         log.info("图书封面图片: bookId={}, coverUrl={}", bookId, coverUrl);
     }
@@ -571,10 +531,7 @@ public class BookService {
         }
         book.setRatingCount(userCount + 1);
 
-        Book saved = bookRepository.saveAndFlush(book);
-        bookSearchService.indexBook(saved);
-        // 事务提交后清除缓存，防止事务回滚导致数据不一致
-        TransactionUtils.afterCommit(() -> evictBookCache(bookId));
+        Book saved = updateOne(book);
         log.info("用户评分: bookId={}, newRating={}, userCount={}", bookId, saved.getRating(), saved.getRatingCount());
         return saved;
     }
@@ -588,12 +545,7 @@ public class BookService {
     public void updateDescription(Long bookId, String description) {
         Book book = getBookById(bookId);
         book.setDescription(description);
-        Book saved = bookRepository.saveAndFlush(book);
-        // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
-        TransactionUtils.afterCommit(() -> {
-            bookSearchService.indexBook(saved);
-            evictBookCache(saved.getId());
-        });
+        updateOne(book);
     }
 
     /**
@@ -602,7 +554,7 @@ public class BookService {
     @Transactional
     @LogAction("删除图书")
     public void deleteBook(Long id) {
-        Book book = bookRepository.findById(id).orElse(null);
+        Book book = findOneById(id);
         if (null != book) {
             // 1. 删除封面图片文件
             deleteCoverFile(book.getCoverUrl());
@@ -613,7 +565,7 @@ public class BookService {
         embeddingService.removeContentEmbedding(id);
 
         // 3. 删除 JPA 数据库记录
-        bookRepository.deleteById(id);
+        jpaRepository.deleteById(id);
 
         // 4. 删除 ES 索引
         bookSearchService.deleteIndex(id);
@@ -650,7 +602,7 @@ public class BookService {
                 embeddingService.removeBookEmbedding(book.getId());
                 embeddingService.removeContentEmbedding(book.getId());
                 // 删除 JPA + ES
-                bookRepository.deleteById(book.getId());
+                jpaRepository.deleteById(book.getId());
                 bookSearchService.deleteIndex(book.getId());
                 count++;
             } catch (Exception e) {
@@ -732,7 +684,7 @@ public class BookService {
         }
 
         // 更新主书籍（JPA + ES）
-        Book savedMain = bookRepository.save(mainBook);
+        Book savedMain = jpaRepository.save(mainBook);
 
         // 删除被合并的其他格式书籍（全链路）
         StringBuilder mergedInfo = new StringBuilder();
@@ -740,7 +692,7 @@ public class BookService {
             // 不删除封面（因为主书籍可能已引用）
             embeddingService.removeBookEmbedding(other.getId());
             embeddingService.removeContentEmbedding(other.getId());
-            bookRepository.deleteById(other.getId());
+            jpaRepository.deleteById(other.getId());
             bookSearchService.deleteIndex(other.getId());
             mergedInfo.append(String.format("  合并: [id=%d] %s (%s) → [id=%d] %s (%s)\n",
                     other.getId(), other.getTitle(), other.getFormat(),
@@ -796,6 +748,56 @@ public class BookService {
             redisTemplate.delete("kbook:rank:new");
         } catch (Exception e) {
             log.debug("清除缓存失败: {}", e.getMessage());
+        }
+    }
+
+    // ==================== 钩子方法：统一处理 ES/Redis/Qdrant ====================
+
+    /**
+     * 保存/更新前处理数据（目前不需要特殊处理，预留）
+     */
+    @Override
+    protected void dealData(Book book) {
+        // 目前不需要特殊处理，预留
+    }
+
+    /**
+     * 保存成功后处理（事务提交后）：更新 ES 索引
+     */
+    @Override
+    protected void dealSaveResult(Book saved) {
+        try {
+            bookSearchService.indexBook(saved);
+        } catch (Exception e) {
+            log.error("保存后更新 ES 索引失败: bookId={}", saved.getId(), e);
+        }
+    }
+
+    /**
+     * 更新成功后处理（事务提交后）：更新 ES 索引、清除 Redis 缓存
+     */
+    @Override
+    protected void dealUpdateResult(Book updated) {
+        try {
+            bookSearchService.indexBook(updated);
+            evictBookCache(updated.getId());
+        } catch (Exception e) {
+            log.error("更新后同步数据失败: bookId={}", updated.getId(), e);
+        }
+    }
+
+    /**
+     * 删除成功后处理（事务提交后）：删除 ES 索引、清除 Redis 缓存、删除 Qdrant 向量
+     */
+    @Override
+    protected void dealDeleteById(Long id) {
+        try {
+            bookSearchService.deleteIndex(id);
+            evictBookCache(id);
+            embeddingService.removeBookEmbedding(id);
+            embeddingService.removeContentEmbedding(id);
+        } catch (Exception e) {
+            log.error("删除后清理数据失败: bookId={}", id, e);
         }
     }
 }

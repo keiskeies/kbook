@@ -8,8 +8,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * AI 对话记录实体
  */
@@ -97,16 +95,6 @@ public class AiConversation extends BaseEntity {
      */
     @Column(name = "token_count")
     private Integer tokenCount;
-
-    /** 创建时间 */
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    /** JPA 持久化前回调，自动设置创建时间 */
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

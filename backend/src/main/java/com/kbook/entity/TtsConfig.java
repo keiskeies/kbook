@@ -9,8 +9,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 @Getter
 @Setter
 @ToString
@@ -73,22 +71,6 @@ public class TtsConfig extends BaseEntity {
 
     @Builder.Default
     private Boolean streaming = false;
-
-    @Column(updatable = false)
-    private LocalDateTime createdAt;
-
-    private LocalDateTime updatedAt;
-
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 
     public enum TtsType {
         LLM, TRADITIONAL;

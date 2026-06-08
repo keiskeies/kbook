@@ -1,15 +1,19 @@
 package com.kbook.service;
 
+import com.kbook.common.enums.ConditionEnum;
+import com.kbook.common.util.CommonUtils;
 import com.kbook.dto.ChartRequestDTO;
+import com.kbook.dto.ConditionDTO;
 import com.kbook.entity.Book;
-import com.kbook.enums.chart.CalcType;
-import com.kbook.enums.chart.ColumnType;
-import com.kbook.enums.chart.TimeDeltaEnum;
+import com.kbook.common.enums.chart.CalcType;
+import com.kbook.common.enums.chart.ColumnType;
+import com.kbook.common.enums.chart.TimeDeltaEnum;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -25,6 +29,8 @@ import java.util.Set;
  * <p>
  * 条件语法：field|op|value,field|op|value
  * - op: EQ(=), NE(!=), GT(>), GE(>=), LT(<), LE(<=), LIKE(包含), LL(左匹配), LR(右匹配), IN(在), BT(区间), IS_NULL, NOT_NULL
+ * <p>
+ * 通过 BookService（继承 AbstractServiceImpl）使用泛型基类的统一 CRUD + 图表统计能力。
  */
 @Slf4j
 @Service
@@ -32,19 +38,13 @@ public class AdminBookToolService {
 
     private final BookService bookService;
     private final BookScanService bookScanService;
-    private final DynamicQueryService dynamicQueryService;
-    private final ChartEntityToolSupport chartEntityToolSupport;
 
     public AdminBookToolService(
             BookService bookService,
-            @Lazy BookScanService bookScanService,
-            DynamicQueryService dynamicQueryService,
-            ChartEntityToolSupport chartEntityToolSupport
+            @Lazy BookScanService bookScanService
     ) {
         this.bookService = bookService;
         this.bookScanService = bookScanService;
-        this.dynamicQueryService = dynamicQueryService;
-        this.chartEntityToolSupport = chartEntityToolSupport;
     }
 
     // ==================== 核心：动态查询 ====================
@@ -66,17 +66,20 @@ public class AdminBookToolService {
             int p = page != null && page > 0 ? page : 1;
             int l = limit != null && limit > 0 ? Math.min(limit, 100) : 20;
 
-            var books = dynamicQueryService.queryBooks(conditions, sort, p, l);
+            var condList = parseConditions(conditions);
+            var sortInfo = parseSort(sort);
+
+            var books = bookService.findList(condList, sortInfo.ascList(), sortInfo.descList(), p, l);
             if (books.isEmpty()) {
                 return "没有找到符合条件的图书。";
             }
 
-            long total = dynamicQueryService.countBooks(conditions);
+            long total = bookService.getCount(condList);
             String title = String.format("查询结果（共 %d 本，显示第 %d-%d 本）",
                     total, (p - 1) * l + 1, Math.min(p * l, total));
 
             StringBuilder sb = new StringBuilder();
-            sb.append(dynamicQueryService.formatBookList(books, title));
+            sb.append(formatBookList(books, title));
             if (total > l) {
                 sb.append("\n（使用 page=").append(p + 1).append(" 查看更多）");
             }
@@ -128,13 +131,10 @@ public class AdminBookToolService {
             }
 
             // 解析额外过滤条件（收集后一次性设置，避免 Builder setter 覆盖）
-            java.util.List<com.kbook.dto.ConditionDTO> allConditions = new java.util.ArrayList<>();
+            java.util.List<ConditionDTO> allConditions = new java.util.ArrayList<>();
             if (conditions != null && !conditions.isBlank()) {
-                var condList = dynamicQueryService.parseConditions(conditions);
-                for (var cond : condList) {
-                    allConditions.add(new com.kbook.dto.ConditionDTO(cond.getColumn(), cond.getOp(),
-                            cond.getValues().toArray()));
-                }
+                var condList = parseConditions(conditions);
+                allConditions.addAll(condList);
                 title += "（筛选：" + conditions + "）";
             }
             requestBuilder.conditions(allConditions);
@@ -147,9 +147,9 @@ public class AdminBookToolService {
                 maxResults = limit != null && limit > 0 ? limit : 30;
             }
 
-            Map<String, Map<String, Double>> data = chartEntityToolSupport.getEntityChartOptions(request, maxResults);
+            Map<String, Map<String, Double>> data = bookService.getChartOptions(request, maxResults);
 
-            return chartEntityToolSupport.formatChartResult(data, title);
+            return bookService.formatChartResult(data, title);
         } catch (Exception e) {
             log.error("[Admin Tool] stats error", e);
             return "统计失败：" + e.getMessage();
@@ -167,8 +167,22 @@ public class AdminBookToolService {
         try {
             if (conditions == null || conditions.isBlank()) return "必须指定查询条件，防止全表更新。";
             if (updates == null || updates.isBlank()) return "必须指定要更新的字段和值。";
-            int affected = dynamicQueryService.updateBooks(conditions, updates);
-            return String.format("已更新 %d 本图书。\n更新的字段：%s", affected, updates);
+
+            var condList = parseConditions(conditions);
+            Map<String, Object> updateMap = parseUpdates(updates);
+            if (updateMap.isEmpty()) return "没有有效的更新字段。";
+
+            var books = bookService.findList(condList);
+            if (books.isEmpty()) return "没有找到符合条件的图书。";
+
+            for (Book book : books) {
+                for (Map.Entry<String, Object> entry : updateMap.entrySet()) {
+                    setFieldValue(book, entry.getKey(), entry.getValue());
+                }
+            }
+            bookService.updateList(books);
+
+            return String.format("已更新 %d 本图书。\n更新的字段：%s", books.size(), updates);
         } catch (Exception e) {
             log.error("[Admin Tool] updateBooks error", e);
             return "更新失败：" + e.getMessage();
@@ -184,15 +198,16 @@ public class AdminBookToolService {
         log.info("[Admin Tool] deleteBooks: conditions={}", conditions);
         try {
             if (conditions == null || conditions.isBlank()) return "必须指定查询条件，防止误删全表。";
-            var books = dynamicQueryService.queryBooks(conditions, null, 1, 5);
+            var condList = parseConditions(conditions);
+            var books = bookService.findList(condList, null, null, 1, 5);
             if (books.isEmpty()) return "没有找到符合条件的图书，无需删除。";
             if (books.size() == 5) {
-                long total = dynamicQueryService.countBooks(conditions);
+                long total = bookService.getCount(condList);
                 return String.format("警告：将删除 %d 本图书！\n预览前5本：\n%s\n如果确认删除，请说'确认删除'。",
-                        total, dynamicQueryService.formatBookList(books, null));
+                        total, formatBookList(books, null));
             }
             return String.format("将删除 %d 本图书：\n%s\n如果确认，请说'确认删除'。",
-                    books.size(), dynamicQueryService.formatBookList(books, null));
+                    books.size(), formatBookList(books, null));
         } catch (Exception e) {
             log.error("[Admin Tool] deleteBooks error", e);
             return "删除预览失败：" + e.getMessage();
@@ -205,8 +220,14 @@ public class AdminBookToolService {
     ) {
         log.info("[Admin Tool] confirmDelete: conditions={}", conditions);
         try {
-            int deleted = dynamicQueryService.deleteBooks(conditions);
-            return String.format("已删除 %d 本图书及相关数据。", deleted);
+            var condList = parseConditions(conditions);
+            var books = bookService.findList(condList);
+            if (books.isEmpty()) return "没有找到符合条件的图书。";
+
+            var ids = books.stream().map(Book::getId).toList();
+            bookService.deleteListByIds(ids);
+
+            return String.format("已删除 %d 本图书及相关数据。", books.size());
         } catch (Exception e) {
             log.error("[Admin Tool] confirmDelete error", e);
             return "删除执行失败：" + e.getMessage();
@@ -220,7 +241,7 @@ public class AdminBookToolService {
         log.debug("[Admin Tool] getBookById: bookId={}", bookId);
         try {
             Book book = bookService.getBookById(bookId);
-            return dynamicQueryService.formatBookDetail(book);
+            return formatBookDetail(book);
         } catch (Exception e) {
             log.error("[Admin Tool] getBookById error", e);
             return "获取图书详情失败：" + e.getMessage();
@@ -267,6 +288,178 @@ public class AdminBookToolService {
         }
     }
 
+    // ==================== 条件解析 ====================
+
+    /**
+     * 解析条件字符串为 ConditionDTO 列表
+     * 格式: field|op|value,field|op|value
+     */
+    private java.util.List<ConditionDTO> parseConditions(String conditionStr) {
+        if (!StringUtils.hasText(conditionStr)) {
+            return java.util.List.of();
+        }
+        java.util.List<ConditionDTO> conditions = new java.util.ArrayList<>();
+        String[] parts = conditionStr.split(",");
+        for (String part : parts) {
+            part = part.trim();
+            if (part.isEmpty()) continue;
+
+            String[] segments = part.split("\\|");
+            if (segments.length < 2) {
+                conditions.add(ConditionDTO.like("title", segments[0].trim()));
+                continue;
+            }
+
+            String field = segments[0].trim();
+            String op = segments[1].trim();
+            String value = segments.length > 2 ? segments[2].trim() : "";
+
+            ConditionEnum opEnum = ConditionEnum.fromString(op);
+
+            if (opEnum == ConditionEnum.BT && segments.length > 2) {
+                String[] range = segments[2].split("~");
+                if (range.length == 2) {
+                    conditions.add(new ConditionDTO(field, opEnum, range[0].trim(), range[1].trim()));
+                } else {
+                    conditions.add(new ConditionDTO(field, opEnum, segments[2].trim(), ""));
+                }
+            } else if (opEnum == ConditionEnum.IN && segments.length > 2) {
+                String[] values = segments[2].split(",");
+                java.util.List<Object> valueList = java.util.Arrays.stream(values)
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(java.util.stream.Collectors.toList());
+                conditions.add(new ConditionDTO(field, opEnum, valueList.toArray()));
+            } else if (opEnum == ConditionEnum.IS_NULL || opEnum == ConditionEnum.NOT_NULL) {
+                conditions.add(new ConditionDTO(field, opEnum));
+            } else {
+                conditions.add(new ConditionDTO(field, opEnum, value));
+            }
+        }
+        return conditions;
+    }
+
+    /**
+     * 解析排序字符串
+     * 格式: field,asc 或 field1,desc;field2,asc
+     */
+    private SortInfo parseSort(String sortStr) {
+        java.util.List<String> ascList = new java.util.ArrayList<>();
+        java.util.List<String> descList = new java.util.ArrayList<>();
+
+        if (!StringUtils.hasText(sortStr)) {
+            descList.add("createdAt");
+            return new SortInfo(ascList, descList);
+        }
+
+        String[] parts = sortStr.split(";");
+        for (String part : parts) {
+            part = part.trim();
+            if (part.isEmpty()) continue;
+
+            String[] segments = part.split(",");
+            String field = segments[0].trim();
+            boolean desc = segments.length > 1 && "desc".equalsIgnoreCase(segments[1].trim());
+
+            if (desc) {
+                descList.add(field);
+            } else {
+                ascList.add(field);
+            }
+        }
+        return new SortInfo(ascList, descList);
+    }
+
+    /**
+     * 解析更新字段字符串
+     * 格式: field1=value1,field2=value2
+     */
+    private Map<String, Object> parseUpdates(String updateStr) {
+        Map<String, Object> updates = new java.util.LinkedHashMap<>();
+        if (!StringUtils.hasText(updateStr)) return updates;
+
+        String[] parts = updateStr.split(",");
+        for (String part : parts) {
+            part = part.trim();
+            if (part.isEmpty() || !part.contains("=")) continue;
+
+            int eqIndex = part.indexOf("=");
+            String field = part.substring(0, eqIndex).trim();
+            String value = part.substring(eqIndex + 1).trim();
+
+            if (field.isEmpty() || !UPDATABLE_FIELDS.contains(field)) {
+                log.warn("字段不允许更新或不存在: {}", field);
+                continue;
+            }
+            updates.put(field, value);
+        }
+        return updates;
+    }
+
+    /** Book 实体允许 AI 动态更新的字段 */
+    private static final Set<String> UPDATABLE_FIELDS = Set.of(
+            "title", "author", "description", "formatTags", "conceptTags",
+            "readerNeedTags", "targetReaderTags", "toc", "chapterSummary",
+            "coverUrl", "rating", "contentEmbedded"
+    );
+
+    private void setFieldValue(Book book, String field, Object value) {
+        try {
+            java.lang.reflect.Field declaredField = Book.class.getDeclaredField(field);
+            declaredField.setAccessible(true);
+            Object converted = bookService.convertToFieldType(field, value);
+            declaredField.set(book, converted);
+        } catch (Exception e) {
+            log.error("设置字段值失败: field={}, value={}", field, value, e);
+        }
+    }
+
+    // ==================== 格式化输出 ====================
+
+    private String formatBookList(java.util.List<Book> books, String title) {
+        if (books == null || books.isEmpty()) return "没有找到图书。";
+        StringBuilder sb = new StringBuilder();
+        if (title != null && !title.isBlank()) {
+            sb.append(title).append(":\n");
+        }
+        for (int i = 0; i < books.size(); i++) {
+            Book b = books.get(i);
+            sb.append(String.format("%d. [BOOK:id=%d]《%s》 作者:%s 格式:%s 评分:%.1f 阅读:%d\n",
+                    i + 1, b.getId(), b.getTitle(),
+                    b.getAuthor() != null ? b.getAuthor() : "未知",
+                    b.getFormat() != null ? b.getFormat() : "-",
+                    b.getRating() != null ? b.getRating() : 0.0,
+                    b.getReadCount() != null ? b.getReadCount() : 0));
+            if (b.getFormatTags() != null && !b.getFormatTags().isBlank()) {
+                sb.append("   标签: ").append(b.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、")).append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private String formatBookDetail(Book b) {
+        if (b == null) return "图书不存在。";
+        StringBuilder sb = new StringBuilder();
+        sb.append("[BOOK:id=").append(b.getId()).append("]《").append(b.getTitle()).append("》\n");
+        sb.append("作者: ").append(b.getAuthor() != null ? b.getAuthor() : "未知").append("\n");
+        sb.append("格式: ").append(b.getFormat() != null ? b.getFormat() : "-").append("\n");
+        sb.append("评分: ").append(b.getRating() != null ? String.format("%.1f", b.getRating()) : "0.0").append("\n");
+        sb.append("阅读次数: ").append(b.getReadCount() != null ? b.getReadCount() : 0).append("\n");
+        if (b.getFileSize() != null) {
+            sb.append("文件大小: ").append(CommonUtils.formatFileSize(b.getFileSize())).append("\n");
+        }
+        if (b.getFormatTags() != null && !b.getFormatTags().isBlank()) {
+            sb.append("标签: ").append(b.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、")).append("\n");
+        }
+        if (b.getDescription() != null && !b.getDescription().isBlank()) {
+            sb.append("简介: ").append(CommonUtils.truncateText(b.getDescription(), 200)).append("\n");
+        }
+        if (b.getChapterSummary() != null && !b.getChapterSummary().isBlank()) {
+            sb.append("章节摘要: ").append(CommonUtils.truncateText(b.getChapterSummary(), 200)).append("\n");
+        }
+        return sb.toString();
+    }
+
     // ==================== 辅助方法 ====================
 
     private String getFieldLabel(String field) {
@@ -295,13 +488,13 @@ public class AdminBookToolService {
             return new TimeRange(null, null);
         }
         return switch (timeRange.trim()) {
-            case "本周" -> new TimeRange(ChartEntityToolSupport.getWeekStart(), ChartEntityToolSupport.getWeekEnd());
-            case "本月" -> new TimeRange(ChartEntityToolSupport.getMonthStart(), ChartEntityToolSupport.getMonthEnd());
-            case "本年" -> new TimeRange(ChartEntityToolSupport.getYearStart(), ChartEntityToolSupport.getYearEnd());
-            case "近7天" -> new TimeRange(ChartEntityToolSupport.getRecentDaysStart(7), null);
-            case "近30天" -> new TimeRange(ChartEntityToolSupport.getRecentDaysStart(30), null);
-            case "近90天" -> new TimeRange(ChartEntityToolSupport.getRecentDaysStart(90), null);
-            case "近6个月" -> new TimeRange(ChartEntityToolSupport.getRecentMonthsStart(6), null);
+            case "本周" -> new TimeRange(BookService.getWeekStart(), BookService.getWeekEnd());
+            case "本月" -> new TimeRange(BookService.getMonthStart(), BookService.getMonthEnd());
+            case "本年" -> new TimeRange(BookService.getYearStart(), BookService.getYearEnd());
+            case "近7天" -> new TimeRange(BookService.getRecentDaysStart(7), null);
+            case "近30天" -> new TimeRange(BookService.getRecentDaysStart(30), null);
+            case "近90天" -> new TimeRange(BookService.getRecentDaysStart(90), null);
+            case "近6个月" -> new TimeRange(BookService.getRecentMonthsStart(6), null);
             default -> {
                 if (timeRange.contains("~")) {
                     String[] parts = timeRange.split("~");
@@ -319,4 +512,5 @@ public class AdminBookToolService {
     }
 
     private record TimeRange(LocalDateTime start, LocalDateTime end) {}
+    private record SortInfo(java.util.List<String> ascList, java.util.List<String> descList) {}
 }

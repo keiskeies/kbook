@@ -8,8 +8,9 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
+/**
+ * 图书回收站实体
+ */
 @Getter
 @Setter
 @ToString
@@ -31,14 +32,6 @@ public class BookTrash extends BaseEntity {
 
     @Column(name = "book_id", nullable = false)
     private Long bookId;
-
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

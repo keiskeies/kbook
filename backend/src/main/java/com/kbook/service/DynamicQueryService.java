@@ -3,7 +3,7 @@ package com.kbook.service;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.dto.ConditionDTO;
 import com.kbook.entity.Book;
-import com.kbook.enums.ConditionEnum;
+import com.kbook.common.enums.ConditionEnum;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -18,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Field;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;

@@ -7,9 +7,6 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
-
-import java.time.LocalDateTime;
 
 /**
  * 上传文件实体
@@ -56,11 +53,6 @@ public class UploadedFile extends BaseEntity {
     /** 文件存储路径 */
     @Column(name = "file_path", length = 500)
     private String filePath;
-
-    /** 创建时间 */
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
 
     @Override
     public Long getId() {

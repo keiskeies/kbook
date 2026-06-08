@@ -1,5 +1,6 @@
 package com.kbook.service;
 
+import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.dto.ProgressBatchItem;
@@ -9,8 +10,8 @@ import com.kbook.entity.Book;
 import com.kbook.entity.ReadingProgress;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.ReadingProgressRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,11 +36,12 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("进度")
-@RequiredArgsConstructor
-public class ReadingProgressService {
+public class ReadingProgressService extends AbstractServiceImpl<ReadingProgress, Long> {
 
-    private final ReadingProgressRepository progressRepository; // 阅读进度数据访问层
-    private final BookRepository bookRepository; // 书籍数据访问层
+    @Autowired
+    private ReadingProgressRepository progressRepository; // 阅读进度数据访问层
+    @Autowired
+    private BookRepository bookRepository; // 书籍数据访问层
 
 
     /**
@@ -71,7 +73,7 @@ public class ReadingProgressService {
         rp.setCurrentPosition(currentPosition);
 
         try {
-            ReadingProgress saved = progressRepository.save(rp);
+            ReadingProgress saved = isNew ? saveOne(rp) : updateOne(rp);
             log.debug("阅读进度保存成功: userId={}, bookId={}, progress={}, isNew={}", userId, bookId, saved.getProgress(), isNew);
             return new ProgressResult(saved, isNew);
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
@@ -83,7 +85,7 @@ public class ReadingProgressService {
                 if (existing != null) {
                     existing.setProgress(clampProgress(progress));
                     existing.setCurrentPosition(currentPosition);
-                    ReadingProgress saved = progressRepository.save(existing);
+                    ReadingProgress saved = updateOne(existing);
                     return new ProgressResult(saved, false);
                 }
             }
@@ -130,7 +132,7 @@ public class ReadingProgressService {
                         .progress(clampProgress(item.getProgress())) // 设置进度值（确保在0.0~1.0范围内）
                         .currentPosition(item.getCurrentPosition()) // 设置当前位置
                         .build();
-                progressRepository.save(rp); // 保存新记录
+                saveOne(rp); // 保存新记录
                 created++; // 创建计数器加1
                 newBookIds.add(item.getBookId()); // 添加到新书籍ID列表
             } else {
@@ -142,13 +144,13 @@ public class ReadingProgressService {
                     // 客户端时间戳更新，执行更新操作
                     existing.setProgress(clampProgress(item.getProgress())); // 更新进度值
                     existing.setCurrentPosition(item.getCurrentPosition()); // 更新当前位置
-                    progressRepository.save(existing); // 保存更新
+                    updateOne(existing); // 保存更新
                     updated++; // 更新计数器加1
                 } else if (item.getClientTimestamp() == null) {
                     // 无时间戳则默认覆盖（兼容旧版本客户端）
                     existing.setProgress(clampProgress(item.getProgress())); // 更新进度值
                     existing.setCurrentPosition(item.getCurrentPosition()); // 更新当前位置
-                    progressRepository.save(existing); // 保存更新
+                    updateOne(existing); // 保存更新
                     updated++; // 更新计数器加1
                 } else {
                     // 服务器数据更新，跳过本次更新

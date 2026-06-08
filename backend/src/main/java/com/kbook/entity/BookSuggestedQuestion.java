@@ -4,9 +4,6 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-import org.hibernate.annotations.CreationTimestamp;
-
-import java.time.LocalDateTime;
 
 /**
  * 图书预设问题表 — 存储 AI 为每本书生成的推荐提问
@@ -32,11 +29,6 @@ public class BookSuggestedQuestion extends BaseEntity {
     /** 预设问题内容 */
     @Column(name = "question", nullable = false, length = 500)
     private String question;
-
-    /** 创建时间 */
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
 
     @Override
     public Long getId() {

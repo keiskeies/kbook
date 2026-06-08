@@ -8,8 +8,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * AI 会话实体
  * 管理用户与 AI 的多轮对话会话，每个会话包含多条 AiConversation 记录
@@ -53,27 +51,6 @@ public class AiSession extends BaseEntity {
     /** 会话标题（取首条用户消息摘要） */
     @Column(length = 200)
     private String title;
-
-    /** 创建时间 */
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    /** 更新时间 */
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
-    /** JPA 持久化前回调，自动设置创建和更新时间 */
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    /** JPA 更新前回调，自动设置更新时间 */
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

@@ -102,7 +102,7 @@ public class Book extends BaseEntity {
     @Transient
     private String ragContent;
 
-    /** 总字符数（TXT/EPUB）或总页数（PDF） */
+    /** 总字符数（TXT/Epub）或总页数（PDF） */
     @Column(name = "total_units")
     private Long totalUnits;
 
@@ -130,27 +130,6 @@ public class Book extends BaseEntity {
     @Column(name = "content_embedded")
     @Builder.Default
     private Boolean contentEmbedded = false;
-
-    /** 创建时间 */
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    /** 更新时间 */
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
-    /** JPA 持久化前回调，自动设置创建和更新时间 */
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    /** JPA 更新前回调，自动设置更新时间 */
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

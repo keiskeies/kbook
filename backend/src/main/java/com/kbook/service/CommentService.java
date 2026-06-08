@@ -2,6 +2,7 @@ package com.kbook.service;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.dto.BookProjection;
@@ -11,7 +12,7 @@ import com.kbook.repository.CommentFavoriteRepository;
 import com.kbook.repository.CommentLikeRepository;
 import com.kbook.repository.CommentRepository;
 import com.kbook.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -30,16 +31,22 @@ import java.util.List;
 @Slf4j
 @Service
 @LogModule("评论")
-@RequiredArgsConstructor
-public class CommentService {
+public class CommentService extends AbstractServiceImpl<Comment, Long> {
 
-    private final CommentRepository commentRepository; // 评论数据访问层
-    private final CommentLikeRepository commentLikeRepository; // 评论点赞数据访问层
-    private final CommentFavoriteRepository commentFavoriteRepository; // 评论收藏数据访问层
-    private final NotificationService notificationService; // 站内通知服务
-    private final EmailNotificationService emailNotificationService; // 邮件通知服务
-    private final UserRepository userRepository; // 用户数据访问层
-    private final BookService bookService; // 书籍服务
+    @Autowired
+    private CommentRepository commentRepository; // 评论数据访问层
+    @Autowired
+    private CommentLikeRepository commentLikeRepository; // 评论点赞数据访问层
+    @Autowired
+    private CommentFavoriteRepository commentFavoriteRepository; // 评论收藏数据访问层
+    @Autowired
+    private NotificationService notificationService; // 站内通知服务
+    @Autowired
+    private EmailNotificationService emailNotificationService; // 邮件通知服务
+    @Autowired
+    private UserRepository userRepository; // 用户数据访问层
+    @Autowired
+    private BookService bookService; // 书籍服务
 
     /**
      * 发表评论或回复评论
@@ -66,11 +73,13 @@ public class CommentService {
         // 如果是回复评论，需要校验父评论存在并更新相关数据
         if (parentId != null) {
             // 查找父评论，不存在则抛出异常
-            Comment parent = commentRepository.findById(parentId)
-                    .orElseThrow(() -> new BusinessException("回复的评论不存在"));
+            Comment parent = findOneById(parentId);
+            if (parent == null) {
+                throw new BusinessException("回复的评论不存在");
+            }
             // 更新父评论的回复数（加1）
             parent.setReplyCount(parent.getReplyCount() + 1);
-            commentRepository.save(parent); // 保存更新后的父评论
+            updateOne(parent); // 保存更新后的父评论
 
             // 获取回复者信息（用于后续邮件通知）
             User replier = userRepository.findById(userId).orElse(null); // 查询回复者用户信息
@@ -134,7 +143,7 @@ public class CommentService {
                 .content(content.trim()) // 设置评论内容（去除首尾空格）
                 .build();
 
-        Comment saved = commentRepository.save(comment); // 保存评论到数据库
+        Comment saved = saveOne(comment); // 保存评论到数据库
         return toVO(saved, userId); // 转换为视图对象并返回
     }
 
@@ -149,8 +158,10 @@ public class CommentService {
     @LogAction("删除评论")
     public void deleteComment(Long commentId, Long userId) {
         // 查找要删除的评论，不存在则抛出异常
-        Comment comment = commentRepository.findById(commentId)
-                .orElseThrow(() -> new BusinessException("评论不存在"));
+        Comment comment = findOneById(commentId);
+        if (comment == null) {
+            throw new BusinessException("评论不存在");
+        }
         // 验证只能删除自己的评论
         if (!comment.getUserId().equals(userId)) {
             throw new BusinessException("只能删除自己的评论");
@@ -159,11 +170,12 @@ public class CommentService {
         // 如果是回复评论，需要减少父评论的回复数
         if (comment.getParentId() != null) {
             // 查找父评论并更新回复数
-            commentRepository.findById(comment.getParentId()).ifPresent(parent -> {
+            Comment parent = findOneById(comment.getParentId());
+            if (parent != null) {
                 // 确保回复数不会小于0
                 parent.setReplyCount(Math.max(0, parent.getReplyCount() - 1));
-                commentRepository.save(parent); // 保存更新后的父评论
-            });
+                updateOne(parent); // 保存更新后的父评论
+            }
         }
 
         // 删除关联的点赞和收藏记录
@@ -175,14 +187,14 @@ public class CommentService {
             // 删除子评论的收藏记录
             commentFavoriteRepository.deleteByCommentIdAndUserId(reply.getId(), reply.getUserId());
         }
-        commentRepository.deleteAll(replies); // 批量删除所有子评论
+        deleteListByIds(replies.stream().map(Comment::getId).toList()); // 批量删除所有子评论
 
         // 删除本评论的点赞和收藏记录
         // 查找并删除当前用户对该评论的点赞记录
         commentLikeRepository.findByCommentIdAndUserId(commentId, userId)
                 .ifPresent(cl -> commentLikeRepository.deleteByCommentIdAndUserId(commentId, userId));
 
-        commentRepository.delete(comment); // 删除主评论
+        deleteOneById(comment.getId()); // 删除主评论
     }
 
     /**
@@ -284,12 +296,14 @@ public class CommentService {
         commentLikeRepository.save(CommentLike.builder().commentId(commentId).userId(userId).build());
 
         // 查找被点赞的评论
-        Comment comment = commentRepository.findById(commentId)
-                .orElseThrow(() -> new BusinessException("评论不存在"));
+        Comment comment = findOneById(commentId);
+        if (comment == null) {
+            throw new BusinessException("评论不存在");
+        }
         // 计算新的点赞数
         int newLikeCount = comment.getLikeCount() + 1;
         comment.setLikeCount(newLikeCount); // 更新评论点赞数
-        commentRepository.save(comment); // 保存更新后的评论
+        updateOne(comment); // 保存更新后的评论
 
         // 如果点赞的不是自己的评论，则发送通知给评论作者
         if (!comment.getUserId().equals(userId)) {
@@ -361,11 +375,13 @@ public class CommentService {
         commentLikeRepository.deleteByCommentIdAndUserId(commentId, userId);
 
         // 查找评论并更新点赞数
-        Comment comment = commentRepository.findById(commentId)
-                .orElseThrow(() -> new BusinessException("评论不存在"));
+        Comment comment = findOneById(commentId);
+        if (comment == null) {
+            throw new BusinessException("评论不存在");
+        }
         // 减少点赞数，确保不会小于0
         comment.setLikeCount(Math.max(0, comment.getLikeCount() - 1));
-        commentRepository.save(comment); // 保存更新后的评论
+        updateOne(comment); // 保存更新后的评论
     }
 
     /**
@@ -385,11 +401,13 @@ public class CommentService {
         commentFavoriteRepository.save(CommentFavorite.builder().commentId(commentId).userId(userId).build());
 
         // 查找被收藏的评论
-        Comment comment = commentRepository.findById(commentId)
-                .orElseThrow(() -> new BusinessException("评论不存在"));
+        Comment comment = findOneById(commentId);
+        if (comment == null) {
+            throw new BusinessException("评论不存在");
+        }
         // 增加评论收藏数
         comment.setFavoriteCount(comment.getFavoriteCount() + 1);
-        commentRepository.save(comment); // 保存更新后的评论
+        updateOne(comment); // 保存更新后的评论
 
         // 如果收藏的不是自己的评论，则发送通知给评论作者
         if (!comment.getUserId().equals(userId)) {
@@ -415,11 +433,13 @@ public class CommentService {
         commentFavoriteRepository.deleteByCommentIdAndUserId(commentId, userId);
 
         // 查找评论并更新收藏数
-        Comment comment = commentRepository.findById(commentId)
-                .orElseThrow(() -> new BusinessException("评论不存在"));
+        Comment comment = findOneById(commentId);
+        if (comment == null) {
+            throw new BusinessException("评论不存在");
+        }
         // 减少收藏数，确保不会小于0
         comment.setFavoriteCount(Math.max(0, comment.getFavoriteCount() - 1));
-        commentRepository.save(comment); // 保存更新后的评论
+        updateOne(comment); // 保存更新后的评论
     }
 
     /**

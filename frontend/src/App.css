@@ -24,6 +24,21 @@ body {
   caret-color: transparent;
 }
 
+/* PC 端（非触摸设备）阅读区域允许文字选择 */
+@media (pointer: fine) {
+  .reader-content,
+  .reader-content * {
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    user-select: text !important;
+    caret-color: auto !important;
+  }
+  .reader-content iframe {
+    pointer-events: auto;
+  }
+}
+
 /* 所有非输入元素隐藏光标 */
 *:not(input):not(textarea):not([contenteditable="true"]) {
   caret-color: transparent;

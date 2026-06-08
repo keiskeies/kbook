@@ -1,4 +1,4 @@
-package com.kbook.enums;
+package com.kbook.common.enums;
 
 /**
  * 动态查询条件操作符枚举

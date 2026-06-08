@@ -52,8 +52,6 @@ export default function TxtRenderer({
           lineHeight: settings.lineHeight,
           paddingLeft: `${settings.pageMargin}px`,
           paddingRight: `${settings.pageMargin}px`,
-          WebkitUserSelect: 'none',
-          userSelect: 'none',
         }}
         onContextMenu={(e) => e.preventDefault()}
       >
