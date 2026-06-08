@@ -1,8 +1,8 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
-import com.kbook.dto.BookTrashItem;
-import com.kbook.service.BookTrashService;
+import com.kbook.dto.book.BookTrashItem;
+import com.kbook.service.book.BookTrashService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;

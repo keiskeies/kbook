@@ -2,13 +2,13 @@ package com.kbook.controller;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
-import com.kbook.dto.CommentVO;
+import com.kbook.dto.comment.CommentVO;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.UserRepository;
-import com.kbook.service.CommentService;
-import com.kbook.dto.CreateCommentRequest;
+import com.kbook.service.comment.CommentService;
+import com.kbook.dto.comment.CreateCommentRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

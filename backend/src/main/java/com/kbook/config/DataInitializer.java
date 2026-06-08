@@ -2,7 +2,7 @@ package com.kbook.config;
 
 import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
-import com.kbook.service.RecommendCoefficientService;
+import com.kbook.service.recommend.RecommendCoefficientService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;

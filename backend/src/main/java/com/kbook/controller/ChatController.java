@@ -7,7 +7,7 @@ import com.kbook.dto.request.SendMessageRequest;
 import com.kbook.dto.response.ChatMessageVO;
 import com.kbook.dto.response.ConversationVO;
 import com.kbook.entity.ChatMessage;
-import com.kbook.service.ChatService;
+import com.kbook.service.ai.ChatService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

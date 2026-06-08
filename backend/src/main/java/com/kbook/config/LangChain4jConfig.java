@@ -1,9 +1,10 @@
 package com.kbook.config;
+import com.kbook.service.ai.AiProviderConfigService;
 
 import com.kbook.constants.AiPromptConstants;
-import com.kbook.service.AiChatMemory;
-import com.kbook.service.AiToolService;
-import com.kbook.service.AiAssistant;
+import com.kbook.service.ai.AiChatMemory;
+import com.kbook.service.ai.AiToolService;
+import com.kbook.service.ai.AiAssistant;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.service.AiServices;
 import lombok.extern.slf4j.Slf4j;

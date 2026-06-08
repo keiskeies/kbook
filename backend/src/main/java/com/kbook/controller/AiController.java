@@ -1,11 +1,12 @@
 package com.kbook.controller;
+import com.kbook.service.ai.ChatService;
 
 import com.kbook.common.api.Result;
 import com.kbook.config.properties.AiProviderProperties;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
-import com.kbook.service.AiChatService;
+import com.kbook.service.ai.AiChatService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;

@@ -4,7 +4,7 @@ import com.kbook.common.api.Result;
 import com.kbook.common.util.SseHelper;
 import com.kbook.dto.request.TtsSynthesizeRequest;
 import com.kbook.entity.TtsConfig;
-import com.kbook.service.TtsConfigService;
+import com.kbook.service.tts.TtsConfigService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

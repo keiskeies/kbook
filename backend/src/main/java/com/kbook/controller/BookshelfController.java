@@ -1,10 +1,10 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
-import com.kbook.dto.BookshelfItem;
-import com.kbook.service.BookshelfService;
-import com.kbook.service.RecommendCoefficientService;
-import com.kbook.service.RecommendService;
+import com.kbook.dto.book.BookshelfItem;
+import com.kbook.service.book.BookshelfService;
+import com.kbook.service.recommend.RecommendCoefficientService;
+import com.kbook.service.recommend.RecommendService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;

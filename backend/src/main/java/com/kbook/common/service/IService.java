@@ -1,7 +1,7 @@
 package com.kbook.common.service;
 
-import com.kbook.dto.ChartRequestDTO;
-import com.kbook.dto.ConditionDTO;
+import com.kbook.dto.stats.ChartRequestDTO;
+import com.kbook.dto.stats.ConditionDTO;
 import com.kbook.common.entity.IEntity;
 import org.springframework.data.domain.Page;
 

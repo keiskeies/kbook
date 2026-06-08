@@ -1,8 +1,15 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
-import com.kbook.dto.*;
-import com.kbook.service.AuthService;
+import com.kbook.dto.auth.AuthSendCodeRequest;
+import com.kbook.dto.auth.ChangePasswordRequest;
+import com.kbook.dto.auth.CodeLoginRequest;
+import com.kbook.dto.auth.LoginResult;
+import com.kbook.dto.auth.PasswordLoginRequest;
+import com.kbook.dto.auth.RegisterRequest;
+import com.kbook.dto.auth.ResetPasswordRequest;
+import com.kbook.dto.auth.TokenRefreshRequest;
+import com.kbook.service.auth.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;

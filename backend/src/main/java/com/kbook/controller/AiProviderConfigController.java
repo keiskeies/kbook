@@ -4,7 +4,7 @@ import com.kbook.common.api.Result;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
-import com.kbook.service.AiProviderConfigService;
+import com.kbook.service.ai.AiProviderConfigService;
 import dev.langchain4j.model.chat.ChatModel;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;

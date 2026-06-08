@@ -1,6 +1,6 @@
 package com.kbook.repository;
 
-import com.kbook.dto.BookProjection;
+import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.Book;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -145,58 +145,58 @@ public interface BookRepository extends JpaRepository<Book, Long> {
     /**
      * 分页查询投影（仅推荐所需字段，避免加载TEXT大字段）
      */
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.id")
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.id")
     Page<BookProjection> findAllProjectedByOrderByIdAsc(Pageable pageable);
 
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.id")
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.id")
     List<BookProjection> findAllProjectedByOrderByIdAsc();
 
     /**
      * 按ID查询投影
      */
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE b.id = :id")
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE b.id = :id")
     Optional<BookProjection> findProjectedById(@Param("id") Long id);
 
     /**
      * 按ID集合批量查询投影
      */
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE b.id IN :ids")
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE b.id IN :ids")
     List<BookProjection> findProjectedByIdIn(@Param("ids") Iterable<Long> ids);
 
     /**
      * 按阅读量降序查询投影
      */
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.readCount DESC")
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.readCount DESC")
     Page<BookProjection> findAllProjectedByOrderByReadCountDesc(Pageable pageable);
 
     /**
      * 按评分降序查询投影
      */
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.rating DESC")
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.rating DESC")
     Page<BookProjection> findAllProjectedByOrderByRatingDesc(Pageable pageable);
 
     /**
      * 按创建时间降序查询投影
      */
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.createdAt DESC")
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b ORDER BY b.createdAt DESC")
     Page<BookProjection> findAllProjectedByOrderByCreatedAtDesc(Pageable pageable);
 
     /**
      * 按格式筛选投影
      */
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE b.format = :format ORDER BY b.id")
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE b.format = :format ORDER BY b.id")
     Page<BookProjection> findProjectedByFormat(@Param("format") String format, Pageable pageable);
 
     /**
      * 按标签分页查询投影
      */
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE b.formatTags LIKE CONCAT('%', :tag, '%')")
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE b.formatTags LIKE CONCAT('%', :tag, '%')")
     Page<BookProjection> findProjectedByTag(@Param("tag") String tag, Pageable pageable);
 
     /**
      * 搜索投影（标题/作者/简介模糊匹配）
      */
-    @Query("SELECT new com.kbook.dto.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE " +
+    @Query("SELECT new com.kbook.dto.book.BookProjection(b.id, b.title, b.author, b.coverUrl, b.format, b.fileSize, b.fileUrl, b.formatTags, b.rating, b.readCount, b.totalUnits, b.description, b.relevanceScores, b.createdAt) FROM Book b WHERE " +
            "(:keyword IS NULL OR LOWER(b.title) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
            "OR LOWER(b.author) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
            "OR LOWER(b.description) LIKE LOWER(CONCAT('%', :keyword, '%')))")

@@ -1,8 +1,8 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
-import com.kbook.dto.ClickVerifyRequest;
-import com.kbook.service.ClickCaptchaService;
+import com.kbook.dto.auth.ClickVerifyRequest;
+import com.kbook.service.auth.ClickCaptchaService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;

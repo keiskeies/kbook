@@ -1,8 +1,8 @@
-package com.kbook.test;
+﻿package com.kbook.test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.config.ChatModelFactory;
-import com.kbook.dto.BookProjection;
+import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.Book;
 import com.kbook.entity.Comment;
 import com.kbook.entity.User;

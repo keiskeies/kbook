@@ -1,13 +1,24 @@
 package com.kbook.controller;
+import com.kbook.service.rank.RankService;
+import com.kbook.service.user.UserService;
+import com.kbook.service.book.BookSearchService;
+import com.kbook.service.book.BookParserService;
+import com.kbook.service.book.BookService;
+
+import com.kbook.service.recommend.RecommendService;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.document.BookDocument;
-import com.kbook.dto.*;
+
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
-import com.kbook.service.*;
+import com.kbook.dto.book.BookProjection;
+import com.kbook.dto.book.BookSpeedReadVO;
+import com.kbook.dto.book.CreateBookRequest;
+import com.kbook.dto.user.UpdateTagsRequest;
+import com.kbook.dto.recommend.RateRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

@@ -2,9 +2,9 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.common.exception.BusinessException;
-import com.kbook.dto.TextInfoResponse;
+import com.kbook.dto.admin.TextInfoResponse;
 import com.kbook.entity.Book;
-import com.kbook.service.BookService;
+import com.kbook.service.book.BookService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;

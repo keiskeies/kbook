@@ -2,7 +2,7 @@ package com.kbook.common.service;
 
 import com.kbook.common.enums.ConditionEnum;
 import com.kbook.common.util.TransactionUtils;
-import com.kbook.dto.ConditionDTO;
+import com.kbook.dto.stats.ConditionDTO;
 import com.kbook.common.entity.IMiddleEntity;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;

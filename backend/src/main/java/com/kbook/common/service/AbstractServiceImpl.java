@@ -1,8 +1,8 @@
 package com.kbook.common.service;
 
 import com.kbook.common.util.TransactionUtils;
-import com.kbook.dto.ChartRequestDTO;
-import com.kbook.dto.ConditionDTO;
+import com.kbook.dto.stats.ChartRequestDTO;
+import com.kbook.dto.stats.ConditionDTO;
 import com.kbook.common.entity.IEntity;
 import com.kbook.common.enums.chart.CalcType;
 import com.kbook.common.enums.chart.ColumnType;

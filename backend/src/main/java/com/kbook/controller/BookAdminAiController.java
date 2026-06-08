@@ -1,9 +1,10 @@
 package com.kbook.controller;
+import com.kbook.service.ai.ChatService;
 
 import com.kbook.common.api.Result;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
-import com.kbook.service.BookAdminChatService;
+import com.kbook.service.ai.BookAdminChatService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
