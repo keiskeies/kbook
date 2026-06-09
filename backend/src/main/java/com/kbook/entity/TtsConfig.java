@@ -53,6 +53,9 @@ public class TtsConfig extends BaseEntity {
     @Column(length = 50)
     private String voice;
 
+    @Column(length = 50)
+    private String voicePresetId;
+
     @Column(length = 20)
     @Builder.Default
     private String language = "zh";
@@ -73,7 +76,7 @@ public class TtsConfig extends BaseEntity {
     private Boolean streaming = false;
 
     public enum TtsType {
-        LLM, TRADITIONAL;
+        LLM, TRADITIONAL, CLONE;
 
         @JsonCreator
         public static TtsType from(String value) {
@@ -83,7 +86,7 @@ public class TtsConfig extends BaseEntity {
     }
 
     public enum Provider {
-        XIAOMI, IFLYTEK, CUSTOM;
+        XIAOMI, IFLYTEK, GPT_SOVITS, CUSTOM;
 
         @JsonCreator
         public static Provider from(String value) {

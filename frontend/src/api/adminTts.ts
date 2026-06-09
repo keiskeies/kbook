@@ -3,14 +3,15 @@ import request from '@/utils/request'
 export interface TtsConfig {
   id?: number
   name: string
-  ttsType: 'LLM' | 'TRADITIONAL'
-  provider: 'XIAOMI' | 'IFLYTEK' | 'CUSTOM'
+  ttsType: 'LLM' | 'TRADITIONAL' | 'CLONE'
+  provider: 'XIAOMI' | 'IFLYTEK' | 'GPT_SOVITS' | 'CUSTOM'
   baseUrl?: string
   modelName?: string
   apiKey?: string
   apiSecret?: string
   appId?: string
   voice?: string
+  voicePresetId?: string
   language?: string
   speed?: number
   pitch?: number
@@ -19,6 +20,16 @@ export interface TtsConfig {
   streaming?: boolean
   createdAt?: string
   updatedAt?: string
+}
+
+export interface GptSovitsVoicePreset {
+  id: string
+  name: string
+  lang: string
+  gptCkpt: string
+  sovitsPth: string
+  refAudioPath: string
+  promptText: string
 }
 
 export interface TtsSynthesizeRequest {
@@ -72,4 +83,8 @@ export async function synthesizeTts(text: string, configId?: number): Promise<Ar
 
 export function isStreamingSupported(configId?: number): Promise<boolean> {
   return request.get<boolean>('/tts/streaming-supported', { params: { configId } })
+}
+
+export function listGptSovitsVoices(): Promise<GptSovitsVoicePreset[]> {
+  return request.get<GptSovitsVoicePreset[]>('/tts/gpt-sovits/voices')
 }

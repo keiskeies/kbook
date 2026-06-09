@@ -5,6 +5,7 @@ import { Volume2, Gauge, Cpu } from 'lucide-react'
 const providerLabels: Record<string, string> = {
   XIAOMI: '小米 AI TTS',
   IFLYTEK: '科大讯飞',
+  GPT_SOVITS: 'GPT-SoVITS',
 }
 
 export default function TtsSettingsPanel() {

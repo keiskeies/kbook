@@ -7,7 +7,7 @@ import java.util.function.Consumer;
 /**
  * TTS 引擎接口
  * <p>
- * 定义文本转语音的标准契约，所有 TTS 引擎（小米 MiMo、讯飞等）需实现此接口。
+ * 定义文本转语音的标准契约，所有 TTS 引擎（小米 MiMo、讯飞、GPT-SoVITS 等）需实现此接口。
  * 支持普通合成和流式合成两种模式。
  */
 public interface TtsEngine {
@@ -34,8 +34,8 @@ public interface TtsEngine {
      * <p>
      * 默认实现：回退到普通合成，一次性返回所有数据
      *
-     * @param text   待合成文本
-     * @param config TTS 配置
+     * @param text    待合成文本
+     * @param config  TTS 配置
      * @param onChunk 每个音频数据块的回调
      * @param onDone  合成完成回调
      */

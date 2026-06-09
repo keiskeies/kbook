@@ -23,6 +23,8 @@ server:
 # 数据源 - MySQL + HikariCP
 # ========================
 spring:
+  config:
+    import: classpath:tts-voices.yml
   servlet:
     multipart:
       max-file-size: 200MB

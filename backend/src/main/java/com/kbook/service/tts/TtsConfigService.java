@@ -99,6 +99,7 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
         if (config.getApiSecret() != null) existing.setApiSecret(config.getApiSecret());
         if (config.getAppId() != null) existing.setAppId(config.getAppId());
         if (config.getVoice() != null) existing.setVoice(config.getVoice());
+        if (config.getVoicePresetId() != null) existing.setVoicePresetId(config.getVoicePresetId());
         if (config.getLanguage() != null) existing.setLanguage(config.getLanguage());
         if (config.getSpeed() != null) existing.setSpeed(config.getSpeed());
         if (config.getPitch() != null) existing.setPitch(config.getPitch());

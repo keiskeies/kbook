@@ -1,0 +1,40 @@
+gpt-sovits:
+  base-url: ${GPT_SOVITS_BASE_URL:http://127.0.0.1:9880}
+  gpt-weights-dir: ${GPT_SOVITS_GPT_DIR:D:/item/GPT-SoVITS-v2pro-20250604-nvidia50/GPT_weights_v4}
+  sovits-weights-dir: ${GPT_SOVITS_SOVITS_DIR:D:/item/GPT-SoVITS-v2pro-20250604-nvidia50/SoVITS_weights_v4}
+  voices:
+    - id: keqing
+      name: 刻晴
+      lang: zh
+      gpt-ckpt: 刻晴_ZH-e10.ckpt
+      sovits-pth: 刻晴_ZH_e10_s490_l32.pth
+      ref-audio-path: D:/item/GPT-SoVITS-v2pro-20250604-nvidia50/self_models/刻晴_ZH/v4/刻晴_ZH/reference_audios/中文/emotions/【默认】这么多式样、这么多质地、这么多选择…啊，这就是「消费」呀，真是令人难以抵御的魅力。.wav
+      prompt-text: "【默认】这么多式样、这么多质地、这么多选择…啊，这就是「消费」呀，真是令人难以抵御的魅力。"
+    - id: yunjin
+      name: 云堇
+      lang: zh
+      gpt-ckpt: 云堇_ZH-e10.ckpt
+      sovits-pth: 云堇_ZH_e10_s540_l32.pth
+      ref-audio-path: D:/item/GPT-SoVITS-v2pro-20250604-nvidia50/self_models/云堇_ZH/v4/云堇_ZH/reference_audios/中文/emotions/【默认】我正在为新戏寻找演出场地。凝光小姐眼界过人，我想请教她的看法。.wav
+      prompt-text: "【默认】我正在为新戏寻找演出场地。凝光小姐眼界过人，我想请教她的看法。"
+    - id: yae
+      name: 八重神子
+      gpt-ckpt: 八重神子_ZH-e10.ckpt
+      sovits-pth: 八重神子_ZH_e10_s1170_l32.pth
+      lang: zh
+      ref-audio-path: D:/item/GPT-SoVITS-v2pro-20250604-nvidia50/self_models/八重神子_ZH/v4/八重神子_ZH/reference_audios/中文/emotions/【默认】嗨，小家伙们，你们来了呀。不错，很准时。.wav
+      prompt-text: "【默认】嗨，小家伙们，你们来了呀。不错，很准时。"
+    - id: ningguang
+      name: 凝光
+      lang: zh
+      gpt-ckpt: 凝光_ZH-e10.ckpt
+      sovits-pth: 凝光_ZH_e10_s830_l32.pth
+      ref-audio-path: D:/item/GPT-SoVITS-v2pro-20250604-nvidia50/self_models/凝光_ZH/v4/凝光_ZH/reference_audios/中文/emotions/【默认】我打算新做一套棋盘和棋子，内容就从前段时间的那场大战改编而来。.wav
+      prompt-text: "【默认】我打算新做一套棋盘和棋子，内容就从前段时间的那场大战改编而来。"
+    - id: raiden
+      name: 雷电将军
+      lang: zh
+      gpt-ckpt: 雷电将军_ZH-e10.ckpt
+      sovits-pth: 雷电将军_ZH_e10_s720_l32.pth
+      ref-audio-path: D:/item/GPT-SoVITS-v2pro-20250604-nvidia50/self_models/雷电将军_ZH/v4/雷电将军_ZH/reference_audios/中文/emotions/【默认】欸？已经被你看出来了吗？我还以为我装得够像了。.wav
+      prompt-text: "【默认】欸？已经被你看出来了吗？我还以为我装得够像了。"

@@ -1,6 +1,6 @@
 import { useTtsStore } from '@/store/tts'
 import type { TtsVoice } from '@/store/tts'
-import { synthesizeTts } from '@/api/adminTts'
+import { synthesizeTts, isStreamingSupported } from '@/api/adminTts'
 
 const PCM_SAMPLE_RATE = 24000
 const CHUNK_FIRST_MAX_LEN = 50
@@ -210,16 +210,26 @@ class TtsService {
     return useTtsStore.getState().backendMode && useTtsStore.getState().backendConfig !== null
   }
 
-  private get isStreamingEnabled(): boolean {
-    return Boolean(useTtsStore.getState().backendConfig?.streaming)
-  }
-
   async checkStreamingSupport(): Promise<boolean> {
-    this.streamingEnabled = this.isStreamingEnabled
-    return this.streamingEnabled
+    const configId = useTtsStore.getState().backendConfig?.id
+    if (!configId) {
+      this.streamingEnabled = false
+      return false
+    }
+    try {
+      const supported = await isStreamingSupported(configId)
+      this.streamingEnabled = supported
+      return supported
+    } catch {
+      this.streamingEnabled = false
+      return false
+    }
   }
 
-  startReading(bookId: number, bookTitle: string, segments: string[], startSegment = 0): void {
+  async startReading(bookId: number, bookTitle: string, segments: string[], startSegment = 0): Promise<void> {
+    if (this.isBackendMode) {
+      await this.checkStreamingSupport()
+    }
     if (this.isBackendMode && !this.synth) return
     if (!this.isBackendMode && !this.synth) return
 
@@ -375,7 +385,7 @@ class TtsService {
     useTtsStore.getState().setSegmentIndex(index)
 
     try {
-      if (this.isStreamingEnabled) {
+      if (this.streamingEnabled) {
         await this.speakSegmentStream(index, text, bookId)
       } else {
         await this.speakSegmentNonStream(index, text, bookId)
@@ -532,7 +542,7 @@ class TtsService {
       this.streamPlayer?.stop()
       this.streamPlayer = null
 
-      if (this.isStreamingEnabled) {
+      if (this.streamingEnabled) {
         this.streamPlayer = new PcmStreamPlayer()
         this.streamPlayer.init()
 
@@ -671,7 +681,7 @@ class TtsService {
     const signal = this.longTextAbortController.signal
 
     try {
-      if (this.isStreamingEnabled) {
+      if (this.streamingEnabled) {
         await this.speakLongTextBackendStream(chunks, signal, onEnd)
       } else {
         await this.speakLongTextBackendNonStream(chunks, signal, onEnd)

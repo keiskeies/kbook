@@ -2,6 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.properties.GptSovitsProperties;
 import com.kbook.dto.request.TtsSynthesizeRequest;
 import com.kbook.entity.TtsConfig;
 import com.kbook.service.tts.TtsConfigService;
@@ -27,6 +28,9 @@ import java.util.concurrent.Executor;
 public class TtsConfigController {
 
     private final TtsConfigService ttsConfigService;
+
+    /** GPT-SoVITS 音色预设配置 */
+    private final GptSovitsProperties gptSovitsProperties;
 
     /** SSE 异步执行器（由 AsyncExecutorConfig 提供，自动 shutdown） */
     @Qualifier("sseExecutor")
@@ -90,6 +94,12 @@ public class TtsConfigController {
         } catch (Exception e) {
             return Result.ok(false);
         }
+    }
+
+    @Operation(summary = "获取GPT-SoVITS音色预设列表")
+    @GetMapping("/api/tts/gpt-sovits/voices")
+    public Result<List<GptSovitsProperties.VoicePreset>> listGptSovitsVoices() {
+        return Result.ok(gptSovitsProperties.getVoices());
     }
 
     @Operation(summary = "获取所有TTS配置")

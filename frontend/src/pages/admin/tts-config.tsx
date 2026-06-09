@@ -9,12 +9,15 @@ import {
   updateTtsConfig,
   deleteTtsConfig,
   switchDefaultTtsConfig,
+  listGptSovitsVoices,
   type TtsConfig,
+  type GptSovitsVoicePreset,
 } from '@/api/adminTts'
 
 const PROVIDER_OPTIONS: { value: string; label: string; type: string }[] = [
   { value: 'XIAOMI', label: '小米 AI TTS', type: 'LLM' },
   { value: 'IFLYTEK', label: '科大讯飞', type: 'TRADITIONAL' },
+  { value: 'GPT_SOVITS', label: 'GPT-SoVITS', type: 'CLONE' },
 ]
 
 export default function TtsConfigPage() {
@@ -24,6 +27,7 @@ export default function TtsConfigPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isCustomVoice, setIsCustomVoice] = useState(false)
+  const [gptSovitsVoices, setGptSovitsVoices] = useState<GptSovitsVoicePreset[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const { handleScroll } = useScrollRestore(scrollRef)
 
@@ -108,25 +112,32 @@ export default function TtsConfigPage() {
 
   const handleProviderChange = (provider: string) => {
     const opt = PROVIDER_OPTIONS.find((p) => p.value === provider)
-    const ttsType = (opt?.type as 'LLM' | 'TRADITIONAL') || 'LLM'
+    const ttsType = (opt?.type as 'LLM' | 'TRADITIONAL' | 'CLONE') || 'LLM'
     setForm((f) => ({
       ...f,
       provider: provider as TtsConfig['provider'],
       ttsType,
-      baseUrl: provider === 'XIAOMI' ? 'https://api.xiaomimimo.com/v1' : '',
+      baseUrl: provider === 'XIAOMI' ? 'https://api.xiaomimimo.com/v1' : provider === 'GPT_SOVITS' ? 'http://127.0.0.1:9880' : '',
       modelName: provider === 'XIAOMI' ? 'mimo-v2.5-tts' : '',
       apiKey: '',
       apiSecret: '',
       appId: '',
       voice: provider === 'XIAOMI' ? '冰糖' : 'xiaoyan',
+      voicePresetId: provider === 'GPT_SOVITS' ? '' : undefined,
     }))
+    if (provider === 'GPT_SOVITS' && gptSovitsVoices.length === 0) {
+      listGptSovitsVoices().then(setGptSovitsVoices).catch(() => {})
+    }
   }
 
   const handleSave = async () => {
     if (!form.name?.trim()) { toast.error('请输入配置名称'); return }
-    if (!form.apiKey?.trim() && form.provider !== 'IFLYTEK') { toast.error('请输入 API Key'); return }
+    if (form.provider === 'XIAOMI' && !form.apiKey?.trim()) { toast.error('请输入 API Key'); return }
     if (form.provider === 'IFLYTEK' && (!form.appId?.trim() || !form.apiKey?.trim() || !form.apiSecret?.trim())) {
       toast.error('科大讯飞需填写 AppId、API Key 和 API Secret'); return
+    }
+    if (form.provider === 'GPT_SOVITS' && !form.voicePresetId?.trim()) {
+      toast.error('请选择音色预设'); return
     }
 
     try {
@@ -175,7 +186,7 @@ export default function TtsConfigPage() {
   }
 
   const typeIcon = (t: string) => t === 'LLM' ? <Cpu className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />
-  const typeLabel = (t: string) => t === 'LLM' ? '大模型 TTS' : '传统 TTS'
+  const typeLabel = (t: string) => t === 'LLM' ? '大模型 TTS' : t === 'CLONE' ? '语音克隆 TTS' : '传统 TTS'
   const providerLabel = (p: string) => PROVIDER_OPTIONS.find((o) => o.value === p)?.label || p
 
   return (
@@ -283,6 +294,7 @@ export default function TtsConfigPage() {
               <p className="font-medium text-foreground">配置说明</p>
               <p>· 大模型 TTS：如小米 AI TTS，使用大模型生成自然语音</p>
               <p>· 传统 TTS：如科大讯飞，使用传统语音合成引擎</p>
+              <p>· 语音克隆 TTS：如 GPT-SoVITS，基于零样本语音克隆，需本地部署服务</p>
               <p>· 启用并设为默认后，朗读功能将使用后台合成语音</p>
               <p>· 后台 TTS 不可用时自动回退浏览器朗读</p>
             </section>
@@ -323,10 +335,10 @@ export default function TtsConfigPage() {
                             : 'border-border text-muted-foreground hover:bg-muted/50'
                         }`}
                       >
-                        {opt.value === 'XIAOMI' ? <Cpu className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                        {opt.value === 'XIAOMI' ? <Cpu className="h-4 w-4" /> : opt.value === 'GPT_SOVITS' ? <Volume2 className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                         <div className="text-left">
                           <div>{opt.label}</div>
-                          <div className="text-[10px] opacity-60">{opt.type === 'LLM' ? '大模型 TTS' : '传统 TTS'}</div>
+                          <div className="text-[10px] opacity-60">{opt.type === 'LLM' ? '大模型 TTS' : opt.type === 'CLONE' ? '语音克隆 TTS' : '传统 TTS'}</div>
                         </div>
                       </button>
                     ))}
@@ -467,6 +479,64 @@ export default function TtsConfigPage() {
                         <label className="mb-1.5 block text-sm font-medium">音调 ({form.pitch ?? 50})</label>
                         <input type="range" min="0" max="100" value={form.pitch ?? 50} onChange={(e) => setForm((f) => ({ ...f, pitch: parseInt(e.target.value) }))} className="w-full accent-primary" />
                       </div>
+                    </div>
+                  </>
+                )}
+
+                {form.provider === 'GPT_SOVITS' && (
+                  <>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium">API 地址</label>
+                      <input
+                        type="text"
+                        value={form.baseUrl || ''}
+                        onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))}
+                        placeholder="http://127.0.0.1:9880"
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">GPT-SoVITS 本地服务地址</p>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium">音色预设</label>
+                      {gptSovitsVoices.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">加载音色预设中...</p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                          {gptSovitsVoices.map((v) => (
+                            <button
+                              key={v.id}
+                              onClick={() => setForm((f) => ({ ...f, voicePresetId: v.id, voice: v.name }))}
+                              className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                                form.voicePresetId === v.id
+                                  ? 'border-primary bg-primary/10 text-primary'
+                                  : 'border-border text-muted-foreground hover:bg-muted/50'
+                              }`}
+                            >
+                              <Volume2 className="h-4 w-4" />
+                              <div className="text-left">
+                                <div>{v.name}</div>
+                                <div className="text-[10px] opacity-60">{v.lang.toUpperCase()}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <p className="mt-1 text-xs text-muted-foreground">选择预设音色，音色配置来自 tts-voices.yml</p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap className="h-4 w-4 text-amber-500" />
+                        <div>
+                          <label className="text-sm font-medium">流式输出</label>
+                          <p className="text-xs text-muted-foreground">边生成边播放，降低首字延迟</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setForm((f) => ({ ...f, streaming: !f.streaming }))}
+                        className={`relative h-6 w-11 rounded-full transition-colors ${form.streaming ? 'bg-amber-500' : 'bg-muted-foreground/30'}`}
+                      >
+                        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.streaming ? 'left-[22px]' : 'left-0.5'}`} />
+                      </button>
                     </div>
                   </>
                 )}

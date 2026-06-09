@@ -82,25 +82,32 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
     }
 
     /**
-     * 通过反射找到 getter 方法对应的实体字段名。
-     * 例如 getId1() 实际返回的是 userId 字段，则返回 "userId"。
+     * 通过反射找到 getter 方法对应的实体 JPA 持久化字段名。
+     * 原理：创建实体实例，给每个 Long 字段设唯一哨兵值，调用 getter 看返回值对应哪个字段。
+     * 例如 Bookshelf: 设 userId=1, bookId=2 → getId1() 返回 1 → 映射到 "userId"
      */
     private String resolveFieldName(String getterName) {
         try {
-            Method getter = tClass.getMethod(getterName);
-            // 遍历实体类的所有声明字段，找到其 getter 方法与目标 getter 相同的字段
+            T instance = tClass.getDeclaredConstructor().newInstance();
+            // 给所有 Long 字段（除 id 外）设置唯一哨兵值
+            long counter = 1;
+            Map<Long, String> valueToFieldName = new java.util.HashMap<>();
             for (Field f : tClass.getDeclaredFields()) {
-                String fieldGetterName = "get" + Character.toUpperCase(f.getName().charAt(0)) + f.getName().substring(1);
-                try {
-                    Method fieldGetter = tClass.getMethod(fieldGetterName);
-                    if (fieldGetter.equals(getter)) {
-                        return f.getName();
-                    }
-                } catch (NoSuchMethodException ignored) {
+                if ((f.getType() == Long.class || f.getType() == long.class) && !"id".equals(f.getName())) {
+                    f.setAccessible(true);
+                    f.set(instance, counter);
+                    valueToFieldName.put(counter, f.getName());
+                    counter++;
                 }
             }
-        } catch (NoSuchMethodException e) {
-            log.warn("未找到方法 {} on {}", getterName, tClass.getSimpleName());
+            // 调用 getter，根据返回值找到对应的字段名
+            Method getter = tClass.getMethod(getterName);
+            Object value = getter.invoke(instance);
+            if (value instanceof Long && valueToFieldName.containsKey(value)) {
+                return valueToFieldName.get(value);
+            }
+        } catch (Exception e) {
+            log.warn("无法解析 {} 的 {} 对应 JPA 字段名", tClass.getSimpleName(), getterName, e);
         }
         // 回退到默认值
         return getterName.equals("getId1") ? "id1" : "id2";
