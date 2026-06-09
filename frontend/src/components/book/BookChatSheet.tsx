@@ -46,12 +46,14 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
   const [showHistory, setShowHistory] = useState(false)
   const [historySessions, setHistorySessions] = useState<AiSessionItem[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const streamSessionIdRef = useRef('')
   const followUpsFromSseRef = useRef(false)
   const initialQuestionRef = useRef(initialQuestion)
   const hasSentInitialRef = useRef(false)
+  const userScrollingRef = useRef(false)
 
   useEffect(() => {
     initialQuestionRef.current = initialQuestion
@@ -76,15 +78,42 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
           handleSend(iq.trim())
         }, 300)
       }
+    } else if (!open) {
+      hasSentInitialRef.current = false
     }
   }, [open, book.id])
 
   useEffect(() => {
+    if (open && book.id && !initialQuestion && messages.length === 0 && historySessions.length > 0) {
+      let latestSession: AiSessionItem | null = null
+      let latestTime = 0
+      for (const session of historySessions) {
+        const sessionTime = new Date(session.updatedAt || session.createdAt).getTime()
+        if (sessionTime > latestTime) {
+          latestTime = sessionTime
+          latestSession = session
+        }
+      }
+      if (latestSession && latestSession.sessionId) {
+        loadSessionHistory(latestSession.sessionId, latestSession.title)
+      }
+    }
+  }, [open, book.id, initialQuestion, historySessions])
+
+  useEffect(() => {
     const streaming = messages.some((m) => m.streaming)
-    if (streaming) {
+    if (streaming && !userScrollingRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages])
+
+  const handleUserScroll = () => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const { scrollTop, scrollHeight, clientHeight } = container
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50
+    userScrollingRef.current = !isAtBottom
+  }
 
   useEffect(() => {
     if (!open && abortRef.current) {
@@ -141,6 +170,9 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
         setSessionId(targetSessionId)
         if (title) setChatTitle(title)
         setShowHistory(false)
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+        }, 100)
       }
     } catch { /* ignore */ }
   }
@@ -182,6 +214,9 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
   const handleSend = useCallback(async (text?: string, isRegenerate?: boolean) => {
     const message = (text || input).trim()
     if (!message || loading) return
+
+    // 清除用户手动滚动标识，恢复自动滚动
+    userScrollingRef.current = false
 
     if (abortRef.current) {
       abortRef.current.abort()
@@ -498,7 +533,11 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
             )}
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto overscroll-y-contain px-4 py-4">
+          <div
+            ref={scrollContainerRef}
+            onScroll={handleUserScroll}
+            className="flex-1 overflow-y-auto overscroll-y-contain px-4 py-4"
+          >
             {!hasMessages ? (
               <div className="flex min-h-full flex-col items-center text-center">
                 <div className="my-auto flex flex-col items-center">

@@ -67,8 +67,10 @@ export default function AdminBooksPage() {
   const abortRef = useRef<AbortController | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
   const chatAbortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const userScrollingRef = useRef(false)
   const { handleScroll } = useScrollRestore(scrollRef)
 
   // 扫描状态
@@ -181,10 +183,18 @@ export default function AdminBooksPage() {
 
   // 滚动到底部
   useEffect(() => {
-    if (showChat) {
+    if (showChat && !userScrollingRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [chatMessages, showChat])
+
+  const handleChatScroll = () => {
+    const container = chatScrollRef.current
+    if (!container) return
+    const { scrollTop, scrollHeight, clientHeight } = container
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50
+    userScrollingRef.current = !isAtBottom
+  }
 
   const startScanStream = useCallback(() => {
     const skipId = skipBeforeId ? parseInt(skipBeforeId, 10) : undefined
@@ -319,6 +329,9 @@ export default function AdminBooksPage() {
   const handleChatSend = useCallback(async (text?: string) => {
     const message = (text || chatInput).trim()
     if (!message || chatLoading) return
+
+    // 清除用户手动滚动标识，恢复自动滚动
+    userScrollingRef.current = false
 
     // 确保有会话
     let sessionId = chatSessionId
@@ -949,7 +962,11 @@ export default function AdminBooksPage() {
                 )}
               </div>
             ) : (
-            <div className="flex-1 overflow-y-auto overscroll-y-contain p-4 space-y-3">
+            <div
+              ref={chatScrollRef}
+              onScroll={handleChatScroll}
+              className="flex-1 overflow-y-auto overscroll-y-contain p-4 space-y-3"
+            >
               {chatMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-purple-50 dark:bg-purple-900/20">

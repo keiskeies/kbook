@@ -11,6 +11,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import javax.annotation.Nonnull;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -56,7 +58,17 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
     protected final Class<ID2> id2Class;
 
     /**
-     * 构造函数，通过反射获取泛型参数的Class类型
+     * ID1 对应的 JPA 持久化字段名（如 "userId"），用于 Criteria API 查询
+     */
+    protected final String id1FieldName;
+
+    /**
+     * ID2 对应的 JPA 持久化字段名（如 "bookId"），用于 Criteria API 查询
+     */
+    protected final String id2FieldName;
+
+    /**
+     * 构造函数，通过反射获取泛型参数的Class类型，并解析 id1/id2 对应的 JPA 字段名
      */
     @SuppressWarnings(value = {"unchecked"})
     public AbstractMiddleServiceImpl() {
@@ -65,6 +77,33 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
         Type[] types = parameterizedType.getActualTypeArguments();
         this.id1Class = (Class<ID1>) types[1];
         this.id2Class = (Class<ID2>) types[2];
+        this.id1FieldName = resolveFieldName("getId1");
+        this.id2FieldName = resolveFieldName("getId2");
+    }
+
+    /**
+     * 通过反射找到 getter 方法对应的实体字段名。
+     * 例如 getId1() 实际返回的是 userId 字段，则返回 "userId"。
+     */
+    private String resolveFieldName(String getterName) {
+        try {
+            Method getter = tClass.getMethod(getterName);
+            // 遍历实体类的所有声明字段，找到其 getter 方法与目标 getter 相同的字段
+            for (Field f : tClass.getDeclaredFields()) {
+                String fieldGetterName = "get" + Character.toUpperCase(f.getName().charAt(0)) + f.getName().substring(1);
+                try {
+                    Method fieldGetter = tClass.getMethod(fieldGetterName);
+                    if (fieldGetter.equals(getter)) {
+                        return f.getName();
+                    }
+                } catch (NoSuchMethodException ignored) {
+                }
+            }
+        } catch (NoSuchMethodException e) {
+            log.warn("未找到方法 {} on {}", getterName, tClass.getSimpleName());
+        }
+        // 回退到默认值
+        return getterName.equals("getId1") ? "id1" : "id2";
     }
 
     /**
@@ -74,8 +113,8 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
     @Transactional(readOnly = true)
     public T findOneById(@Nonnull ID1 id1, @Nonnull ID2 id2) {
         return super.findOne(List.of(
-                new ConditionDTO("id1", ConditionEnum.EQ, id1),
-                new ConditionDTO("id2", ConditionEnum.EQ, id2)
+                new ConditionDTO(id1FieldName, ConditionEnum.EQ, id1),
+                new ConditionDTO(id2FieldName, ConditionEnum.EQ, id2)
         ));
     }
 
@@ -85,7 +124,7 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
     @Override
     @Transactional(readOnly = true)
     public List<T> findListById1(@Nonnull ID1 id1) {
-        return super.findList(List.of(new ConditionDTO("id1", ConditionEnum.EQ, id1)));
+        return super.findList(List.of(new ConditionDTO(id1FieldName, ConditionEnum.EQ, id1)));
     }
 
     /**
@@ -94,7 +133,7 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
     @Override
     @Transactional(readOnly = true)
     public Long countById1(@Nonnull ID1 id1) {
-        return super.getCount(List.of(new ConditionDTO("id1", ConditionEnum.EQ, id1)));
+        return super.getCount(List.of(new ConditionDTO(id1FieldName, ConditionEnum.EQ, id1)));
     }
 
     /**
@@ -105,7 +144,7 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
         if (CollectionUtils.isEmpty(id1s)) {
             return new ArrayList<>();
         }
-        return middleService.findList(List.of(new ConditionDTO("id1", ConditionEnum.IN, id1s)));
+        return middleService.findList(List.of(new ConditionDTO(id1FieldName, ConditionEnum.IN, id1s)));
     }
 
     /**
@@ -114,7 +153,7 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
     @Override
     @Transactional(readOnly = true)
     public List<T> findListById2(@Nonnull ID2 id2) {
-        return super.findList(List.of(new ConditionDTO("id2", ConditionEnum.EQ, id2)));
+        return super.findList(List.of(new ConditionDTO(id2FieldName, ConditionEnum.EQ, id2)));
     }
 
     /**
@@ -123,7 +162,7 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
     @Override
     @Transactional(readOnly = true)
     public Long countById2(@Nonnull ID2 id2) {
-        return super.getCount(List.of(new ConditionDTO("id2", ConditionEnum.EQ, id2)));
+        return super.getCount(List.of(new ConditionDTO(id2FieldName, ConditionEnum.EQ, id2)));
     }
 
     /**
@@ -134,7 +173,7 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
         if (CollectionUtils.isEmpty(id2s)) {
             return new ArrayList<>();
         }
-        return middleService.findList(List.of(new ConditionDTO("id2", ConditionEnum.IN, id2s)));
+        return middleService.findList(List.of(new ConditionDTO(id2FieldName, ConditionEnum.IN, id2s)));
     }
 
     /**
@@ -213,8 +252,8 @@ public abstract class AbstractMiddleServiceImpl<T extends IMiddleEntity<ID1, ID2
     @Override
     public Boolean exist(@Nonnull ID1 id1, @Nonnull ID2 id2) {
         return super.exist(List.of(
-                new ConditionDTO("id1", ConditionEnum.EQ, id1),
-                new ConditionDTO("id2", ConditionEnum.EQ, id2)
+                new ConditionDTO(id1FieldName, ConditionEnum.EQ, id1),
+                new ConditionDTO(id2FieldName, ConditionEnum.EQ, id2)
         ));
     }
 

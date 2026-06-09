@@ -74,7 +74,7 @@ public class RecommendMatchCalculator {
      */
     enum MatchWeight {
         // ---- 主维度权重 ----
-        RATING("rating_weight", 0.3),                          // 图书评分：客观质量信号，适度权重让好书有加分
+        RATING("rating_weight", 0.8),                          // 图书评分：客观质量信号，适度权重让好书有加分
         AGE("age_weight", 1.5),                                // 年龄：核心画像维度，不同年龄段阅读偏好差异大，权重最高
         GENDER("gender_weight", 0.8),                          // 性别：中等权重，配合反向惩罚（OPPOSITE_PENALTY）使用
         MARRIED("married_weight", 0.8),                        // 婚姻状态：中等权重，配合反向惩罚使用

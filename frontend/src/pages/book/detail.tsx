@@ -551,13 +551,15 @@ export default function BookDetailPage() {
             <Bookmark className="h-5 w-5" />
           )}
         </button>
-        <button
-          onClick={() => navigate(`/reader/${book.id}`)}
-          className="flex items-center gap-2 rounded-xl bg-muted px-4 py-2 text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
-        >
-          <BookOpen className="h-4 w-4" />
-          {progress > 0 ? '继续阅读' : '开始阅读'}
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => navigate(`/reader/${book.id}`)}
+            className="flex items-center gap-2 rounded-xl bg-muted px-4 py-2 text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
+          >
+            <BookOpen className="h-4 w-4" />
+            {progress > 0 ? '继续阅读' : '开始阅读'}
+          </button>
+        )}
         <button
           onClick={() => handleOpenChat()}
           className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/25"
@@ -896,13 +898,15 @@ export default function BookDetailPage() {
             <span className="truncate">{inShelf ? '在书架' : '加书架'}</span>
           </button>
 
-          <button
-            onClick={() => navigate(`/reader/${book.id}`)}
-            className="flex h-11 w-14 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
-          >
-            <BookOpen className="h-4 w-4" />
-            <span className="truncate">{progress > 0 ? '继续' : '阅读'}</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => navigate(`/reader/${book.id}`)}
+              className="flex h-11 w-14 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
+            >
+              <BookOpen className="h-4 w-4" />
+              <span className="truncate">{progress > 0 ? '继续' : '阅读'}</span>
+            </button>
+          )}
 
           <button
             onClick={() => handleOpenChat()}

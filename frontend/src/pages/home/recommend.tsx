@@ -79,6 +79,7 @@ function SwipeableBookCard({
   const startYRef = useRef(0)
   const currentXRef = useRef(0)
   const directionRef = useRef<'none' | 'horizontal' | 'vertical'>('none')
+  const [descExpanded, setDescExpanded] = useState(false)
 
   const handleTouchStart = (e: React.TouchEvent) => {
     startXRef.current = e.touches[0].clientX
@@ -203,9 +204,24 @@ function SwipeableBookCard({
 
         {book.description && (
           <div className="mt-2 border-t border-border/30 pt-2">
-            <p className="text-[11px] text-muted-foreground/70 leading-relaxed line-clamp-2">
+            <div
+              className={`text-[11px] text-muted-foreground/70 leading-relaxed ${
+                descExpanded ? '' : 'line-clamp-2'
+              }`}
+            >
               {book.description}
-            </p>
+            </div>
+            {book.description.length > 60 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setDescExpanded(!descExpanded)
+                }}
+                className="mt-1 text-[11px] font-medium text-primary"
+              >
+                {descExpanded ? '收起' : '展开'}
+              </button>
+            )}
           </div>
         )}
       </div>

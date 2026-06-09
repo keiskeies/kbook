@@ -23,8 +23,10 @@ export default function AIPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [bookMap, setBookMap] = useState<Record<string, number>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const userScrollingRef = useRef(false)
 
   // 页面卸载时确保TabBar恢复显示
   useEffect(() => {
@@ -70,8 +72,18 @@ export default function AIPage() {
   }, [navigate])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!userScrollingRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
+
+  const handleUserScroll = () => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const { scrollTop, scrollHeight, clientHeight } = container
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50
+    userScrollingRef.current = !isAtBottom
+  }
 
   useEffect(() => {
     if (!input && textareaRef.current) {
@@ -140,6 +152,9 @@ export default function AIPage() {
   const handleSend = useCallback(async (text?: string) => {
     const message = (text || input).trim()
     if (!message || loading) return
+
+    // 清除用户手动滚动标识，恢复自动滚动
+    userScrollingRef.current = false
 
     let sessionId = currentSessionId
     if (!sessionId) {
@@ -420,7 +435,11 @@ export default function AIPage() {
         )}
 
         {/* 消息滚动区域 */}
-        <div className="flex-1 overflow-y-auto overscroll-y-contain px-4 pt-12 pb-4 md:pt-4 md:px-6">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleUserScroll}
+          className="flex-1 overflow-y-auto overscroll-y-contain px-4 pt-12 pb-4 md:pt-4 md:px-6"
+        >
           <div className="mx-auto max-w-3xl">
           {messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
