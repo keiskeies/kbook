@@ -754,23 +754,25 @@ public class ChatModelManager {
             }
 
             long startTime = System.currentTimeMillis();
+            final boolean[] connectionClosed = {false};
 
             model.chat(
                     List.of(UserMessage.from(prompt)),
                     new StreamingChatResponseHandler() {
                         @Override
                         public void onPartialResponse(String partialResponse) {
-                            if (Thread.currentThread().isInterrupted()) return;
+                            if (connectionClosed[0] || Thread.currentThread().isInterrupted()) return;
                             if (partialResponse != null && !partialResponse.isEmpty()) {
                                 if (!SseHelper.safeSendEvent(emitter, "message", partialResponse)) {
+                                    connectionClosed[0] = true;
                                     Thread.currentThread().interrupt();
+                                    log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", book.getId());
                                 }
                             }
                         }
 
                         @Override
                         public void onCompleteResponse(ChatResponse completeResponse) {
-                            if (Thread.currentThread().isInterrupted()) return;
                             long elapsed = System.currentTimeMillis() - startTime;
                             int inputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
                                     ? completeResponse.tokenUsage().inputTokenCount() : 0;
@@ -779,15 +781,23 @@ public class ChatModelManager {
                             CommonUtils.logAiCall("3分钟速读(流式)", elapsed, inputTokens, outputTokens,
                                     String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
 
-                            try {
-                                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                                emitter.complete();
-                            } catch (Exception ignored) {
+                            if (connectionClosed[0]) {
+                                log.warn("SSE 连接已断开，跳过发送done事件: bookId={}", book.getId());
+                            } else {
+                                try {
+                                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                                    emitter.complete();
+                                } catch (Exception ignored) {
+                                }
                             }
                         }
 
                         @Override
                         public void onError(Throwable error) {
+                            if (connectionClosed[0]) {
+                                log.warn("SSE 连接已断开，跳过错误处理: bookId={}", book.getId());
+                                return;
+                            }
                             if (Thread.currentThread().isInterrupted()) return;
                             log.warn("流式速读摘要失败: bookId={} - {}", book.getId(), error.getMessage());
                             SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(error));

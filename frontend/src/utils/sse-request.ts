@@ -196,6 +196,102 @@ export function createSseConnection<TProgress, TDone>(
   return controller
 }
 
+/**
+ * 创建支持自定义事件的 SSE POST 连接
+ * 事件处理器接收 (eventName, data) 参数，可自行处理任意事件名
+ */
+export function createSsePostConnectionWithEvents(
+  url: string,
+  body: unknown,
+  handlers: {
+    onEvent: (eventName: string, data: string) => boolean | void
+    onDone: () => void
+    onError: (error: Error) => void
+  },
+): AbortController {
+  const controller = new AbortController()
+  const { onEvent, onDone, onError } = handlers
+  const fullUrl = `${BASE_URL}${url}`
+
+  let hasRetried = false
+
+  function handleSseEvent(eventName: string, data: string): boolean {
+    if (eventName === 'done' || data === '[DONE]') { onDone(); return true }
+    if (eventName === 'error') { onError(new Error(data)); return true }
+    const stop = onEvent(eventName, data)
+    return !!stop
+  }
+
+  function doXhr(token: string) {
+    createXhrSseStream(
+      'POST', fullUrl,
+      { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'Accept': 'text/event-stream' },
+      JSON.stringify(body),
+      handleSseEvent,
+      onError,
+      controller.signal,
+    )
+  }
+
+  async function connect() {
+    const token = getAccessToken()
+    if (!token) { onError(new Error('需要登录后才能继续')); return }
+
+    if (!canUseFetchStream()) {
+      doXhr(token)
+      return
+    }
+
+    try {
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : '',
+          'Accept': 'text/event-stream',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+
+      if ((response.status === 401 || response.status === 403) && !hasRetried) {
+        hasRetried = true
+        const currentToken = getAccessToken()
+        if (currentToken && currentToken !== token) {
+          connect()
+          return
+        }
+        const newToken = await refreshAccessToken()
+        if (newToken) { connect(); return }
+        clearAuthAndRedirect()
+        onError(new Error('登录已过期，请重新登录'))
+        return
+      }
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+      const reader = response.body?.getReader()
+      if (!reader) { doXhr(token); return }
+
+      const decoder = new TextDecoder()
+      const parser = new SseParser(handleSseEvent)
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const stop = parser.append(decoder.decode(value, { stream: true }))
+        if (stop) return
+      }
+      onDone()
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== 'AbortError') onError(err)
+    }
+  }
+
+  connect()
+  return controller
+}
+
 export function createSsePostConnection(
   url: string,
   body: unknown,

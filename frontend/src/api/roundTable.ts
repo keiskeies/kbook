@@ -1,0 +1,87 @@
+import request from '@/utils/request'
+import { createSsePostConnectionWithEvents } from '@/utils/sse-request'
+import type { RoundTableRole, RoundTableSession, RoundTableMessage } from '@/types/roundTable'
+
+/** 获取推荐角色列表（LLM选角） */
+export function getRoundTableRoles(bookId: number) {
+  return request.get<RoundTableRole[]>(`/round-table/books/${bookId}/roles`)
+}
+
+/** 创建圆桌派会话 */
+export function createRoundTableSession(
+  bookId: number,
+  roleKeys: string[],
+  roleConfigs: string,
+) {
+  return request.post<RoundTableSession>(`/round-table/books/${bookId}/sessions`, {
+    roleKeys,
+    roleConfigs,
+  })
+}
+
+/** 获取书籍的圆桌派会话列表 */
+export function getRoundTableSessions(bookId: number) {
+  return request.get<RoundTableSession[]>(`/round-table/books/${bookId}/sessions`)
+}
+
+/** 获取会话历史消息 */
+export function getRoundTableMessages(sessionId: string) {
+  return request.get<RoundTableMessage[]>(`/round-table/sessions/${sessionId}/messages`)
+}
+
+/** 删除会话 */
+export function deleteRoundTableSession(sessionId: string) {
+  return request.delete(`/round-table/sessions/${sessionId}`)
+}
+
+/** LLM 判断下一轮发言人 */
+export function getNextSpeaker(sessionId: string) {
+  return request.post<string>(`/round-table/sessions/${sessionId}/next-speaker`)
+}
+
+/** 单角色发言 SSE */
+export function streamCharacterSpeak(
+  bookId: number,
+  roleKey: string,
+  sessionId: string,
+  topic?: string,
+): {
+  abortController: AbortController
+  onMessage: ((handler: (text: string) => void) => void)
+  onDone: ((handler: () => void) => void)
+  onError: ((handler: (err: Error) => void) => void)
+} {
+  const listeners = {
+    message: [] as ((text: string) => void)[],
+    done: [] as (() => void)[],
+    error: [] as ((err: Error) => void)[],
+  }
+
+  const abortController = createSsePostConnectionWithEvents(
+    `/round-table/books/${bookId}/speak`,
+    { roleKey, sessionId, topic },
+    {
+      onEvent: (eventName: string, data: string) => {
+        if (eventName === 'message') {
+          try {
+            const parsed = JSON.parse(data)
+            listeners.message.forEach(h => h(parsed.text || ''))
+          } catch { /* ignore */ }
+        }
+      },
+      onDone: () => {
+        listeners.done.forEach(h => h())
+      },
+      onError: (error: Error) => {
+        listeners.error.forEach(h => h(error))
+      },
+    },
+  )
+
+  return {
+    abortController,
+    onMessage: (handler) => { listeners.message.push(handler) },
+    onDone: (handler) => { listeners.done.push(handler) },
+    onError: (handler) => { listeners.error.push(handler) },
+  }
+}

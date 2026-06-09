@@ -112,6 +112,8 @@ public class BookAdminChatService {
                                 fullThinking.append(thinking);
                                 if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinking)) {
                                     cancelled.set(true);
+                                    Thread.currentThread().interrupt();
+                                    log.warn("SSE 连接已关闭，停止 AI 输出: sessionId={}", sessionId);
                                     throw new RuntimeException("Client disconnected");
                                 }
                             }
@@ -122,12 +124,13 @@ public class BookAdminChatService {
                             if (!token.isEmpty()) {
                                 if (!SseHelper.safeSendEvent(emitter, "message", token)) {
                                     cancelled.set(true);
+                                    Thread.currentThread().interrupt();
+                                    log.warn("SSE 连接已关闭，停止 AI 输出: sessionId={}", sessionId);
                                     throw new RuntimeException("Client disconnected");
                                 }
                             }
                         })
                         .onCompleteResponse(response -> {
-                            if (cancelled.get()) return;
                             long elapsed = System.currentTimeMillis() - startTime;
 
                             int apiInputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
@@ -143,17 +146,30 @@ public class BookAdminChatService {
 
                             CommonUtils.logAiCall("管理员对话", elapsed, apiInputTokens, apiOutputTokens, responseText);
 
-                            try {
-                                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                                emitter.complete();
-                            } catch (Exception ignored) {}
+                            if (cancelled.get()) {
+                                log.warn("SSE 连接已断开，跳过发送done事件，仅保存已输出内容: sessionId={}", sessionId);
+                            } else {
+                                try {
+                                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                                    emitter.complete();
+                                } catch (Exception ignored) {}
+                            }
 
                             String thinkingText = fullThinking.length() > 0 ? fullThinking.toString() : null;
                             saveMessage(userId, sessionId, "assistant", responseText, thinkingText);
                             updateSessionTimestamp(sessionId);
                         })
                         .onError(error -> {
-                            if (cancelled.get()) return;
+                            if (cancelled.get()) {
+                                log.warn("SSE 连接已断开，跳过错误处理: sessionId={}", sessionId);
+                                // 仍然保存已输出的部分内容
+                                if (!fullResponse.isEmpty()) {
+                                    String thinkingText = fullThinking.length() > 0 ? fullThinking.toString() : null;
+                                    saveMessage(userId, sessionId, "assistant", fullResponse.toString().trim(), thinkingText);
+                                    updateSessionTimestamp(sessionId);
+                                }
+                                return;
+                            }
                             log.error("管理员 AI 流式对话异常: sessionId={}", sessionId, error);
                             clearCache();
                             String errMsg = SseHelper.extractFriendlyError(error);

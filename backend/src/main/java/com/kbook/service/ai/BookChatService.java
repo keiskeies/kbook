@@ -246,36 +246,40 @@ public class BookChatService {
 
                 StringBuilder fullResponse = new StringBuilder();
                 StringBuilder fullThinking = new StringBuilder();
+                final boolean[] connectionClosed = {false};
 
                 streamingChatModel.chat(
                         messages,
                         new StreamingChatResponseHandler() {
                             @Override
                             public void onPartialThinking(dev.langchain4j.model.chat.response.PartialThinking partialThinking) {
-                                if (Thread.currentThread().isInterrupted()) return;
+                                if (connectionClosed[0] || Thread.currentThread().isInterrupted()) return;
                                 String thinking = partialThinking.text();
                                 if (thinking != null && !thinking.isEmpty()) {
                                     fullThinking.append(thinking);
                                     if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinking)) {
+                                        connectionClosed[0] = true;
                                         Thread.currentThread().interrupt();
+                                        log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", bookId);
                                     }
                                 }
                             }
 
                             @Override
                             public void onPartialResponse(String partialResponse) {
-                                if (Thread.currentThread().isInterrupted()) return;
+                                if (connectionClosed[0] || Thread.currentThread().isInterrupted()) return;
                                 fullResponse.append(partialResponse);
                                 if (!partialResponse.isEmpty()) {
                                     if (!SseHelper.safeSendEvent(emitter, "message", partialResponse)) {
+                                        connectionClosed[0] = true;
                                         Thread.currentThread().interrupt();
+                                        log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", bookId);
                                     }
                                 }
                             }
 
                             @Override
                             public void onCompleteResponse(ChatResponse completeResponse) {
-                                if (Thread.currentThread().isInterrupted()) return;
                                 long elapsed = System.currentTimeMillis() - startTime;
                                 String answer = fullResponse.toString().trim();
 
@@ -290,10 +294,14 @@ public class BookChatService {
                                 log.info("Answer: {}", answer.length() > 500 ? answer.substring(0, 500) + "..." : answer);
                                 log.info("==========================================");
 
-                                try {
-                                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                                    emitter.complete();
-                                } catch (Exception ignored) {
+                                if (connectionClosed[0]) {
+                                    log.warn("SSE 连接已断开，跳过发送done事件，仅保存已输出内容: bookId={}", bookId);
+                                } else {
+                                    try {
+                                        emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                                        emitter.complete();
+                                    } catch (Exception ignored) {
+                                    }
                                 }
 
                                 ensureSession(userId, finalSessionId, question, bookId);
@@ -308,6 +316,10 @@ public class BookChatService {
 
                             @Override
                             public void onError(Throwable error) {
+                                if (connectionClosed[0]) {
+                                    log.warn("SSE 连接已断开，跳过错误处理: bookId={}", bookId);
+                                    return;
+                                }
                                 if (Thread.currentThread().isInterrupted()) return;
                                 log.error("图书问答流式异常: bookId={} - {}", bookId, error.getMessage(), error);
                                 aiProviderConfigService.clearAssistantCache();

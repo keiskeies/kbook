@@ -149,6 +149,8 @@ public class AiChatService {
                                 // 发送思考内容到前端
                                 if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinking)) {
                                     cancelled.set(true);
+                                    Thread.currentThread().interrupt();
+                                    log.warn("SSE 连接已关闭，停止 AI 输出: sessionId={}", sessionId);
                                     throw new RuntimeException("Client disconnected");
                                 }
                             }
@@ -161,13 +163,14 @@ public class AiChatService {
                                 // 发送 token 到前端
                                 if (!SseHelper.safeSendEvent(emitter, "message", token)) {
                                     cancelled.set(true);
+                                    Thread.currentThread().interrupt();
+                                    log.warn("SSE 连接已关闭，停止 AI 输出: sessionId={}", sessionId);
                                     throw new RuntimeException("Client disconnected");
                                 }
                             }
                         })
                         // 响应完成
                         .onCompleteResponse(response -> {
-                            if (cancelled.get()) return;
                             long elapsed = System.currentTimeMillis() - startTime;
 
                             // 统计 token 使用量
@@ -185,22 +188,26 @@ public class AiChatService {
                             // 记录 AI 调用日志
                             CommonUtils.logAiCall("流式对话", elapsed, apiInputTokens, apiOutputTokens, text);
 
-                            // 如果有书籍工具调用结果，发送 book_map 事件
-                            try {
-                                if (ctx.hasBooks()) {
-                                    String bookMapJson = new com.fasterxml.jackson.databind.ObjectMapper()
-                                            .writeValueAsString(ctx.getBookMap());
-                                    emitter.send(SseEmitter.event().name("book_map").data(bookMapJson));
-                                    log.debug("下发 book_map: {} 本书", ctx.getBookMap().size());
+                            if (cancelled.get()) {
+                                log.warn("SSE 连接已断开，跳过发送done事件，仅保存已输出内容: sessionId={}", sessionId);
+                            } else {
+                                // 如果有书籍工具调用结果，发送 book_map 事件
+                                try {
+                                    if (ctx.hasBooks()) {
+                                        String bookMapJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                                                .writeValueAsString(ctx.getBookMap());
+                                        emitter.send(SseEmitter.event().name("book_map").data(bookMapJson));
+                                        log.debug("下发 book_map: {} 本书", ctx.getBookMap().size());
+                                    }
+                                } catch (Exception ignored) {
                                 }
-                            } catch (Exception ignored) {
-                            }
 
-                            // 发送完成事件
-                            try {
-                                emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                                emitter.complete();
-                            } catch (Exception ignored) {
+                                // 发送完成事件
+                                try {
+                                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                                    emitter.complete();
+                                } catch (Exception ignored) {
+                                }
                             }
 
                             // 持久化对话消息
@@ -211,6 +218,16 @@ public class AiChatService {
                         })
                         // 错误处理
                         .onError(error -> {
+                            if (cancelled.get()) {
+                                log.warn("SSE 连接已断开，跳过错误处理: sessionId={}", sessionId);
+                                // 仍然保存已输出的部分内容
+                                if (!fullResponse.isEmpty()) {
+                                    saveMessage(userId, sessionId, "user", userMessage);
+                                    saveMessage(userId, sessionId, "assistant", fullResponse.toString().trim());
+                                    updateSessionTimestamp(sessionId);
+                                }
+                                return;
+                            }
                             if (Thread.currentThread().isInterrupted()) return;
                             // 连接重置但已有部分响应时，视为成功
                             if (isConnectionReset(error) && !fullResponse.isEmpty()) {

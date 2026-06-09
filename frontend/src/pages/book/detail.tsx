@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import {
   ArrowLeft, Bookmark, BookmarkCheck, BookOpen, Star, Eye, MessageSquare,
-  Pencil, Trash2,
+  Pencil, Trash2, Users,
 } from 'lucide-react'
 import {
   getBook, rateBook, updateBookCover, updateBookTitle, updateBookAuthor,
@@ -567,6 +567,13 @@ export default function BookDetailPage() {
           <BlinkingBot className="h-4 w-4" />
           AI 问答
         </button>
+        <button
+          onClick={() => navigate(`/book/${book.id}/round-table`)}
+          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 px-4 py-2 text-sm font-semibold text-white hover:from-violet-600 hover:to-purple-700 transition-colors shadow-lg shadow-violet-500/25"
+        >
+          <Users className="h-4 w-4" />
+          圆桌派
+        </button>
       </header>
 
       {/* 内容区域 - 移动端单列 / PC端双栏 */}
@@ -914,6 +921,13 @@ export default function BookDetailPage() {
           >
             <BlinkingBot className="h-4 w-4" />
             AI 问答
+          </button>
+          <button
+            onClick={() => navigate(`/book/${book.id}/round-table`)}
+            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-purple-600 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 active:scale-[0.97] transition-transform"
+          >
+            <Users className="h-4 w-4" />
+            圆桌派
           </button>
         </div>
       </div>
