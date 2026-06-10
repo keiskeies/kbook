@@ -159,6 +159,27 @@ export function uploadBook(file: File, title?: string) {
   })
 }
 
+/** 上传图书（带进度回调，进度上限 90%，剩余等后端处理） */
+export function uploadBookWithProgress(
+  file: File,
+  title?: string,
+  onUploadProgress?: (percent: number) => void
+) {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (title) formData.append('title', title)
+  return (request as any).post('/books/admin/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
+    onUploadProgress: (e: any) => {
+      if (onUploadProgress && e.total) {
+        const raw = Math.round((e.loaded * 100) / e.total)
+        onUploadProgress(Math.min(raw, 90))
+      }
+    },
+  })
+}
+
 
 /** 用户评分 */
 export function rateBook(id: number, rating: number) {

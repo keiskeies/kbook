@@ -43,7 +43,7 @@ import {
   rebuildEsIndexStream,
   resetScanStatus,
   scanBooksStream,
-  uploadBook
+  uploadBookWithProgress
 } from '@/api/book'
 import { createAdminSession, streamAdminChat, getAdminSessions, getAdminHistory, deleteAdminSession } from '@/api/adminAi'
 import type { AiMessage, AiSessionItem } from '@/types/ai'
@@ -77,10 +77,22 @@ export default function AdminBooksPage() {
   const [scanning, setScanning] = useState(false)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadTitle, setUploadTitle] = useState('')
   const [showErrors, setShowErrors] = useState(false)
   const [skipBeforeId, setSkipBeforeId] = useState('')
+
+  // 多文件上传状态
+  type UploadItem = {
+    id: number
+    file: File
+    name: string
+    percent: number
+    status: 'pending' | 'uploading' | 'done' | 'error'
+    message?: string
+  }
+  const [uploadQueue, setUploadQueue] = useState<UploadItem[]>([])
+  const uploadIdRef = useRef(0)
+  const uploadingRef = useRef(false)
+  const queueRef = useRef<UploadItem[]>([])
 
   // 内容向量管理状态
   const [embedStats, setEmbedStats] = useState<EmbeddingStats | null>(null)
@@ -244,24 +256,74 @@ export default function AdminBooksPage() {
   }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const ext = file.name.split('.').pop()?.toUpperCase()
-    if (!['EPUB', 'PDF', 'TXT'].includes(ext || '')) {
-      toast.error('仅支持 EPUB/PDF/TXT 格式')
-      return
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    const validExts = ['EPUB', 'PDF', 'TXT']
+    const newItems: UploadItem[] = []
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const ext = file.name.split('.').pop()?.toUpperCase()
+      if (!validExts.includes(ext || '')) {
+        toast.error(`${file.name} 格式不支持，已跳过`)
+        continue
+      }
+      newItems.push({
+        id: ++uploadIdRef.current,
+        file,
+        name: file.name,
+        percent: 0,
+        status: 'pending',
+      })
     }
-    setUploading(true)
-    try {
-      const result = await uploadBook(file, uploadTitle || undefined) as any
-      toast.success(`已上传：《${result.title}》`)
-      setUploadTitle('')
-    } catch (err: any) {
-      toast.error(err.message || '上传未完成')
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+    if (newItems.length === 0) return
+
+    queueRef.current = [...queueRef.current, ...newItems]
+    setUploadQueue([...queueRef.current])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+
+    if (uploadingRef.current) return
+    uploadingRef.current = true
+    runUploadQueue()
+  }
+
+  const updateItem = (id: number, patch: Partial<UploadItem>) => {
+    queueRef.current = queueRef.current.map(i => i.id === id ? { ...i, ...patch } : i)
+    setUploadQueue([...queueRef.current])
+  }
+
+  const runUploadQueue = async () => {
+    const CONCURRENT = 3
+    const takeNext = (): UploadItem | undefined => {
+      return queueRef.current.find(i => i.status === 'pending')
     }
+
+    const workers = Array.from({ length: CONCURRENT }, async () => {
+      while (true) {
+        const item = takeNext()
+        if (!item) break
+
+        updateItem(item.id, { status: 'uploading', percent: 0 })
+        try {
+          const result = await uploadBookWithProgress(
+            item.file,
+            undefined,
+            (percent) => updateItem(item.id, { percent }),
+          )
+          updateItem(item.id, { status: 'done', percent: 100, message: (result as any)?.title })
+        } catch (err: any) {
+          updateItem(item.id, { status: 'error', message: err.message || '上传失败' })
+        }
+      }
+    })
+
+    await Promise.all(workers)
+    uploadingRef.current = false
+  }
+
+  const clearFinishedUploads = () => {
+    queueRef.current = queueRef.current.filter(i => i.status === 'pending' || i.status === 'uploading')
+    setUploadQueue([...queueRef.current])
   }
 
   // ==================== 内容向量管理 ====================
@@ -686,33 +748,77 @@ export default function AdminBooksPage() {
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold">上传图书</h3>
-                  <p className="text-xs text-muted-foreground">手动上传 EPUB/PDF/TXT 文件</p>
+                  <p className="text-xs text-muted-foreground">支持多选，可同时上传多个 EPUB/PDF/TXT 文件</p>
                 </div>
-              </div>
-              <div className="mb-3">
-                <input
-                  type="text"
-                  value={uploadTitle}
-                  onChange={(e) => setUploadTitle(e.target.value)}
-                  placeholder="自定义书名（可选，默认使用文件名）"
-                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                />
               </div>
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".epub,.pdf,.txt"
+                multiple
                 onChange={handleUpload}
                 className="hidden"
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
+                disabled={uploadingRef.current}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-2.5 text-sm font-medium text-white disabled:opacity-50"
               >
-                <Upload className={`h-4 w-4 ${uploading ? 'animate-bounce' : ''}`} />
-                {uploading ? '上传中...' : '选择文件上传'}
+                <Upload className={`h-4 w-4 ${uploadingRef.current ? 'animate-bounce' : ''}`} />
+                {uploadQueue.some(i => i.status === 'uploading') ? '上传中...' : '选择文件上传'}
               </button>
+
+              {/* 上传进度列表 */}
+              {uploadQueue.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {uploadQueue.map(item => (
+                    <div key={item.id} className="rounded-lg border bg-background px-3 py-2">
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {item.status === 'done' && <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />}
+                          {item.status === 'error' && <XCircle className="h-4 w-4 shrink-0 text-red-500" />}
+                          {item.status === 'uploading' && <Loader2 className="h-4 w-4 shrink-0 text-orange-500 animate-spin" />}
+                          {item.status === 'pending' && <div className="h-4 w-4 shrink-0 rounded-full border-2 border-muted-foreground/30" />}
+                          <span className="text-xs truncate" title={item.name}>
+                            {item.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {item.status === 'done' && (
+                            <span className="text-xs text-green-600">完成</span>
+                          )}
+                          {item.status === 'error' && (
+                            <span className="text-xs text-red-500 truncate max-w-[120px]" title={item.message}>{item.message}</span>
+                          )}
+                          {(item.status === 'uploading' || item.status === 'pending') && (
+                            <span className="text-xs text-muted-foreground">{item.percent}%</span>
+                          )}
+                        </div>
+                      </div>
+                      {/* 进度条 */}
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            item.status === 'done' ? 'bg-green-500' :
+                            item.status === 'error' ? 'bg-red-400' : 'bg-orange-500'
+                          }`}
+                          style={{ width: `${item.percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* 清除已完成项 */}
+                  {uploadQueue.some(i => i.status === 'done' || i.status === 'error') && (
+                    <button
+                      onClick={clearFinishedUploads}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      清除已完成
+                    </button>
+                  )}
+                </div>
+              )}
             </section>
 
             {/* 说明 */}

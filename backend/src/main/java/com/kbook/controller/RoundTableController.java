@@ -138,7 +138,7 @@ public class RoundTableController extends BaseController {
     public Result<String> getNextSpeaker(
             @PathVariable String sessionId) {
         Long userId = extractUserId();
-        String nextSpeaker = roundTableService.getNextSpeaker(userId, sessionId);
+        String nextSpeaker = roundTableService.getNextSpeakerOnlyLLM(userId, sessionId);
         return Result.ok(nextSpeaker);
     }
 

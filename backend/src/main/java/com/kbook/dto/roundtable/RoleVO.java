@@ -54,6 +54,9 @@ public class RoleVO {
     /** 语言风格（LLM 动态生成，描述该角色在讨论中应使用的语言风格） */
     private String languageStyle;
 
+    /** 是否默认选中（后端根据 LLM 推荐标记，前端据此初始化勾选状态） */
+    private boolean selected;
+
     /**
      * 从角色枚举构建视图对象
      *

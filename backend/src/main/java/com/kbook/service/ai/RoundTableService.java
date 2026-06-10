@@ -31,6 +31,7 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -38,6 +39,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -65,6 +67,7 @@ public class RoundTableService {
     private final QdrantProperties qdrantProperties;
     private final RoundTableSessionRepository sessionRepository;
     private final RoundTableMessageRepository messageRepository;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     /** SSE 异步执行线程池 */
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
@@ -84,19 +87,37 @@ public class RoundTableService {
     /** 估算字符数 */
     private static final Function<String, Integer> CHAR_LENGTH_ESTIMATE = s -> s != null ? s.length() : 0;
 
+    /** 角色推荐缓存键前缀 */
+    private static final String ROLES_CACHE_KEY_PREFIX = "kbook:round-table:roles:";
+    /** 角色推荐缓存 TTL（72 小时） */
+    private static final long ROLES_CACHE_TTL_HOURS = 72;
+
     // ==================== 角色推荐（LLM 驱动） ====================
 
     /**
      * 根据书籍信息通过 LLM 推荐角色列表
      * <p>
      * 始终包含主持人，LLM 推荐 4-6 个其他角色并赋值 domainRelevance。
+     * 总共返回 12 个角色（HOST + 11 个非 HOST），其中 LLM 推荐的标记为 selected。
      * LLM 失败时回退到标签匹配。
      *
      * @param bookId 书籍ID
-     * @return 推荐角色列表（含 LLM 赋值的 domainRelevance）
+     * @return 推荐角色列表（含 LLM 赋值的 domainRelevance 和 selected 标记）
      */
     @LogAction("LLM推荐角色")
+    @SuppressWarnings("unchecked")
     public List<RoleVO> getRecommendedRoles(Long bookId) {
+        // 读缓存
+        String cacheKey = ROLES_CACHE_KEY_PREFIX + bookId;
+        Object cached = redisTemplate.opsForValue().get(cacheKey);
+        if (cached instanceof List) {
+            List<?> list = (List<?>) cached;
+            if (!list.isEmpty() && list.get(0) instanceof RoleVO) {
+                log.debug("角色推荐缓存命中: bookId={}", bookId);
+                return (List<RoleVO>) list;
+            }
+        }
+
         Book book = bookService.getBookById(bookId);
         if (book == null) {
             return getDefaultRoles();
@@ -115,13 +136,15 @@ public class RoundTableService {
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
-                List<RoleVO> roles = parseLlmRoleSelection(result);
-                if (roles != null && roles.size() >= 3) {
-                    // 始终在开头加入 HOST
-                    List<RoleVO> finalRoles = new ArrayList<>();
-                    finalRoles.add(RoleVO.from(RoundTableRole.HOST));
-                    finalRoles.addAll(roles);
-                    return finalRoles;
+                List<RoleVO> llmSelectedRoles = parseLlmRoleSelection(result);
+                if (llmSelectedRoles != null && llmSelectedRoles.size() >= 3) {
+                    List<RoundTableRole> selectedEnums = llmSelectedRoles.stream()
+                            .map(vo -> RoundTableRole.fromKey(vo.getKey()))
+                            .filter(Objects::nonNull)
+                            .toList();
+                    List<RoleVO> roles = buildRoleListFromSelected(selectedEnums);
+                    redisTemplate.opsForValue().set(cacheKey, roles, ROLES_CACHE_TTL_HOURS, TimeUnit.HOURS);
+                    return roles;
                 }
             }
         } catch (Exception e) {
@@ -129,8 +152,12 @@ public class RoundTableService {
         }
 
         // 回退到标签匹配
-        return getFallbackRolesByTags(book);
+        List<RoleVO> fallbackRoles = getFallbackRolesByTags(book);
+        redisTemplate.opsForValue().set(cacheKey, fallbackRoles, ROLES_CACHE_TTL_HOURS, TimeUnit.HOURS);
+        return fallbackRoles;
     }
+
+    // buildRoleListWithSelection 已合并到 buildRoleListFromSelected
 
     /**
      * 解析 LLM 返回的角色选择 JSON
@@ -191,25 +218,132 @@ public class RoundTableService {
     }
 
     /**
-     * 标签匹配回退方案
+     * 回退角色推荐 — 先尝试轻量 LLM 调用，失败再用标签硬匹配
      */
     private List<RoleVO> getFallbackRolesByTags(Book book) {
+        // 尝试轻量 LLM 调用（比主流程 prompt 更简单，容忍度更高）
+        try {
+            String bookInfo = buildBookInfoForRoleSelection(book);
+            String roleList = Arrays.stream(RoundTableRole.values())
+                    .map(r -> r.getKey() + "(" + r.getName() + ")")
+                    .collect(Collectors.joining(", "));
+            String prompt = """
+                    根据以下书籍信息，从角色列表中选出最适合参与讨论的 4-6 个角色（不含 HOST）。
+                    只输出角色 key，用逗号分隔，不要输出任何解释。
+
+                    角色列表：%s
+
+                    书籍信息：
+                    %s
+                    """.stripIndent().formatted(roleList, bookInfo);
+
+            String result = chatModelManager.callAi(
+                    "圆桌派角色推荐(回退)",
+                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()),
+                    chatModelFactory::buildChatModelWithoutThinkingFromYml,
+                    prompt);
+
+            if (result != null && !result.isBlank()) {
+                result = CommonUtils.stripCodeFence(result);
+                List<String> keys = Arrays.stream(result.split("[,，\\s]+"))
+                        .map(String::trim)
+                        .filter(s -> !s.isBlank())
+                        .map(String::toUpperCase)
+                        .distinct()
+                        .toList();
+                List<RoundTableRole> llmRoles = keys.stream()
+                        .map(RoundTableRole::fromKey)
+                        .filter(Objects::nonNull)
+                        .filter(r -> r != RoundTableRole.HOST)
+                        .toList();
+                if (llmRoles.size() >= 3) {
+                    return buildRoleListFromSelected(llmRoles);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("回退 LLM 角色推荐失败，使用标签匹配: bookId={} - {}", book.getId(), e.getMessage());
+        }
+
+        // 最终回退：标签硬匹配
         List<String> tags = parseTags(book.getFormatTags());
-        List<RoundTableRole> roles = selectRolesByTags(tags);
-        return roles.stream().map(RoleVO::from).collect(Collectors.toList());
+        List<RoundTableRole> matchedRoles = selectRolesByTags(tags);
+        return buildRoleListFromSelected(matchedRoles);
     }
 
     /**
-     * 获取默认角色列表
+     * 从已选角色列表构建 18 人名单（HOST 始终包含且选中）
+     */
+    private List<RoleVO> buildRoleListFromSelected(List<RoundTableRole> selectedRoles) {
+        List<RoleVO> result = new ArrayList<>();
+        Set<String> addedKeys = new HashSet<>();
+
+        // HOST 始终选中
+        RoleVO hostVo = RoleVO.from(RoundTableRole.HOST);
+        hostVo.setSelected(true);
+        result.add(hostVo);
+        addedKeys.add("HOST");
+
+        for (RoundTableRole role : selectedRoles) {
+            if (role == RoundTableRole.HOST || addedKeys.contains(role.getKey())) continue;
+            RoleVO vo = RoleVO.from(role);
+            vo.setSelected(true);
+            result.add(vo);
+            addedKeys.add(role.getKey());
+        }
+
+        List<RoundTableRole> remaining = Arrays.stream(RoundTableRole.values())
+                .filter(r -> !addedKeys.contains(r.getKey()))
+                .collect(Collectors.toList());
+        Collections.shuffle(remaining);
+        for (RoundTableRole role : remaining) {
+            if (result.size() >= 18) break;
+            RoleVO vo = RoleVO.from(role);
+            vo.setSelected(false);
+            result.add(vo);
+            addedKeys.add(role.getKey());
+        }
+
+        return result;
+    }
+
+
+    /**
+     * 获取默认角色列表 — 返回12个角色，前5个标记为selected
      */
     private List<RoleVO> getDefaultRoles() {
-        return Arrays.asList(
+        List<RoundTableRole> allRoles = Arrays.asList(RoundTableRole.values());
+        List<RoleVO> result = new ArrayList<>();
+        Set<String> addedKeys = new HashSet<>();
+
+        // 默认选中的角色
+        List<RoundTableRole> defaultSelected = List.of(
                 RoundTableRole.HOST,
                 RoundTableRole.PHILOSOPHER,
                 RoundTableRole.PSYCHOLOGIST,
                 RoundTableRole.SOCIOLOGIST,
                 RoundTableRole.EDUCATOR
-        ).stream().map(RoleVO::from).collect(Collectors.toList());
+        );
+        for (RoundTableRole role : defaultSelected) {
+            RoleVO vo = RoleVO.from(role);
+            vo.setSelected(true);
+            result.add(vo);
+            addedKeys.add(role.getKey());
+        }
+
+        // 补充到12人
+        List<RoundTableRole> remainingRoles = allRoles.stream()
+                .filter(r -> !addedKeys.contains(r.getKey()))
+                .collect(Collectors.toList());
+        Collections.shuffle(remainingRoles);
+        for (RoundTableRole role : remainingRoles) {
+            if (result.size() >= 12) break;
+            RoleVO vo = RoleVO.from(role);
+            vo.setSelected(false);
+            result.add(vo);
+            addedKeys.add(role.getKey());
+        }
+
+        return result;
     }
 
     // ==================== 会话管理 ====================
@@ -330,7 +464,7 @@ public class RoundTableService {
         List<String> llmRankings = getLlmRankings(session, allMessages);
 
         // 5. 算法阶段：在 LLM 排名基础上应用公平性约束
-        String selected = applyFairnessRules(llmRankings, roleKeys, speakCounts, recentSpeakers, neverSpoken);
+        String selected = applyFairnessRules(llmRankings, roleKeys, speakCounts, recentSpeakers, neverSpoken, allMessages);
 
         log.info("圆桌派下一发言人: sessionId={}, LLM排名={}, 公平性调整后={}, 发言统计={}",
                 sessionId, llmRankings, selected, speakCounts);
@@ -399,38 +533,76 @@ public class RoundTableService {
      *    - 发言次数 > 平均值×1.5：0.5（明显降级）
      *    - 发言次数 < 平均值×0.5：1.5（明显提升）
      *    - 其他：1.0
+     * 4. 主持人强制介入规则：
+     *    - 每满 N 轮（N=在场非主持人数），主持人必须至少发言 1 次
+     *    - 如果主持人发言次数 < 轮次/非主持人数，主持人获得额外权重加成
+     *    - 当检测到连续 3 轮以上同一角色发言或讨论循环重复时，强制选主持人
      */
     private String applyFairnessRules(List<String> llmRankings, String[] roleKeys,
                                        Map<String, Long> speakCounts,
                                        Set<String> recentSpeakers,
-                                       Set<String> neverSpoken) {
+                                       Set<String> neverSpoken,
+                                       List<RoundTableMessage> allMessages) {
         Set<String> validKeys = Arrays.stream(roleKeys).map(String::trim).collect(Collectors.toSet());
         int totalRoles = validKeys.size();
+        int nonHostCount = (int) validKeys.stream().filter(k -> !"HOST".equals(k)).count();
+        if (nonHostCount <= 0) nonHostCount = 1;
 
-        // 计算平均发言次数（包含所有角色，主持人一视同仁）
+        long hostCount = speakCounts.getOrDefault("HOST", 0L);
+        int totalRounds = allMessages.size();
+
+        // 检测循环重复
+        boolean isLooping = detectLoopingPattern(allMessages);
+
+        // 计算平均发言次数
         double avgCount = validKeys.stream()
                 .mapToLong(key -> speakCounts.getOrDefault(key, 0L))
                 .average()
                 .orElse(0.0);
 
+        // ====== 硬性规则：优先级最高，直接决定发言人 ======
+
+        // 硬规则1：如果讨论已进行3轮以上，仍有角色从未发言，强制选从未发言者
+        if (totalRounds >= 3 && !neverSpoken.isEmpty()) {
+            // 从未发言的角色中，选 LLM 排名最高的
+            String forcedSpeaker = neverSpoken.stream()
+                    .min(Comparator.comparingInt(key -> {
+                        int idx = llmRankings.indexOf(key);
+                        return idx >= 0 ? idx : Integer.MAX_VALUE;
+                    }))
+                    .orElse(null);
+            if (validKeys.contains(forcedSpeaker)) {
+                log.info("硬规则触发：从未发言角色强制发言: {}, totalRounds={}", forcedSpeaker, totalRounds);
+                return forcedSpeaker;
+            }
+        }
+
+        // 硬规则2：主持人严重缺席 — 讨论超过 (非主持人数*2) 轮后，主持人发言次数应 >= 总轮次/(非主持人数+1)
+        // 如果主持人0次发言且讨论已进行 nonHostCount 轮以上，强制主持人发言
+        if (validKeys.contains("HOST") && !recentSpeakers.contains("HOST")) {
+            int hostMinExpected = Math.max(1, totalRounds / (nonHostCount + 1));
+            if (totalRounds >= nonHostCount && hostCount < hostMinExpected) {
+                log.info("硬规则触发：主持人发言不足，强制发言: hostCount={}, totalRounds={}, minExpected={}",
+                        hostCount, totalRounds, hostMinExpected);
+                return "HOST";
+            }
+        }
+
+        // ====== 软性规则：基于得分计算 ======
+
         // 为每个角色计算综合得分
         Map<String, Double> scores = new LinkedHashMap<>();
 
-        // LLM 排名分：排名第1得 totalRoles 分，第2得 totalRoles-1 分...
-        // 未被 LLM 列入的角色：按发言次数从少到多赋予递增分数（发言少的分更高）
         List<String> unrankedKeys = validKeys.stream()
                 .filter(key -> !llmRankings.contains(key))
                 .sorted(Comparator.comparingLong(key -> speakCounts.getOrDefault(key, 0L)))
-                .collect(Collectors.toList());
+                .toList();
 
         for (String key : validKeys) {
             int rankIndex = llmRankings.indexOf(key);
             if (rankIndex >= 0) {
-                // 被 LLM 排名的角色
                 scores.put(key, (double) (totalRoles - rankIndex));
             } else {
-                // 未被 LLM 排名的角色：按发言次数赋予递增分数
-                // 发言最少的得 2 分，次少的得 3 分... 保证不会永远垫底
                 int unrankedIndex = unrankedKeys.indexOf(key);
                 scores.put(key, (double) (2 + unrankedIndex));
             }
@@ -441,24 +613,30 @@ public class RoundTableService {
             double fairnessWeight = 1.0;
             long count = speakCounts.getOrDefault(key, 0L);
 
-            // 规则1：从未发言 → 优先（但不过度，避免完全压制LLM排名）
+            // 从未发言 → 强力优先
             if (neverSpoken.contains(key)) {
-                fairnessWeight = 1.5;
+                fairnessWeight = 3.0;
             }
-            // 规则2：刚发过言 → 强力降级（主持人除外，主持人需要随时引导）
-            else if (recentSpeakers.contains(key) && !"HOST".equals(key)) {
+            // 刚发过言 → 强力降级
+            else if (recentSpeakers.contains(key)) {
                 fairnessWeight = 0.2;
             }
-            // 规则3：发言次数偏离平均值（主持人除外）
-            else if (avgCount > 0 && !"HOST".equals(key)) {
+            // 发言次数偏离平均值
+            else if (avgCount > 0) {
                 if (count > avgCount * 1.5) {
-                    fairnessWeight = 0.5; // 说太多
+                    fairnessWeight = 0.5;
                 } else if (count < avgCount * 0.5) {
-                    fairnessWeight = 1.5; // 说太少
+                    fairnessWeight = 2.0;
                 }
             }
 
             scores.put(key, scores.getOrDefault(key, 1.0) * fairnessWeight);
+        }
+
+        // 主持人额外加成（循环重复时强制介入）
+        if (validKeys.contains("HOST") && isLooping && !recentSpeakers.contains("HOST")) {
+            scores.put("HOST", scores.getOrDefault("HOST", 1.0) + 100.0);
+            log.info("检测到讨论循环重复，强制主持人介入控场");
         }
 
         // 选出得分最高的
@@ -467,12 +645,70 @@ public class RoundTableService {
                 .map(Map.Entry::getKey)
                 .orElse("HOST");
 
-        // 安全检查：选出的角色必须在有效列表中
+        // 安全检查
         if (!validKeys.contains(selected)) {
             return "HOST";
         }
 
         return selected;
+    }
+
+    /**
+     * 检测讨论是否出现循环重复模式
+     * 检查最近6条消息是否有角色重复或内容相似的模式
+     */
+    private boolean detectLoopingPattern(List<RoundTableMessage> allMessages) {
+        if (allMessages.size() < 6) return false;
+
+        // 快速结构检测：同一角色高频出现（不需要 LLM）
+        List<String> recentRoles = allMessages.subList(allMessages.size() - 6, allMessages.size())
+                .stream()
+                .map(RoundTableMessage::getRoleKey)
+                .toList();
+        Map<String, Long> recentRoleCounts = recentRoles.stream()
+                .collect(Collectors.groupingBy(r -> r, Collectors.counting()));
+        for (long count : recentRoleCounts.values()) {
+            if (count >= 4) return true;
+        }
+
+        // 语义循环检测：用 LLM 判断讨论是否在绕圈子
+        try {
+            int start = Math.max(0, allMessages.size() - 8);
+            List<RoundTableMessage> recent = allMessages.subList(start, allMessages.size());
+            StringBuilder sb = new StringBuilder();
+            for (RoundTableMessage msg : recent) {
+                String name = msg.getRoleName() != null ? msg.getRoleName() : msg.getRoleKey();
+                String content = msg.getCompressedContent();
+                if (content != null && !content.isBlank()) {
+                    sb.append(name).append("：").append(CommonUtils.truncateText(content, 150)).append("\n");
+                }
+            }
+            String recentText = sb.toString();
+            if (recentText.isBlank()) return false;
+
+            String prompt = """
+                    判断以下讨论是否在"绕圈子"（反复说同一个观点、内容同义重复、讨论停滞不前）。
+                    只回答 YES 或 NO。
+
+                    最近发言：
+                    %s
+                    """.stripIndent().formatted(recentText);
+
+            String result = chatModelManager.callAi(
+                    "圆桌派循环检测",
+                    "检测讨论是否循环重复",
+                    chatModelFactory::buildChatModelWithoutThinkingFromYml,
+                    prompt);
+
+            if (result != null) {
+                String upper = result.trim().toUpperCase();
+                return upper.startsWith("YES") || upper.contains("YES");
+            }
+        } catch (Exception e) {
+            log.debug("LLM 循环检测失败，回退到结构检测: {}", e.getMessage());
+        }
+
+        return false;
     }
 
     /**
@@ -548,6 +784,231 @@ public class RoundTableService {
                 sessionRepository.delete(session);
             }
         });
+    }
+
+    /**
+     * 纯 LLM 判断下一轮发言人
+     * <p>
+     * 核心设计：
+     * 1. 给 LLM 完整的角色信息（含性格参数、专业领域、说话风格）
+     * 2. 给加权对话历史——越靠后的发言权重越高，让 LLM 能感知对话流向
+     * 3. 给公平性约束——禁止连续发言、鼓励沉默者、主持人控场
+     * 4. LLM 直接返回一个角色 key，不再经过算法二次调整
+     *
+     * @param userId    用户ID
+     * @param sessionId 会话ID
+     * @return 选中的角色 key
+     */
+    @LogAction("纯LLM判断下一发言人")
+    public String getNextSpeakerOnlyLLM(Long userId, String sessionId) {
+        // 1. 加载会话
+        RoundTableSession session = sessionRepository.findBySessionId(sessionId)
+                .orElseThrow(() -> new BusinessException("会话不存在"));
+
+        // 2. 加载所有历史消息
+        List<RoundTableMessage> allMessages = messageRepository
+                .findBySessionIdOrderByCreatedAtAsc(sessionId);
+
+        // 3. 统计发言数据
+        String[] roleKeys = session.getRoleKeys().split(",");
+        Map<String, Long> speakCounts = allMessages.stream()
+                .collect(Collectors.groupingBy(RoundTableMessage::getRoleKey, Collectors.counting()));
+
+        // 4. 构建角色信息（含性格参数、专业领域、说话风格）
+        String rolesInfo = buildRolesInfoForLLMSpeakerSelection(session);
+
+        // 5. 构建加权对话历史
+        String weightedHistory = buildWeightedHistoryForLLM(allMessages);
+
+        // 6. 构建公平性约束说明
+        String fairnessConstraints = buildFairnessConstraints(roleKeys, speakCounts, allMessages);
+
+        // 7. 构建提示词并调用 LLM
+        String prompt = String.format(
+                AiPromptConstants.ROUND_TABLE_NEXT_SPEAKER_LLM_ONLY_PROMPT,
+                rolesInfo, weightedHistory, fairnessConstraints);
+
+        try {
+            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            String response = chatModel.chat(prompt);
+            response = CommonUtils.stripCodeFence(response).trim();
+
+            // 解析返回的角色 key
+            String selectedKey = parseLlmSpeakerResponse(response, roleKeys);
+
+            log.info("纯LLM选择发言人: sessionId={}, selected={}, speakCounts={}",
+                    sessionId, selectedKey, speakCounts);
+
+            return selectedKey;
+        } catch (Exception e) {
+            log.warn("纯LLM发言人选择失败，回退到混合模式: {}", e.getMessage());
+            return getNextSpeaker(userId, sessionId);
+        }
+    }
+
+    /**
+     * 构建角色信息文本（用于纯 LLM 发言人选择）
+     * 包含角色性格参数、专业领域、说话风格，让 LLM 理解每个角色的特点
+     */
+    private String buildRolesInfoForLLMSpeakerSelection(RoundTableSession session) {
+        StringBuilder sb = new StringBuilder();
+        try {
+            if (session.getRoleConfigs() != null) {
+                var configs = objectMapper.readTree(session.getRoleConfigs());
+                if (configs.isArray()) {
+                    for (var config : configs) {
+                        String key = config.has("key") ? config.get("key").asText() : "";
+                        String name = config.has("name") ? config.get("name").asText() : "";
+                        String title = config.has("title") ? config.get("title").asText() : "";
+                        int challenge = config.has("challenge") ? config.get("challenge").asInt() : 3;
+                        int empathy = config.has("empathy") ? config.get("empathy").asInt() : 3;
+                        int opinionated = config.has("opinionated") ? config.get("opinionated").asInt() : 3;
+                        int verbosity = config.has("verbosity") ? config.get("verbosity").asInt() : 3;
+                        int humor = config.has("humor") ? config.get("humor").asInt() : 3;
+                        int domainRelevance = config.has("domainRelevance") ? config.get("domainRelevance").asInt() : 0;
+                        String languageStyle = config.has("languageStyle") ? config.get("languageStyle").asText() : "";
+
+                        sb.append("- ").append(key).append("(").append(name).append(", ").append(title).append(")");
+                        sb.append("：挑战=").append(challenge);
+                        sb.append(" 共情=").append(empathy);
+                        sb.append(" 主见=").append(opinionated);
+                        sb.append(" 话量=").append(verbosity);
+                        sb.append(" 幽默=").append(humor);
+                        sb.append(" 专业相关度=").append(domainRelevance);
+                        if (!languageStyle.isBlank()) {
+                            sb.append(" 语言风格=").append(languageStyle);
+                        }
+                        sb.append("\n");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析角色配置失败: {}", e.getMessage());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 构建加权对话历史（用于纯 LLM 发言人选择）
+     * <p>
+     * 越靠后的发言权重越高，让 LLM 能感知对话流向：
+     * - 最近1条：标记为「当前焦点」，权重最高
+     * - 最近2-3条：标记为「近期讨论」，权重次高
+     * - 更早的：标记为「背景讨论」，权重较低
+     */
+    private String buildWeightedHistoryForLLM(List<RoundTableMessage> allMessages) {
+        if (allMessages.isEmpty()) {
+            return "（暂无发言记录，这是讨论的开始）";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        int total = allMessages.size();
+
+        for (int i = 0; i < total; i++) {
+            RoundTableMessage msg = allMessages.get(i);
+            String content = msg.getContent();
+            if (content != null && content.length() > 150) {
+                content = content.substring(0, 150) + "...";
+            }
+
+            // 根据位置标记权重
+            String weightLabel;
+            if (i == total - 1) {
+                weightLabel = "【当前焦点】";
+            } else if (i >= total - 3) {
+                weightLabel = "【近期讨论】";
+            } else {
+                weightLabel = "【背景讨论】";
+            }
+
+            sb.append(weightLabel).append(msg.getRoleName()).append("：").append(content).append("\n\n");
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 构建公平性约束说明（用于纯 LLM 发言人选择）
+     */
+    private String buildFairnessConstraints(String[] roleKeys, Map<String, Long> speakCounts,
+                                             List<RoundTableMessage> allMessages) {
+        StringBuilder sb = new StringBuilder();
+
+        // 1. 禁止连续发言
+        if (!allMessages.isEmpty()) {
+            String lastSpeaker = allMessages.get(allMessages.size() - 1).getRoleKey();
+            sb.append("- 绝对禁止：").append(RoundTableRole.fromKey(lastSpeaker).getName())
+              .append("刚发过言，不能连续发言\n");
+        }
+
+        // 2. 从未发言的角色
+        Set<String> neverSpoken = Arrays.stream(roleKeys)
+                .map(String::trim)
+                .filter(key -> !speakCounts.containsKey(key))
+                .collect(Collectors.toSet());
+        if (!neverSpoken.isEmpty()) {
+            sb.append("- 优先鼓励：以下角色至今未发言，应优先考虑让他们参与讨论：");
+            for (String key : neverSpoken) {
+                RoundTableRole role = RoundTableRole.fromKey(key);
+                if (role != null) sb.append(role.getName()).append(" ");
+            }
+            sb.append("\n");
+        }
+
+        // 3. 发言次数统计
+        sb.append("- 当前发言次数统计：");
+        for (String key : roleKeys) {
+            String trimmed = key.trim();
+            RoundTableRole role = RoundTableRole.fromKey(trimmed);
+            if (role != null) {
+                long count = speakCounts.getOrDefault(trimmed, 0L);
+                sb.append(role.getName()).append("=").append(count).append(" ");
+            }
+        }
+        sb.append("\n");
+
+        // 4. 主持人控场规则
+        int nonHostCount = (int) Arrays.stream(roleKeys).filter(k -> !"HOST".equals(k.trim())).count();
+        long hostCount = speakCounts.getOrDefault("HOST", 0L);
+        int totalRounds = allMessages.size();
+        int hostMinExpected = Math.max(1, totalRounds / (nonHostCount + 1));
+        if (totalRounds >= nonHostCount && hostCount < hostMinExpected) {
+            sb.append("- 主持人控场：主持人发言次数不足（").append(hostCount).append("次，应至少")
+              .append(hostMinExpected).append("次），需要让主持人介入引导\n");
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 解析 LLM 返回的发言人选择结果
+     */
+    private String parseLlmSpeakerResponse(String response, String[] validRoleKeys) {
+        Set<String> validKeys = Arrays.stream(validRoleKeys).map(String::trim).collect(Collectors.toSet());
+
+        // 尝试解析 JSON {"nextSpeaker": "KEY"}
+        try {
+            var jsonNode = objectMapper.readTree(response);
+            if (jsonNode.has("nextSpeaker")) {
+                String key = jsonNode.get("nextSpeaker").asText().trim();
+                if (validKeys.contains(key)) return key;
+            }
+        } catch (Exception ignored) {
+        }
+
+        // 尝试直接匹配角色 key
+        String upperResponse = response.toUpperCase();
+        for (String key : validKeys) {
+            if (upperResponse.contains(key)) {
+                return key;
+            }
+        }
+
+        // 兜底：返回第一个非 HOST 角色
+        for (String key : validKeys) {
+            if (!"HOST".equals(key)) return key;
+        }
+        return "HOST";
     }
 
     // ==================== 单角色发言（SSE + DB 持久化） ====================
@@ -678,24 +1139,27 @@ public class RoundTableService {
                                 log.info("roleKey={}, 耗时: {}ms", role.getKey(), elapsed);
                                 log.info("==========================================");
 
-                                try {
-                                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                                    emitter.complete();
-                                } catch (Exception ignored) {
-                                }
-
-                                // 保存消息到数据库
+                                // ====== 关键修复：先保存消息到数据库，再发送 SSE done 事件 ======
+                                // 这样前端收到 done 后调用 getNextSpeaker 时，消息已在数据库中
                                 String content = fullResponse.toString().trim();
                                 if (!content.isBlank()) {
                                     saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), content);
                                     updateSessionTimestamp(request.getSessionId());
 
-                                    // 异步压缩历史（如有需要）
+                                    // 同步压缩历史（确保下次查询时已有压缩内容）
                                     try {
                                         compressHistoryIfNeeded(userId, request.getSessionId());
                                     } catch (Exception e) {
                                         log.warn("压缩圆桌派历史失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
                                     }
+                                }
+
+                                // 消息保存完成后，再发送 done 事件
+                                try {
+                                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                                    emitter.complete();
+                                } catch (Exception e) {
+                                    log.warn("发送 SSE done 事件失败: {}", e.getMessage());
                                 }
 
                                 int apiInputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
@@ -741,7 +1205,7 @@ public class RoundTableService {
             if (topic != null && !topic.isBlank()) {
                 extraInstructions = "【话题方向】\n请围绕以下方向引导讨论：" + topic;
             } else {
-                extraInstructions = "请回顾之前的对话，如果讨论陷入僵局或重复，请抛出新的话题或角度来激发讨论。如果是开场，请介绍书籍并抛出第一个讨论问题。";
+                extraInstructions = "请回顾之前的对话。如果讨论陷入僵局、重复或钻牛角尖，请果断抛出一个新的话题或角度来激发讨论。如果讨论还在正常进行，可以简短回应或向某位嘉宾提问。如果是开场，请介绍书籍并抛出第一个讨论问题。";
             }
             return String.format(AiPromptConstants.ROUND_TABLE_HOST_PROMPT,
                     hostStyle,
@@ -872,27 +1336,39 @@ public class RoundTableService {
             messages.add(dev.langchain4j.data.message.AiMessage.from("好的，我已了解书籍信息，准备参与讨论。"));
         }
 
-        // 从数据库加载历史消息
+        // 发言指令 — 强化禁止总结式开头（放在前面，让LLM优先理解要求）
+        String speakInstruction;
+        if ("HOST".equals(roleName) || "主持人".equals(roleName)) {
+            speakInstruction = "请以主持人的身份发言。直接说你的观点或抛出问题，绝对不要以「刚才大家...」「前面几位...」「听了各位...」开头。";
+        } else {
+            speakInstruction = "请以" + roleName + "的身份发言。直接接话，绝对不要以「刚才大家...」「前面几位...」「听了各位...」开头，直接说你的观点。";
+        }
+
+        // 从数据库加载历史消息（放在后面，让LLM先关注要求）
         try {
             List<RoundTableMessage> history = messageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
             if (!history.isEmpty()) {
                 StringBuilder historyBuilder = new StringBuilder("【之前的讨论内容】\n");
                 for (RoundTableMessage msg : history) {
-                    String content = msg.getCompressedContent() != null ? msg.getCompressedContent() : msg.getContent();
+                    // 优先使用压缩后的摘要内容，避免原始长文本导致重复
+                    String content = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
+                            ? msg.getCompressedContent()
+                            : msg.getContent();
                     if (content != null && !content.isBlank()) {
                         historyBuilder.append(msg.getRoleName()).append("：").append(content).append("\n\n");
                     }
                 }
                 messages.add(UserMessage.from(historyBuilder.toString()));
                 messages.add(dev.langchain4j.data.message.AiMessage.from("好的，我已了解之前的讨论内容。"));
+                messages.add(UserMessage.from(speakInstruction));
                 log.debug("加载圆桌派历史: sessionId={}, totalRecords={}", sessionId, history.size());
+            } else {
+                messages.add(UserMessage.from(speakInstruction));
             }
         } catch (Exception e) {
             log.warn("加载圆桌派历史失败，继续无历史对话: {}", e.getMessage());
+            messages.add(UserMessage.from(speakInstruction));
         }
-
-        // 发言指令
-        messages.add(UserMessage.from("请基于以上讨论内容，以" + roleName + "的身份发言。"));
 
         return messages;
     }
@@ -1035,16 +1511,16 @@ public class RoundTableService {
                     : book.getDescription();
             sb.append("简介：").append(desc).append("\n");
         }
-        if (book.getToc() != null && !book.getToc().isBlank()) {
-            String toc = book.getToc().length() > 1000
-                    ? book.getToc().substring(0, 1000) + "..."
-                    : book.getToc();
-            sb.append("目录：\n").append(toc).append("\n");
-        }
-        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-            String summary = CommonUtils.truncateText(book.getChapterSummary(), 5000);
-            sb.append("\n【章节摘要】（每章核心内容概述）\n").append(summary).append("\n");
-        }
+//        if (book.getToc() != null && !book.getToc().isBlank()) {
+//            String toc = book.getToc().length() > 1000
+//                    ? book.getToc().substring(0, 1000) + "..."
+//                    : book.getToc();
+//            sb.append("目录：\n").append(toc).append("\n");
+//        }
+//        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+//            String summary = CommonUtils.truncateText(book.getChapterSummary(), 5000);
+//            sb.append("\n【章节摘要】（每章核心内容概述）\n").append(summary).append("\n");
+//        }
 
         if (!ragContext.isBlank()) {
             sb.append("\n【书籍参考内容】（以下是从原著中检索到的相关片段，讨论时请引用）\n");
@@ -1073,10 +1549,7 @@ public class RoundTableService {
                 return "";
             }
 
-            String query = book.getTitle();
-            if (book.getDescription() != null && !book.getDescription().isBlank()) {
-                query += " " + book.getDescription().substring(0, Math.min(200, book.getDescription().length()));
-            }
+            String query = buildGeneralSearchQuery(book);
 
             List<EmbeddingMatch<TextSegment>> matches =
                     embeddingService.searchContent(query, 15, book);
@@ -1117,6 +1590,50 @@ public class RoundTableService {
     }
 
     /**
+     * 用 LLM 生成通用 RAG 检索查询（用于首轮讨论上下文）
+     */
+    private String buildGeneralSearchQuery(Book book) {
+        try {
+            String desc = book.getDescription() != null
+                    ? CommonUtils.truncateText(book.getDescription(), 300)
+                    : "（无简介）";
+            String prompt = """
+                    你是一个检索查询生成器。请根据书籍信息，生成一段用于在书中检索核心内容片段的查询文本。
+                    要求：覆盖书籍的核心主题、关键论点和重要内容，适合首次讨论使用。
+                    只输出查询文本本身，30-80字。
+
+                    【书名】%s
+                    【简介】%s
+                    """.stripIndent().formatted(book.getTitle(), desc);
+
+            String result = chatModelManager.callAi(
+                    "圆桌派通用RAG查询",
+                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()),
+                    chatModelFactory::buildChatModelWithoutThinkingFromYml,
+                    prompt);
+
+            if (result != null && !result.isBlank()) {
+                result = result.trim()
+                        .replaceAll("^(查询|检索|搜索|关键词)[：:]", "")
+                        .trim();
+                if (!result.isBlank()) {
+                    log.debug("LLM 生成通用 RAG 查询: bookId={}, query={}", book.getId(), result);
+                    return result;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("LLM 生成通用 RAG 查询失败，回退到书名+简介: bookId={} - {}", book.getId(), e.getMessage());
+        }
+
+        // 回退：书名 + 简介前200字
+        String fallback = book.getTitle();
+        if (book.getDescription() != null && !book.getDescription().isBlank()) {
+            fallback += " " + book.getDescription().substring(0, Math.min(200, book.getDescription().length()));
+        }
+        return fallback;
+    }
+
+    /**
      * 角色视角 RAG 检索 — 每个角色根据自己的专业角度搜索书中相关内容
      * <p>
      * 不同角色关注书中不同方面：
@@ -1153,7 +1670,7 @@ public class RoundTableService {
 
             matches = matches.stream()
                     .filter(m -> m.score() >= 0.1)
-                    .collect(Collectors.toList());
+                    .toList();
 
             if (matches.isEmpty()) {
                 return "";
@@ -1174,39 +1691,67 @@ public class RoundTableService {
     }
 
     /**
-     * 构建角色专属的检索查询
+     * 构建角色专属的检索查询 — 使用 LLM 生成
      * <p>
-     * 查询 = 书名 + 角色专业关键词 + 最近讨论话题
+     * 输入：角色信息 + 角色专业关键词 + 前两轮发言 + 图书基础信息
+     * 输出：一段精准的检索查询文本，用于向量检索
      */
     private String buildRoleSpecificQuery(Book book, RoundTableRole role, List<RoundTableMessage> history) {
-        StringBuilder query = new StringBuilder();
-
-        // 基础：书名
-        query.append(book.getTitle());
-
-        // 角色专业关键词 — 每个角色关注书中不同维度的内容
-        String roleKeywords = getRoleSearchKeywords(role);
-        if (!roleKeywords.isEmpty()) {
-            query.append(" ").append(roleKeywords);
-        }
-
-        // 最近讨论话题 — 从最近2-3条消息中提取关键信息
-        if (history != null && !history.isEmpty()) {
-            int start = Math.max(0, history.size() - 3);
-            for (int i = start; i < history.size(); i++) {
-                RoundTableMessage msg = history.get(i);
-                // 只取每条消息的前50个字作为检索线索
-                String snippet = msg.getContent();
-                if (snippet != null && snippet.length() > 50) {
-                    snippet = snippet.substring(0, 50);
+        try {
+            // 构建最近两轮发言摘要
+            String recentDiscussion = "";
+            if (history != null && !history.isEmpty()) {
+                int start = Math.max(0, history.size() - 2);
+                StringBuilder sb = new StringBuilder();
+                for (int i = start; i < history.size(); i++) {
+                    RoundTableMessage msg = history.get(i);
+                    String name = msg.getRoleName() != null ? msg.getRoleName() : msg.getRoleKey();
+                    String content = msg.getCompressedContent();
+                    sb.append(name).append("：").append(content).append("\n");
                 }
-                if (snippet != null && !snippet.isBlank()) {
-                    query.append(" ").append(snippet);
-                }
+                recentDiscussion = sb.toString();
             }
+
+            // 角色专业关键词
+            String roleKeywords = getRoleSearchKeywords(role);
+
+            String prompt = """
+                    你是一个检索查询生成器。请根据以下信息，生成一段用于在书中检索相关段落的查询文本。
+                    
+                    要求：
+                    1. 查询应该从该角色的专业视角出发，结合角色关注的关键词
+                    2. 查询要紧扣当前讨论话题，让检索结果能帮助该角色发表有深度的观点
+                    3. 只输出查询文本本身，不要输出任何解释或前缀
+                    4. 查询长度控制在30-80字
+                    
+                    【图书】%s
+                    【角色】%s（%s）
+                    【角色关注领域】%s
+                    【最近讨论】
+                    %s
+                    """.stripIndent().formatted(
+                    book.getTitle(),
+                    role.getName(), role.getTitle(),
+                    roleKeywords,
+                    recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion
+            );
+
+            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            String result = chatModel.chat(prompt);
+            if (result != null && !result.isBlank()) {
+                // 清理可能的前缀（如"查询："、"检索："等）
+                result = result.trim()
+                        .replaceAll("^(查询|检索|搜索|关键词)[：:]", "")
+                        .trim();
+                log.debug("LLM 生成角色检索查询: role={}, query={}", role.getKey(), result);
+                return result;
+            }
+        } catch (Exception e) {
+            log.warn("LLM 生成角色检索查询失败，回退到关键词模式: role={} - {}", role.getKey(), e.getMessage());
         }
 
-        return query.toString();
+        // 回退：使用书名 + 角色关键词
+        return book.getTitle() + " " + getRoleSearchKeywords(role);
     }
 
     /**

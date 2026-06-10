@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Volume2, Square, Loader2, Play, Users, Pause, History, Trash2,
-  BookOpen, Sparkles, MessageSquare, BarChart3,
+  BookOpen, Sparkles, MessageSquare, BarChart3, RefreshCw,
 } from 'lucide-react'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import {
@@ -470,8 +470,14 @@ export default function RoundTablePage() {
   const userScrollingRef = useRef(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const discussionLoopRef = useRef<boolean>(false)
-  const ttsQueueRef = useRef<{ text: string; roleKey: string }[]>([])
-  const ttsSpeakingRef = useRef(false)
+  // 记录 TTS 打开时当前发言人，只有该发言人开始的内容才朗读
+  const ttsEnabledSpeakerRef = useRef<string | null>(null)
+  // 缓存中文语音列表，避免每次 getVoices()
+  const zhVoicesRef = useRef<SpeechSynthesisVoice[]>([])
+  // 角色到语音的映射缓存
+  const roleVoiceMapRef = useRef<Map<string, SpeechSynthesisVoice>>(new Map())
+  // ttsEnabled 的 ref 版本，供 SSE 闭包读取最新值
+  const ttsEnabledRef = useRef(false)
 
   const [, setSessionId] = useState<string | null>(null)
   const [, setActiveRoles] = useState<RoundTableRole[]>([])
@@ -481,36 +487,66 @@ export default function RoundTablePage() {
   useEffect(() => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       synthRef.current = window.speechSynthesis
+      // 预加载语音列表（Chrome/Safari 中 voices 是异步加载的）
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices()
+        // 宽松匹配：zh、zh-CN、zh-Hans-CN、zh-Hans、zh-TW、zh-Hant-TW、zh-Hant 等
+        const zhVoices = voices.filter(v => {
+          const lang = (v.lang || '').toLowerCase()
+          return lang.startsWith('zh') || lang.startsWith('cmn')
+        })
+        if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
+      }
+      loadVoices()
+      // Safari 可能不触发 onvoiceschanged，双重保险：延迟再加载一次
+      window.setTimeout(loadVoices, 500)
+      window.speechSynthesis.onvoiceschanged = loadVoices
     }
     return () => {
       discussionLoopRef.current = false
       abortRef.current?.abort()
-      synthRef.current?.cancel()
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = null
+        try { window.speechSynthesis.cancel() } catch {}
+      }
     }
   }, [])
 
   // 加载推荐角色 + 历史会话 + 图书信息
   useEffect(() => {
     if (!id) return
-    Promise.all([
-      getRoundTableRoles(id).then((res: unknown) => {
-        const data = (res as { data?: RoundTableRole[] })?.data ?? res as RoundTableRole[]
-        if (Array.isArray(data)) {
-          setAvailableRoles(data)
-          setSelectedKeys(new Set(data.map(r => r.key)))
-        }
-      }),
-      getRoundTableSessions(id).then((res: unknown) => {
-        const data = (res as { data?: RoundTableSession[] })?.data ?? res as RoundTableSession[]
-        if (Array.isArray(data)) setPastSessions(data)
-      }),
-      getBook(id).then((res: unknown) => {
-        const data = (res as { data?: Book })?.data ?? res as Book
-        if (data) setBookInfo(data as Book)
-      }),
-    ])
-      .then(() => setPhase('select'))
-      .catch(() => { setPhase('select'); toast.error('获取角色列表失败') })
+    loadRecommendedRoles()
+    getRoundTableSessions(id).then((res: unknown) => {
+      const data = (res as { data?: RoundTableSession[] })?.data ?? res as RoundTableSession[]
+      if (Array.isArray(data)) setPastSessions(data)
+    })
+    getBook(id).then((res: unknown) => {
+      const data = (res as { data?: Book })?.data ?? res as Book
+      if (data) setBookInfo(data as Book)
+    })
+  }, [id])
+
+  const loadRecommendedRoles = useCallback(async () => {
+    setPhase('loading')
+    try {
+      const res = await getRoundTableRoles(id)
+      const data = (res as { data?: RoundTableRole[] })?.data ?? res as RoundTableRole[]
+      if (Array.isArray(data) && data.length > 0) {
+        setAvailableRoles(data)
+        // 根据后端返回的 selected 字段初始化勾选
+        const initialSelected = new Set<string>()
+        data.forEach(r => {
+          if (r.selected) initialSelected.add(r.key)
+        })
+        // 确保 HOST 始终选中
+        if (!initialSelected.has('HOST')) initialSelected.add('HOST')
+        setSelectedKeys(initialSelected)
+        setPhase('select')
+      }
+    } catch {
+      setPhase('select')
+      toast.error('获取角色列表失败')
+    }
   }, [id])
 
   useEffect(() => {
@@ -536,35 +572,100 @@ export default function RoundTablePage() {
     })
   }, [])
 
-  // TTS
-  const queueTts = useCallback((text: string, roleKey: string) => {
-    if (!ttsEnabled || !synthRef.current) return
+  // TTS — 消息完成后入队，按顺序逐条朗读
+  const ttsQueueRef = useRef<{ text: string; roleKey: string }[]>([])
+  const ttsSpeakingRef = useRef(false)
+  const processTtsQueueRef = useRef<() => void>(() => {})
+
+  const processTtsQueue = useCallback(() => {
+    const synth = window.speechSynthesis
+    if (!synth) return
+    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
+    ttsSpeakingRef.current = true
+    const { text, roleKey } = ttsQueueRef.current.shift()!
+
+    // 创建 utterance
+    const utterance = new SpeechSynthesisUtterance(text)
+    const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+    // pitch 钳制到 0.5-2，避免 Safari 不接受极端值
+    utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
+    utterance.rate = config.rate
+    utterance.lang = 'zh-CN'
+    utterance.volume = 1.0
+
+    // 为角色分配语音
+    let zhVoices = zhVoicesRef.current
+    // Safari: speak 时再次刷新 voices（有时 onvoiceschanged 不触发）
+    if (zhVoices.length === 0 && window.speechSynthesis) {
+      try {
+        const allVoices = window.speechSynthesis.getVoices()
+        zhVoices = allVoices.filter(v => {
+          const lang = (v.lang || '').toLowerCase()
+          return lang.startsWith('zh') || lang.startsWith('cmn')
+        })
+        if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
+      } catch {}
+    }
+    if (zhVoices.length > 0) {
+      // 优先从缓存取，否则用 hash 分配
+      let voice = roleVoiceMapRef.current.get(roleKey)
+      if (!voice) {
+        let hash = 0
+        for (let i = 0; i < roleKey.length; i++) hash = ((hash << 5) - hash + roleKey.charCodeAt(i)) | 0
+        voice = zhVoices[Math.abs(hash) % zhVoices.length]
+        roleVoiceMapRef.current.set(roleKey, voice)
+      }
+      // 再次验证 voice 仍然有效（在当前 voices 列表中）
+      const stillValid = zhVoices.some(v => v.name === voice!.name && v.lang === voice!.lang)
+      if (stillValid) {
+        utterance.voice = voice
+        utterance.lang = voice.lang
+      }
+    }
+
+    utterance.onend = () => {
+      ttsSpeakingRef.current = false
+      processTtsQueueRef.current()
+    }
+    utterance.onerror = (e) => {
+      console.warn('[TTS] onerror:', e?.error, 'text:', text.slice(0, 40))
+      ttsSpeakingRef.current = false
+      processTtsQueueRef.current()
+    }
+    utterance.onstart = () => {
+      console.log('[TTS] speak:', roleKey, 'voice:', (utterance.voice as SpeechSynthesisVoice | null)?.name || 'default')
+    }
+
+    // Safari: speak 前先 cancel 掉可能堆积的朗读
+    try {
+      if (synth.speaking) {
+        synth.cancel()
+      }
+    } catch {}
+    try {
+      synth.speak(utterance)
+    } catch (e) {
+      console.error('[TTS] speak exception:', e)
+      ttsSpeakingRef.current = false
+      processTtsQueueRef.current()
+    }
+  }, [])
+  useEffect(() => { processTtsQueueRef.current = processTtsQueue }, [processTtsQueue])
+
+  const enqueueTts = useCallback((text: string, roleKey: string) => {
+    // 清理 markdown
     const cleanText = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
       .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
       .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim()
     if (!cleanText) return
     ttsQueueRef.current.push({ text: cleanText, roleKey })
-    processTtsQueue()
-  }, [ttsEnabled])
-
-  const processTtsQueue = useCallback(() => {
-    const synth = synthRef.current
-    if (!synth || ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
-    ttsSpeakingRef.current = true
-    const { text, roleKey } = ttsQueueRef.current.shift()!
-    const utterance = new SpeechSynthesisUtterance(text)
-    const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
-    utterance.pitch = config.pitch; utterance.rate = config.rate; utterance.lang = 'zh-CN'
-    const voices = synth.getVoices()
-    const zhVoice = voices.find(v => v.lang.startsWith('zh'))
-    if (zhVoice) utterance.voice = zhVoice
-    utterance.onend = () => { ttsSpeakingRef.current = false; processTtsQueue() }
-    utterance.onerror = () => { ttsSpeakingRef.current = false; processTtsQueue() }
-    synth.speak(utterance)
+    processTtsQueueRef.current()
   }, [])
+  const enqueueTtsRef = useRef(enqueueTts)
+  useEffect(() => { enqueueTtsRef.current = enqueueTts }, [enqueueTts])
 
   // 单角色发言
-  const speakAsCharacter = useCallback(async (roleKey: string, topic?: string): Promise<{ content: string; ended: boolean }> => {
+  const speakAsCharacter = useCallback(async (roleKey: string, topic?: string): Promise<{ content: string; ended: boolean; saved: boolean }> => {
     return new Promise((resolve, reject) => {
       const sid = sessionIdRef.current
       if (!sid) { reject(new Error('无会话')); return }
@@ -586,21 +687,26 @@ export default function RoundTablePage() {
       onMessage((text: string) => {
         accumulated += text; currentContentRef.current = accumulated
         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: accumulated } : m))
-        queueTts(text, roleKey)
       })
       onDone(() => {
         const ended = accumulated.includes('[END]')
         const cleanContent = accumulated.replace(/\[END\]/g, '').trim()
         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: cleanContent !== accumulated ? cleanContent : m.content, streaming: false } : m))
         setSpeakingKey(null); abortRef.current = null
-        resolve({ content: cleanContent, ended })
+        // TTS：消息完成后入队朗读
+        if (ttsEnabledRef.current) {
+          enqueueTtsRef.current(cleanContent, roleKey)
+        }
+        // SSE done 事件触发时，后端消息已保存到数据库
+        resolve({ content: cleanContent, ended, saved: true })
       })
       onError((err: Error) => {
         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streaming: false, content: accumulated || '（发言失败）' } : m))
-        setSpeakingKey(null); abortRef.current = null; reject(err)
+        setSpeakingKey(null); abortRef.current = null
+        reject(err)
       })
     })
-  }, [id, queueTts])
+  }, [id])
 
   // 下一轮发言
   const grabMicAndSpeak = useCallback(async (_lastSpeakerKey?: string) => {
@@ -609,8 +715,29 @@ export default function RoundTablePage() {
     if (!sid) return
 
     try {
+      // 等待一小段时间确保上一条消息已保存到数据库
+      // 后端在发送 done 事件前已保存消息，但数据库同步可能有微小延迟
+      await new Promise(r => setTimeout(r, 300))
+
       const res = await getNextSpeaker(sid)
       const nextSpeakerKey = ((res as { data?: string })?.data ?? res as string) as string
+
+      // 安全校验：如果选中的角色和上一个发言者相同，强制换一个
+      if (_lastSpeakerKey && nextSpeakerKey === _lastSpeakerKey) {
+        const activeKeys = activeRolesRef.current.map(r => r.key).filter(k => k !== _lastSpeakerKey)
+        if (activeKeys.length > 0) {
+          const fallback = activeKeys[Math.floor(Math.random() * activeKeys.length)]
+          console.warn(`[圆桌派] LLM 选择了连续发言者 ${_lastSpeakerKey}，强制切换为 ${fallback}`)
+          const result = await speakAsCharacter(fallback, '请直接说出你的想法，不要先总结别人的观点。')
+          setCurrentRound(prev => prev + 1)
+          retryCountRef.current = 0
+          if (result.ended) { discussionLoopRef.current = false; setPhase('paused'); return }
+          if (discussionLoopRef.current) {
+            setTimeout(() => grabMicAndSpeak(fallback), 1500 + Math.random() * 1000)
+          }
+          return
+        }
+      }
 
       setGrabbingAnimation(nextSpeakerKey)
       await new Promise(r => setTimeout(r, 800 + Math.random() * 600))
@@ -619,9 +746,9 @@ export default function RoundTablePage() {
       // 所有角色都传发言指令，避免乱接话
       let topic: string | undefined
       if (nextSpeakerKey === 'HOST') {
-        topic = '请回顾之前的讨论，抛出一个新的话题或角度来激发讨论。如果你认为讨论已经充分，请做总结并结束讨论。'
+        topic = '请引导讨论：如果讨论在重复或钻牛角尖，请果断抛出新话题；如果讨论正常，可以简短回应或向某位嘉宾提问。绝对不要以「刚才大家...」开头。'
       } else {
-        topic = '请直接说出你的想法，不要先总结别人的观点。'
+        topic = '请直接说出你的想法，不要先总结别人的观点，绝对不要以「刚才大家...」开头。'
       }
 
       const result = await speakAsCharacter(nextSpeakerKey, topic)
@@ -655,7 +782,7 @@ export default function RoundTablePage() {
     activeRolesRef.current = roles; setActiveRoles(roles)
     setPhase('discussing'); setMessages([]); setSpeakingKey(null); setCurrentRound(0)
     userScrollingRef.current = false; discussionLoopRef.current = true
-    ttsQueueRef.current = []; ttsSpeakingRef.current = false; retryCountRef.current = 0
+    ttsEnabledSpeakerRef.current = null; retryCountRef.current = 0
 
     try {
       const roleKeys = Array.from(selectedKeys)
@@ -703,22 +830,53 @@ export default function RoundTablePage() {
     setPhase('paused'); setSpeakingKey(null); setMessages(prev => prev.map(m => ({ ...m, streaming: false })))
   }, [])
 
+  const stopDiscussion = useCallback(() => {
+    discussionLoopRef.current = false; abortRef.current?.abort(); abortRef.current = null
+    synthRef.current?.cancel(); ttsEnabledSpeakerRef.current = null
+    setSpeakingMsgId(null); setPhase('paused'); setSpeakingKey(null)
+    setMessages(prev => prev.map(m => ({ ...m, streaming: false })))
+  }, [])
+
+  // 监听返回操作，讨论/暂停状态需要确认
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (phase === 'discussing' || phase === 'paused') {
+        e.preventDefault()
+        e.returnValue = ''
+        return ''
+      }
+    }
+    const handlePopState = () => {
+      if (phase === 'discussing' || phase === 'paused') {
+        // 阻止默认后退，先压栈防止连续弹窗
+        window.history.pushState(null, '', window.location.href)
+        const confirmed = window.confirm('讨论尚未结束，确定要退出吗？')
+        if (confirmed) {
+          // 清理监听器后再操作，避免 back() 再次触发 popstate
+          window.removeEventListener('popstate', handlePopState)
+          stopDiscussion()
+          window.history.back()
+        }
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.history.pushState(null, '', window.location.href)
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [phase, stopDiscussion])
+
   const resumeDiscussion = useCallback(() => {
     discussionLoopRef.current = true; setPhase('discussing')
     const lastMsg = messagesRef.current[messagesRef.current.length - 1]
     setTimeout(() => grabMicAndSpeak(lastMsg?.roleKey), 1000)
   }, [grabMicAndSpeak])
 
-  const stopDiscussion = useCallback(() => {
-    discussionLoopRef.current = false; abortRef.current?.abort(); abortRef.current = null
-    synthRef.current?.cancel(); ttsQueueRef.current = []; ttsSpeakingRef.current = false
-    setSpeakingMsgId(null); setPhase('paused'); setSpeakingKey(null)
-    setMessages(prev => prev.map(m => ({ ...m, streaming: false })))
-  }, [])
-
   const restart = useCallback(() => {
     discussionLoopRef.current = false; abortRef.current?.abort(); abortRef.current = null
-    synthRef.current?.cancel(); ttsQueueRef.current = []; ttsSpeakingRef.current = false
+    synthRef.current?.cancel(); ttsEnabledSpeakerRef.current = null
     sessionIdRef.current = null; activeRolesRef.current = []; setSpeakingMsgId(null)
     setPhase('select'); setMessages([]); setSpeakingKey(null); setActiveRoles([]); setSessionId(null); setCurrentRound(0)
     getRoundTableSessions(id).then((res: unknown) => { const d = (res as { data?: RoundTableSession[] })?.data ?? res as RoundTableSession[]; if (Array.isArray(d)) setPastSessions(d) }).catch(() => {})
@@ -752,7 +910,7 @@ export default function RoundTablePage() {
         </div>
         <h2 className="text-lg font-bold text-foreground">选择讨论嘉宾</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          AI 根据《{bookInfo?.title || '本书'}》推荐了 {availableRoles.length} 位嘉宾
+          AI 根据《{bookInfo?.title || '本书'}》推荐了 {availableRoles.length} 位嘉宾，已为你勾选 {selectedKeys.size - 1} 位
         </p>
       </div>
 
@@ -787,15 +945,25 @@ export default function RoundTablePage() {
         ))}
       </div>
 
-      {/* 开始按钮 */}
-      <button
-        onClick={startDiscussion}
-        disabled={selectedKeys.size < 4}
-        className="mt-6 flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-400 to-brand-500 px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-400/20 transition-all duration-200 hover:shadow-xl hover:shadow-brand-400/25 active:scale-[0.97] disabled:opacity-50 disabled:shadow-none"
-      >
-        <Play className="h-4 w-4" />
-        开始讨论 ({selectedKeys.size}人)
-      </button>
+      {/* 操作按钮 */}
+      <div className="mt-6 flex items-center gap-3">
+        <button
+          onClick={loadRecommendedRoles}
+          className="flex items-center gap-1.5 rounded-2xl border border-border/40 bg-card px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-border/60 transition-all duration-200 active:scale-[0.97]"
+          title="重新邀请一组嘉宾"
+        >
+          <RefreshCw className="h-4 w-4" />
+          重新邀请
+        </button>
+        <button
+          onClick={startDiscussion}
+          disabled={selectedKeys.size < 4}
+          className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-400 to-brand-500 px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-400/20 transition-all duration-200 hover:shadow-xl hover:shadow-brand-400/25 active:scale-[0.97] disabled:opacity-50 disabled:shadow-none"
+        >
+          <Play className="h-4 w-4" />
+          开始讨论 ({selectedKeys.size}人)
+        </button>
+      </div>
 
       {/* 历史会话 */}
       {pastSessions.length > 0 && (
@@ -886,7 +1054,44 @@ export default function RoundTablePage() {
         >
           <div className="flex items-center gap-2 max-w-3xl mx-auto">
             <button
-              onClick={() => setTtsEnabled(!ttsEnabled)}
+              onClick={() => {
+                if (!ttsEnabled) {
+                  // 打开时：记录当前发言人，从该发言人开始读
+                  ttsEnabledSpeakerRef.current = speakingKey
+                  ttsEnabledRef.current = true
+                  // Safari: 在用户交互同步栈内刷新 voices 并立即 enqueue
+                  // 第一次 speak 发生在本次点击内即可解锁权限
+                  try {
+                    const allVoices = window.speechSynthesis.getVoices()
+                    const zhVs = allVoices.filter(v => {
+                      const lang = (v.lang || '').toLowerCase()
+                      return lang.startsWith('zh') || lang.startsWith('cmn')
+                    })
+                    if (zhVs.length > 0) zhVoicesRef.current = zhVs
+                  } catch {}
+                  // 把当前发言人及之后的已完成消息入队
+                  const speakerKey = speakingKey
+                  if (speakerKey) {
+                    const msgs = messagesRef.current
+                    const startIdx = msgs.findIndex(m => m.roleKey === speakerKey && !m.streaming)
+                    if (startIdx >= 0) {
+                      for (let i = startIdx; i < msgs.length; i++) {
+                        const m = msgs[i]
+                        if (!m.streaming && m.content) {
+                          enqueueTtsRef.current(m.content, m.roleKey)
+                        }
+                      }
+                    }
+                  }
+                } else {
+                  // 关闭时：停止朗读，清空队列
+                  ttsEnabledSpeakerRef.current = null
+                  ttsEnabledRef.current = false
+                  ttsQueueRef.current = []; ttsSpeakingRef.current = false
+                  try { window.speechSynthesis?.cancel() } catch {}
+                }
+                setTtsEnabled(!ttsEnabled)
+              }}
               className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11px] font-medium transition-all duration-200 ${
                 ttsEnabled
                   ? 'bg-brand-100 text-brand-500 border border-brand-200'
@@ -894,7 +1099,7 @@ export default function RoundTablePage() {
               }`}
             >
               <Volume2 className="h-3 w-3" />
-              {ttsEnabled ? '语音开' : '语音关'}
+              {ttsEnabled ? '朗读中' : '语音关'}
             </button>
 
             {phase === 'discussing' && (
