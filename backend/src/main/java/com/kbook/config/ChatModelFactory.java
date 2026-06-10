@@ -551,6 +551,7 @@ public class ChatModelFactory {
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .returnThinking(thinking).think(thinking)
+                .repeatPenalty(0.3)
                 .build();
     }
 
@@ -575,6 +576,7 @@ public class ChatModelFactory {
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .returnThinking(thinking).think(thinking)
+                .repeatPenalty(0.3)
                 .build();
     }
 
@@ -598,6 +600,8 @@ public class ChatModelFactory {
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
                 .returnThinking(thinking).sendThinking(thinking)
+                .frequencyPenalty(0.3)
+                .presencePenalty(0.3)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
@@ -623,6 +627,8 @@ public class ChatModelFactory {
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
                 .returnThinking(thinking).sendThinking(thinking)
+                .frequencyPenalty(0.3)
+                .presencePenalty(0.3)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();

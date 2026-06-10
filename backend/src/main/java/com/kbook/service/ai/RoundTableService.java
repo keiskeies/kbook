@@ -643,10 +643,10 @@ public class RoundTableService {
             scores.put(key, scores.getOrDefault(key, 1.0) * fairnessWeight);
         }
 
-        // 主持人额外加成（循环重复时强制介入）
+        // 循环重复时强制主持人介入（直接返回，不使用权重加分）
         if (validKeys.contains("HOST") && isLooping && !recentSpeakers.contains("HOST")) {
-            scores.put("HOST", scores.getOrDefault("HOST", 1.0) + 100.0);
             log.info("检测到讨论循环重复，强制主持人介入控场");
+            return "HOST";
         }
 
         // 选出得分最高的
@@ -668,17 +668,17 @@ public class RoundTableService {
      * 检查最近6条消息是否有角色重复或内容相似的模式
      */
     private boolean detectLoopingPattern(List<RoundTableMessage> allMessages) {
-        if (allMessages.size() < 6) return false;
+        if (allMessages.size() < 5) return false;
 
         // 快速结构检测：同一角色高频出现（不需要 LLM）
-        List<String> recentRoles = allMessages.subList(allMessages.size() - 6, allMessages.size())
+        List<String> recentRoles = allMessages.subList(allMessages.size() - 5, allMessages.size())
                 .stream()
                 .map(RoundTableMessage::getRoleKey)
                 .toList();
         Map<String, Long> recentRoleCounts = recentRoles.stream()
                 .collect(Collectors.groupingBy(r -> r, Collectors.counting()));
         for (long count : recentRoleCounts.values()) {
-            if (count >= 4) return true;
+            if (count >= 3) return true;
         }
 
         // 语义循环检测：用 LLM 判断讨论是否在绕圈子
@@ -1386,8 +1386,24 @@ public class RoundTableService {
         try {
             List<RoundTableMessage> history = loadAndCompressHistory(userId, sessionId, currentOverhead);
             if (!history.isEmpty()) {
+                // 找到当前角色最近一条发言的索引（保留一条锚点，避免完全失去自我上下文）
+                int lastOwnIndex = -1;
+                for (int i = history.size() - 1; i >= 0; i--) {
+                    if (roleName.equals(history.get(i).getRoleName())) {
+                        lastOwnIndex = i;
+                        break;
+                    }
+                }
+
                 StringBuilder historyBuilder = new StringBuilder("【之前的讨论内容】\n");
-                for (RoundTableMessage msg : history) {
+                int skippedOwn = 0;
+                for (int i = 0; i < history.size(); i++) {
+                    RoundTableMessage msg = history.get(i);
+                    // 跳过当前角色的旧发言（只保留最近一条作为上下文锚点）
+                    if (roleName.equals(msg.getRoleName()) && i != lastOwnIndex) {
+                        skippedOwn++;
+                        continue;
+                    }
                     // 优先使用压缩后的摘要内容，避免原始长文本导致重复
                     String content = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
                             ? msg.getCompressedContent()
@@ -1395,6 +1411,9 @@ public class RoundTableService {
                     if (content != null && !content.isBlank()) {
                         historyBuilder.append(msg.getRoleName()).append("：").append(content).append("\n\n");
                     }
+                }
+                if (skippedOwn > 0) {
+                    log.debug("圆桌派历史过滤：跳过当前角色 {} 的 {} 条旧发言", roleName, skippedOwn);
                 }
                 messages.add(UserMessage.from(historyBuilder.toString()));
                 messages.add(dev.langchain4j.data.message.AiMessage.from("好的，我已了解之前的讨论内容。"));
@@ -1585,6 +1604,14 @@ public class RoundTableService {
             String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
             sb.append("标签：").append(tags).append("\n");
         }
+        if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+            String concepts = book.getConceptTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("核心概念：").append(concepts).append("\n");
+        }
+        if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+            String needs = book.getReaderNeedTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("读者关注：").append(needs).append("\n");
+        }
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
             String desc = book.getDescription().length() > 800
                     ? book.getDescription().substring(0, 800) + "..."
@@ -1739,8 +1766,13 @@ public class RoundTableService {
             String query = buildRoleSpecificQuery(book, role, history);
             log.debug("角色视角 RAG 查询: role={}, query={}", role.getKey(), query);
 
+            // HOST 扩大检索：更多候选、更低阈值、更多结果
+            int topK = role == RoundTableRole.HOST ? 20 : 10;
+            double minScore = role == RoundTableRole.HOST ? 0.05 : 0.1;
+            int maxResults = role == RoundTableRole.HOST ? 12 : 8;
+
             List<EmbeddingMatch<TextSegment>> matches =
-                    embeddingService.searchContent(query, 10, book);
+                    embeddingService.searchContent(query, topK, book);
 
             if (matches.isEmpty()) {
                 log.debug("角色视角 RAG 检索无结果: bookId={}, role={}", book.getId(), role.getKey());
@@ -1748,7 +1780,7 @@ public class RoundTableService {
             }
 
             matches = matches.stream()
-                    .filter(m -> m.score() >= 0.1)
+                    .filter(m -> m.score() >= minScore)
                     .toList();
 
             if (matches.isEmpty()) {
@@ -1756,7 +1788,7 @@ public class RoundTableService {
             }
 
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < Math.min(matches.size(), 8); i++) {
+            for (int i = 0; i < Math.min(matches.size(), maxResults); i++) {
                 EmbeddingMatch<TextSegment> match = matches.get(i);
                 sb.append(match.embedded().text()).append("\n\n");
             }
@@ -1776,6 +1808,11 @@ public class RoundTableService {
      */
     private String buildRoleSpecificQuery(Book book, RoundTableRole role, List<RoundTableMessage> history) {
         try {
+            // HOST 专用：反向查询——从未讨论的概念中选题，引导新话题
+            if (role == RoundTableRole.HOST) {
+                return buildHostSearchQuery(book, history);
+            }
+
             // 构建最近两轮发言摘要
             String recentDiscussion = "";
             if (history != null && !history.isEmpty()) {
@@ -1830,6 +1867,101 @@ public class RoundTableService {
 
         // 回退：使用书名 + 角色关键词
         return book.getTitle() + " " + getRoleSearchKeywords(role);
+    }
+
+    /**
+     * HOST 专用检索查询生成——反向选题，引导新话题。
+     * <p>
+     * 核心思路：解析 conceptTags → 匹配已讨论概念 → 从【尚未讨论】的概念中选题。
+     * 这样 HOST 搜出来的段落是新鲜的、未聊过的，能自然引入新方向。
+     */
+    private String buildHostSearchQuery(Book book, List<RoundTableMessage> history) {
+        try {
+            // 1. 解析书中核心概念标签
+            Set<String> allConcepts = parseConceptTags(book.getConceptTags());
+
+            // 2. 从最近 8 轮发言中匹配已讨论的概念（简单字符串包含）
+            Set<String> discussed = new LinkedHashSet<>();
+            if (history != null && !history.isEmpty() && !allConcepts.isEmpty()) {
+                int start = Math.max(0, history.size() - 8);
+                StringBuilder allText = new StringBuilder();
+                for (int i = start; i < history.size(); i++) {
+                    RoundTableMessage msg = history.get(i);
+                    String content = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
+                            ? msg.getCompressedContent() : msg.getContent();
+                    if (content != null) {
+                        allText.append(content);
+                    }
+                }
+                String text = allText.toString();
+                for (String concept : allConcepts) {
+                    if (text.contains(concept)) {
+                        discussed.add(concept);
+                    }
+                }
+            }
+
+            // 3. 计算未讨论概念
+            Set<String> undiscussed = new LinkedHashSet<>(allConcepts);
+            undiscussed.removeAll(discussed);
+
+            String discussedStr = discussed.isEmpty() ? "（无）" : String.join("、", discussed);
+            String undiscussedStr = undiscussed.isEmpty()
+                    ? "（所有概念均已涉及，请选一个讨论角度最浅的，换全新视角切入）"
+                    : String.join("、", undiscussed);
+
+            // 4. 读者关注标签
+            String readerNeeds = "";
+            if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+                readerNeeds = book.getReaderNeedTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            }
+
+            String prompt = """
+                    你是一个检索查询生成器。请根据以下信息，生成一段用于在书中检索相关段落的查询文本。
+                    
+                    要求：
+                    1. 你是主持人，你的目标是引入新话题，而不是延伸已讨论的内容
+                    2. 请从【尚未讨论】的概念中选一个最值得引入的，生成检索查询
+                    3. 如果所有概念都已讨论，选讨论深度最浅的，换一个全新角度
+                    4. 只输出查询文本本身，不要输出任何解释或前缀
+                    5. 查询长度控制在30-80字
+                    
+                    【图书】%s
+                    【书中核心概念】
+                      已讨论：%s
+                      尚未讨论：%s
+                    【读者关注】%s
+                    """.stripIndent().formatted(
+                    book.getTitle(),
+                    discussedStr,
+                    undiscussedStr,
+                    readerNeeds.isBlank() ? "（无）" : readerNeeds
+            );
+
+            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            String result = chatModel.chat(prompt);
+            if (result != null && !result.isBlank()) {
+                result = result.trim()
+                        .replaceAll("^(查询|检索|搜索|关键词)[：:]", "")
+                        .trim();
+                log.debug("HOST 检索查询: undiscussed={}, query={}", undiscussedStr, result);
+                return result;
+            }
+        } catch (Exception e) {
+            log.warn("HOST 检索查询生成失败，回退: {}", e.getMessage());
+        }
+
+        // 回退：书名 + 基本关键词（不依赖已讨论内容）
+        return book.getTitle() + " 核心观点 主要内容 新话题";
+    }
+
+    /** 解析 JSON 数组格式的概念标签 */
+    private Set<String> parseConceptTags(String tagsJson) {
+        if (tagsJson == null || tagsJson.isBlank()) return new LinkedHashSet<>();
+        return Arrays.stream(tagsJson.replaceAll("[\\[\\]\"]", "").split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**

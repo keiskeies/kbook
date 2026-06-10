@@ -224,6 +224,22 @@ public class BookChatService {
                     }
                 }
 
+                // 懒生成 compressedSummary：首次问答时若为空，同步生成并持久化
+                if (book.getCompressedSummary() == null || book.getCompressedSummary().isBlank()) {
+                    if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+                        try {
+                            emitter.send(SseEmitter.event().name("thinking").data("正在整理图书摘要..."));
+                        } catch (Exception ignored) {
+                        }
+                        String compressed = chatModelManager.generateCompressedSummary(book);
+                        if (compressed != null && !compressed.isBlank()) {
+                            book.setCompressedSummary(compressed);
+                            bookService.updateOne(book);
+                            log.info("compressedSummary 懒生成成功: bookId={}, len={}", bookId, compressed.length());
+                        }
+                    }
+                }
+
                 int ragTopK = Optional.ofNullable(aiProviderConfigService.getActiveRagTopK())
                         .orElse(qdrantProperties.getRagTopK());
                 int ragMaxChars = getRagMaxChars();
@@ -465,7 +481,7 @@ public class BookChatService {
     /**
      * RAG 语义检索：从书籍内容向量中检索与问题相关的片段
      * RAG 长度上限由模型上下文动态决定：maxTokens × 1.5 × 0.6（留 40% 给系统和对话）
-     * 优化策略：多查询检索 + 相邻片段合并 + 关键词重排序 + 自适应 topK
+     * 优化策略：多查询检索 → 去重 → LLM 相关性过滤(KEEP/DISCARD+优先级) → 相邻片段合并
      *
      * @param book     书籍实体
      * @param question 用户问题
@@ -549,26 +565,41 @@ public class BookChatService {
                 }
             }
 
-            double topScore = allMatches.stream()
-                    .mapToDouble(EmbeddingMatch::score)
-                    .max()
-                    .orElse(0.0);
-            if (topScore < 0.1) {
-                log.warn("[RAG质量门控] 最高score={} < 0.1, 结果为噪声, 丢弃: bookId={}, question={}",
-                        String.format("%.4f", topScore), book.getId(), question.substring(0, Math.min(30, question.length())));
+            // LLM 批量过滤：KEEP/DISCARD + 优先级
+            List<String> chunkTexts = allMatches.stream()
+                    .map(m -> m.embedded() != null ? m.embedded().text() : "")
+                    .toList();
+            List<ChatModelManager.RagChunkFilterResult> filterResults =
+                    chatModelManager.filterRagChunks(question, chunkTexts, book.getTitle());
+
+            // 只保留 KEEP 的片段，同时记录优先级
+            List<EmbeddingMatch<TextSegment>> filtered = new ArrayList<>();
+            java.util.Map<EmbeddingMatch<TextSegment>, Integer> priorityByMatch = new java.util.IdentityHashMap<>();
+            for (ChatModelManager.RagChunkFilterResult r : filterResults) {
+                if (r.keep() && r.index() >= 0 && r.index() < allMatches.size()) {
+                    EmbeddingMatch<TextSegment> match = allMatches.get(r.index());
+                    filtered.add(match);
+                    priorityByMatch.put(match, r.priority());
+                }
+            }
+
+            if (filtered.isEmpty()) {
+                log.info("RAG LLM过滤后无保留片段: bookId={}, question={}",
+                        book.getId(), question.substring(0, Math.min(30, question.length())));
                 ragHitStatisticsService.recordMiss(book.getId());
                 return "";
             }
 
             ragHitStatisticsService.recordHit(book.getId());
 
-            allMatches.sort((a, b) -> {
-                double scoreA = a.score() + keywordRelevanceBonus(a, question);
-                double scoreB = b.score() + keywordRelevanceBonus(b, question);
-                return Double.compare(scoreB, scoreA);
+            // 按 LLM 优先级排序（高 → 中 → 低），同优先级保持原始顺序
+            filtered.sort((a, b) -> {
+                int priA = priorityByMatch.getOrDefault(a, ChatModelManager.RagChunkFilterResult.PRIORITY_MEDIUM);
+                int priB = priorityByMatch.getOrDefault(b, ChatModelManager.RagChunkFilterResult.PRIORITY_MEDIUM);
+                return Integer.compare(priB, priA);
             });
 
-            List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(allMatches);
+            List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(filtered);
             int mergeChars = merged.stream()
                     .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
 
@@ -585,10 +616,11 @@ public class BookChatService {
             }
 
             String ragContext = sb.toString();
-            log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重{}条{}字 → 合并{}条{}字 → 最终{}字",
+            log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重{}条{}字 → LLM过滤{}条 → 合并{}条{}字 → 最终{}字",
                     book.getId(),
                     rawCount, rawChars,
                     dedupedMatches.size(), dedupChars,
+                    filtered.size(),
                     merged.size(), mergeChars,
                     ragContext.length());
 
@@ -657,27 +689,6 @@ public class BookChatService {
         return false;
     }
 
-
-    /**
-     * 计算片段与用户问题的关键词匹配加分
-     * 去除中文停用词后，按单字匹配统计命中数，每个命中加 0.01 分
-     *
-     * @param match    向量检索匹配结果
-     * @param question 用户问题
-     * @return 关键词匹配加分值
-     */
-    private double keywordRelevanceBonus(EmbeddingMatch<TextSegment> match, String question) {
-        if (match.embedded() == null || match.embedded().text() == null) return 0;
-        String chunkText = match.embedded().text();
-        String[] questionWords = question.replaceAll("[的了是在有和与及或吗呢吧啊]", "").split("");
-        long hitCount = 0;
-        for (String word : questionWords) {
-            if (!word.isBlank() && chunkText.contains(word)) {
-                hitCount++;
-            }
-        }
-        return hitCount * 0.01;
-    }
 
     /**
      * 合并相邻的文本片段，减少重复上下文
@@ -774,21 +785,30 @@ public class BookChatService {
             String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
             sb.append("标签：").append(tags).append("\n");
         }
+        if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+            String tags = book.getConceptTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("核心概念：").append(tags).append("\n");
+        }
+        if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+            String tags = book.getReaderNeedTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("读者需求：").append(tags).append("\n");
+        }
+        if (book.getTargetReaderTags() != null && !book.getTargetReaderTags().isBlank()) {
+            String tags = book.getTargetReaderTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("目标读者：").append(tags).append("\n");
+        }
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            String desc = book.getDescription().length() > 800
-                    ? book.getDescription().substring(0, 800) + "..."
-                    : book.getDescription();
-            sb.append("简介：").append(desc).append("\n");
+            sb.append("简介：").append(book.getDescription()).append("\n");
         }
         if (book.getToc() != null && !book.getToc().isBlank()) {
-            String toc = book.getToc().length() > 1000
-                    ? book.getToc().substring(0, 1000) + "..."
-                    : book.getToc();
-            sb.append("目录：\n").append(toc).append("\n");
+            sb.append("目录：\n").append(book.getToc()).append("\n");
         }
-        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-            String summary = CommonUtils.truncateText(book.getChapterSummary(), 5000);
-            sb.append("\n【章节摘要】（每章核心内容概述）\n").append(summary).append("\n");
+
+        // 摘要：优先 compressedSummary（LLM精炼） → chapterSummary（原始提取），均完整不截断
+        if (book.getCompressedSummary() != null && !book.getCompressedSummary().isBlank()) {
+            sb.append("\n【图书精炼摘要】\n").append(book.getCompressedSummary()).append("\n");
+        } else if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            sb.append("\n【章节摘要】（每章核心内容概述）\n").append(book.getChapterSummary()).append("\n");
         }
 
         if (!ragContext.isBlank()) {

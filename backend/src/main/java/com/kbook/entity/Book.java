@@ -80,6 +80,10 @@ public class Book extends BaseEntity {
     @Column(name = "chapter_summary", columnDefinition = "TEXT")
     private String chapterSummary;
 
+    /** 压缩精炼摘要（LLM 对 chapterSummary+标签+目录 精炼后的结构化摘要，用于问答上下文） */
+    @Column(name = "compressed_summary", columnDefinition = "TEXT")
+    private String compressedSummary;
+
     /**
      * 14维度相关度得分（JSON对象）
      * 维度：ageGroup(年龄段), male(男性), female(女性), married(已婚),

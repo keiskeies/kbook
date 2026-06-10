@@ -514,6 +514,238 @@ public class ChatModelManager {
         return List.of(query);
     }
 
+    // ================================================================
+    // RAG 检索结果过滤
+    // ================================================================
+
+    /**
+     * RAG 检索片段过滤结果。
+     *
+     * @param index    片段在输入列表中的索引
+     * @param keep     是否保留（KEEP=true, DISCARD=false）
+     * @param priority 优先级（3=高, 2=中, 1=低, 0=被丢弃）
+     */
+    public record RagChunkFilterResult(int index, boolean keep, int priority) {
+        /** KEEP 的默认优先级 */
+        public static final int PRIORITY_HIGH = 3;
+        public static final int PRIORITY_MEDIUM = 2;
+        public static final int PRIORITY_LOW = 1;
+    }
+
+    /**
+     * 使用 LLM 批量判断 RAG 检索片段与用户问题的相关性。
+     *
+     * <p>一次 LLM 调用完成所有片段的 KEEP/DISCARD 判断和优先级排序，
+     * 避免逐条调用带来的延迟和成本。</p>
+     *
+     * <p>判断标准：只有包含能直接回答用户问题的具体信息、论据或事实时才 KEEP；
+     * 泛泛主题相关但不提供具体信息的片段 → DISCARD。</p>
+     *
+     * @param question  用户问题
+     * @param chunks    去重后的检索片段文本列表
+     * @param bookTitle 书名（用于上下文）
+     * @return 每个片段的过滤结果，按输入顺序
+     */
+    public List<RagChunkFilterResult> filterRagChunks(String question, List<String> chunks, String bookTitle) {
+        if (chunks == null || chunks.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            // 构建片段列表文本
+            StringBuilder chunksText = new StringBuilder();
+            for (int i = 0; i < chunks.size(); i++) {
+                chunksText.append("[片段").append(i + 1).append("]\n");
+                chunksText.append(chunks.get(i)).append("\n\n");
+            }
+
+            String prompt = String.format("""
+                    你是一个检索结果过滤器。用户正在阅读《%s》。
+
+                    【用户问题】
+                    %s
+
+                    以下是从书中检索到的 %d 个文本片段，每个片段以 [片段X] 开头。
+                    对每一个片段判断是否有助于回答用户问题。
+
+                    【判断标准】
+                    - KEEP：包含能直接回答用户问题的具体信息、论据、事实或数据
+                    - DISCARD：仅主题泛泛相关，但不提供能用于回答的具体信息
+
+                    【输出格式】（每个片段一行，必须覆盖所有片段）
+                    [片段1] KEEP 优先级:高 - 理由（≤15字）
+                    [片段2] DISCARD - 理由（≤15字）
+                    [片段3] KEEP 优先级:中 - 理由（≤15字）
+                    ...（必须对每个片段都做出判断）
+
+                    【优先级说明】
+                    - 高 = 直接命中答案核心，或包含关键论据
+                    - 中 = 提供有用背景、细节或辅助论证
+                    - 低 = 间接相关，可作为补充但非必需
+
+                    【重要】
+                    - KEEP 必须严谨：泛泛主题相关但不含具体答案信息 → DISCARD
+                    - 必须对每个片段都输出判断，不能遗漏
+                    - 每行只输出一个判断，不要额外解释，不要输出片段的原文
+
+                    【片段列表】
+                    %s
+                    """, bookTitle, question, chunks.size(), chunksText.toString());
+
+            String response = callAi("RAG片段过滤",
+                    String.format("book=%s, chunks=%d, q=%s",
+                            bookTitle, chunks.size(),
+                            question.substring(0, Math.min(30, question.length()))),
+                    prompt);
+
+            if (response == null || response.isBlank()) {
+                log.warn("RAG 片段过滤 LLM 返回为空，全部保留");
+                return allKeep(chunks.size());
+            }
+
+            return parseFilterResponse(response, chunks.size());
+
+        } catch (Exception e) {
+            log.warn("RAG 片段过滤失败: {}，全部保留", e.getMessage());
+            return allKeep(chunks.size());
+        }
+    }
+
+    /** 解析 LLM 返回的过滤结果 */
+    private List<RagChunkFilterResult> parseFilterResponse(String response, int totalChunks) {
+        List<RagChunkFilterResult> results = new ArrayList<>();
+        String[] lines = response.split("\n");
+
+        for (String line : lines) {
+            line = line.trim();
+            if (line.isBlank()) continue;
+
+            // 匹配 [片段N] KEEP/DISCARD 优先级:X - 理由
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "\\[片段(\\d+)\\]\\s*(KEEP|DISCARD)(?:\\s*优先级[:：]\\s*(高|中|低))?").matcher(line);
+            if (m.find()) {
+                int index = Integer.parseInt(m.group(1)) - 1; // 转为 0-based
+                boolean keep = "KEEP".equals(m.group(2));
+                String priorityStr = m.group(3);
+                int priority = 0;
+                if (keep && priorityStr != null) {
+                    priority = switch (priorityStr) {
+                        case "高" -> RagChunkFilterResult.PRIORITY_HIGH;
+                        case "中" -> RagChunkFilterResult.PRIORITY_MEDIUM;
+                        case "低" -> RagChunkFilterResult.PRIORITY_LOW;
+                        default -> RagChunkFilterResult.PRIORITY_MEDIUM;
+                    };
+                }
+                results.add(new RagChunkFilterResult(index, keep, priority));
+            }
+        }
+
+        // 补全 LLM 遗漏的片段（默认为 KEEP 中优先级）
+        if (results.size() < totalChunks) {
+            boolean[] seen = new boolean[totalChunks];
+            for (RagChunkFilterResult r : results) {
+                if (r.index >= 0 && r.index < totalChunks) seen[r.index] = true;
+            }
+            for (int i = 0; i < totalChunks; i++) {
+                if (!seen[i]) {
+                    results.add(new RagChunkFilterResult(i, true, RagChunkFilterResult.PRIORITY_MEDIUM));
+                    log.debug("RAG过滤: 片段{} LLM遗漏，默认KEEP中优先级", i + 1);
+                }
+            }
+        }
+
+        long keepCount = results.stream().filter(RagChunkFilterResult::keep).count();
+        log.info("RAG过滤结果: {}条 → KEEP {}条 / DISCARD {}条",
+                totalChunks, keepCount, totalChunks - keepCount);
+
+        return results;
+    }
+
+    /** 全部保留（兜底） */
+    private List<RagChunkFilterResult> allKeep(int size) {
+        List<RagChunkFilterResult> results = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            results.add(new RagChunkFilterResult(i, true, RagChunkFilterResult.PRIORITY_MEDIUM));
+        }
+        return results;
+    }
+
+    /**
+     * 生成图书精炼摘要：将 chapterSummary + 标签 + 目录 压缩为高信息密度的结构化摘要。
+     *
+     * <p>一次 LLM 调用，生成后存入 Book.compressedSummary，后续问答直接复用。
+     * 不设长度上限，以精炼为目标，保留所有关键信息。</p>
+     *
+     * @param book 书籍实体（需含 chapterSummary, description, toc, 各类标签）
+     * @return 精炼后的摘要文本，失败时返回 null
+     */
+    public String generateCompressedSummary(Book book) {
+        try {
+            StringBuilder input = new StringBuilder();
+
+            if (book.getDescription() != null && !book.getDescription().isBlank()) {
+                input.append("【图书简介】\n").append(book.getDescription()).append("\n\n");
+            }
+            if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+                input.append("【格式标签】").append(book.getFormatTags()).append("\n");
+            }
+            if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+                input.append("【核心概念标签】").append(book.getConceptTags()).append("\n");
+            }
+            if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+                input.append("【读者需求标签】").append(book.getReaderNeedTags()).append("\n");
+            }
+            if (book.getTargetReaderTags() != null && !book.getTargetReaderTags().isBlank()) {
+                input.append("【目标读者标签】").append(book.getTargetReaderTags()).append("\n");
+            }
+            if (book.getToc() != null && !book.getToc().isBlank()) {
+                input.append("\n【图书目录】\n").append(book.getToc()).append("\n");
+            }
+            if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+                input.append("\n【章节原文摘录】\n").append(book.getChapterSummary()).append("\n");
+            }
+
+            String prompt = String.format("""
+                    你是一位专业的图书编辑。请根据以下图书信息，生成一份精炼的结构化摘要。
+
+                    要求：
+                    1. 精炼高于简短：不设字数上限，但每个字都要有价值，不废话
+                    2. 保留所有关键信息：核心论点、论证思路、重要概念、章节脉络
+                    3. 结构化输出：
+
+                    【一句话概括】用一句话概括本书的核心内容（≤100字）
+
+                    【核心论点】列出 3-5 个核心论点或观点，每条用 1-2 句话说明
+
+                    【章节脉络】按目录顺序，说明各主要章节/部分的核心内容及其关系（每章一句话）
+
+                    【关键概念】列出书中重要的术语、概念及其简要定义
+
+                    【独特贡献】本书在该领域中的独特贡献或与同类书的差异（如有）
+
+                    【适合读者】适合什么样的读者阅读
+
+                    ———
+
+                    %s
+                    """, input.toString());
+
+            String result = callAi("图书摘要精炼",
+                    String.format("book=%s, inputLen=%d", book.getTitle(), input.length()),
+                    prompt);
+
+            if (result != null && !result.isBlank()) {
+                log.info("图书摘要精炼成功: bookId={}, title={}, resultLen={}",
+                        book.getId(), book.getTitle(), result.length());
+                return result;
+            }
+
+        } catch (Exception e) {
+            log.warn("图书摘要精炼失败: bookId={}, title={} - {}", book.getId(), book.getTitle(), e.getMessage());
+        }
+        return null;
+    }
+
     /**
      * 生成 3 分钟速读摘要（不含用户画像）。
      *
