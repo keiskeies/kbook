@@ -1,5 +1,6 @@
 package com.kbook.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.kbook.common.api.Result;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.SpeakRequest;
@@ -45,7 +46,7 @@ public class RoundTableController extends BaseController {
      */
     @Operation(summary = "获取推荐角色")
     @GetMapping("/books/{bookId}/roles")
-    public Result<List<RoleVO>> getRecommendedRoles(@PathVariable Long bookId) {
+    public Result<List<RoleVO>> getRecommendedRoles(@PathVariable Long bookId) throws JsonProcessingException {
         return Result.ok(roundTableService.getRecommendedRoles(bookId));
     }
 

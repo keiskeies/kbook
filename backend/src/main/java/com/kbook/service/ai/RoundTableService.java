@@ -1,5 +1,7 @@
 package com.kbook.service.ai;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
@@ -34,7 +36,7 @@ import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -71,7 +73,7 @@ public class RoundTableService {
     private final QdrantProperties qdrantProperties;
     private final RoundTableSessionRepository sessionRepository;
     private final RoundTableMessageRepository messageRepository;
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
 
     /** SSE 异步执行线程池 */
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
@@ -102,7 +104,7 @@ public class RoundTableService {
      * 根据书籍信息通过 LLM 推荐角色列表
      * <p>
      * 始终包含主持人，LLM 推荐 4-6 个其他角色并赋值 domainRelevance。
-     * 总共返回 12 个角色（HOST + 11 个非 HOST），其中 LLM 推荐的标记为 selected。
+     * 总共返回 20 个角色（HOST + 11 个非 HOST），其中 LLM 推荐的标记为 selected。
      * LLM 失败时回退到标签匹配。
      *
      * @param bookId 书籍ID
@@ -110,14 +112,19 @@ public class RoundTableService {
      */
     @LogAction("LLM推荐角色")
     @SuppressWarnings("unchecked")
-    public List<RoleVO> getRecommendedRoles(Long bookId) {
+    public List<RoleVO> getRecommendedRoles(Long bookId) throws JsonProcessingException {
         // 读缓存
         String cacheKey = ROLES_CACHE_KEY_PREFIX + bookId;
-        Object cached = redisTemplate.opsForValue().get(cacheKey);
-        if (cached instanceof List<?> list) {
-            if (!list.isEmpty() && list.get(0) instanceof RoleVO) {
-                log.debug("角色推荐缓存命中: bookId={}", bookId);
-                return (List<RoleVO>) list;
+        String cachedJson = stringRedisTemplate.opsForValue().get(cacheKey);
+        if (cachedJson != null) {
+            try {
+                List<RoleVO> cached = objectMapper.readValue(cachedJson, new TypeReference<List<RoleVO>>() {});
+                if (cached != null && !cached.isEmpty()) {
+                    log.debug("角色推荐缓存命中: bookId={}", bookId);
+                    return cached;
+                }
+            } catch (Exception e) {
+                log.warn("反序列化角色推荐缓存失败: bookId={} - {}", bookId, e.getMessage());
             }
         }
 
@@ -146,7 +153,7 @@ public class RoundTableService {
                             .filter(Objects::nonNull)
                             .toList();
                     List<RoleVO> roles = buildRoleListFromSelected(selectedEnums);
-                    redisTemplate.opsForValue().set(cacheKey, roles, ROLES_CACHE_TTL_HOURS, TimeUnit.HOURS);
+                    stringRedisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(roles), ROLES_CACHE_TTL_HOURS, TimeUnit.HOURS);
                     return roles;
                 }
             }
@@ -156,7 +163,7 @@ public class RoundTableService {
 
         // 回退到标签匹配
         List<RoleVO> fallbackRoles = getFallbackRolesByTags(book);
-        redisTemplate.opsForValue().set(cacheKey, fallbackRoles, ROLES_CACHE_TTL_HOURS, TimeUnit.HOURS);
+        stringRedisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(fallbackRoles), ROLES_CACHE_TTL_HOURS, TimeUnit.HOURS);
         return fallbackRoles;
     }
 
@@ -274,7 +281,7 @@ public class RoundTableService {
     }
 
     /**
-     * 从已选角色列表构建 18 人名单（HOST 始终包含且选中）
+     * 从已选角色列表构建 20 人名单（HOST 始终包含且选中）
      */
     private List<RoleVO> buildRoleListFromSelected(List<RoundTableRole> selectedRoles) {
         List<RoleVO> result = new ArrayList<>();
@@ -299,7 +306,7 @@ public class RoundTableService {
                 .collect(Collectors.toList());
         Collections.shuffle(remaining);
         for (RoundTableRole role : remaining) {
-            if (result.size() >= 18) break;
+            if (result.size() >= 20) break;
             RoleVO vo = RoleVO.from(role);
             vo.setSelected(false);
             result.add(vo);
@@ -339,7 +346,7 @@ public class RoundTableService {
                 .collect(Collectors.toList());
         Collections.shuffle(remainingRoles);
         for (RoundTableRole role : remainingRoles) {
-            if (result.size() >= 12) break;
+            if (result.size() >= 20) break;
             RoleVO vo = RoleVO.from(role);
             vo.setSelected(false);
             result.add(vo);
