@@ -16,7 +16,10 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.PartialResponse;
+import dev.langchain4j.model.chat.response.PartialResponseContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.chat.response.StreamingHandle;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -759,13 +762,19 @@ public class ChatModelManager {
             model.chat(
                     List.of(UserMessage.from(prompt)),
                     new StreamingChatResponseHandler() {
+                        StreamingHandle streamingHandle;
+
                         @Override
-                        public void onPartialResponse(String partialResponse) {
-                            if (connectionClosed[0] || Thread.currentThread().isInterrupted()) return;
-                            if (partialResponse != null && !partialResponse.isEmpty()) {
-                                if (!SseHelper.safeSendEvent(emitter, "message", partialResponse)) {
+                        public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
+                            if (streamingHandle == null) {
+                                streamingHandle = context.streamingHandle();
+                            }
+                            if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) return;
+                            String text = partialResponse.text();
+                            if (text != null && !text.isEmpty()) {
+                                if (!SseHelper.safeSendEvent(emitter, "message", text)) {
                                     connectionClosed[0] = true;
-                                    Thread.currentThread().interrupt();
+                                    if (streamingHandle != null) streamingHandle.cancel();
                                     log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", book.getId());
                                 }
                             }
@@ -794,11 +803,10 @@ public class ChatModelManager {
 
                         @Override
                         public void onError(Throwable error) {
-                            if (connectionClosed[0]) {
+                            if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) {
                                 log.warn("SSE 连接已断开，跳过错误处理: bookId={}", book.getId());
                                 return;
                             }
-                            if (Thread.currentThread().isInterrupted()) return;
                             log.warn("流式速读摘要失败: bookId={} - {}", book.getId(), error.getMessage());
                             SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(error));
                         }

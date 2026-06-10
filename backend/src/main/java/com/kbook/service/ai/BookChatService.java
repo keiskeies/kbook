@@ -10,7 +10,6 @@ import com.kbook.service.embedding.EmbeddingService;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
-import com.kbook.config.CancellableHttpClientBuilder;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
@@ -31,7 +30,12 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.PartialResponse;
+import dev.langchain4j.model.chat.response.PartialResponseContext;
+import dev.langchain4j.model.chat.response.PartialThinking;
+import dev.langchain4j.model.chat.response.PartialThinkingContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -177,9 +181,7 @@ public class BookChatService {
         } catch (Exception ignored) {
         }
 
-        final long[] executorThreadId = new long[1];
         Future<?> aiFuture = sseExecutor.submit(() -> {
-            executorThreadId[0] = Thread.currentThread().getId();
             try {
                 Book book = bookService.getBookById(bookId);
                 if (book == null) {
@@ -256,28 +258,37 @@ public class BookChatService {
                 streamingChatModel.chat(
                         messages,
                         new StreamingChatResponseHandler() {
+                            StreamingHandle streamingHandle;
+
                             @Override
-                            public void onPartialThinking(dev.langchain4j.model.chat.response.PartialThinking partialThinking) {
-                                if (connectionClosed[0] || Thread.currentThread().isInterrupted()) return;
+                            public void onPartialThinking(PartialThinking partialThinking, PartialThinkingContext context) {
+                                if (streamingHandle == null) {
+                                    streamingHandle = context.streamingHandle();
+                                }
+                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) return;
                                 String thinking = partialThinking.text();
                                 if (thinking != null && !thinking.isEmpty()) {
                                     fullThinking.append(thinking);
                                     if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinking)) {
                                         connectionClosed[0] = true;
-                                        Thread.currentThread().interrupt();
+                                        if (streamingHandle != null) streamingHandle.cancel();
                                         log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", bookId);
                                     }
                                 }
                             }
 
                             @Override
-                            public void onPartialResponse(String partialResponse) {
-                                if (connectionClosed[0] || Thread.currentThread().isInterrupted()) return;
-                                fullResponse.append(partialResponse);
-                                if (!partialResponse.isEmpty()) {
-                                    if (!SseHelper.safeSendEvent(emitter, "message", partialResponse)) {
+                            public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
+                                if (streamingHandle == null) {
+                                    streamingHandle = context.streamingHandle();
+                                }
+                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) return;
+                                String text = partialResponse.text();
+                                fullResponse.append(text);
+                                if (!text.isEmpty()) {
+                                    if (!SseHelper.safeSendEvent(emitter, "message", text)) {
                                         connectionClosed[0] = true;
-                                        Thread.currentThread().interrupt();
+                                        if (streamingHandle != null) streamingHandle.cancel();
                                         log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", bookId);
                                     }
                                 }
@@ -321,11 +332,10 @@ public class BookChatService {
 
                             @Override
                             public void onError(Throwable error) {
-                                if (connectionClosed[0]) {
+                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) {
                                     log.warn("SSE 连接已断开，跳过错误处理: bookId={}", bookId);
                                     return;
                                 }
-                                if (Thread.currentThread().isInterrupted()) return;
                                 log.error("图书问答流式异常: bookId={} - {}", bookId, error.getMessage(), error);
                                 aiProviderConfigService.clearAssistantCache();
                                 SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(error));
@@ -338,22 +348,15 @@ public class BookChatService {
                 log.error("图书问答异常: bookId={} - {}", bookId, e.getMessage(), e);
                 aiProviderConfigService.clearAssistantCache();
                 SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(e));
-            } finally {
-                CancellableHttpClientBuilder.clearStream(executorThreadId[0]);
             }
         });
 
-        emitter.onCompletion(() -> {
-            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
-            aiFuture.cancel(true);
-        });
+        emitter.onCompletion(() -> aiFuture.cancel(true));
         emitter.onTimeout(() -> {
-            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
             aiFuture.cancel(true);
             log.warn("图书问答SSE超时: bookId={}", bookId);
         });
         emitter.onError(e -> {
-            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
             aiFuture.cancel(true);
             log.error("图书问答SSE错误: bookId={}", bookId, e);
         });

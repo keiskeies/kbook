@@ -9,7 +9,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
-import com.kbook.config.CancellableHttpClientBuilder;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
@@ -1931,28 +1930,11 @@ public class BookParserService {
         }
 
         com.kbook.entity.User finalUser = user;
-        final long[] executorThreadId = new long[1];
-        Future<?> aiFuture = sseExecutor.submit(() -> {
-            executorThreadId[0] = Thread.currentThread().getId();
-            try {
-                chatModelManager.streamSpeedRead(book, finalUser, emitter);
-            } finally {
-                CancellableHttpClientBuilder.clearStream(executorThreadId[0]);
-            }
-        });
+        Future<?> aiFuture = sseExecutor.submit(() -> chatModelManager.streamSpeedRead(book, finalUser, emitter));
 
-        emitter.onCompletion(() -> {
-            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
-            aiFuture.cancel(true);
-        });
-        emitter.onTimeout(() -> {
-            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
-            aiFuture.cancel(true);
-        });
-        emitter.onError(e -> {
-            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
-            aiFuture.cancel(true);
-        });
+        emitter.onCompletion(() -> aiFuture.cancel(true));
+        emitter.onTimeout(() -> aiFuture.cancel(true));
+        emitter.onError(e -> aiFuture.cancel(true));
 
         return emitter;
     }

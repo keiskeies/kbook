@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
-import com.kbook.config.CancellableHttpClientBuilder;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
@@ -28,7 +27,10 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.PartialResponse;
+import dev.langchain4j.model.chat.response.PartialResponseContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -1060,9 +1062,7 @@ public class RoundTableService {
         // 获取角色的 languageStyle（从 roleConfigs JSON 中读取）
         String languageStyle = resolveLanguageStyle(role, session.getRoleConfigs());
 
-        final long[] executorThreadId = new long[1];
         Future<?> aiFuture = sseExecutor.submit(() -> {
-            executorThreadId[0] = Thread.currentThread().getId();
             try {
                 Book book = bookService.getBookById(bookId);
 
@@ -1104,29 +1104,35 @@ public class RoundTableService {
                 streamingChatModel.chat(
                         messages,
                         new StreamingChatResponseHandler() {
+                            StreamingHandle streamingHandle;
+
                             @Override
                             public void onPartialThinking(dev.langchain4j.model.chat.response.PartialThinking partialThinking) {
                                 // 不使用 thinking 模式，忽略
                             }
 
                             @Override
-                            public void onPartialResponse(String partialResponse) {
-                                if (connectionClosed[0] || Thread.currentThread().isInterrupted()) return;
-                                if (partialResponse == null || partialResponse.isEmpty()) return;
+                            public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
+                                if (streamingHandle == null) {
+                                    streamingHandle = context.streamingHandle();
+                                }
+                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) return;
+                                String text = partialResponse.text();
+                                if (text == null || text.isEmpty()) return;
 
-                                fullResponse.append(partialResponse);
+                                fullResponse.append(text);
 
                                 try {
                                     String json = objectMapper.writeValueAsString(
-                                            Map.of("roleKey", role.getKey(), "text", partialResponse));
+                                            Map.of("roleKey", role.getKey(), "text", text));
                                     if (!SseHelper.safeSendEvent(emitter, "message", json)) {
                                         connectionClosed[0] = true;
-                                        Thread.currentThread().interrupt();
+                                        if (streamingHandle != null) streamingHandle.cancel();
                                         log.warn("SSE 连接已关闭，停止 AI 输出: roleKey={}", role.getKey());
                                     }
                                 } catch (Exception e) {
                                     connectionClosed[0] = true;
-                                    Thread.currentThread().interrupt();
+                                    if (streamingHandle != null) streamingHandle.cancel();
                                     log.debug("发送 message 事件失败，停止 AI 输出: {}", e.getMessage());
                                 }
                             }
@@ -1187,7 +1193,7 @@ public class RoundTableService {
 
                             @Override
                             public void onError(Throwable error) {
-                                if (Thread.currentThread().isInterrupted()) return;
+                                if (streamingHandle != null && streamingHandle.isCancelled()) return;
                                 log.error("圆桌派单角色发言异常: bookId={}, roleKey={} - {}", bookId, role.getKey(), error.getMessage(), error);
                                 SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(error));
                             }
@@ -1198,22 +1204,15 @@ public class RoundTableService {
                 if (Thread.currentThread().isInterrupted()) return;
                 log.error("圆桌派单角色发言异常: bookId={}, roleKey={} - {}", bookId, role.getKey(), e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(e));
-            } finally {
-                CancellableHttpClientBuilder.clearStream(executorThreadId[0]);
             }
         });
 
-        emitter.onCompletion(() -> {
-            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
-            aiFuture.cancel(true);
-        });
+        emitter.onCompletion(() -> aiFuture.cancel(true));
         emitter.onTimeout(() -> {
-            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
             aiFuture.cancel(true);
             log.warn("圆桌派SSE超时: bookId={}, roleKey={}", bookId, role.getKey());
         });
         emitter.onError(e -> {
-            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
             aiFuture.cancel(true);
             log.error("圆桌派SSE错误: bookId={}, roleKey={}", bookId, role.getKey(), e);
         });
