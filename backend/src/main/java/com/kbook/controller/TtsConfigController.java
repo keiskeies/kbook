@@ -19,7 +19,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
-import java.util.concurrent.Executor;
+import java.util.concurrent.Future;
+
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 @Slf4j
 @RestController
@@ -34,7 +36,7 @@ public class TtsConfigController {
 
     /** SSE 异步执行器（由 AsyncExecutorConfig 提供，自动 shutdown） */
     @Qualifier("sseExecutor")
-    private final Executor sseExecutor;
+    private final ThreadPoolTaskExecutor sseExecutor;
 
     @Operation(summary = "获取当前TTS配置")
     @GetMapping("/api/tts/config/active")
@@ -67,20 +69,27 @@ public class TtsConfigController {
         long start = System.currentTimeMillis();
         SseEmitter emitter = new SseEmitter(300_000L);
 
-        emitter.onCompletion(() -> log.info("TTS stream completed: elapsed={}ms", System.currentTimeMillis() - start));
-        emitter.onTimeout(() -> {
-            log.warn("TTS stream timed out: elapsed={}ms", System.currentTimeMillis() - start);
-            emitter.complete();
-        });
-        emitter.onError(e -> log.warn("TTS stream error: {}, elapsed={}ms", e.getMessage(), System.currentTimeMillis() - start));
-
-        sseExecutor.execute(() -> {
+        Future<?> aiFuture = sseExecutor.submit(() -> {
             try {
                 ttsConfigService.synthesizeStream(request.getText(), request.getConfigId(), emitter);
             } catch (Exception e) {
                 log.error("TTS stream synthesis failed", e);
                 SseHelper.sendErrorAndComplete(emitter, e.getMessage());
             }
+        });
+
+        emitter.onCompletion(() -> {
+            aiFuture.cancel(true);
+            log.info("TTS stream completed: elapsed={}ms", System.currentTimeMillis() - start);
+        });
+        emitter.onTimeout(() -> {
+            aiFuture.cancel(true);
+            log.warn("TTS stream timed out: elapsed={}ms", System.currentTimeMillis() - start);
+            emitter.complete();
+        });
+        emitter.onError(e -> {
+            aiFuture.cancel(true);
+            log.warn("TTS stream error: {}, elapsed={}ms", e.getMessage(), System.currentTimeMillis() - start);
         });
 
         return emitter;

@@ -2,6 +2,7 @@ package com.kbook.service.ai;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.CancellableHttpClientBuilder;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -106,7 +108,9 @@ public class AiChatService {
         SecurityContext securityContext = SecurityContextHolder.getContext();
 
         // 在独立线程中执行 AI 对话，避免阻塞主线程
-        sseExecutor.execute(() -> {
+        final long[] executorThreadId = new long[1];
+        Future<?> aiFuture = sseExecutor.submit(() -> {
+            executorThreadId[0] = Thread.currentThread().getId();
             // 恢复安全上下文
             SecurityContextHolder.setContext(securityContext);
             // 恢复请求上下文
@@ -290,14 +294,27 @@ public class AiChatService {
                 }
             } finally {
                 // 清理线程上下文
+                CancellableHttpClientBuilder.clearStream(executorThreadId[0]);
                 ToolResultContext.unbind();
                 SecurityContextHolder.clearContext();
                 RequestContextHolder.resetRequestAttributes();
             }
         });
 
-        emitter.onTimeout(() -> log.warn("SSE 超时: sessionId={}", sessionId));
-        emitter.onError((e) -> log.error("SSE 错误: sessionId={}", sessionId, e));
+        emitter.onCompletion(() -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+        });
+        emitter.onTimeout(() -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+            log.warn("SSE 超时: sessionId={}", sessionId);
+        });
+        emitter.onError((e) -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+            log.error("SSE 错误: sessionId={}", sessionId, e);
+        });
 
         return emitter;
     }

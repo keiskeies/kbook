@@ -4,6 +4,7 @@ import com.kbook.config.properties.AiModelProperties;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.http.client.HttpClientBuilderLoader;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
@@ -573,6 +574,7 @@ public class ChatModelFactory {
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
+                .httpClientBuilder(new CancellableHttpClientBuilder(HttpClientBuilderLoader.loadHttpClientBuilder()))
                 .listeners(List.of(ollamaCounterListener()))
                 .returnThinking(thinking).think(thinking)
                 .build();
@@ -622,6 +624,7 @@ public class ChatModelFactory {
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
+                .httpClientBuilder(new CancellableHttpClientBuilder(HttpClientBuilderLoader.loadHttpClientBuilder()))
                 .returnThinking(thinking).sendThinking(thinking)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");

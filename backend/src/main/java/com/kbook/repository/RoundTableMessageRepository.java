@@ -16,12 +16,12 @@ public interface RoundTableMessageRepository extends JpaRepository<RoundTableMes
     /**
      * 按会话ID查询消息，按创建时间升序排列
      */
-    List<RoundTableMessage> findBySessionIdOrderByCreatedAtAsc(String sessionId);
+    List<RoundTableMessage> findBySessionIdOrderByIdAsc(String sessionId);
 
     /**
      * 按用户和会话ID查询消息，按创建时间升序排列
      */
-    List<RoundTableMessage> findByUserIdAndSessionIdOrderByCreatedAtAsc(Long userId, String sessionId);
+    List<RoundTableMessage> findByUserIdAndSessionIdOrderByIdAsc(Long userId, String sessionId);
 
     /**
      * 统计会话 compressed_content 总长度（字符数）
@@ -38,7 +38,7 @@ public interface RoundTableMessageRepository extends JpaRepository<RoundTableMes
     @Query(value = "SELECT * FROM round_table_messages " +
             "WHERE user_id = :userId AND session_id = :sessionId AND role_key != 'HOST' " +
             "AND COALESCE(compressed_content, content) = content " +
-            "ORDER BY created_at ASC LIMIT 1",
+            "ORDER BY id LIMIT 1",
             nativeQuery = true)
     Optional<RoundTableMessage> findFirstUncompressibleMessage(@Param("userId") Long userId, @Param("sessionId") String sessionId);
 

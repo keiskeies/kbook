@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.CancellableHttpClientBuilder;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
@@ -39,6 +40,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -110,8 +112,7 @@ public class RoundTableService {
         // 读缓存
         String cacheKey = ROLES_CACHE_KEY_PREFIX + bookId;
         Object cached = redisTemplate.opsForValue().get(cacheKey);
-        if (cached instanceof List) {
-            List<?> list = (List<?>) cached;
+        if (cached instanceof List<?> list) {
             if (!list.isEmpty() && list.get(0) instanceof RoleVO) {
                 log.debug("角色推荐缓存命中: bookId={}", bookId);
                 return (List<RoleVO>) list;
@@ -416,7 +417,7 @@ public class RoundTableService {
      */
     @LogAction("获取圆桌派历史")
     public List<RoundTableMessage> getHistory(Long userId, String sessionId) {
-        return messageRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+        return messageRepository.findByUserIdAndSessionIdOrderByIdAsc(userId, sessionId);
     }
 
     /**
@@ -440,7 +441,7 @@ public class RoundTableService {
 
         // 2. 加载所有历史消息
         List<RoundTableMessage> allMessages = messageRepository
-                .findBySessionIdOrderByCreatedAtAsc(sessionId);
+                .findBySessionIdOrderByIdAsc(sessionId);
 
         // 3. 统计发言数据
         String[] roleKeys = session.getRoleKeys().split(",");
@@ -805,23 +806,31 @@ public class RoundTableService {
         RoundTableSession session = sessionRepository.findBySessionId(sessionId)
                 .orElseThrow(() -> new BusinessException("会话不存在"));
 
-        // 2. 加载所有历史消息
-        List<RoundTableMessage> allMessages = messageRepository
-                .findBySessionIdOrderByCreatedAtAsc(sessionId);
+        // 2. 构建角色信息（不依赖消息列表，可先构建）
+        String rolesInfo = buildRolesInfoForLLMSpeakerSelection(session);
 
-        // 3. 统计发言数据
+        // 3. 加载历史消息并同步压缩（一次 DB 查询）
+        int currentOverhead = AiPromptConstants.ROUND_TABLE_NEXT_SPEAKER_LLM_ONLY_PROMPT.length()
+                + rolesInfo.length()
+                + 1000; // fairnessConstraints 预估 + LLM 回复预留
+        List<RoundTableMessage> allMessages;
+        try {
+            allMessages = loadAndCompressHistory(userId, sessionId, currentOverhead);
+        } catch (Exception e) {
+            log.warn("加载/压缩圆桌派历史失败，回退到直接加载: {}", e.getMessage());
+            allMessages = messageRepository.findBySessionIdOrderByIdAsc(sessionId);
+        }
+
+        // 4. 统计发言数据
         String[] roleKeys = session.getRoleKeys().split(",");
         Map<String, Long> speakCounts = allMessages.stream()
                 .collect(Collectors.groupingBy(RoundTableMessage::getRoleKey, Collectors.counting()));
 
-        // 4. 构建角色信息（含性格参数、专业领域、说话风格）
-        String rolesInfo = buildRolesInfoForLLMSpeakerSelection(session);
-
-        // 5. 构建加权对话历史
-        String weightedHistory = buildWeightedHistoryForLLM(allMessages);
-
-        // 6. 构建公平性约束说明
+        // 5. 构建公平性约束说明
         String fairnessConstraints = buildFairnessConstraints(roleKeys, speakCounts, allMessages);
+
+        // 6. 构建加权对话历史（压缩后，使用 compressedContent）
+        String weightedHistory = buildWeightedHistoryForLLM(allMessages);
 
         // 7. 构建提示词并调用 LLM
         String prompt = String.format(
@@ -906,7 +915,10 @@ public class RoundTableService {
 
         for (int i = 0; i < total; i++) {
             RoundTableMessage msg = allMessages.get(i);
-            String content = msg.getContent();
+            // 优先使用压缩后的摘要内容，避免原始长文本导致上下文溢出
+            String content = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
+                    ? msg.getCompressedContent()
+                    : msg.getContent();
             if (content != null && content.length() > 150) {
                 content = content.substring(0, 150) + "...";
             }
@@ -1048,7 +1060,9 @@ public class RoundTableService {
         // 获取角色的 languageStyle（从 roleConfigs JSON 中读取）
         String languageStyle = resolveLanguageStyle(role, session.getRoleConfigs());
 
-        sseExecutor.execute(() -> {
+        final long[] executorThreadId = new long[1];
+        Future<?> aiFuture = sseExecutor.submit(() -> {
+            executorThreadId[0] = Thread.currentThread().getId();
             try {
                 Book book = bookService.getBookById(bookId);
 
@@ -1066,7 +1080,7 @@ public class RoundTableService {
                     }
                     // 角色视角 RAG 检索 — 每个角色根据自己的专业角度搜索书中相关内容
                     List<RoundTableMessage> historyMessages = messageRepository
-                            .findBySessionIdOrderByCreatedAtAsc(request.getSessionId());
+                            .findBySessionIdOrderByIdAsc(request.getSessionId());
                     String ragContext = retrieveRagContextForRole(book, role, historyMessages);
                     bookContext = buildBookContext(book, ragContext);
                 }
@@ -1148,7 +1162,7 @@ public class RoundTableService {
 
                                     // 同步压缩历史（确保下次查询时已有压缩内容）
                                     try {
-                                        compressHistoryIfNeeded(userId, request.getSessionId());
+                                        compressHistoryIfNeeded(userId, request.getSessionId(), 0);
                                     } catch (Exception e) {
                                         log.warn("压缩圆桌派历史失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
                                     }
@@ -1184,11 +1198,25 @@ public class RoundTableService {
                 if (Thread.currentThread().isInterrupted()) return;
                 log.error("圆桌派单角色发言异常: bookId={}, roleKey={} - {}", bookId, role.getKey(), e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(e));
+            } finally {
+                CancellableHttpClientBuilder.clearStream(executorThreadId[0]);
             }
         });
 
-        emitter.onTimeout(() -> log.warn("圆桌派SSE超时: bookId={}, roleKey={}", bookId, role.getKey()));
-        emitter.onError(e -> log.error("圆桌派SSE错误: bookId={}, roleKey={}", bookId, role.getKey(), e));
+        emitter.onCompletion(() -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+        });
+        emitter.onTimeout(() -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+            log.warn("圆桌派SSE超时: bookId={}, roleKey={}", bookId, role.getKey());
+        });
+        emitter.onError(e -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+            log.error("圆桌派SSE错误: bookId={}, roleKey={}", bookId, role.getKey(), e);
+        });
 
         return emitter;
     }
@@ -1344,9 +1372,13 @@ public class RoundTableService {
             speakInstruction = "请以" + roleName + "的身份发言。直接接话，绝对不要以「刚才大家...」「前面几位...」「听了各位...」开头，直接说你的观点。";
         }
 
-        // 从数据库加载历史消息（放在后面，让LLM先关注要求）
+        // 加载历史消息并同步压缩，确保 LLM 上下文不超限
+        int currentOverhead = systemPrompt.length()
+                + (bookContext != null ? bookContext.length() : 0)
+                + speakInstruction.length()
+                + 2000; // AI 回复预留
         try {
-            List<RoundTableMessage> history = messageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+            List<RoundTableMessage> history = loadAndCompressHistory(userId, sessionId, currentOverhead);
             if (!history.isEmpty()) {
                 StringBuilder historyBuilder = new StringBuilder("【之前的讨论内容】\n");
                 for (RoundTableMessage msg : history) {
@@ -1382,7 +1414,7 @@ public class RoundTableService {
                              String roleKey, String roleName, String content) {
         try {
             // 计算当前轮次
-            List<RoundTableMessage> existing = messageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+            List<RoundTableMessage> existing = messageRepository.findBySessionIdOrderByIdAsc(sessionId);
             int round = 1;
             if (!existing.isEmpty()) {
                 Integer lastRound = existing.get(existing.size() - 1).getRound();
@@ -1415,54 +1447,96 @@ public class RoundTableService {
         });
     }
 
-    // ==================== 消息压缩 ====================
+    // ==================== 消息加载与压缩 ====================
 
     /**
-     * 按需压缩会话历史消息，防止超出模型 token 限制
-     * <p>
-     * 与 BookChatService.compressHistoryIfNeeded 同一模式
+     * 加载历史消息并同步压缩，一次 DB 查询完成加载+压缩判断+压缩执行。
+     * 避免 {@link #compressHistoryIfNeeded} 加载后调用方再次查询数据库。
+     *
+     * @param userId               用户ID
+     * @param sessionId            会话ID
+     * @param currentOverheadChars 当前请求的系统开销字符数（系统提示词、书籍上下文、发言指令等固定部分）
+     * @return 压缩后的消息列表，可直接用于构建 ChatMessage
      */
-    private void compressHistoryIfNeeded(Long userId, String sessionId) {
+    private List<RoundTableMessage> loadAndCompressHistory(Long userId, String sessionId, int currentOverheadChars) {
+        // 1. 一次查询加载所有消息
+        List<RoundTableMessage> messages = messageRepository.findByUserIdAndSessionIdOrderByIdAsc(userId, sessionId);
+        if (messages.isEmpty()) return messages;
+
+        // 2. 内存计算总字符数（优先 compressedContent）
+        long totalChars = messages.stream()
+                .mapToLong(m -> {
+                    String c = m.getCompressedContent();
+                    return c != null ? c.length() : (m.getContent() != null ? m.getContent().length() : 0);
+                })
+                .sum();
+
+        // 3. 计算阈值
         Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
         int tokenLimit = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
         int charLimit = (int) (tokenLimit * TOKEN_TO_CHAR_RATIO);
-        long compressTarget = (long) (charLimit * COMPRESS_TARGET_RATIO);
+        long compressTarget = (long) (charLimit * COMPRESS_TARGET_RATIO) - currentOverheadChars;
 
-        try {
-            long totalChars = messageRepository.sumCompressedContentLength(userId, sessionId);
-            if (totalChars < charLimit * COMPRESS_TRIGGER_RATIO) return;
-
-            int compressed = 0;
-            while (totalChars >= Math.max(compressTarget, 0)) {
-                RoundTableMessage target = messageRepository
-                        .findFirstUncompressibleMessage(userId, sessionId)
-                        .orElse(null);
-                if (target == null) {
-                    log.info("无可压缩的圆桌派消息: sessionId={}, compressed={}", sessionId, compressed);
-                    return;
-                }
-
-                String original = target.getContent();
-                String summary = chatModelManager.compressContent(original);
-                if (summary == null) {
-                    log.warn("压缩失败(跳过): sessionId={}, msgId={}", sessionId, target.getId());
-                    break;
-                }
-
-                target.setCompressedContent(summary);
-                messageRepository.save(target);
-                totalChars = totalChars - CHAR_LENGTH_ESTIMATE.apply(original) + CHAR_LENGTH_ESTIMATE.apply(summary);
-                compressed++;
-                log.info("压缩圆桌派消息: sessionId={}, msgId={}, {}→{} chars, totalChars={}",
-                        sessionId, target.getId(), original.length(), summary.length(), totalChars);
-            }
-
-            if (compressed > 0) {
-                log.info("圆桌派压缩完成: sessionId={}, compressed={}条", sessionId, compressed);
-            }
-        } catch (Exception e) {
-            log.warn("压缩圆桌派历史消息失败: {}", e.getMessage());
+        // 4. 未达触发阈值，直接返回
+        if (totalChars < charLimit * COMPRESS_TRIGGER_RATIO) {
+            return messages;
         }
+
+        // 5. 从内存中找最老的未压缩消息并压缩（避免逐条 DB 查询）
+        int compressed = 0;
+        while (totalChars >= Math.max(compressTarget, 0)) {
+            RoundTableMessage target = findFirstUncompressedInMemory(messages);
+            if (target == null) {
+                log.info("无可压缩的圆桌派消息: sessionId={}, compressed={}", sessionId, compressed);
+                break;
+            }
+
+            String original = target.getContent();
+            String summary = chatModelManager.compressContent(original);
+            if (summary == null) {
+                log.warn("压缩失败(跳过): sessionId={}, msgId={}", sessionId, target.getId());
+                break;
+            }
+
+            target.setCompressedContent(summary);
+            messageRepository.save(target);
+            totalChars = totalChars - original.length() + summary.length();
+            compressed++;
+            log.info("压缩圆桌派消息: sessionId={}, msgId={}, {}→{} chars, totalChars={}",
+                    sessionId, target.getId(), original.length(), summary.length(), totalChars);
+        }
+
+        if (compressed > 0) {
+            log.info("圆桌派压缩完成: sessionId={}, compressed={}条", sessionId, compressed);
+        }
+
+        return messages;
+    }
+
+    /**
+     * 从内存列表中查找第一条未压缩的非 HOST 消息。
+     * 未压缩判定：compressedContent 为 null，或与 content 完全相同（创建时初始化相等）。
+     */
+    private RoundTableMessage findFirstUncompressedInMemory(List<RoundTableMessage> messages) {
+        for (RoundTableMessage msg : messages) {
+            if ("HOST".equals(msg.getRoleKey())) continue;
+            String compressed = msg.getCompressedContent();
+            String original = msg.getContent();
+            if (compressed == null || compressed.equals(original)) {
+                return msg;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 按需压缩会话历史消息（薄封装，无预加载列表时使用）。
+     * <p>
+     * 调用方已持有消息列表时应直接使用 {@link #loadAndCompressHistory}，
+     * 本方法仅在发言完成后等无预加载场景使用，内部仍会加载一次。
+     */
+    private void compressHistoryIfNeeded(Long userId, String sessionId, int currentOverheadChars) {
+        loadAndCompressHistory(userId, sessionId, currentOverheadChars);
     }
 
     // ==================== 书籍上下文构建 ====================
@@ -1523,7 +1597,7 @@ public class RoundTableService {
 //        }
 
         if (!ragContext.isBlank()) {
-            sb.append("\n【书籍参考内容】（以下是从原著中检索到的相关片段，讨论时请引用）\n");
+            sb.append("\n【书籍参考内容】（以下是从原著中检索到的相关内容，讨论时可参考）\n");
             sb.append(ragContext);
         } else {
             sb.append("\n【注意】未从原著中检索到直接相关的内容片段，请根据书籍基本信息进行讨论。\n");
@@ -1577,7 +1651,6 @@ public class RoundTableService {
                 String chunkText = match.embedded() != null ? match.embedded().text() : "";
                 if (chunkText.isBlank()) continue;
                 if (totalLen + chunkText.length() > maxChars) break;
-                sb.append("【参考片段").append(i + 1).append("】\n");
                 sb.append(chunkText).append("\n\n");
                 totalLen += chunkText.length();
             }
@@ -1679,7 +1752,6 @@ public class RoundTableService {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < Math.min(matches.size(), 8); i++) {
                 EmbeddingMatch<TextSegment> match = matches.get(i);
-                sb.append("〔片段").append(i + 1).append("〕\n");
                 sb.append(match.embedded().text()).append("\n\n");
             }
 

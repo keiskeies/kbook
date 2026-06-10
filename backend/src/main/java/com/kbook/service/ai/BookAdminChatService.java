@@ -2,6 +2,7 @@ package com.kbook.service.ai;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.CancellableHttpClientBuilder;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.AiConversation;
@@ -24,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -95,7 +97,9 @@ public class BookAdminChatService {
         ensureSession(userId, sessionId, userMessage);
         saveMessage(userId, sessionId, "user", userMessage);
 
-        sseExecutor.execute(() -> {
+        final long[] executorThreadId = new long[1];
+        Future<?> aiFuture = sseExecutor.submit(() -> {
+            executorThreadId[0] = Thread.currentThread().getId();
             StringBuilder fullResponse = new StringBuilder();
             StringBuilder fullThinking = new StringBuilder();
             AtomicBoolean cancelled = new AtomicBoolean(false);
@@ -200,11 +204,25 @@ public class BookAdminChatService {
                     emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                     emitter.complete();
                 } catch (Exception ignored) {}
+            } finally {
+                CancellableHttpClientBuilder.clearStream(executorThreadId[0]);
             }
         });
 
-        emitter.onTimeout(() -> log.warn("管理员 SSE 超时: sessionId={}", sessionId));
-        emitter.onError((e) -> log.error("管理员 SSE 错误: sessionId={}", sessionId, e));
+        emitter.onCompletion(() -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+        });
+        emitter.onTimeout(() -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+            log.warn("管理员 SSE 超时: sessionId={}", sessionId);
+        });
+        emitter.onError((e) -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+            log.error("管理员 SSE 错误: sessionId={}", sessionId, e);
+        });
 
         return emitter;
     }

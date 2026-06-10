@@ -478,6 +478,9 @@ export default function RoundTablePage() {
   const roleVoiceMapRef = useRef<Map<string, SpeechSynthesisVoice>>(new Map())
   // ttsEnabled 的 ref 版本，供 SSE 闭包读取最新值
   const ttsEnabledRef = useRef(false)
+  // 追踪最后一次完整朗读的消息在 messages 数组中的下标
+  // -1 = 未读过 / 已重置；用于暂停后继续播放的定位
+  const ttsLastReadIndexRef = useRef<number>(-1)
 
   const [, setSessionId] = useState<string | null>(null)
   const [, setActiveRoles] = useState<RoundTableRole[]>([])
@@ -573,7 +576,32 @@ export default function RoundTablePage() {
   }, [])
 
   // TTS — 消息完成后入队，按顺序逐条朗读
-  const ttsQueueRef = useRef<{ text: string; roleKey: string }[]>([])
+  // Chrome 的 SpeechSynthesis 对单段文本有 ~200 字的静默截断，
+  // 需要按句子边界分块，确保跨浏览器完整朗读。
+  const TTS_MAX_CHUNK = 180
+  const splitLongText = (text: string, maxLen = TTS_MAX_CHUNK): string[] => {
+    if (text.length <= maxLen) return [text]
+    const chunks: string[] = []
+    let start = 0
+    while (start < text.length) {
+      if (start + maxLen >= text.length) { chunks.push(text.slice(start)); break }
+      let end = start + maxLen
+      let found = false
+      // 优先在句子结束符处断开：。！？! ? .
+      for (let i = end; i > start; i--) {
+        if (/[。！？!?.]/.test(text[i - 1])) { chunks.push(text.slice(start, i)); start = i; found = true; break }
+      }
+      if (found) continue
+      // 其次在从句分隔符处断开：，；, ; 、 \n
+      for (let i = end; i > start; i--) {
+        if (/[，；,;、\n]/.test(text[i - 1])) { chunks.push(text.slice(start, i)); start = i; found = true; break }
+      }
+      if (!found) { chunks.push(text.slice(start, end)); start = end }
+    }
+    return chunks
+  }
+
+  const ttsQueueRef = useRef<{ text: string; roleKey: string; msgIndex: number }[]>([])
   const ttsSpeakingRef = useRef(false)
   const processTtsQueueRef = useRef<() => void>(() => {})
 
@@ -581,8 +609,20 @@ export default function RoundTablePage() {
     const synth = window.speechSynthesis
     if (!synth) return
     if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
+
+    // ====== 跨浏览器兼容：speak 前的清理 ======
+    // 1. 恢复被挂起的 synth（Chrome/Firefox 在标签页后台时会 pause）
+    try { synth.resume() } catch {}
+    // 2. Safari: onend 已触发但 synth.speaking 可能仍为 true，
+    //    需要 cancel 重置状态。注意 cancel() 可能同步触发 onend →
+    //    processTtsQueue 重入，因此 cancel 必须在 pop 之前执行。
+    try { if (synth.speaking) synth.cancel() } catch {}
+
+    // cancel() 可能触发了重入调用，重新检查守卫条件
+    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
+
+    const { text, roleKey, msgIndex } = ttsQueueRef.current.shift()!
     ttsSpeakingRef.current = true
-    const { text, roleKey } = ttsQueueRef.current.shift()!
 
     // 创建 utterance
     const utterance = new SpeechSynthesisUtterance(text)
@@ -624,11 +664,17 @@ export default function RoundTablePage() {
     }
 
     utterance.onend = () => {
+      if (msgIndex >= 0) ttsLastReadIndexRef.current = Math.max(ttsLastReadIndexRef.current, msgIndex)
       ttsSpeakingRef.current = false
       processTtsQueueRef.current()
     }
     utterance.onerror = (e) => {
-      console.warn('[TTS] onerror:', e?.error, 'text:', text.slice(0, 40))
+      // Chrome: 'canceled' / 'interrupted' 是正常的取消操作，不打印警告
+      if (e?.error !== 'canceled' && e?.error !== 'interrupted') {
+        console.warn('[TTS] onerror:', e?.error, 'text:', text.slice(0, 40))
+      }
+      // 朗读出错也推进下标，避免卡在同一条消息上
+      if (msgIndex >= 0) ttsLastReadIndexRef.current = Math.max(ttsLastReadIndexRef.current, msgIndex)
       ttsSpeakingRef.current = false
       processTtsQueueRef.current()
     }
@@ -636,12 +682,6 @@ export default function RoundTablePage() {
       console.log('[TTS] speak:', roleKey, 'voice:', (utterance.voice as SpeechSynthesisVoice | null)?.name || 'default')
     }
 
-    // Safari: speak 前先 cancel 掉可能堆积的朗读
-    try {
-      if (synth.speaking) {
-        synth.cancel()
-      }
-    } catch {}
     try {
       synth.speak(utterance)
     } catch (e) {
@@ -652,13 +692,20 @@ export default function RoundTablePage() {
   }, [])
   useEffect(() => { processTtsQueueRef.current = processTtsQueue }, [processTtsQueue])
 
-  const enqueueTts = useCallback((text: string, roleKey: string) => {
+  const enqueueTts = useCallback((text: string, roleKey: string, msgIndex?: number) => {
     // 清理 markdown
     const cleanText = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
       .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
       .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim()
     if (!cleanText) return
-    ttsQueueRef.current.push({ text: cleanText, roleKey })
+    // 跨浏览器兼容：长文本分块，防止 Chrome 静默截断
+    const chunks = splitLongText(cleanText)
+    const realIdx = msgIndex ?? -1
+    chunks.forEach((chunk, i) => {
+      // 只有最后一块携带真实下标，中间块为 -1，
+      // 确保暂停在中途时续播能回到本条消息开头
+      ttsQueueRef.current.push({ text: chunk, roleKey, msgIndex: i === chunks.length - 1 ? realIdx : -1 })
+    })
     processTtsQueueRef.current()
   }, [])
   const enqueueTtsRef = useRef(enqueueTts)
@@ -695,7 +742,8 @@ export default function RoundTablePage() {
         setSpeakingKey(null); abortRef.current = null
         // TTS：消息完成后入队朗读
         if (ttsEnabledRef.current) {
-          enqueueTtsRef.current(cleanContent, roleKey)
+          const idx = messagesRef.current.findIndex(m => m.id === msgId)
+          enqueueTtsRef.current(cleanContent, roleKey, idx >= 0 ? idx : undefined)
         }
         // SSE done 事件触发时，后端消息已保存到数据库
         resolve({ content: cleanContent, ended, saved: true })
@@ -782,7 +830,11 @@ export default function RoundTablePage() {
     activeRolesRef.current = roles; setActiveRoles(roles)
     setPhase('discussing'); setMessages([]); setSpeakingKey(null); setCurrentRound(0)
     userScrollingRef.current = false; discussionLoopRef.current = true
-    ttsEnabledSpeakerRef.current = null; retryCountRef.current = 0
+    ttsEnabledSpeakerRef.current = null; ttsLastReadIndexRef.current = -1; retryCountRef.current = 0
+    // 新讨论开始，重置 TTS 状态
+    ttsEnabledRef.current = false; ttsQueueRef.current = []; ttsSpeakingRef.current = false
+    try { window.speechSynthesis?.cancel() } catch {}
+    setTtsEnabled(false)
 
     try {
       const roleKeys = Array.from(selectedKeys)
@@ -817,6 +869,11 @@ export default function RoundTablePage() {
       setActiveRoles(roles); setSessionId(session.sessionId); setPhase('paused')
       setMessages(data.map(m => ({ id: `hist-${m.id}`, roleKey: m.roleKey, roleName: m.roleName, roleColor: ROLE_COLORS[m.roleKey] || '#6B655C', content: m.content, timestamp: new Date(m.createTime).getTime() })))
       setCurrentRound(data.length); discussionLoopRef.current = false
+      // 加载历史会话时重置 TTS 朗读进度，从头开始
+      ttsLastReadIndexRef.current = -1
+      ttsEnabledRef.current = false; ttsQueueRef.current = []; ttsSpeakingRef.current = false
+      try { window.speechSynthesis?.cancel() } catch {}
+      setTtsEnabled(false)
     } catch { toast.error('加载历史记录失败') }
   }, [availableRoles])
 
@@ -837,36 +894,12 @@ export default function RoundTablePage() {
     setMessages(prev => prev.map(m => ({ ...m, streaming: false })))
   }, [])
 
-  // 监听返回操作，讨论/暂停状态需要确认
+  // 离开页面时清理讨论状态
   useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (phase === 'discussing' || phase === 'paused') {
-        e.preventDefault()
-        e.returnValue = ''
-        return ''
-      }
-    }
-    const handlePopState = () => {
-      if (phase === 'discussing' || phase === 'paused') {
-        // 阻止默认后退，先压栈防止连续弹窗
-        window.history.pushState(null, '', window.location.href)
-        const confirmed = window.confirm('讨论尚未结束，确定要退出吗？')
-        if (confirmed) {
-          // 清理监听器后再操作，避免 back() 再次触发 popstate
-          window.removeEventListener('popstate', handlePopState)
-          stopDiscussion()
-          window.history.back()
-        }
-      }
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    window.history.pushState(null, '', window.location.href)
-    window.addEventListener('popstate', handlePopState)
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      window.removeEventListener('popstate', handlePopState)
+      stopDiscussion()
     }
-  }, [phase, stopDiscussion])
+  }, [stopDiscussion])
 
   const resumeDiscussion = useCallback(() => {
     discussionLoopRef.current = true; setPhase('discussing')
@@ -876,7 +909,9 @@ export default function RoundTablePage() {
 
   const restart = useCallback(() => {
     discussionLoopRef.current = false; abortRef.current?.abort(); abortRef.current = null
-    synthRef.current?.cancel(); ttsEnabledSpeakerRef.current = null
+    synthRef.current?.cancel(); ttsEnabledSpeakerRef.current = null; ttsLastReadIndexRef.current = -1
+    ttsEnabledRef.current = false; ttsQueueRef.current = []; ttsSpeakingRef.current = false
+    setTtsEnabled(false)
     sessionIdRef.current = null; activeRolesRef.current = []; setSpeakingMsgId(null)
     setPhase('select'); setMessages([]); setSpeakingKey(null); setActiveRoles([]); setSessionId(null); setCurrentRound(0)
     getRoundTableSessions(id).then((res: unknown) => { const d = (res as { data?: RoundTableSession[] })?.data ?? res as RoundTableSession[]; if (Array.isArray(d)) setPastSessions(d) }).catch(() => {})
@@ -891,13 +926,27 @@ export default function RoundTablePage() {
       .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
     if (!cleanText) return
-    const utterance = new SpeechSynthesisUtterance(cleanText)
+    // 跨浏览器兼容：长文本分块，防止 Chrome 静默截断
+    const chunks = splitLongText(cleanText)
     const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
-    utterance.pitch = config.pitch; utterance.rate = config.rate; utterance.lang = 'zh-CN'
-    const voices = synth.getVoices(); const zhVoice = voices.find(v => v.lang.startsWith('zh')); if (zhVoice) utterance.voice = zhVoice
-    utterance.onend = () => setSpeakingMsgId(prev => prev === msgId ? null : prev)
-    utterance.onerror = () => setSpeakingMsgId(prev => prev === msgId ? null : prev)
-    synth.speak(utterance)
+    const voices = synth.getVoices()
+    const zhVoice = voices.find(v => v.lang.startsWith('zh'))
+
+    const speakChunk = (idx: number) => {
+      if (idx >= chunks.length) { setSpeakingMsgId(null); return }
+      const utterance = new SpeechSynthesisUtterance(chunks[idx])
+      utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
+      utterance.rate = config.rate
+      utterance.lang = 'zh-CN'
+      if (zhVoice) utterance.voice = zhVoice
+      utterance.onend = () => speakChunk(idx + 1)
+      // onerror 不递归，自然终止分块链（用户取消 / 切换时会触发）
+      utterance.onerror = () => setSpeakingMsgId(null)
+      try { synth.speak(utterance) } catch { setSpeakingMsgId(null) }
+    }
+
+    try { synth.resume() } catch {}
+    speakChunk(0)
   }, [speakingMsgId])
 
   // ==================== 渲染：角色选择 ====================
@@ -1055,9 +1104,9 @@ export default function RoundTablePage() {
           <div className="flex items-center gap-2 max-w-3xl mx-auto">
             <button
               onClick={() => {
+                const currentPhase = phase // 捕获当前阶段（讨论中 / 已终止）
                 if (!ttsEnabled) {
-                  // 打开时：记录当前发言人，从该发言人开始读
-                  ttsEnabledSpeakerRef.current = speakingKey
+                  // ====== 打开语音 ======
                   ttsEnabledRef.current = true
                   // Safari: 在用户交互同步栈内刷新 voices 并立即 enqueue
                   // 第一次 speak 发生在本次点击内即可解锁权限
@@ -1069,26 +1118,46 @@ export default function RoundTablePage() {
                     })
                     if (zhVs.length > 0) zhVoicesRef.current = zhVs
                   } catch {}
-                  // 把当前发言人及之后的已完成消息入队
-                  const speakerKey = speakingKey
-                  if (speakerKey) {
-                    const msgs = messagesRef.current
-                    const startIdx = msgs.findIndex(m => m.roleKey === speakerKey && !m.streaming)
+
+                  const msgs = messagesRef.current
+                  if (currentPhase === 'discussing') {
+                    // 1.1 讨论进行中：从最后一条加载完成的发言开始，按顺序往后读
+                    let startIdx = -1
+                    for (let i = msgs.length - 1; i >= 0; i--) {
+                      if (!msgs[i].streaming && msgs[i].content) { startIdx = i; break }
+                    }
                     if (startIdx >= 0) {
+                      // 重置下标：即将从头（最后一条已完成消息）开始读
+                      ttsLastReadIndexRef.current = startIdx - 1
                       for (let i = startIdx; i < msgs.length; i++) {
                         const m = msgs[i]
                         if (!m.streaming && m.content) {
-                          enqueueTtsRef.current(m.content, m.roleKey)
+                          enqueueTtsRef.current(m.content, m.roleKey, i)
                         }
+                      }
+                    }
+                  } else {
+                    // 2.1 讨论终止：有下标则续播，否则从头开始
+                    const resumeIdx = ttsLastReadIndexRef.current >= 0
+                      ? ttsLastReadIndexRef.current + 1
+                      : 0
+                    for (let i = resumeIdx; i < msgs.length; i++) {
+                      const m = msgs[i]
+                      if (m.content) {
+                        enqueueTtsRef.current(m.content, m.roleKey, i)
                       }
                     }
                   }
                 } else {
-                  // 关闭时：停止朗读，清空队列
-                  ttsEnabledSpeakerRef.current = null
+                  // ====== 关闭语音 ======
                   ttsEnabledRef.current = false
                   ttsQueueRef.current = []; ttsSpeakingRef.current = false
                   try { window.speechSynthesis?.cancel() } catch {}
+                  if (currentPhase === 'discussing') {
+                    // 1.2 讨论进行中关闭：清空朗读下标，下次打开重新从最后一条开始
+                    ttsLastReadIndexRef.current = -1
+                  }
+                  // 2.2 讨论终止关闭：保留下标，下次打开继续播放（暂停逻辑）
                 }
                 setTtsEnabled(!ttsEnabled)
               }}

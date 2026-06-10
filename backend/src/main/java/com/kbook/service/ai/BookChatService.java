@@ -1,4 +1,5 @@
 package com.kbook.service.ai;
+
 import com.kbook.service.user.UserService;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
@@ -9,6 +10,7 @@ import com.kbook.service.embedding.EmbeddingService;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.CancellableHttpClientBuilder;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
@@ -39,6 +41,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 /**
@@ -174,7 +177,9 @@ public class BookChatService {
         } catch (Exception ignored) {
         }
 
-        sseExecutor.execute(() -> {
+        final long[] executorThreadId = new long[1];
+        Future<?> aiFuture = sseExecutor.submit(() -> {
+            executorThreadId[0] = Thread.currentThread().getId();
             try {
                 Book book = bookService.getBookById(bookId);
                 if (book == null) {
@@ -333,11 +338,25 @@ public class BookChatService {
                 log.error("图书问答异常: bookId={} - {}", bookId, e.getMessage(), e);
                 aiProviderConfigService.clearAssistantCache();
                 SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(e));
+            } finally {
+                CancellableHttpClientBuilder.clearStream(executorThreadId[0]);
             }
         });
 
-        emitter.onTimeout(() -> log.warn("图书问答SSE超时: bookId={}", bookId));
-        emitter.onError(e -> log.error("图书问答SSE错误: bookId={}", bookId, e));
+        emitter.onCompletion(() -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+        });
+        emitter.onTimeout(() -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+            log.warn("图书问答SSE超时: bookId={}", bookId);
+        });
+        emitter.onError(e -> {
+            CancellableHttpClientBuilder.cancelStream(executorThreadId[0]);
+            aiFuture.cancel(true);
+            log.error("图书问答SSE错误: bookId={}", bookId, e);
+        });
 
         return emitter;
     }
@@ -415,14 +434,11 @@ public class BookChatService {
         messages.add(SystemMessage.from(systemPrompt));
 
         try {
-            // 先压缩历史（如有需要），确保 LLM 收到的上下文不超限
+            // 加载历史消息并同步压缩，确保 LLM 上下文不超限
             int currentOverhead = AiPromptConstants.BOOK_CHAT_SYSTEM_PROMPT.length()
                     + currentPrompt.length()
                     + 2000; // AI 回复预留
-            compressHistoryIfNeeded(userId, sessionId, currentOverhead);
-
-            List<AiConversation> history = conversationRepository
-                    .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+            List<AiConversation> history = loadAndCompressHistory(userId, sessionId, currentOverhead);
             if (!history.isEmpty()) {
                 for (AiConversation conv : history) {
                     String content = conv.getCompressedContent();
@@ -896,74 +912,91 @@ public class BookChatService {
     private static final double COMPRESS_TARGET_RATIO = 0.6;
 
     /**
-     * 按需压缩会话历史消息，防止超出模型 token 限制
-     * <p>
-     * 当会话历史总字符数（含当前开销）超过触发阈值时，从最老的未压缩 AI 回复开始逐条压缩，
-     * 直到总字符数降至目标值以下。压缩通过 AI 模型将原始内容总结为更简短的版本，
-     * 并保存到 compressed_content 字段中。
+     * 加载历史消息并同步压缩，一次 DB 查询完成加载+压缩判断+压缩执行。
      *
-     * @param userId               用户ID，用于定位会话记录
-     * @param sessionId            会话ID，标识需要压缩的具体会话
-     * @param currentOverheadChars 当前请求的系统开销字符数（包括系统提示词、RAG 上下文等固定部分）
+     * @param userId               用户ID
+     * @param sessionId            会话ID
+     * @param currentOverheadChars 当前请求的系统开销字符数（系统提示词、RAG 上下文等固定部分）
+     * @return 压缩后的对话记录列表，可直接用于构建 ChatMessage
      */
-    private void compressHistoryIfNeeded(Long userId, String sessionId, int currentOverheadChars) {
-        // 计算字符数限制和压缩目标值
+    private List<AiConversation> loadAndCompressHistory(Long userId, String sessionId, int currentOverheadChars) {
+        // 1. 一次查询加载所有消息
+        List<AiConversation> conversations = conversationRepository
+                .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+        if (conversations.isEmpty()) return conversations;
+
+        // 2. 内存计算总字符数（优先 compressedContent）
+        long totalChars = conversations.stream()
+                .mapToLong(c -> {
+                    String compressed = c.getCompressedContent();
+                    return compressed != null ? compressed.length()
+                            : (c.getContent() != null ? c.getContent().length() : 0);
+                })
+                .sum();
+
+        // 3. 计算阈值
         Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
         int tokenLimit = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
         int charLimit = (int) (tokenLimit * TOKEN_TO_CHAR_RATIO);
         long compressTarget = (long) (charLimit * COMPRESS_TARGET_RATIO) - currentOverheadChars;
-        try {
-            // 检查是否需要压缩：总字符数未达到触发阈值则直接返回
-            long totalChars = conversationRepository.sumCompressedContentLength(userId, sessionId);
-            long totalWithCurrent = totalChars + currentOverheadChars;
-            log.debug("压缩检查: sessionId={}, history={}, current={}, total={}/{} ({}%)",
-                    sessionId, totalChars, currentOverheadChars,
-                    totalWithCurrent, charLimit,
-                    charLimit > 0 ? totalWithCurrent * 100 / charLimit : 0);
-            if (totalWithCurrent < charLimit * COMPRESS_TRIGGER_RATIO) return;
 
-            // 循环压缩最老的未压缩 AI 回复，直到总量降至目标线以下
-            int compressed = 0;
-            while (totalChars >= Math.max(compressTarget, 0)) {
-                // 查找最老的未压缩 AI 回复，若无则退出
-                AiConversation target = conversationRepository
-                        .findFirstUncompressedAssistant(userId, sessionId)
-                        .orElse(null);
-                if (target == null) {
-                    log.info("无可压缩的 AI 回复: sessionId={}, compressed={}", sessionId, compressed);
-                    return;
-                }
+        long totalWithCurrent = totalChars + currentOverheadChars;
+        log.debug("压缩检查: sessionId={}, history={}, current={}, total={}/{} ({}%)",
+                sessionId, totalChars, currentOverheadChars,
+                totalWithCurrent, charLimit,
+                charLimit > 0 ? totalWithCurrent * 100 / charLimit : 0);
 
-                // 调用 AI 模型压缩内容，失败则跳过
-                String original = target.getContent();
-                String summary = chatModelManager.compressContent(original);
-                if (summary == null) {
-                    log.warn("压缩失败(跳过): sessionId={}, convId={}", sessionId, target.getId());
-                    break;
-                }
-
-                // 保存压缩结果并更新累计字符数统计
-                target.setCompressedContent(summary);
-                conversationRepository.save(target);
-                totalChars = totalChars - CHAR_LENGTH_ESTIMATE.apply(original) + CHAR_LENGTH_ESTIMATE.apply(summary);
-                compressed++;
-                log.info("压缩历史消息: sessionId={}, convId={}, {}→{} chars, totalChars={}",
-                        sessionId, target.getId(), original.length(), summary.length(), totalChars);
-            }
-            // 输出压缩完成统计信息
-            if (compressed > 0) {
-                log.info("压缩完成: sessionId={}, compressed={}条", sessionId, compressed);
-            }
-        } catch (Exception e) {
-            log.warn("压缩历史消息失败: {}", e.getMessage());
+        // 4. 未达触发阈值，直接返回
+        if (totalWithCurrent < charLimit * COMPRESS_TRIGGER_RATIO) {
+            return conversations;
         }
+
+        // 5. 从内存中找最老的未压缩 assistant 消息并压缩（避免逐条 DB 查询）
+        int compressed = 0;
+        while (totalChars >= Math.max(compressTarget, 0)) {
+            AiConversation target = findFirstUncompressedAssistantInMemory(conversations);
+            if (target == null) {
+                log.info("无可压缩的 AI 回复: sessionId={}, compressed={}", sessionId, compressed);
+                break;
+            }
+
+            String original = target.getContent();
+            String summary = chatModelManager.compressContent(original);
+            if (summary == null) {
+                log.warn("压缩失败(跳过): sessionId={}, convId={}", sessionId, target.getId());
+                break;
+            }
+
+            target.setCompressedContent(summary);
+            conversationRepository.save(target);
+            totalChars = totalChars - original.length() + summary.length();
+            compressed++;
+            log.info("压缩历史消息: sessionId={}, convId={}, {}→{} chars, totalChars={}",
+                    sessionId, target.getId(), original.length(), summary.length(), totalChars);
+        }
+
+        if (compressed > 0) {
+            log.info("压缩完成: sessionId={}, compressed={}条", sessionId, compressed);
+        }
+
+        return conversations;
     }
 
     /**
-     * 估算字符数（优先 CHAR_LENGTH，兜底用 Java length）
+     * 从内存列表中查找第一条未压缩的 assistant 消息。
+     * 未压缩判定：compressedContent 为 null，或与 content 完全相同（创建时初始化相等）。
      */
-    private static final java.util.function.Function<String, Integer> CHAR_LENGTH_ESTIMATE =
-            s -> s != null ? s.length() : 0;
+    private AiConversation findFirstUncompressedAssistantInMemory(List<AiConversation> conversations) {
+        for (AiConversation c : conversations) {
+            if (!"assistant".equals(c.getRole())) continue;
+            String compressed = c.getCompressedContent();
+            String original = c.getContent();
+            if (compressed == null || compressed.equals(original)) {
+                return c;
+            }
+        }
+        return null;
+    }
 
     /**
      * RAG 上下文最大字符数：maxTokens × 1.5 × 0.6（留 40% 给系统和对话）
