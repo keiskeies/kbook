@@ -17,7 +17,7 @@ import java.util.List;
  * 聊天消息数据访问层
  */
 @Repository
-public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
+public interface ChatMessageRepository extends BaseRepository<ChatMessage, Long> {
 
     /**
      * 按会话ID分页查询消息，按创建时间降序排列

@@ -8,7 +8,7 @@ import java.util.Optional;
 /**
  * 评论点赞数据访问层
  */
-public interface CommentLikeRepository extends JpaRepository<CommentLike, Long> {
+public interface CommentLikeRepository extends BaseRepository<CommentLike, Long> {
 
     /**
      * 查询用户对指定评论的点赞记录

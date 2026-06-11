@@ -1,6 +1,5 @@
 package com.kbook.entity;
 
-import com.kbook.common.entity.IMiddleEntity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,7 +21,7 @@ import lombok.NoArgsConstructor;
 @Table(name = "comment_likes", uniqueConstraints = {
         @UniqueConstraint(name = "uk_comment_like", columnNames = {"comment_id", "user_id"})
 })
-public class CommentLike extends BaseEntity implements IMiddleEntity<Long, Long> {
+public class CommentLike extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -40,25 +39,5 @@ public class CommentLike extends BaseEntity implements IMiddleEntity<Long, Long>
     @Override
     public Long getId() {
         return id;
-    }
-
-    @Override
-    public Long getId1() {
-        return commentId;
-    }
-
-    @Override
-    public void setId1(Long commentId) {
-        this.commentId = commentId;
-    }
-
-    @Override
-    public Long getId2() {
-        return userId;
-    }
-
-    @Override
-    public void setId2(Long userId) {
-        this.userId = userId;
     }
 }

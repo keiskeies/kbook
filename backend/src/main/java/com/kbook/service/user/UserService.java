@@ -5,7 +5,6 @@ import com.kbook.service.recommend.RecommendService;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
-import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.BookStorageProperties;
@@ -48,7 +47,7 @@ import java.util.UUID;
 @Slf4j
 @Service
 @LogModule("用户")
-public class UserService extends AbstractServiceImpl<User, Long> {
+public class UserService {
 
     /** 用户数据仓库（自定义查询方法） */
     @Autowired
@@ -68,7 +67,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
      */
     @LogAction("获取用户详情")
     public User getUserById(Long id) {
-        User user = findOneById(id);
+        User user = userRepository.findOneById(id);
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
@@ -130,7 +129,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
         stats.putIfAbsent("PENDING", 0L);
         stats.putIfAbsent("APPROVED", 0L);
         stats.putIfAbsent("BANNED", 0L);
-        stats.put("TOTAL", getCount(List.of()));
+        stats.put("TOTAL", userRepository.count());
         return stats;
     }
 
@@ -147,7 +146,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
             throw new BusinessException("用户状态不是待审核");
         }
         user.setStatus("APPROVED");
-        updateOne(user);
+        userRepository.save(user);
         log.info("用户审核通过: userId={}", userId);
     }
 
@@ -159,7 +158,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     @Transactional
     @LogAction("批量审核通过")
     public int batchApprove(List<Long> userIds) {
-        List<User> users = findListByIds(userIds);
+        List<User> users = userRepository.findListByIds(userIds);
         int count = 0;
         for (User user : users) {
             if ("PENDING".equals(user.getStatus())) {
@@ -167,7 +166,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
                 count++;
             }
         }
-        updateList(users);
+        userRepository.saveAll(users);
         log.info("批量审核通过: total={}, approved={}", users.size(), count);
         return count;
     }
@@ -181,7 +180,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     public void rejectUser(Long userId) {
         User user = getUserById(userId);
         user.setStatus("BANNED");
-        updateOne(user);
+        userRepository.save(user);
         log.info("用户审核拒绝: userId={}", userId);
     }
 
@@ -193,9 +192,9 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     @Transactional
     @LogAction("批量审核拒绝")
     public int batchReject(List<Long> userIds) {
-        List<User> users = findListByIds(userIds);
+        List<User> users = userRepository.findListByIds(userIds);
         users.forEach(user -> user.setStatus("BANNED"));
-        updateList(users);
+        userRepository.saveAll(users);
         log.info("批量审核拒绝: count={}", users.size());
         return users.size();
     }
@@ -213,7 +212,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
             throw new BusinessException("用户状态不是封禁");
         }
         user.setStatus("APPROVED");
-        updateOne(user);
+        userRepository.save(user);
         log.info("用户解封: userId={}", userId);
     }
 
@@ -230,7 +229,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
             throw new BusinessException("只有已通过的用户才能被封禁");
         }
         user.setStatus("BANNED");
-        updateOne(user);
+        userRepository.save(user);
         log.info("用户被封禁: userId={}", userId);
     }
 
@@ -249,7 +248,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
         if (nickname != null) user.setNickname(nickname);
         if (avatar != null) user.setAvatar(avatar);
         if (bio != null) user.setBio(bio);
-        return updateOne(user);
+        return userRepository.save(user);
     }
 
     /**
@@ -272,7 +271,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
         if (aspirationEducation != null) user.setAspirationEducation(aspirationEducation);
         if (entrepreneurship != null) user.setEntrepreneurship(entrepreneurship);
         if (aspirationIncome != null) user.setAspirationIncome(aspirationIncome);
-        user = updateOne(user);
+        user = userRepository.save(user);
         recommendService.asyncRecompute(userId);
         return user;
     }
@@ -288,7 +287,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     public User updateBookChatStyle(Long userId, String style) {
         User user = getUserById(userId);
         user.setBookChatStyle(style != null && !style.isBlank() ? style.toUpperCase() : "DEEP");
-        return updateOne(user);
+        return userRepository.save(user);
     }
 
     /**
@@ -302,7 +301,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
     public User updateMood(Long userId, String mood) {
         User user = getUserById(userId);
         user.setMood(mood != null && !mood.isBlank() ? mood : null);
-        user = updateOne(user);
+        user = userRepository.save(user);
         recommendService.asyncRecompute(userId);
         return user;
     }
@@ -361,7 +360,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
 
             User user = getUserById(userId);
             user.setAvatar(avatarUrl);
-            updateOne(user);
+            userRepository.save(user);
 
             log.info("头像上传成功: userId={}, avatarUrl={}", userId, avatarUrl);
             return user;
@@ -390,7 +389,7 @@ public class UserService extends AbstractServiceImpl<User, Long> {
         }
         user.setEmail(email);
         user.setEmailBound(true);
-        updateOne(user);
+        userRepository.save(user);
         log.info("管理员绑定邮箱: userId={}, email={}", userId, email);
         return user;
     }

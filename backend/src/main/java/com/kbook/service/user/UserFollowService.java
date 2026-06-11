@@ -1,7 +1,6 @@
 package com.kbook.service.user;
 
 import com.kbook.common.exception.BusinessException;
-import com.kbook.common.service.AbstractMiddleServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
@@ -24,7 +23,7 @@ import java.util.List;
 @Slf4j
 @Service
 @LogModule("关注")
-public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Long, Long> {
+public class UserFollowService {
 
     /** 用户关注数据仓库 */
     @Autowired
@@ -50,7 +49,7 @@ public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Lon
         if (!userRepository.existsById(followingId)) {
             throw new BusinessException("用户不存在");
         }
-        if (middleService.exist(followerId, followingId)) {
+        if (userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId)) {
             throw new BusinessException("已经关注了该用户");
         }
 
@@ -58,7 +57,7 @@ public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Lon
                 .followerId(followerId)
                 .followingId(followingId)
                 .build();
-        middleService.saveOne(follow);
+        userFollowRepository.save(follow);
 
         // 更新计数（处理 null 值）
         User follower = userRepository.findById(followerId).orElseThrow();
@@ -81,14 +80,13 @@ public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Lon
     @LogAction("取消关注")
     @RedisLock(key = "'follow:' + #followerId + ':' + #followingId", leaseTime = 10)
     public void unfollowUser(Long followerId, Long followingId) {
-        if (!middleService.exist(followerId, followingId)) {
+        if (!userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId)) {
             throw new BusinessException("尚未关注该用户");
         }
 
-        UserFollow follow = middleService.findOneById(followerId, followingId);
-        if (follow != null) {
-            middleService.deleteOneById(follow.getId());
-        }
+        userFollowRepository.findByFollowerIdAndFollowingId(followerId, followingId).ifPresent(
+                follow -> userFollowRepository.deleteById(follow.getId())
+        );
 
         // 更新计数（处理 null 值）
         User follower = userRepository.findById(followerId).orElseThrow();
@@ -109,7 +107,7 @@ public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Lon
      */
     @LogAction("检查关注状态")
     public boolean isFollowing(Long followerId, Long followingId) {
-        return middleService.exist(followerId, followingId);
+        return userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId);
     }
 
     /**

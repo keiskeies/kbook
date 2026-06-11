@@ -11,7 +11,7 @@ import java.util.Optional;
 /**
  * 用户阅读历史数据访问层
  */
-public interface UserReadHistoryRepository extends JpaRepository<UserReadHistory, Long> {
+public interface UserReadHistoryRepository extends BaseRepository<UserReadHistory, Long> {
 
     /**
      * 查询用户的所有阅读历史记录

@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
-public interface TtsConfigRepository extends JpaRepository<TtsConfig, Long> {
+public interface TtsConfigRepository extends BaseRepository<TtsConfig, Long> {
 
     Optional<TtsConfig> findByIsDefaultTrueAndEnabledTrue();
 

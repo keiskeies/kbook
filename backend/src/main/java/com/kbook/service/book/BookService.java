@@ -7,7 +7,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
-import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.TransactionUtils;
 import com.kbook.config.annotation.LogAction;
@@ -48,7 +47,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("图书")
-public class BookService extends AbstractServiceImpl<Book, Long> {
+public class BookService {
 
     private final BookRepository bookRepository;
     private final BookSearchService bookSearchService;
@@ -244,7 +243,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
             log.warn("不支持的图书格式: {}", book.getFormat());
             throw new BusinessException("不支持的图书格式: " + book.getFormat());
         }
-        Book saved = saveOne(book);
+        Book saved = bookRepository.save(book);
         log.info("图书入库成功: id={}, title={}", saved.getId(), saved.getTitle());
         return saved;
     }
@@ -272,7 +271,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
-        Book saved = updateOne(book);
+        Book saved = bookRepository.save(book);
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
     /**
@@ -298,7 +297,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
-        Book saved = updateOne(book);
+        Book saved = bookRepository.save(book);
         log.info("图书ALL更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
 
@@ -309,7 +308,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     @Transactional
     @LogAction("更新图书封面")
     public Book updateBookCover(Long bookId, MultipartFile coverFile) {
-        Book book = findOneById(bookId);
+        Book book = bookRepository.findOneById(bookId);
         if (book == null) {
             throw new BusinessException("图书不存在: " + bookId);
         }
@@ -340,7 +339,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
             // 更新封面 URL
             String coverUrl = "/api/books/cover/" + tempFileName;
             book.setCoverUrl(coverUrl);
-            Book saved = updateOne(book);
+            Book saved = bookRepository.save(book);
 
             log.info("封面更新成功: bookId={}, path={}", bookId, coverPath);
             return saved;
@@ -452,7 +451,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     public void incrementReadCount(Long bookId) {
         Book book = getBookById(bookId);
         book.setReadCount(book.getReadCount() + 1);
-        Book saved = updateOne(book);
+        Book saved = bookRepository.save(book);
         log.debug("阅读计数增加: bookId={}, readCount={}", bookId, saved.getReadCount());
     }
 
@@ -467,7 +466,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
                 .map(t -> "\"" + t + "\"")
                 .collect(Collectors.joining(",", "[", "]"));
         book.setFormatTags(tagsJson);
-        return updateOne(book);
+        return bookRepository.save(book);
     }
 
     /**
@@ -478,7 +477,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     public void updateRelevanceScores(Long bookId, String scoresJson) {
         Book book = getBookById(bookId);
         book.setRelevanceScores(scoresJson);
-        updateOne(book);
+        bookRepository.save(book);
     }
 
     /**
@@ -494,7 +493,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     public void setAiRating(Long bookId, Double rating) {
         Book book = getBookById(bookId);
         book.setRating(rating);
-        updateOne(book);
+        bookRepository.save(book);
         log.info("AI 初始评分: bookId={}, rating={}", bookId, rating);
     }
 
@@ -514,7 +513,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
         Book book = getBookById(bookId);
         book.setCoverUrl(coverUrl);
 
-        updateOne(book);
+        bookRepository.save(book);
 
         log.info("图书封面图片: bookId={}, coverUrl={}", bookId, coverUrl);
     }
@@ -548,7 +547,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
         }
         book.setRatingCount(userCount + 1);
 
-        Book saved = updateOne(book);
+        Book saved = bookRepository.save(book);
         log.info("用户评分: bookId={}, newRating={}, userCount={}", bookId, saved.getRating(), saved.getRatingCount());
         return saved;
     }
@@ -562,7 +561,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     public void updateDescription(Long bookId, String description) {
         Book book = getBookById(bookId);
         book.setDescription(description);
-        updateOne(book);
+        bookRepository.save(book);
     }
 
     /**
@@ -572,7 +571,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     @LogAction("删除图书")
     @RedisLock(key = "'book:delete:' + #id", leaseTime = 30)
     public void deleteBook(Long id) {
-        Book book = findOneById(id);
+        Book book = bookRepository.findOneById(id);
         if (null != book) {
             // 1. 删除封面图片文件
             deleteCoverFile(book.getCoverUrl());
@@ -583,7 +582,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
         embeddingService.removeContentEmbedding(id);
 
         // 3. 删除 JPA 数据库记录
-        jpaRepository.deleteById(id);
+        bookRepository.deleteById(id);
 
         // 4. 删除 ES 索引
         bookSearchService.deleteIndex(id);
@@ -621,7 +620,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
                 embeddingService.removeBookEmbedding(book.getId());
                 embeddingService.removeContentEmbedding(book.getId());
                 // 删除 JPA + ES
-                jpaRepository.deleteById(book.getId());
+                bookRepository.deleteById(book.getId());
                 bookSearchService.deleteIndex(book.getId());
                 count++;
             } catch (Exception e) {
@@ -704,7 +703,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
         }
 
         // 更新主书籍（JPA + ES）
-        Book savedMain = jpaRepository.save(mainBook);
+        Book savedMain = bookRepository.save(mainBook);
 
         // 删除被合并的其他格式书籍（全链路）
         StringBuilder mergedInfo = new StringBuilder();
@@ -712,7 +711,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
             // 不删除封面（因为主书籍可能已引用）
             embeddingService.removeBookEmbedding(other.getId());
             embeddingService.removeContentEmbedding(other.getId());
-            jpaRepository.deleteById(other.getId());
+            bookRepository.deleteById(other.getId());
             bookSearchService.deleteIndex(other.getId());
             mergedInfo.append(String.format("  合并: [id=%d] %s (%s) → [id=%d] %s (%s)\n",
                     other.getId(), other.getTitle(), other.getFormat(),
@@ -774,18 +773,9 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     // ==================== 钩子方法：统一处理 ES/Redis/Qdrant ====================
 
     /**
-     * 保存/更新前处理数据（目前不需要特殊处理，预留）
-     */
-    @Override
-    protected void dealData(Book book) {
-        // 目前不需要特殊处理，预留
-    }
-
-    /**
      * 保存成功后处理（事务提交后）：更新 ES 索引
      */
-    @Override
-    protected void dealSaveResult(Book saved) {
+    private void dealSaveResult(Book saved) {
         try {
             bookSearchService.indexBook(saved);
         } catch (Exception e) {
@@ -796,28 +786,12 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     /**
      * 更新成功后处理（事务提交后）：更新 ES 索引、清除 Redis 缓存
      */
-    @Override
-    protected void dealUpdateResult(Book updated) {
+    private void dealUpdateResult(Book updated) {
         try {
             bookSearchService.indexBook(updated);
             evictBookCache(updated.getId());
         } catch (Exception e) {
             log.error("更新后同步数据失败: bookId={}", updated.getId(), e);
-        }
-    }
-
-    /**
-     * 删除成功后处理（事务提交后）：删除 ES 索引、清除 Redis 缓存、删除 Qdrant 向量
-     */
-    @Override
-    protected void dealDeleteById(Long id) {
-        try {
-            bookSearchService.deleteIndex(id);
-            evictBookCache(id);
-            embeddingService.removeBookEmbedding(id);
-            embeddingService.removeContentEmbedding(id);
-        } catch (Exception e) {
-            log.error("删除后清理数据失败: bookId={}", id, e);
         }
     }
 
@@ -842,7 +816,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
                 String compressed = chatModelManager.generateCompressedSummary(book);
                 if (compressed != null && !compressed.isBlank()) {
                     book.setCompressedSummary(compressed);
-                    updateOne(book);
+                    bookRepository.save(book);
                     log.info("resolveBookSummary 懒生成成功: bookId={}, len={}", book.getId(), compressed.length());
                     return compressed;
                 }

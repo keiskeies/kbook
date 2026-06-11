@@ -8,7 +8,7 @@ import java.util.Optional;
 /**
  * 评论收藏数据访问层
  */
-public interface CommentFavoriteRepository extends JpaRepository<CommentFavorite, Long> {
+public interface CommentFavoriteRepository extends BaseRepository<CommentFavorite, Long> {
 
     /**
      * 查询用户对指定评论的收藏记录

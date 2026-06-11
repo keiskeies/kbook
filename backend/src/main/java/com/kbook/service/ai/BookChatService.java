@@ -234,7 +234,7 @@ public class BookChatService {
                         String compressed = chatModelManager.generateCompressedSummary(book);
                         if (compressed != null && !compressed.isBlank()) {
                             book.setCompressedSummary(compressed);
-                            bookService.updateOne(book);
+                            bookService.updateBook(book.getId(), book);
                             log.info("compressedSummary 懒生成成功: bookId={}, len={}", bookId, compressed.length());
                         }
                     }

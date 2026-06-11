@@ -1,6 +1,5 @@
 package com.kbook.service.progress;
 
-import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
@@ -37,7 +36,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("进度")
-public class ReadingProgressService extends AbstractServiceImpl<ReadingProgress, Long> {
+public class ReadingProgressService {
 
     @Autowired
     private ReadingProgressRepository progressRepository; // 阅读进度数据访问层
@@ -75,7 +74,7 @@ public class ReadingProgressService extends AbstractServiceImpl<ReadingProgress,
         rp.setCurrentPosition(currentPosition);
 
         try {
-            ReadingProgress saved = isNew ? saveOne(rp) : updateOne(rp);
+            ReadingProgress saved = isNew ? progressRepository.save(rp) : progressRepository.save(rp);
             log.debug("阅读进度保存成功: userId={}, bookId={}, progress={}, isNew={}", userId, bookId, saved.getProgress(), isNew);
             return new ProgressResult(saved, isNew);
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
@@ -87,7 +86,7 @@ public class ReadingProgressService extends AbstractServiceImpl<ReadingProgress,
                 if (existing != null) {
                     existing.setProgress(clampProgress(progress));
                     existing.setCurrentPosition(currentPosition);
-                    ReadingProgress saved = updateOne(existing);
+                    ReadingProgress saved = progressRepository.save(existing);
                     return new ProgressResult(saved, false);
                 }
             }
@@ -135,7 +134,7 @@ public class ReadingProgressService extends AbstractServiceImpl<ReadingProgress,
                         .progress(clampProgress(item.getProgress())) // 设置进度值（确保在0.0~1.0范围内）
                         .currentPosition(item.getCurrentPosition()) // 设置当前位置
                         .build();
-                saveOne(rp); // 保存新记录
+                progressRepository.save(rp); // 保存新记录
                 created++; // 创建计数器加1
                 newBookIds.add(item.getBookId()); // 添加到新书籍ID列表
             } else {
@@ -147,13 +146,13 @@ public class ReadingProgressService extends AbstractServiceImpl<ReadingProgress,
                     // 客户端时间戳更新，执行更新操作
                     existing.setProgress(clampProgress(item.getProgress())); // 更新进度值
                     existing.setCurrentPosition(item.getCurrentPosition()); // 更新当前位置
-                    updateOne(existing); // 保存更新
+                    progressRepository.save(existing); // 保存更新
                     updated++; // 更新计数器加1
                 } else if (item.getClientTimestamp() == null) {
                     // 无时间戳则默认覆盖（兼容旧版本客户端）
                     existing.setProgress(clampProgress(item.getProgress())); // 更新进度值
                     existing.setCurrentPosition(item.getCurrentPosition()); // 更新当前位置
-                    updateOne(existing); // 保存更新
+                    progressRepository.save(existing); // 保存更新
                     updated++; // 更新计数器加1
                 } else {
                     // 服务器数据更新，跳过本次更新

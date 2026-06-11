@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * 推荐反馈事件数据访问层
  */
-public interface RecommendFeedbackEventRepository extends JpaRepository<RecommendFeedbackEvent, Long> {
+public interface RecommendFeedbackEventRepository extends BaseRepository<RecommendFeedbackEvent, Long> {
 
     /**
      * 统计指定时间窗口内的反馈事件数量

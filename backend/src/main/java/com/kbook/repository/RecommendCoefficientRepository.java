@@ -8,7 +8,7 @@ import java.util.Optional;
 /**
  * 推荐系数数据访问层
  */
-public interface RecommendCoefficientRepository extends JpaRepository<RecommendCoefficient, Long> {
+public interface RecommendCoefficientRepository extends BaseRepository<RecommendCoefficient, Long> {
 
     /**
      * 根据类别和系数键查询推荐系数

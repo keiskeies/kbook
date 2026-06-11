@@ -17,7 +17,14 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import com.kbook.common.util.RepositoryHelper;
+import com.kbook.repository.BookRepository;
+import jakarta.persistence.EntityManager;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.temporal.TemporalAdjusters;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -40,13 +47,22 @@ public class AdminBookToolService {
 
     private final BookService bookService;
     private final BookScanService bookScanService;
+    private final RepositoryHelper repositoryHelper;
+    private final BookRepository bookRepository;
+    private final EntityManager entityManager;
 
     public AdminBookToolService(
             BookService bookService,
-            @Lazy BookScanService bookScanService
+            @Lazy BookScanService bookScanService,
+            RepositoryHelper repositoryHelper,
+            BookRepository bookRepository,
+            EntityManager entityManager
     ) {
         this.bookService = bookService;
         this.bookScanService = bookScanService;
+        this.repositoryHelper = repositoryHelper;
+        this.bookRepository = bookRepository;
+        this.entityManager = entityManager;
     }
 
     // ==================== 核心：动态查询 ====================
@@ -71,12 +87,12 @@ public class AdminBookToolService {
             var condList = parseConditions(conditions);
             var sortInfo = parseSort(sort);
 
-            var books = bookService.findList(condList, sortInfo.ascList(), sortInfo.descList(), p, l);
+            List<Book> books = repositoryHelper.findList(condList, sortInfo.ascList(), sortInfo.descList(), p, l, bookRepository, Book.class);
             if (books.isEmpty()) {
                 return "没有找到符合条件的图书。";
             }
 
-            long total = bookService.getCount(condList);
+            long total = repositoryHelper.getCount(condList, bookRepository);
             String title = String.format("查询结果（共 %d 本，显示第 %d-%d 本）",
                     total, (p - 1) * l + 1, Math.min(p * l, total));
 
@@ -149,9 +165,9 @@ public class AdminBookToolService {
                 maxResults = limit != null && limit > 0 ? limit : 30;
             }
 
-            Map<String, Map<String, Double>> data = bookService.getChartOptions(request, maxResults);
+            Map<String, Object> chartData = repositoryHelper.getChartOptions(request, maxResults);
 
-            return bookService.formatChartResult(data, title);
+            return formatChartResult(chartData, title);
         } catch (Exception e) {
             log.error("[Admin Tool] stats error", e);
             return "统计失败：" + e.getMessage();
@@ -174,7 +190,7 @@ public class AdminBookToolService {
             Map<String, Object> updateMap = parseUpdates(updates);
             if (updateMap.isEmpty()) return "没有有效的更新字段。";
 
-            var books = bookService.findList(condList);
+            List<Book> books = repositoryHelper.findList(condList, bookRepository);
             if (books.isEmpty()) return "没有找到符合条件的图书。";
 
             for (Book book : books) {
@@ -182,7 +198,7 @@ public class AdminBookToolService {
                     setFieldValue(book, entry.getKey(), entry.getValue());
                 }
             }
-            bookService.updateList(books);
+            bookRepository.saveAll(books);
 
             return String.format("已更新 %d 本图书。\n更新的字段：%s", books.size(), updates);
         } catch (Exception e) {
@@ -201,10 +217,10 @@ public class AdminBookToolService {
         try {
             if (conditions == null || conditions.isBlank()) return "必须指定查询条件，防止误删全表。";
             var condList = parseConditions(conditions);
-            var books = bookService.findList(condList, null, null, 1, 5);
+            List<Book> books = repositoryHelper.findList(condList, null, null, 1, 5, bookRepository, Book.class);
             if (books.isEmpty()) return "没有找到符合条件的图书，无需删除。";
             if (books.size() == 5) {
-                long total = bookService.getCount(condList);
+            long total = repositoryHelper.getCount(condList, bookRepository);
                 return String.format("警告：将删除 %d 本图书！\n预览前5本：\n%s\n如果确认删除，请说'确认删除'。",
                         total, formatBookList(books, null));
             }
@@ -223,11 +239,11 @@ public class AdminBookToolService {
         log.info("[Admin Tool] confirmDelete: conditions={}", conditions);
         try {
             var condList = parseConditions(conditions);
-            var books = bookService.findList(condList);
+            List<Book> books = repositoryHelper.findList(condList, bookRepository);
             if (books.isEmpty()) return "没有找到符合条件的图书。";
 
             var ids = books.stream().map(Book::getId).toList();
-            bookService.deleteListByIds(ids);
+            bookRepository.deleteAllById(ids);
 
             return String.format("已删除 %d 本图书及相关数据。", books.size());
         } catch (Exception e) {
@@ -417,7 +433,7 @@ public class AdminBookToolService {
         try {
             java.lang.reflect.Field declaredField = Book.class.getDeclaredField(field);
             declaredField.setAccessible(true);
-            Object converted = bookService.convertToFieldType(field, value);
+            Object converted = repositoryHelper.convertToFieldType(field, value);
             declaredField.set(book, converted);
         } catch (Exception e) {
             log.error("设置字段值失败: field={}, value={}", field, value, e);
@@ -532,13 +548,13 @@ public class AdminBookToolService {
             return new TimeRange(null, null);
         }
         return switch (timeRange.trim()) {
-            case "本周" -> new TimeRange(BookService.getWeekStart(), BookService.getWeekEnd());
-            case "本月" -> new TimeRange(BookService.getMonthStart(), BookService.getMonthEnd());
-            case "本年" -> new TimeRange(BookService.getYearStart(), BookService.getYearEnd());
-            case "近7天" -> new TimeRange(BookService.getRecentDaysStart(7), null);
-            case "近30天" -> new TimeRange(BookService.getRecentDaysStart(30), null);
-            case "近90天" -> new TimeRange(BookService.getRecentDaysStart(90), null);
-            case "近6个月" -> new TimeRange(BookService.getRecentMonthsStart(6), null);
+            case "本周" -> new TimeRange(getWeekStart(), getWeekEnd());
+            case "本月" -> new TimeRange(getMonthStart(), getMonthEnd());
+            case "本年" -> new TimeRange(getYearStart(), getYearEnd());
+            case "近7天" -> new TimeRange(getRecentDaysStart(7), null);
+            case "近30天" -> new TimeRange(getRecentDaysStart(30), null);
+            case "近90天" -> new TimeRange(getRecentDaysStart(90), null);
+            case "近6个月" -> new TimeRange(getRecentMonthsStart(6), null);
             default -> {
                 if (timeRange.contains("~")) {
                     String[] parts = timeRange.split("~");
@@ -570,4 +586,54 @@ public class AdminBookToolService {
      * @param descList 降序字段列表
      */
     private record SortInfo(java.util.List<String> ascList, java.util.List<String> descList) {}
+
+    private LocalDateTime getWeekStart() {
+        return LocalDate.now().with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)).atStartOfDay();
+    }
+
+    private LocalDateTime getWeekEnd() {
+        return LocalDate.now().with(TemporalAdjusters.nextOrSame(java.time.DayOfWeek.SUNDAY)).atTime(LocalTime.MAX);
+    }
+
+    private LocalDateTime getMonthStart() {
+        return LocalDate.now().with(TemporalAdjusters.firstDayOfMonth()).atStartOfDay();
+    }
+
+    private LocalDateTime getMonthEnd() {
+        return LocalDate.now().with(TemporalAdjusters.lastDayOfMonth()).atTime(LocalTime.MAX);
+    }
+
+    private LocalDateTime getYearStart() {
+        return LocalDate.now().with(TemporalAdjusters.firstDayOfYear()).atStartOfDay();
+    }
+
+    private LocalDateTime getYearEnd() {
+        return LocalDate.now().with(TemporalAdjusters.lastDayOfYear()).atTime(LocalTime.MAX);
+    }
+
+    private LocalDateTime getRecentDaysStart(int days) {
+        return LocalDateTime.now().minusDays(days);
+    }
+
+    private LocalDateTime getRecentMonthsStart(int months) {
+        return LocalDateTime.now().minusMonths(months);
+    }
+
+    private String formatChartResult(Map<String, Object> data, String field) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Object> entry : data.entrySet()) {
+            sb.append(entry.getKey()).append(": ");
+            sb.append(entry.getValue()).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private String formatChartResultForMap(Map<String, Object> data, String title) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(title).append("\n");
+        for (Map.Entry<String, Object> entry : data.entrySet()) {
+            sb.append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+        }
+        return sb.toString();
+    }
 }

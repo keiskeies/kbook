@@ -2,7 +2,6 @@ package com.kbook.service.ai;
 import com.kbook.service.video.VideoService;
 
 import com.kbook.common.exception.BusinessException;
-import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.BookStorageProperties;
@@ -48,7 +47,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("聊天")
-public class ChatService extends AbstractServiceImpl<Conversation, Long> {
+public class ChatService {
 
     @Autowired
     private ConversationRepository conversationRepository;
@@ -122,7 +121,7 @@ public class ChatService extends AbstractServiceImpl<Conversation, Long> {
             conversation.setUnreadCountUser1(conversation.getUnreadCountUser1() + 1);
         }
 
-        conversation = updateOne(conversation);
+        conversation = conversationRepository.save(conversation);
 
         ChatMessageVO messageVO = ChatMessageVO.fromEntity(message);
         messagingTemplate.convertAndSendToUser(recipientId.toString(), "/queue/messages", messageVO);
@@ -166,7 +165,7 @@ public class ChatService extends AbstractServiceImpl<Conversation, Long> {
                             .user1Deleted(false)
                             .user2Deleted(false)
                             .build();
-                    return saveOne(conversation);
+                    return conversationRepository.save(conversation);
                 });
     }
 
@@ -232,7 +231,7 @@ public class ChatService extends AbstractServiceImpl<Conversation, Long> {
     @Transactional
     @LogAction("获取消息列表")
     public List<ChatMessageVO> getMessages(Long userId, Long conversationId, Long beforeId, int limit) {
-        Conversation conversation = findOneById(conversationId);
+        Conversation conversation = conversationRepository.findOneById(conversationId);
         if (conversation == null) {
             throw new BusinessException("会话不存在");
         }
@@ -263,7 +262,7 @@ public class ChatService extends AbstractServiceImpl<Conversation, Long> {
     @Transactional
     @LogAction("标记已读")
     public void markAsRead(Long userId, Long conversationId) {
-        Conversation conversation = findOneById(conversationId);
+        Conversation conversation = conversationRepository.findOneById(conversationId);
         if (conversation == null) {
             throw new BusinessException("会话不存在");
         }
@@ -289,7 +288,7 @@ public class ChatService extends AbstractServiceImpl<Conversation, Long> {
     @Transactional
     @LogAction("删除会话")
     public void deleteConversation(Long userId, Long conversationId) {
-        Conversation conversation = findOneById(conversationId);
+        Conversation conversation = conversationRepository.findOneById(conversationId);
         if (conversation == null) {
             throw new BusinessException("会话不存在");
         }
@@ -322,7 +321,7 @@ public class ChatService extends AbstractServiceImpl<Conversation, Long> {
      */
     @LogAction("上传聊天文件")
     public String uploadChatFile(Long userId, Long conversationId, MultipartFile file) throws IOException {
-        Conversation conversation = findOneById(conversationId);
+        Conversation conversation = conversationRepository.findOneById(conversationId);
         if (conversation == null) {
             throw new BusinessException("会话不存在");
         }
@@ -555,7 +554,7 @@ public class ChatService extends AbstractServiceImpl<Conversation, Long> {
      */
     @LogAction("获取会话信息")
     public ConversationVO getConversation(Long userId, Long conversationId) {
-        Conversation conversation = findOneById(conversationId);
+        Conversation conversation = conversationRepository.findOneById(conversationId);
         if (conversation == null) {
             throw new BusinessException("会话不存在");
         }

@@ -1,6 +1,5 @@
 package com.kbook.service.tts;
 
-import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.TtsConfig;
@@ -26,7 +25,7 @@ import java.util.List;
 @Slf4j
 @Service
 @LogModule("语音合成")
-public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
+public class TtsConfigService {
 
     @Autowired
     private TtsConfigRepository ttsConfigRepository;
@@ -70,7 +69,7 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
         if (Boolean.TRUE.equals(config.getIsDefault())) {
             ttsConfigRepository.clearDefaultForOthers(-1L);
         }
-        TtsConfig saved = saveOne(config);
+        TtsConfig saved = ttsConfigRepository.save(config);
         log.info("TTS config created: id={}, name={}, type={}, provider={}",
                 saved.getId(), saved.getName(), saved.getTtsType(), saved.getProvider());
         return saved;
@@ -86,7 +85,7 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
     @Transactional
     @LogAction("更新TTS配置")
     public TtsConfig update(Long id, TtsConfig config) {
-        TtsConfig existing = findOneById(id);
+        TtsConfig existing = ttsConfigRepository.findOneById(id);
         if (existing == null) {
             throw new RuntimeException("TTS 配置不存在");
         }
@@ -109,7 +108,7 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
             ttsConfigRepository.clearDefaultForOthers(id);
             existing.setIsDefault(true);
         }
-        TtsConfig saved = updateOne(existing);
+        TtsConfig saved = ttsConfigRepository.save(existing);
         log.info("TTS config updated: id={}, name={}", saved.getId(), saved.getName());
         return saved;
     }
@@ -121,7 +120,7 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
     @Transactional
     @LogAction("删除TTS配置")
     public void delete(Long id) {
-        deleteOneById(id);
+        ttsConfigRepository.deleteById(id);
         log.info("TTS config deleted: id={}", id);
     }
 
@@ -134,13 +133,13 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
     @Transactional
     @LogAction("切换默认TTS配置")
     public TtsConfig switchDefault(Long id) {
-        TtsConfig config = findOneById(id);
+        TtsConfig config = ttsConfigRepository.findOneById(id);
         if (config == null) {
             throw new RuntimeException("TTS 配置不存在");
         }
         ttsConfigRepository.clearDefaultForOthers(id);
         config.setIsDefault(true);
-        TtsConfig saved = updateOne(config);
+        TtsConfig saved = ttsConfigRepository.save(config);
         log.info("TTS default switched: id={}, name={}", id, saved.getName());
         return saved;
     }
@@ -230,7 +229,7 @@ public class TtsConfigService extends AbstractServiceImpl<TtsConfig, Long> {
     private TtsConfig resolveConfig(Long configId) {
         TtsConfig config;
         if (configId != null) {
-            config = findOneById(configId);
+            config = ttsConfigRepository.findOneById(configId);
             if (config == null) {
                 throw new RuntimeException("TTS 配置不存在");
             }

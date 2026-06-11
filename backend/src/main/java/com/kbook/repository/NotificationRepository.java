@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 系统通知数据访问层
  */
-public interface NotificationRepository extends JpaRepository<Notification, Long> {
+public interface NotificationRepository extends BaseRepository<Notification, Long> {
 
     /** 查询用户的通知列表（最新优先） */
     Page<Notification> findByReceiverIdOrderByCreatedAtDesc(Long receiverId, Pageable pageable);

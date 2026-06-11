@@ -1,6 +1,5 @@
 package com.kbook.entity;
 
-import com.kbook.common.entity.IEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -24,7 +23,7 @@ import java.util.Objects;
 @Getter
 @Setter
 @ToString
-public abstract class BaseEntity implements IEntity<Long> {
+public abstract class BaseEntity {
 
     /**
      * 创建时间

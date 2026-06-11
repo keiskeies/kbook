@@ -2,7 +2,6 @@ package com.kbook.service.recommend;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.RecommendCoefficient;
 import com.kbook.entity.RecommendFeedbackEvent;
@@ -41,7 +40,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 @LogModule("推荐系数")
-public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCoefficient, Long> {
+public class RecommendCoefficientService {
 
     @Autowired
     private RecommendCoefficientRepository coefficientRepository;
@@ -143,7 +142,7 @@ public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCo
      * 如果数据库为空，先写入默认系数
      */
     public void initializeCoefficients() {
-        List<RecommendCoefficient> existing = findList();
+        List<RecommendCoefficient> existing = coefficientRepository.findAll();
         Map<String, RecommendCoefficient> existingMap = new HashMap<>();
         for (RecommendCoefficient rc : existing) {
             String key = rc.getCategory() + ":" + rc.getCoeffKey();
@@ -173,7 +172,7 @@ public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCo
                         .description(description)
                         .locked(false)
                         .build();
-                saveOne(rc);
+                coefficientRepository.save(rc);
                 needsSave = true;
                 log.info("初始化推荐系数: {}.{} = {}", category, coeffKey, defaultValue);
             }
@@ -193,7 +192,7 @@ public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCo
      */
     public void reloadCache() {
         coefficientCache.clear();
-        List<RecommendCoefficient> all = findList();
+        List<RecommendCoefficient> all = coefficientRepository.findAll();
         for (RecommendCoefficient rc : all) {
             String key = rc.getCategory() + ":" + rc.getCoeffKey();
             coefficientCache.put(key, rc.getCoeffValue());
@@ -442,7 +441,7 @@ public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCo
             coefficientRepository.findByCategoryAndCoeffKey("FUSION", key).ifPresent(rc -> {
                 if (!rc.getLocked()) {
                     rc.setCoeffValue(Math.max(rc.getMinValue(), Math.min(rc.getMaxValue(), normalized)));
-                    updateOne(rc);
+                    coefficientRepository.save(rc);
                 }
             });
         }
@@ -495,7 +494,7 @@ public class RecommendCoefficientService extends AbstractServiceImpl<RecommendCo
             double newValue = rc.getCoeffValue() + delta;
             newValue = Math.max(rc.getMinValue(), Math.min(rc.getMaxValue(), newValue));
             rc.setCoeffValue(newValue);
-            updateOne(rc);
+            coefficientRepository.save(rc);
             log.info("自动调参: {}.{} {} → {} (delta={})",
                     category, key, rc.getCoeffValue() - delta, newValue, delta);
         });

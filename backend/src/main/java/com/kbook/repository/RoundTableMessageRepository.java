@@ -11,7 +11,7 @@ import java.util.Optional;
 /**
  * 圆桌派消息数据访问层
  */
-public interface RoundTableMessageRepository extends JpaRepository<RoundTableMessage, Long> {
+public interface RoundTableMessageRepository extends BaseRepository<RoundTableMessage, Long> {
 
     /**
      * 按会话ID查询消息，按创建时间升序排列

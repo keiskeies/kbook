@@ -9,7 +9,7 @@ import java.util.Optional;
 /**
  * 圆桌派会话数据访问层
  */
-public interface RoundTableSessionRepository extends JpaRepository<RoundTableSession, Long> {
+public interface RoundTableSessionRepository extends BaseRepository<RoundTableSession, Long> {
 
     /**
      * 根据会话ID查询会话

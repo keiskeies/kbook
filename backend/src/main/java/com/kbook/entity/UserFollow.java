@@ -1,6 +1,5 @@
 package com.kbook.entity;
 
-import com.kbook.common.entity.IMiddleEntity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -26,7 +25,7 @@ import lombok.NoArgsConstructor;
         @Index(name = "idx_follow_follower", columnList = "follower_id"),
         @Index(name = "idx_follow_following", columnList = "following_id")
 })
-public class UserFollow extends BaseEntity implements IMiddleEntity<Long, Long> {
+public class UserFollow extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -44,25 +43,5 @@ public class UserFollow extends BaseEntity implements IMiddleEntity<Long, Long> 
     @Override
     public Long getId() {
         return id;
-    }
-
-    @Override
-    public Long getId1() {
-        return followerId;
-    }
-
-    @Override
-    public void setId1(Long followerId) {
-        this.followerId = followerId;
-    }
-
-    @Override
-    public Long getId2() {
-        return followingId;
-    }
-
-    @Override
-    public void setId2(Long followingId) {
-        this.followingId = followingId;
     }
 }

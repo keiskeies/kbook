@@ -15,7 +15,7 @@ import java.util.Optional;
 /**
  * 图书数据访问层
  */
-public interface BookRepository extends JpaRepository<Book, Long> {
+public interface BookRepository extends BaseRepository<Book, Long> {
 
     /**
      * 按格式查询图书列表

@@ -11,7 +11,7 @@ import java.util.Optional;
 /**
  * AI 对话记录数据访问层
  */
-public interface AiConversationRepository extends JpaRepository<AiConversation, Long> {
+public interface AiConversationRepository extends BaseRepository<AiConversation, Long> {
 
     /**
      * 按会话ID查询对话记录，按创建时间升序排列

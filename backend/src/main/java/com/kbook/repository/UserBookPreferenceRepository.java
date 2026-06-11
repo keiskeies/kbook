@@ -9,7 +9,7 @@ import java.util.Optional;
 /**
  * 用户书籍偏好数据访问层
  */
-public interface UserBookPreferenceRepository extends JpaRepository<UserBookPreference, Long> {
+public interface UserBookPreferenceRepository extends BaseRepository<UserBookPreference, Long> {
 
     /**
      * 查询用户的所有排除偏好

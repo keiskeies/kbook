@@ -13,7 +13,7 @@ import java.util.Optional;
 /**
  * AI 供应商配置 Repository
  */
-public interface AiProviderConfigRepository extends JpaRepository<AiProviderConfig, Long> {
+public interface AiProviderConfigRepository extends BaseRepository<AiProviderConfig, Long> {
 
     /**
      * 查找指定用途的默认（激活）配置

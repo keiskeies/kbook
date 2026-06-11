@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * 评论数据访问层
  */
-public interface CommentRepository extends JpaRepository<Comment, Long> {
+public interface CommentRepository extends BaseRepository<Comment, Long> {
 
     /** 查询书籍的顶级评论（parentId is null），按点赞数+时间排序 */
     @Query("SELECT c FROM Comment c WHERE c.bookId = :bookId AND c.chapterId IS NULL AND c.parentId IS NULL ORDER BY c.likeCount DESC, c.createdAt DESC")

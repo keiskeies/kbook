@@ -12,7 +12,7 @@ import java.util.Optional;
  * 上传文件数据访问层
  */
 @Repository
-public interface UploadedFileRepository extends JpaRepository<UploadedFile, Long> {
+public interface UploadedFileRepository extends BaseRepository<UploadedFile, Long> {
 
     /**
      * 根据文件名查询上传文件记录

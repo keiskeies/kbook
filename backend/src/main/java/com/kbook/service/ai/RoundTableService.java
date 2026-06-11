@@ -998,16 +998,15 @@ public class RoundTableService {
                 });
         sb.append("\n");
 
-        // 4. 主持人定期控场（强制）
+        // 4. 主持人定期控场（建议，非强制）
         int nonHostCount = (int) Arrays.stream(roleKeys).filter(k -> !"HOST".equals(k.trim())).count();
         long hostCount = speakCounts.getOrDefault("HOST", 0L);
         int totalRounds = allMessages.size();
-        // 比之前更激进：每 nonHostCount/2 轮（最少2轮）就要主持人介入一次
-        int hostInterval = Math.max(2, nonHostCount / 2);
+        int hostInterval = Math.max(3, nonHostCount);
         int hostMinExpected = Math.max(1, totalRounds / hostInterval);
-        if (totalRounds >= 2 && hostCount < hostMinExpected) {
-            sb.append("- 【主持人必须发言】主持人已沉默太久（仅发言").append(hostCount)
-              .append("次，预期至少").append(hostMinExpected).append("次）。本轮必须选主持人(HOST)来控场引导\n");
+        if (totalRounds >= nonHostCount && hostCount < hostMinExpected) {
+            sb.append("- 【建议主持人控场】主持人发言偏少（仅发言").append(hostCount)
+              .append("次），可考虑选主持人(HOST)来引导新方向\n");
         }
 
         // 5. 严重发言不足的角色（发言次数差距>2倍）

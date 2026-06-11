@@ -1,12 +1,10 @@
 package com.kbook.service.user;
 
-import com.kbook.service.recommend.RecommendService;
-
-import com.kbook.common.service.AbstractServiceImpl;
-import com.kbook.entity.UserBookPreference;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
+import com.kbook.entity.UserBookPreference;
 import com.kbook.repository.UserBookPreferenceRepository;
+import com.kbook.service.recommend.RecommendService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -24,7 +22,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("用户偏好")
-public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPreference, Long> {
+public class UserBookPreferenceService {
 
     /** 用户偏好数据仓库 */
     @Autowired
@@ -49,7 +47,7 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
             // 已存在则更新类型为 EXCLUDE
             UserBookPreference pref = existing.get();
             pref.setType("EXCLUDE");
-            UserBookPreference saved = updateOne(pref);
+            UserBookPreference saved = preferenceRepository.save(pref);
             recommendService.clearUserCache(userId);
             recommendService.asyncRecompute(userId);
             return saved;
@@ -61,7 +59,7 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
                 .value(value)
                 .type("EXCLUDE")
                 .build();
-        UserBookPreference saved = saveOne(pref);
+        UserBookPreference saved = preferenceRepository.save(pref);
         recommendService.clearUserCache(userId);
         recommendService.asyncRecompute(userId);
         log.info("用户添加排除偏好: userId={}, category={}, value={}", userId, category, value);
@@ -80,7 +78,7 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
     public boolean removeExcludePreference(Long userId, String category, String value) {
         var existing = preferenceRepository.findByUserIdAndCategoryAndValue(userId, category, value);
         if (existing.isPresent()) {
-            deleteOneById(existing.get().getId());
+            preferenceRepository.deleteById(existing.get().getId());
             recommendService.clearUserCache(userId);
             recommendService.asyncRecompute(userId);
             log.info("用户取消排除偏好: userId={}, category={}, value={}", userId, category, value);
@@ -164,14 +162,14 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
         if (existing.isPresent()) {
             UserBookPreference pref = existing.get();
             pref.setType("INCLUDE");
-            UserBookPreference saved = updateOne(pref);
+            UserBookPreference saved = preferenceRepository.save(pref);
             recommendService.clearUserCache(userId);
             recommendService.asyncRecompute(userId);
             return saved;
         }
         UserBookPreference pref = UserBookPreference.builder()
                 .userId(userId).category(category.toUpperCase()).value(value).type("INCLUDE").build();
-        UserBookPreference saved = saveOne(pref);
+        UserBookPreference saved = preferenceRepository.save(pref);
         recommendService.clearUserCache(userId);
         recommendService.asyncRecompute(userId);
         log.info("用户添加喜欢偏好: userId={}, category={}, value={}", userId, category, value);
@@ -190,7 +188,7 @@ public class UserBookPreferenceService extends AbstractServiceImpl<UserBookPrefe
     public boolean removeIncludePreference(Long userId, String category, String value) {
         var existing = preferenceRepository.findByUserIdAndCategoryAndValueAndType(userId, category, value, "INCLUDE");
         if (existing.isPresent()) {
-            deleteOneById(existing.get().getId());
+            preferenceRepository.deleteById(existing.get().getId());
             recommendService.clearUserCache(userId);
             recommendService.asyncRecompute(userId);
             log.info("用户取消喜欢偏好: userId={}, category={}, value={}", userId, category, value);

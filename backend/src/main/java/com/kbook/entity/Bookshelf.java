@@ -1,6 +1,5 @@
 package com.kbook.entity;
 
-import com.kbook.common.entity.IMiddleEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -19,7 +18,7 @@ import java.time.LocalDateTime;
 @Table(name = "bookshelf", uniqueConstraints = {
         @UniqueConstraint(name = "uk_user_book_shelf", columnNames = {"user_id", "book_id"})
 })
-public class Bookshelf extends BaseEntity implements IMiddleEntity<Long, Long> {
+public class Bookshelf extends BaseEntity {
 
     /** 主键 ID */
     @Id
@@ -52,25 +51,5 @@ public class Bookshelf extends BaseEntity implements IMiddleEntity<Long, Long> {
     @Override
     public Long getId() {
         return id;
-    }
-
-    @Override
-    public Long getId1() {
-        return userId;
-    }
-
-    @Override
-    public void setId1(Long userId) {
-        this.userId = userId;
-    }
-
-    @Override
-    public Long getId2() {
-        return bookId;
-    }
-
-    @Override
-    public void setId2(Long bookId) {
-        this.bookId = bookId;
     }
 }

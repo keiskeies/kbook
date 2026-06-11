@@ -15,7 +15,7 @@ import java.util.Optional;
  * 私信会话数据访问层
  */
 @Repository
-public interface ConversationRepository extends JpaRepository<Conversation, Long> {
+public interface ConversationRepository extends BaseRepository<Conversation, Long> {
 
     /**
      * 根据两个用户ID查询会话

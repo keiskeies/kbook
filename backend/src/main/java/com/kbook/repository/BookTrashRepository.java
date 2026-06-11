@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
-public interface BookTrashRepository extends JpaRepository<BookTrash, Long> {
+public interface BookTrashRepository extends BaseRepository<BookTrash, Long> {
 
     List<BookTrash> findByUserIdOrderByCreatedAtDesc(Long userId);
 

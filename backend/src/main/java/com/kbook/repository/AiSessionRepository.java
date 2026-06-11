@@ -9,7 +9,7 @@ import java.util.Optional;
 /**
  * AI 会话数据访问层
  */
-public interface AiSessionRepository extends JpaRepository<AiSession, Long> {
+public interface AiSessionRepository extends BaseRepository<AiSession, Long> {
 
     /**
      * 根据会话ID查询会话

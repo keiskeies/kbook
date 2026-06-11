@@ -3,7 +3,6 @@ package com.kbook.service.book;
 import com.kbook.service.recommend.RecommendService;
 
 import com.kbook.common.exception.BusinessException;
-import com.kbook.common.service.AbstractMiddleServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.dto.book.BookshelfItem;
@@ -32,7 +31,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("书架")
-public class BookshelfService extends AbstractMiddleServiceImpl<Bookshelf, Long, Long> {
+public class BookshelfService {
 
     /** 书架数据仓库 */
     @Autowired
@@ -61,14 +60,14 @@ public class BookshelfService extends AbstractMiddleServiceImpl<Bookshelf, Long,
         if (!bookRepository.existsById(bookId)) {
             throw new BusinessException("图书不存在");
         }
-        if (middleService.exist(userId, bookId)) {
+        if (bookshelfRepository.existsByUserIdAndBookId(userId, bookId)) {
             throw new BusinessException("已在书架中");
         }
         Bookshelf item = Bookshelf.builder()
                 .userId(userId)
                 .bookId(bookId)
                 .build();
-        middleService.saveOne(item);
+        bookshelfRepository.save(item);
         bookTrashService.updateDimensionScoresOnBookshelf(userId, bookId);
         log.info("加入书架: userId={}, bookId={}", userId, bookId);
     }
@@ -79,9 +78,9 @@ public class BookshelfService extends AbstractMiddleServiceImpl<Bookshelf, Long,
     @Transactional
     @LogAction("移出书架")
     public void removeFromBookshelf(Long userId, Long bookId) {
-        Bookshelf item = middleService.findOneById(userId, bookId);
+        Bookshelf item = bookshelfRepository.findByUserIdAndBookId(userId, bookId).orElse(null);
         if (item != null) {
-            middleService.deleteOneById(item.getId());
+            bookshelfRepository.deleteById(item.getId());
         }
         bookTrashService.reverseDimensionScoresOnBookshelf(userId, bookId);
         log.info("移出书架: userId={}, bookId={}", userId, bookId);
@@ -92,7 +91,7 @@ public class BookshelfService extends AbstractMiddleServiceImpl<Bookshelf, Long,
      */
     @LogAction("检查书架状态")
     public boolean isInBookshelf(Long userId, Long bookId) {
-        return middleService.exist(userId, bookId);
+        return bookshelfRepository.existsByUserIdAndBookId(userId, bookId);
     }
 
     /**

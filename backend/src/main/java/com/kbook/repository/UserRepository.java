@@ -13,7 +13,7 @@ import java.util.Optional;
 /**
  * 用户数据访问层
  */
-public interface UserRepository extends JpaRepository<User, Long> {
+public interface UserRepository extends BaseRepository<User, Long> {
 
     /**
      * 根据邮箱查询用户

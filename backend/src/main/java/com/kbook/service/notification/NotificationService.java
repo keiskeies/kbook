@@ -1,6 +1,5 @@
 package com.kbook.service.notification;
 
-import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.entity.Notification;
 import com.kbook.entity.UserFollow;
 import com.kbook.repository.NotificationRepository;
@@ -25,7 +24,7 @@ import java.util.List;
  */
 @Slf4j
 @Service
-public class NotificationService extends AbstractServiceImpl<Notification, Long> {
+public class NotificationService {
 
     /** 通知数据仓库 */
     @Autowired
@@ -117,7 +116,7 @@ public class NotificationService extends AbstractServiceImpl<Notification, Long>
                 .commentId(commentId)
                 .bookId(bookId)
                 .build();
-        saveOne(notification);
+        notificationRepository.save(notification);
     }
 
     /**
@@ -156,7 +155,7 @@ public class NotificationService extends AbstractServiceImpl<Notification, Long>
      */
     @Transactional
     public void markAsRead(Long notificationId, Long userId) {
-        Notification notification = findOneById(notificationId);
+        Notification notification = notificationRepository.findOneById(notificationId);
         if (notification == null) {
             throw new RuntimeException("通知不存在");
         }
@@ -165,7 +164,7 @@ public class NotificationService extends AbstractServiceImpl<Notification, Long>
             throw new RuntimeException("无权操作");
         }
         notification.setIsRead(true);
-        updateOne(notification);
+        notificationRepository.save(notification);
     }
 
     /**

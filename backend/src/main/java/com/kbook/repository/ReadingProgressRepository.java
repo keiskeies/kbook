@@ -13,7 +13,7 @@ import java.util.Optional;
 /**
  * 阅读进度数据访问层
  */
-public interface ReadingProgressRepository extends JpaRepository<ReadingProgress, Long> {
+public interface ReadingProgressRepository extends BaseRepository<ReadingProgress, Long> {
 
     /**
      * 查询用户对指定图书的阅读进度

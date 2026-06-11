@@ -13,7 +13,7 @@ import java.util.Optional;
 /**
  * 书架数据访问层
  */
-public interface BookshelfRepository extends JpaRepository<Bookshelf, Long> {
+public interface BookshelfRepository extends BaseRepository<Bookshelf, Long> {
 
     /**
      * 查询用户书架中指定图书的记录
