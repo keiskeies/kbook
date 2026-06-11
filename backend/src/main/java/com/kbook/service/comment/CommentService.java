@@ -8,6 +8,7 @@ import com.kbook.common.exception.BusinessException;
 import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
+import com.kbook.config.annotation.RedisLock;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.comment.CommentVO;
 import com.kbook.entity.*;
@@ -290,6 +291,7 @@ public class CommentService extends AbstractServiceImpl<Comment, Long> {
      */
     @Transactional // 开启事务保证数据一致性
     @LogAction("点赞评论")
+    @RedisLock(key = "'comment:like:' + #commentId + ':' + #userId", leaseTime = 10)
     public void likeComment(Long commentId, Long userId) {
         // 检查用户是否已经点赞过，避免重复点赞
         if (commentLikeRepository.existsByCommentIdAndUserId(commentId, userId)) {
@@ -369,6 +371,7 @@ public class CommentService extends AbstractServiceImpl<Comment, Long> {
      */
     @Transactional // 开启事务保证数据一致性
     @LogAction("取消点赞评论")
+    @RedisLock(key = "'comment:like:' + #commentId + ':' + #userId", leaseTime = 10)
     public void unlikeComment(Long commentId, Long userId) {
         // 检查用户是否已经点赞过，未点赞则抛出异常
         if (!commentLikeRepository.existsByCommentIdAndUserId(commentId, userId)) {
@@ -395,6 +398,7 @@ public class CommentService extends AbstractServiceImpl<Comment, Long> {
      */
     @Transactional // 开启事务保证数据一致性
     @LogAction("收藏评论")
+    @RedisLock(key = "'comment:fav:' + #commentId + ':' + #userId", leaseTime = 10)
     public void favoriteComment(Long commentId, Long userId) {
         // 检查用户是否已经收藏过，避免重复收藏
         if (commentFavoriteRepository.existsByCommentIdAndUserId(commentId, userId)) {
@@ -427,6 +431,7 @@ public class CommentService extends AbstractServiceImpl<Comment, Long> {
      */
     @Transactional // 开启事务保证数据一致性
     @LogAction("取消收藏评论")
+    @RedisLock(key = "'comment:fav:' + #commentId + ':' + #userId", leaseTime = 10)
     public void unfavoriteComment(Long commentId, Long userId) {
         // 检查用户是否已经收藏过，未收藏则抛出异常
         if (!commentFavoriteRepository.existsByCommentIdAndUserId(commentId, userId)) {

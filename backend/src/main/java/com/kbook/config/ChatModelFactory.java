@@ -364,17 +364,6 @@ public class ChatModelFactory {
         return aiProps.getEmbeddingModel().getModelName();
     }
 
-    /**
-     * 获取 embedding 并发数。
-     * <p>
-     * 从 yml 配置的嵌入模型中读取，用于控制批量入库时的并行请求数。
-     *
-     * @return 并发线程数
-     */
-    public int getEmbeddingConcurrency() {
-        return aiProps.getEmbeddingModel().getConcurrency();
-    }
-
     // ======================== 内部：维度组合器 ========================
 
     /**
@@ -401,13 +390,13 @@ public class ChatModelFactory {
     /**
      * 创建超时时间对象。
      * <p>
-     * 如果传入的秒数为 null，则使用默认值 120 秒。
+     * 如果传入的秒数为 null，则使用默认值 600 秒。
      *
      * @param seconds 超时秒数
      * @return Duration 对象
      */
     private Duration timeout(Integer seconds) {
-        return Duration.ofSeconds(seconds != null ? seconds : 120);
+        return Duration.ofSeconds(seconds != null ? seconds : 600);
     }
 
     /**
@@ -504,7 +493,7 @@ public class ChatModelFactory {
      * @return OpenAI 聊天模型实例
      */
     private OpenAiChatModel buildOpenAiChat(AiModelProperties.ChatModelConfig chat, boolean thinking) {
-        Duration t = chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(120);
+        Duration t = chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(600);
         log.info("构建 OpenAI ChatModel (yml): baseUrl={}, model={}, timeout={}s",
                 chat.getBaseUrl(), chat.getModelName(), t.getSeconds());
         return buildOpenAiChat(chat.getBaseUrl(), chat.getModelName(),
@@ -521,7 +510,7 @@ public class ChatModelFactory {
      * @return OpenAI 流式聊天模型实例
      */
     private OpenAiStreamingChatModel buildOpenAiStreaming(AiModelProperties.ChatModelConfig chat, boolean thinking) {
-        Duration t = chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(120);
+        Duration t = chat.getTimeout() != null ? chat.getTimeout() : Duration.ofSeconds(600);
         log.info("构建 OpenAI StreamingChatModel (yml): baseUrl={}, model={}",
                 chat.getBaseUrl(), chat.getModelName());
         return buildOpenAiStreaming(chat.getBaseUrl(), chat.getModelName(),
@@ -538,7 +527,7 @@ public class ChatModelFactory {
      * @param baseUrl    Ollama 服务地址
      * @param modelName  模型名称
      * @param temperature 温度参数（0.0-2.0），如果为 null 则使用 0.7
-     * @param timeout    超时时间，如果为 null 则使用 120 秒
+     * @param timeout    超时时间，如果为 null 则使用 600 秒
      * @param thinking   是否启用思考过程
      * @return Ollama 聊天模型实例
      */
@@ -547,11 +536,10 @@ public class ChatModelFactory {
         return OllamaChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
-                .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .returnThinking(thinking).think(thinking)
-                .repeatPenalty(0.3)
                 .build();
     }
 
@@ -563,7 +551,7 @@ public class ChatModelFactory {
      * @param baseUrl    Ollama 服务地址
      * @param modelName  模型名称
      * @param temperature 温度参数（0.0-2.0），如果为 null 则使用 0.7
-     * @param timeout    超时时间，如果为 null 则使用 120 秒
+     * @param timeout    超时时间，如果为 null 则使用 600 秒
      * @param thinking   是否启用思考过程
      * @return Ollama 流式聊天模型实例
      */
@@ -572,11 +560,10 @@ public class ChatModelFactory {
         return OllamaStreamingChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
-                .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .returnThinking(thinking).think(thinking)
-                .repeatPenalty(0.3)
                 .build();
     }
 
@@ -588,7 +575,7 @@ public class ChatModelFactory {
      * @param baseUrl    OpenAI API 基础地址
      * @param modelName  模型名称
      * @param temperature 温度参数（0.0-2.0），如果为 null 则使用 0.7
-     * @param timeout    超时时间，如果为 null 则使用 120 秒
+     * @param timeout    超时时间，如果为 null 则使用 600 秒
      * @param apiKey     API Key，如果为空则使用占位符
      * @param thinking   是否启用思考过程
      * @return OpenAI 聊天模型实例
@@ -598,10 +585,8 @@ public class ChatModelFactory {
         var builder = OpenAiChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
-                .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .returnThinking(thinking).sendThinking(thinking)
-                .frequencyPenalty(0.3)
-                .presencePenalty(0.3)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
@@ -615,7 +600,7 @@ public class ChatModelFactory {
      * @param baseUrl    OpenAI API 基础地址
      * @param modelName  模型名称
      * @param temperature 温度参数（0.0-2.0），如果为 null 则使用 0.7
-     * @param timeout    超时时间，如果为 null 则使用 120 秒
+     * @param timeout    超时时间，如果为 null 则使用 600 秒
      * @param apiKey     API Key，如果为空则使用占位符
      * @param thinking   是否启用思考过程
      * @return OpenAI 流式聊天模型实例
@@ -625,10 +610,8 @@ public class ChatModelFactory {
         var builder = OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
-                .timeout(timeout != null ? timeout : Duration.ofSeconds(120))
+                .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .returnThinking(thinking).sendThinking(thinking)
-                .frequencyPenalty(0.3)
-                .presencePenalty(0.3)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();

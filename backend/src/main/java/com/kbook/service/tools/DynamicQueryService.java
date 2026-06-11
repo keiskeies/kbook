@@ -3,7 +3,9 @@ package com.kbook.service.tools;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.dto.stats.ConditionDTO;
 import com.kbook.entity.Book;
+import com.kbook.service.book.BookService;
 import com.kbook.common.enums.ConditionEnum;
+import org.springframework.context.annotation.Lazy;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -44,12 +46,18 @@ public class DynamicQueryService {
      */
     private static final Set<String> UPDATABLE_FIELDS = Set.of(
             "title", "author", "description", "formatTags", "conceptTags",
-            "readerNeedTags", "targetReaderTags", "toc", "chapterSummary",
+            "readerNeedTags", "targetReaderTags", "toc", "chapterSummary", "compressedSummary",
             "coverUrl", "rating", "contentEmbedded"
     );
 
     @PersistenceContext
     private EntityManager entityManager;
+
+    private final BookService bookService;
+
+    public DynamicQueryService(@Lazy BookService bookService) {
+        this.bookService = bookService;
+    }
 
     // ==================== 解析器 ====================
 
@@ -495,8 +503,9 @@ public class DynamicQueryService {
         if (b.getDescription() != null && !b.getDescription().isBlank()) {
             sb.append("简介: ").append(CommonUtils.truncateText(b.getDescription(), 200)).append("\n");
         }
-        if (b.getChapterSummary() != null && !b.getChapterSummary().isBlank()) {
-            sb.append("章节摘要: ").append(CommonUtils.truncateText(b.getChapterSummary(), 200)).append("\n");
+        String summary = bookService.resolveBookSummary(b);
+        if (summary != null && !summary.isBlank()) {
+            sb.append("摘要: ").append(CommonUtils.truncateText(summary, 500)).append("\n");
         }
         return sb.toString();
     }

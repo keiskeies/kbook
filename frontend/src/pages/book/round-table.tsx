@@ -301,7 +301,7 @@ function MessageBubble({
             ) : msg.streaming ? (
               <span className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span className="text-xs">思考中...</span>
+                <span className="text-xs">麦克风传递中...</span>
               </span>
             ) : null}
             {msg.streaming && msg.content && (
@@ -529,10 +529,10 @@ export default function RoundTablePage() {
     })
   }, [id])
 
-  const loadRecommendedRoles = useCallback(async () => {
+  const loadRecommendedRoles = useCallback(async (refresh?: boolean) => {
     setPhase('loading')
     try {
-      const res = await getRoundTableRoles(id)
+      const res = await getRoundTableRoles(id, refresh)
       const data = (res as { data?: RoundTableRole[] })?.data ?? res as RoundTableRole[]
       if (Array.isArray(data) && data.length > 0) {
         setAvailableRoles(data)
@@ -997,7 +997,7 @@ export default function RoundTablePage() {
       {/* 操作按钮 */}
       <div className="mt-6 flex items-center gap-3">
         <button
-          onClick={loadRecommendedRoles}
+          onClick={() => loadRecommendedRoles(true)}
           className="flex items-center gap-1.5 rounded-2xl border border-border/40 bg-card px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-border/60 transition-all duration-200 active:scale-[0.97]"
           title="重新邀请一组嘉宾"
         >

@@ -2,6 +2,7 @@ package com.kbook.service.book;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.ScanStepTimer;
+import com.kbook.config.annotation.RedisLock;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
@@ -77,6 +78,7 @@ public class BookScanService {
      * @param skipBeforeId 跳过 ID 小于此值的已有图书（用于断点续扫）
      * @return SseEmitter
      */
+    @RedisLock(key = "'kbook:lock:scan'", leaseTime = 600)
     public SseEmitter scanAllWithProgress(Long skipBeforeId) {
         // 防止重复扫描
         if (scanningInProgress) {

@@ -4,6 +4,7 @@ import com.kbook.common.exception.BusinessException;
 import com.kbook.common.service.AbstractMiddleServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
+import com.kbook.config.annotation.RedisLock;
 import com.kbook.entity.User;
 import com.kbook.entity.UserFollow;
 import com.kbook.repository.UserFollowRepository;
@@ -41,6 +42,7 @@ public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Lon
      */
     @Transactional
     @LogAction("关注用户")
+    @RedisLock(key = "'follow:' + #followerId + ':' + #followingId", leaseTime = 10)
     public void followUser(Long followerId, Long followingId) {
         if (followerId.equals(followingId)) {
             throw new BusinessException("不能关注自己");
@@ -77,6 +79,7 @@ public class UserFollowService extends AbstractMiddleServiceImpl<UserFollow, Lon
      */
     @Transactional
     @LogAction("取消关注")
+    @RedisLock(key = "'follow:' + #followerId + ':' + #followingId", leaseTime = 10)
     public void unfollowUser(Long followerId, Long followingId) {
         if (!middleService.exist(followerId, followingId)) {
             throw new BusinessException("尚未关注该用户");

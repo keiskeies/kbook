@@ -112,19 +112,21 @@ public class RoundTableService {
      */
     @LogAction("LLM推荐角色")
     @SuppressWarnings("unchecked")
-    public List<RoleVO> getRecommendedRoles(Long bookId) throws JsonProcessingException {
-        // 读缓存
+    public List<RoleVO> getRecommendedRoles(Long bookId, boolean refresh) throws JsonProcessingException {
+        // 读缓存（非强制刷新时）
         String cacheKey = ROLES_CACHE_KEY_PREFIX + bookId;
-        String cachedJson = stringRedisTemplate.opsForValue().get(cacheKey);
-        if (cachedJson != null) {
-            try {
-                List<RoleVO> cached = objectMapper.readValue(cachedJson, new TypeReference<List<RoleVO>>() {});
-                if (cached != null && !cached.isEmpty()) {
-                    log.debug("角色推荐缓存命中: bookId={}", bookId);
-                    return cached;
+        if (!refresh) {
+            String cachedJson = stringRedisTemplate.opsForValue().get(cacheKey);
+            if (cachedJson != null) {
+                try {
+                    List<RoleVO> cached = objectMapper.readValue(cachedJson, new TypeReference<List<RoleVO>>() {});
+                    if (cached != null && !cached.isEmpty()) {
+                        log.debug("角色推荐缓存命中: bookId={}", bookId);
+                        return cached;
+                    }
+                } catch (Exception e) {
+                    log.warn("反序列化角色推荐缓存失败: bookId={} - {}", bookId, e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("反序列化角色推荐缓存失败: bookId={} - {}", bookId, e.getMessage());
             }
         }
 
@@ -214,15 +216,23 @@ public class RoundTableService {
             String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
             sb.append("标签：").append(tags).append("\n");
         }
+        if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+            String concepts = book.getConceptTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("核心概念：").append(concepts).append("\n");
+        }
+        if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+            String needs = book.getReaderNeedTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("读者关注：").append(needs).append("\n");
+        }
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
             String desc = book.getDescription().length() > 500
                     ? book.getDescription().substring(0, 500) + "..."
                     : book.getDescription();
             sb.append("简介：").append(desc).append("\n");
         }
-        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-            String summary = CommonUtils.truncateText(book.getChapterSummary(), 2000);
-            sb.append("章节摘要：").append(summary).append("\n");
+        String summary = bookService.resolveBookSummary(book);
+        if (summary != null && !summary.isBlank()) {
+            sb.append("摘要：").append(CommonUtils.truncateText(summary, 2000)).append("\n");
         }
         return sb.toString();
     }
@@ -962,40 +972,64 @@ public class RoundTableService {
               .append("刚发过言，不能连续发言\n");
         }
 
-        // 2. 从未发言的角色
+        // 2. 从未发言的角色（强制优先）
         Set<String> neverSpoken = Arrays.stream(roleKeys)
                 .map(String::trim)
                 .filter(key -> !speakCounts.containsKey(key))
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         if (!neverSpoken.isEmpty()) {
-            sb.append("- 优先鼓励：以下角色至今未发言，应优先考虑让他们参与讨论：");
+            sb.append("- 【强制优先】以下角色至今一次都没发言，必须在下一轮选其中一位：");
             for (String key : neverSpoken) {
                 RoundTableRole role = RoundTableRole.fromKey(key);
-                if (role != null) sb.append(role.getName()).append(" ");
+                if (role != null) sb.append(role.getName()).append("(").append(key).append(") ");
             }
             sb.append("\n");
         }
 
-        // 3. 发言次数统计
-        sb.append("- 当前发言次数统计：");
-        for (String key : roleKeys) {
-            String trimmed = key.trim();
-            RoundTableRole role = RoundTableRole.fromKey(trimmed);
-            if (role != null) {
-                long count = speakCounts.getOrDefault(trimmed, 0L);
-                sb.append(role.getName()).append("=").append(count).append(" ");
-            }
-        }
+        // 3. 发言次数统计（按次数排序）
+        sb.append("- 当前发言次数统计（从少到多）：");
+        Arrays.stream(roleKeys)
+                .map(String::trim)
+                .sorted(Comparator.comparingLong(k -> speakCounts.getOrDefault(k, 0L)))
+                .forEach(key -> {
+                    RoundTableRole role = RoundTableRole.fromKey(key);
+                    long count = speakCounts.getOrDefault(key, 0L);
+                    sb.append(role != null ? role.getName() : key).append("=").append(count).append(" ");
+                });
         sb.append("\n");
 
-        // 4. 主持人控场规则
+        // 4. 主持人定期控场（强制）
         int nonHostCount = (int) Arrays.stream(roleKeys).filter(k -> !"HOST".equals(k.trim())).count();
         long hostCount = speakCounts.getOrDefault("HOST", 0L);
         int totalRounds = allMessages.size();
-        int hostMinExpected = Math.max(1, totalRounds / (nonHostCount + 1));
-        if (totalRounds >= nonHostCount && hostCount < hostMinExpected) {
-            sb.append("- 主持人控场：主持人发言次数不足（").append(hostCount).append("次，应至少")
-              .append(hostMinExpected).append("次），需要让主持人介入引导\n");
+        // 比之前更激进：每 nonHostCount/2 轮（最少2轮）就要主持人介入一次
+        int hostInterval = Math.max(2, nonHostCount / 2);
+        int hostMinExpected = Math.max(1, totalRounds / hostInterval);
+        if (totalRounds >= 2 && hostCount < hostMinExpected) {
+            sb.append("- 【主持人必须发言】主持人已沉默太久（仅发言").append(hostCount)
+              .append("次，预期至少").append(hostMinExpected).append("次）。本轮必须选主持人(HOST)来控场引导\n");
+        }
+
+        // 5. 严重发言不足的角色（发言次数差距>2倍）
+        if (!allMessages.isEmpty() && !neverSpoken.isEmpty()) {
+            // 沉默者已在上面处理，这里跳过
+        } else {
+            long maxCount = speakCounts.values().stream().mapToLong(v -> v).max().orElse(1);
+            List<String> starved = Arrays.stream(roleKeys)
+                    .map(String::trim)
+                    .filter(key -> {
+                        long c = speakCounts.getOrDefault(key, 0L);
+                        return c > 0 && c * 3 <= maxCount && maxCount >= 3;
+                    })
+                    .toList();
+            if (!starved.isEmpty()) {
+                sb.append("- 【强制优先】以下角色发言严重不足（与最活跃者差距3倍以上）：");
+                for (String key : starved) {
+                    RoundTableRole role = RoundTableRole.fromKey(key);
+                    if (role != null) sb.append(role.getName()).append("(").append(key).append(") ");
+                }
+                sb.append("\n");
+            }
         }
 
         return sb.toString();
@@ -1090,6 +1124,11 @@ public class RoundTableService {
                             .findBySessionIdOrderByIdAsc(request.getSessionId());
                     String ragContext = retrieveRagContextForRole(book, role, historyMessages);
                     bookContext = buildBookContext(book, ragContext);
+
+                    // HOST: 追加话题进度，让主持人明确看到已讨论/未讨论的概念
+                    if (role == RoundTableRole.HOST) {
+                        bookContext = appendHostTopicProgress(bookContext, book, historyMessages);
+                    }
                 }
 
                 // 构建消息列表：系统提示 + 书籍上下文 + DB 历史 + 发言指令
@@ -1962,6 +2001,50 @@ public class RoundTableService {
                 .map(String::trim)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * HOST 话题进度注入：在书籍上下文末尾追加「已讨论/未讨论」概念清单。
+     * <p>
+     * 这样主持人在发言时能直接看到哪些概念还没聊到，而不是靠自己从长篇历史中推断。
+     */
+    private String appendHostTopicProgress(String bookContext, Book book, List<RoundTableMessage> history) {
+        Set<String> allConcepts = parseConceptTags(book.getConceptTags());
+        if (allConcepts.isEmpty()) return bookContext;
+
+        // 匹配已讨论的概念
+        Set<String> discussed = new LinkedHashSet<>();
+        if (history != null && !history.isEmpty()) {
+            StringBuilder allText = new StringBuilder();
+            for (RoundTableMessage msg : history) {
+                String content = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
+                        ? msg.getCompressedContent() : msg.getContent();
+                if (content != null) allText.append(content);
+            }
+            String text = allText.toString();
+            for (String concept : allConcepts) {
+                if (text.contains(concept)) discussed.add(concept);
+            }
+        }
+
+        Set<String> undiscussed = new LinkedHashSet<>(allConcepts);
+        undiscussed.removeAll(discussed);
+
+        StringBuilder sb = new StringBuilder(bookContext);
+        sb.append("\n【话题进度——主持人专用】\n");
+
+        if (!undiscussed.isEmpty()) {
+            sb.append("尚未讨论的概念：").append(String.join("、", undiscussed)).append("\n");
+            sb.append("请在本次发言中至少引入一个上述概念，引导嘉宾讨论新话题。\n");
+        }
+        if (!discussed.isEmpty()) {
+            sb.append("已讨论的概念：").append(String.join("、", discussed)).append("\n");
+        }
+        if (undiscussed.isEmpty()) {
+            sb.append("所有概念均已讨论。请换一个全新的切入角度，或引导嘉宾做更深层的交叉关联。\n");
+        }
+
+        return sb.toString();
     }
 
     /**

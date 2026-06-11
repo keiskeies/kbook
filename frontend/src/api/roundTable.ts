@@ -3,8 +3,8 @@ import { createSsePostConnectionWithEvents } from '@/utils/sse-request'
 import type { RoundTableRole, RoundTableSession, RoundTableMessage } from '@/types/roundTable'
 
 /** 获取推荐角色列表（LLM选角） */
-export function getRoundTableRoles(bookId: number) {
-  return request.get<RoundTableRole[]>(`/round-table/books/${bookId}/roles`)
+export function getRoundTableRoles(bookId: number, refresh?: boolean) {
+  return request.get<RoundTableRole[]>(`/round-table/books/${bookId}/roles`, { params: { refresh } })
 }
 
 /** 创建圆桌派会话 */

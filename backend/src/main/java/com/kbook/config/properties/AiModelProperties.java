@@ -31,13 +31,13 @@ public class AiModelProperties {
         /** 服务地址（Ollama 默认 <a href="http://localhost:11434">...</a>，OpenAI 兼容 API 填对应地址） */
         private String baseUrl = "http://localhost:11434";
         /** 模型名称 */
-        private String modelName = "gemma4:e4b";
+        private String modelName = "gemma4:12b";
         /** API Key（OpenAI 兼容 API 需要；Ollama 可留空） */
         private String apiKey;
         /** 温度参数（控制生成随机性，0-2） */
         private double temperature = 0.7;
         /** 请求超时时间 */
-        private Duration timeout = Duration.ofSeconds(120);
+        private Duration timeout = Duration.ofSeconds(600);
         /** 是否启用 Tool Calling（部分模型如 gemma3n 不支持 tools）。null=自动检测 */
         private Boolean toolsEnabled;
     }
@@ -55,8 +55,6 @@ public class AiModelProperties {
         private String apiKey;
         /** 请求超时时间 */
         private Duration timeout = Duration.ofSeconds(300);
-        /** embedding 并发数（批量入库时并行发送 API 请求的线程数，默认 3） */
-        private int concurrency = 3;
     }
 
     @Data

@@ -230,21 +230,11 @@ langchain4j:
     # 提供商：ollama | openai
     provider: ${AI_PROVIDER:ollama}
     base-url: ${AI_BASE_URL:http://localhost:11434}
-    model-name: ${AI_MODEL:qwen3.5:9b}
+    model-name: ${AI_MODEL:gemma4:12b}
     # OpenAI 兼容 API 的 API Key（Ollama 无需填写）
     api-key: ${AI_API_KEY:}
     temperature: 0.7
     timeout: 600s
-#  embedding-model:
-#    # 提供商：ollama | openai
-#    provider: ${AI_EMBEDDING_PROVIDER:openai}
-#    base-url: ${AI_EMBEDDING_BASE_URL:https://ai.gitee.com/v1}
-#    model-name: ${AI_EMBEDDING_MODEL:bge-m3}
-#    # OpenAI 兼容 API 的 API Key（Ollama 无需填写）
-#    api-key: ${AI_EMBEDDING_API_KEY:}
-#    timeout: 300s
-#    # 批量入库并发数（并行发送 embedding 请求的线程数）
-#    concurrency: ${AI_EMBEDDING_CONCURRENCY:5}
   embedding-model:
     # 提供商：ollama | openai
     provider: ${AI_EMBEDDING_PROVIDER:ollama}
@@ -252,36 +242,7 @@ langchain4j:
     model-name: ${AI_EMBEDDING_MODEL:bge-m3:latest}
     # OpenAI 兼容 API 的 API Key（Ollama 无需填写）
     api-key: ${AI_EMBEDDING_API_KEY:}
-    concurrency: ${AI_EMBEDDING_CONCURRENCY:20}
     timeout: 300s
-#  chat-model:
-#    # 提供商：ollama | openai
-#    provider: ${AI_PROVIDER:ollama}
-#    base-url: ${AI_BASE_URL:http://localhost:11434}
-#    model-name: ${AI_MODEL:qwen3.5:9b}
-#    # OpenAI 兼容 API 的 API Key（Ollama 无需填写）
-#    api-key: ${AI_API_KEY:}
-#    temperature: 0.7
-#    timeout: 600s
-##  embedding-model:
-##    # 提供商：ollama | openai
-##    provider: ${AI_EMBEDDING_PROVIDER:openai}
-##    base-url: ${AI_EMBEDDING_BASE_URL:https://ai.gitee.com/v1}
-##    model-name: ${AI_EMBEDDING_MODEL:bge-m3}
-##    # OpenAI 兼容 API 的 API Key（Ollama 无需填写）
-##    api-key: ${AI_EMBEDDING_API_KEY:}
-##    timeout: 300s
-##    # 批量入库并发数（并行发送 embedding 请求的线程数）
-##    concurrency: ${AI_EMBEDDING_CONCURRENCY:5}
-#  embedding-model:
-#    # 提供商：ollama | openai
-#    provider: ${AI_EMBEDDING_PROVIDER:ollama}
-#    base-url: ${AI_EMBEDDING_BASE_URL:http://localhost:11434}
-#    model-name: ${AI_EMBEDDING_MODEL:bge-m3:latest}
-#    # OpenAI 兼容 API 的 API Key（Ollama 无需填写）
-#    api-key: ${AI_EMBEDDING_API_KEY:}
-#    concurrency: ${AI_EMBEDDING_CONCURRENCY:20}
-#    timeout: 300s
 
 # ========================
 # 日志

@@ -3,6 +3,7 @@ package com.kbook.service.progress;
 import com.kbook.common.service.AbstractServiceImpl;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
+import com.kbook.config.annotation.RedisLock;
 import com.kbook.dto.progress.ProgressBatchItem;
 import com.kbook.dto.stats.ReadingHistoryVO;
 import com.kbook.dto.stats.ReadingStats;
@@ -57,6 +58,7 @@ public class ReadingProgressService extends AbstractServiceImpl<ReadingProgress,
      */
     @Transactional // 开启事务保证数据一致性
     @LogAction("上报阅读进度")
+    @RedisLock(key = "'progress:' + #userId + ':' + #bookId", leaseTime = 10)
     public ProgressResult reportProgress(Long userId, Long bookId, Double progress, String currentPosition) {
         log.debug("上报阅读进度: userId={}, bookId={}, progress={}", userId, bookId, progress); // 记录调试日志
 
@@ -113,6 +115,7 @@ public class ReadingProgressService extends AbstractServiceImpl<ReadingProgress,
      */
     @Transactional // 开启事务保证数据一致性
     @LogAction("批量上报阅读进度")
+    @RedisLock(key = "'progress:batch:' + #userId", leaseTime = 30)
     public BatchProgressResult batchReportProgress(Long userId, List<ProgressBatchItem> items) {
         log.info("开始批量上报进度: userId={}, count={}", userId, items.size()); // 记录开始日志
         int updated = 0, created = 0, skipped = 0; // 初始化计数器：更新数、创建数、跳过数

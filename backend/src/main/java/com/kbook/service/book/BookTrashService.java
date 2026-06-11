@@ -18,6 +18,7 @@ import com.kbook.repository.BookTrashRepository;
 import lombok.extern.slf4j.Slf4j;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
+import com.kbook.config.annotation.RedisLock;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -71,6 +72,7 @@ public class BookTrashService {
      */
     @Transactional
     @LogAction("移入垃圾桶")
+    @RedisLock(key = "'trash:' + #userId + ':' + #bookId", leaseTime = 10)
     public void moveToTrash(Long userId, Long bookId) {
         // 检查图书是否存在
         if (!bookRepository.existsById(bookId)) {
@@ -116,6 +118,7 @@ public class BookTrashService {
      */
     @Transactional
     @LogAction("移出垃圾桶")
+    @RedisLock(key = "'trash:' + #userId + ':' + #bookId", leaseTime = 10)
     public void removeFromTrash(Long userId, Long bookId) {
         // 检查是否在垃圾桶中
         if (!bookTrashRepository.existsByUserIdAndBookId(userId, bookId)) {
@@ -152,6 +155,7 @@ public class BookTrashService {
      */
     @Transactional
     @LogAction("加入书架更新维度")
+    @RedisLock(key = "'trash:' + #userId + ':' + #bookId", leaseTime = 10)
     public void updateDimensionScoresOnBookshelf(Long userId, Long bookId) {
         // 获取图书信息
         Book book = bookRepository.findById(bookId).orElseThrow();
@@ -177,6 +181,7 @@ public class BookTrashService {
      */
     @Transactional
     @LogAction("移出书架更新维度")
+    @RedisLock(key = "'trash:' + #userId + ':' + #bookId", leaseTime = 10)
     public void reverseDimensionScoresOnBookshelf(Long userId, Long bookId) {
         // 获取图书信息，如果不存在则直接返回
         Book book = bookRepository.findById(bookId).orElse(null);

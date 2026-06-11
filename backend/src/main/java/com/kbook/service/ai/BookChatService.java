@@ -228,7 +228,7 @@ public class BookChatService {
                 if (book.getCompressedSummary() == null || book.getCompressedSummary().isBlank()) {
                     if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
                         try {
-                            emitter.send(SseEmitter.event().name("thinking").data("正在整理图书摘要..."));
+                            emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍内容，请稍候..."));
                         } catch (Exception ignored) {
                         }
                         String compressed = chatModelManager.generateCompressedSummary(book);
@@ -481,7 +481,7 @@ public class BookChatService {
     /**
      * RAG 语义检索：从书籍内容向量中检索与问题相关的片段
      * RAG 长度上限由模型上下文动态决定：maxTokens × 1.5 × 0.6（留 40% 给系统和对话）
-     * 优化策略：多查询检索 → 去重 → LLM 相关性过滤(KEEP/DISCARD+优先级) → 相邻片段合并
+     * 优化策略：多查询检索 → 去重 → 相邻片段合并 → 按模型上下文截断
      *
      * @param book     书籍实体
      * @param question 用户问题
@@ -565,41 +565,9 @@ public class BookChatService {
                 }
             }
 
-            // LLM 批量过滤：KEEP/DISCARD + 优先级
-            List<String> chunkTexts = allMatches.stream()
-                    .map(m -> m.embedded() != null ? m.embedded().text() : "")
-                    .toList();
-            List<ChatModelManager.RagChunkFilterResult> filterResults =
-                    chatModelManager.filterRagChunks(question, chunkTexts, book.getTitle());
-
-            // 只保留 KEEP 的片段，同时记录优先级
-            List<EmbeddingMatch<TextSegment>> filtered = new ArrayList<>();
-            java.util.Map<EmbeddingMatch<TextSegment>, Integer> priorityByMatch = new java.util.IdentityHashMap<>();
-            for (ChatModelManager.RagChunkFilterResult r : filterResults) {
-                if (r.keep() && r.index() >= 0 && r.index() < allMatches.size()) {
-                    EmbeddingMatch<TextSegment> match = allMatches.get(r.index());
-                    filtered.add(match);
-                    priorityByMatch.put(match, r.priority());
-                }
-            }
-
-            if (filtered.isEmpty()) {
-                log.info("RAG LLM过滤后无保留片段: bookId={}, question={}",
-                        book.getId(), question.substring(0, Math.min(30, question.length())));
-                ragHitStatisticsService.recordMiss(book.getId());
-                return "";
-            }
-
             ragHitStatisticsService.recordHit(book.getId());
 
-            // 按 LLM 优先级排序（高 → 中 → 低），同优先级保持原始顺序
-            filtered.sort((a, b) -> {
-                int priA = priorityByMatch.getOrDefault(a, ChatModelManager.RagChunkFilterResult.PRIORITY_MEDIUM);
-                int priB = priorityByMatch.getOrDefault(b, ChatModelManager.RagChunkFilterResult.PRIORITY_MEDIUM);
-                return Integer.compare(priB, priA);
-            });
-
-            List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(filtered);
+            List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(allMatches);
             int mergeChars = merged.stream()
                     .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
 
@@ -616,11 +584,10 @@ public class BookChatService {
             }
 
             String ragContext = sb.toString();
-            log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重{}条{}字 → LLM过滤{}条 → 合并{}条{}字 → 最终{}字",
+            log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重{}条{}字 → 合并{}条{}字 → 最终{}字",
                     book.getId(),
                     rawCount, rawChars,
                     dedupedMatches.size(), dedupChars,
-                    filtered.size(),
                     merged.size(), mergeChars,
                     ragContext.length());
 

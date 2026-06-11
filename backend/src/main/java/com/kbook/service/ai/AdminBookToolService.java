@@ -401,7 +401,7 @@ public class AdminBookToolService {
     /** Book 实体允许 AI 动态更新的字段 */
     private static final Set<String> UPDATABLE_FIELDS = Set.of(
             "title", "author", "description", "formatTags", "conceptTags",
-            "readerNeedTags", "targetReaderTags", "toc", "chapterSummary",
+            "readerNeedTags", "targetReaderTags", "toc", "chapterSummary", "compressedSummary",
             "coverUrl", "rating", "contentEmbedded"
     );
 
@@ -477,8 +477,9 @@ public class AdminBookToolService {
         if (b.getDescription() != null && !b.getDescription().isBlank()) {
             sb.append("简介: ").append(CommonUtils.truncateText(b.getDescription(), 200)).append("\n");
         }
-        if (b.getChapterSummary() != null && !b.getChapterSummary().isBlank()) {
-            sb.append("章节摘要: ").append(CommonUtils.truncateText(b.getChapterSummary(), 200)).append("\n");
+        String summary = bookService.resolveBookSummary(b);
+        if (summary != null && !summary.isBlank()) {
+            sb.append("摘要: ").append(CommonUtils.truncateText(summary, 500)).append("\n");
         }
         return sb.toString();
     }

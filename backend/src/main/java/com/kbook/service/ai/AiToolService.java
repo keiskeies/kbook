@@ -116,7 +116,7 @@ public class AiToolService {
                             entry.append(" 标签:").append(tags);
                         }
                         if (b.getDescription() != null && !b.getDescription().isBlank()) {
-                            entry.append(" 简介:").append(truncate(b.getDescription(), 120));
+                            entry.append(" 简介:").append(b.getDescription());
                         }
                         return entry.toString();
                     })
@@ -150,8 +150,9 @@ public class AiToolService {
             if (book.getToc() != null && !book.getToc().isBlank()) {
                 sb.append("目录: ").append(truncate(book.getToc(), 500)).append("\n");
             }
-            if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-                sb.append("章节摘要: ").append(truncate(book.getChapterSummary(), 300)).append("\n");
+            String summary = bookService.resolveBookSummary(book);
+            if (summary != null && !summary.isBlank()) {
+                sb.append("摘要: ").append(truncate(summary, 500)).append("\n");
             }
             recordBook(book.getTitle(), book.getId());
             return sb.toString();

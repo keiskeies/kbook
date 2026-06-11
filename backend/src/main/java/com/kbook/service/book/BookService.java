@@ -1,5 +1,6 @@
 package com.kbook.service.book;
 
+import com.kbook.service.ai.ChatModelManager;
 import com.kbook.service.embedding.EmbeddingService;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -52,6 +53,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     private final BookRepository bookRepository;
     private final BookSearchService bookSearchService;
     private final EmbeddingService embeddingService;
+    private final ChatModelManager chatModelManager;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final UserReadHistoryRepository userReadHistoryRepository;
@@ -76,6 +78,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
     public BookService(BookRepository bookRepository,
                        BookSearchService bookSearchService,
                        @Lazy EmbeddingService embeddingService,
+                       @Lazy ChatModelManager chatModelManager,
                        StringRedisTemplate redisTemplate,
                        BookStorageProperties storageProps,
                         ObjectMapper objectMapper,
@@ -83,6 +86,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
         this.bookRepository = bookRepository;
         this.bookSearchService = bookSearchService;
         this.embeddingService = embeddingService;
+        this.chatModelManager = chatModelManager;
         this.redisTemplate = redisTemplate;
         this.storageProps = storageProps;
         this.objectMapper = objectMapper;
@@ -444,6 +448,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
      */
     @Transactional
     @LogAction("增加阅读计数")
+    @RedisLock(key = "'book:readcount:' + #bookId", leaseTime = 5)
     public void incrementReadCount(Long bookId) {
         Book book = getBookById(bookId);
         book.setReadCount(book.getReadCount() + 1);
@@ -520,6 +525,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
      */
     @Transactional
     @LogAction("用户评分")
+    @RedisLock(key = "'book:rate:' + #bookId + ':' + #userId", leaseTime = 10)
     public Book rateBook(Long bookId, Double rating, Long userId) {
         // 检查用户是否已评分
         boolean hasRated = userReadHistoryRepository.findByUserIdAndBookIdAndAction(userId, bookId, "RATE").isPresent();
@@ -564,6 +570,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
      */
     @Transactional
     @LogAction("删除图书")
+    @RedisLock(key = "'book:delete:' + #id", leaseTime = 30)
     public void deleteBook(Long id) {
         Book book = findOneById(id);
         if (null != book) {
@@ -598,6 +605,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
      */
     @Transactional
     @LogAction("按作者删除图书")
+    @RedisLock(key = "'book:delete-author:' + #author", leaseTime = 120)
     public int deleteBooksByAuthor(String author) {
         List<Book> books = bookRepository.findByAuthor(author);
         if (books.isEmpty()) {
@@ -635,6 +643,7 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
      */
     @Transactional
     @LogAction("合并同名图书")
+    @RedisLock(key = "'book:merge:' + #title", leaseTime = 300, timeUnit = TimeUnit.SECONDS)
     public String mergeBooksByTitle(String title) {
         List<Book> books = bookRepository.findByTitle(title);
         if (books.size() <= 1) {
@@ -810,5 +819,38 @@ public class BookService extends AbstractServiceImpl<Book, Long> {
         } catch (Exception e) {
             log.error("删除后清理数据失败: bookId={}", id, e);
         }
+    }
+
+    /**
+     * 获取书籍的有效摘要，优先返回 compressedSummary（LLM 精炼），
+     * 若为空则触发懒生成并持久化，失败时回退到 chapterSummary。
+     * <p>
+     * 使用分布式锁防止并发重复生成：锁被占用时返回 null，调用方跳过摘要展示。
+     *
+     * @param book 书籍实体
+     * @return 摘要文本；锁被占用时为 null；两者都为空时为 null
+     */
+    @RedisLock(key = "'book:summary:compress:' + #book.id", leaseTime = 300, timeUnit = TimeUnit.SECONDS)
+    public String resolveBookSummary(Book book) {
+        // 1. 压缩摘要已存在，直接返回
+        if (book.getCompressedSummary() != null && !book.getCompressedSummary().isBlank()) {
+            return book.getCompressedSummary();
+        }
+        // 2. 压缩摘要为空，尝试懒生成
+        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            try {
+                String compressed = chatModelManager.generateCompressedSummary(book);
+                if (compressed != null && !compressed.isBlank()) {
+                    book.setCompressedSummary(compressed);
+                    updateOne(book);
+                    log.info("resolveBookSummary 懒生成成功: bookId={}, len={}", book.getId(), compressed.length());
+                    return compressed;
+                }
+            } catch (Exception e) {
+                log.warn("resolveBookSummary 懒生成失败: bookId={}, error={}", book.getId(), e.getMessage());
+            }
+        }
+        // 3. 回退到原始章节摘要
+        return book.getChapterSummary();
     }
 }

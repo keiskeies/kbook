@@ -67,9 +67,9 @@ public class AiProviderConfig extends BaseEntity {
     @Builder.Default
     private Double temperature = 0.7;
 
-    /** 超时时间（秒，默认 120） */
+    /** 超时时间（秒，默认 600） */
     @Builder.Default
-    private Integer timeout = 120;
+    private Integer timeout = 600;
 
     /** 是否支持 Tool Calling（null=自动检测） */
     private Boolean toolsEnabled;

@@ -46,8 +46,10 @@ public class RoundTableController extends BaseController {
      */
     @Operation(summary = "获取推荐角色")
     @GetMapping("/books/{bookId}/roles")
-    public Result<List<RoleVO>> getRecommendedRoles(@PathVariable Long bookId) throws JsonProcessingException {
-        return Result.ok(roundTableService.getRecommendedRoles(bookId));
+    public Result<List<RoleVO>> getRecommendedRoles(
+            @PathVariable Long bookId,
+            @RequestParam(required = false, defaultValue = "false") boolean refresh) throws JsonProcessingException {
+        return Result.ok(roundTableService.getRecommendedRoles(bookId, refresh));
     }
 
     /**

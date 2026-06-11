@@ -514,162 +514,6 @@ public class ChatModelManager {
         return List.of(query);
     }
 
-    // ================================================================
-    // RAG 检索结果过滤
-    // ================================================================
-
-    /**
-     * RAG 检索片段过滤结果。
-     *
-     * @param index    片段在输入列表中的索引
-     * @param keep     是否保留（KEEP=true, DISCARD=false）
-     * @param priority 优先级（3=高, 2=中, 1=低, 0=被丢弃）
-     */
-    public record RagChunkFilterResult(int index, boolean keep, int priority) {
-        /** KEEP 的默认优先级 */
-        public static final int PRIORITY_HIGH = 3;
-        public static final int PRIORITY_MEDIUM = 2;
-        public static final int PRIORITY_LOW = 1;
-    }
-
-    /**
-     * 使用 LLM 批量判断 RAG 检索片段与用户问题的相关性。
-     *
-     * <p>一次 LLM 调用完成所有片段的 KEEP/DISCARD 判断和优先级排序，
-     * 避免逐条调用带来的延迟和成本。</p>
-     *
-     * <p>判断标准：只有包含能直接回答用户问题的具体信息、论据或事实时才 KEEP；
-     * 泛泛主题相关但不提供具体信息的片段 → DISCARD。</p>
-     *
-     * @param question  用户问题
-     * @param chunks    去重后的检索片段文本列表
-     * @param bookTitle 书名（用于上下文）
-     * @return 每个片段的过滤结果，按输入顺序
-     */
-    public List<RagChunkFilterResult> filterRagChunks(String question, List<String> chunks, String bookTitle) {
-        if (chunks == null || chunks.isEmpty()) {
-            return List.of();
-        }
-
-        try {
-            // 构建片段列表文本
-            StringBuilder chunksText = new StringBuilder();
-            for (int i = 0; i < chunks.size(); i++) {
-                chunksText.append("[片段").append(i + 1).append("]\n");
-                chunksText.append(chunks.get(i)).append("\n\n");
-            }
-
-            String prompt = String.format("""
-                    你是一个检索结果过滤器。用户正在阅读《%s》。
-
-                    【用户问题】
-                    %s
-
-                    以下是从书中检索到的 %d 个文本片段，每个片段以 [片段X] 开头。
-                    对每一个片段判断是否有助于回答用户问题。
-
-                    【判断标准】
-                    - KEEP：包含能直接回答用户问题的具体信息、论据、事实或数据
-                    - DISCARD：仅主题泛泛相关，但不提供能用于回答的具体信息
-
-                    【输出格式】（每个片段一行，必须覆盖所有片段）
-                    [片段1] KEEP 优先级:高 - 理由（≤15字）
-                    [片段2] DISCARD - 理由（≤15字）
-                    [片段3] KEEP 优先级:中 - 理由（≤15字）
-                    ...（必须对每个片段都做出判断）
-
-                    【优先级说明】
-                    - 高 = 直接命中答案核心，或包含关键论据
-                    - 中 = 提供有用背景、细节或辅助论证
-                    - 低 = 间接相关，可作为补充但非必需
-
-                    【重要】
-                    - KEEP 必须严谨：泛泛主题相关但不含具体答案信息 → DISCARD
-                    - 必须对每个片段都输出判断，不能遗漏
-                    - 每行只输出一个判断，不要额外解释，不要输出片段的原文
-
-                    【片段列表】
-                    %s
-                    """, bookTitle, question, chunks.size(), chunksText.toString());
-
-            String response = callAi("RAG片段过滤",
-                    String.format("book=%s, chunks=%d, q=%s",
-                            bookTitle, chunks.size(),
-                            question.substring(0, Math.min(30, question.length()))),
-                    prompt);
-
-            if (response == null || response.isBlank()) {
-                log.warn("RAG 片段过滤 LLM 返回为空，全部保留");
-                return allKeep(chunks.size());
-            }
-
-            return parseFilterResponse(response, chunks.size());
-
-        } catch (Exception e) {
-            log.warn("RAG 片段过滤失败: {}，全部保留", e.getMessage());
-            return allKeep(chunks.size());
-        }
-    }
-
-    /** 解析 LLM 返回的过滤结果 */
-    private List<RagChunkFilterResult> parseFilterResponse(String response, int totalChunks) {
-        List<RagChunkFilterResult> results = new ArrayList<>();
-        String[] lines = response.split("\n");
-
-        for (String line : lines) {
-            line = line.trim();
-            if (line.isBlank()) continue;
-
-            // 匹配 [片段N] KEEP/DISCARD 优先级:X - 理由
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
-                    "\\[片段(\\d+)\\]\\s*(KEEP|DISCARD)(?:\\s*优先级[:：]\\s*(高|中|低))?").matcher(line);
-            if (m.find()) {
-                int index = Integer.parseInt(m.group(1)) - 1; // 转为 0-based
-                boolean keep = "KEEP".equals(m.group(2));
-                String priorityStr = m.group(3);
-                int priority = 0;
-                if (keep && priorityStr != null) {
-                    priority = switch (priorityStr) {
-                        case "高" -> RagChunkFilterResult.PRIORITY_HIGH;
-                        case "中" -> RagChunkFilterResult.PRIORITY_MEDIUM;
-                        case "低" -> RagChunkFilterResult.PRIORITY_LOW;
-                        default -> RagChunkFilterResult.PRIORITY_MEDIUM;
-                    };
-                }
-                results.add(new RagChunkFilterResult(index, keep, priority));
-            }
-        }
-
-        // 补全 LLM 遗漏的片段（默认为 KEEP 中优先级）
-        if (results.size() < totalChunks) {
-            boolean[] seen = new boolean[totalChunks];
-            for (RagChunkFilterResult r : results) {
-                if (r.index >= 0 && r.index < totalChunks) seen[r.index] = true;
-            }
-            for (int i = 0; i < totalChunks; i++) {
-                if (!seen[i]) {
-                    results.add(new RagChunkFilterResult(i, true, RagChunkFilterResult.PRIORITY_MEDIUM));
-                    log.debug("RAG过滤: 片段{} LLM遗漏，默认KEEP中优先级", i + 1);
-                }
-            }
-        }
-
-        long keepCount = results.stream().filter(RagChunkFilterResult::keep).count();
-        log.info("RAG过滤结果: {}条 → KEEP {}条 / DISCARD {}条",
-                totalChunks, keepCount, totalChunks - keepCount);
-
-        return results;
-    }
-
-    /** 全部保留（兜底） */
-    private List<RagChunkFilterResult> allKeep(int size) {
-        List<RagChunkFilterResult> results = new ArrayList<>();
-        for (int i = 0; i < size; i++) {
-            results.add(new RagChunkFilterResult(i, true, RagChunkFilterResult.PRIORITY_MEDIUM));
-        }
-        return results;
-    }
-
     /**
      * 生成图书精炼摘要：将 chapterSummary + 标签 + 目录 压缩为高信息密度的结构化摘要。
      *
@@ -865,6 +709,14 @@ public class ChatModelManager {
         if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
             String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
             contentBuilder.append("标签：").append(tags).append("\n");
+        }
+        if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+            String concepts = book.getConceptTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            contentBuilder.append("核心概念：").append(concepts).append("\n");
+        }
+        if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+            String needs = book.getReaderNeedTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            contentBuilder.append("读者关注：").append(needs).append("\n");
         }
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
             contentBuilder.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 2000)).append("\n");

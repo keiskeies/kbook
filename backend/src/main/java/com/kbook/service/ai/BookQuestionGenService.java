@@ -55,6 +55,7 @@ public class BookQuestionGenService {
 
         try {
             // 构建提示词，要求 AI 生成 20 个多样化问题
+            String summary = bookService.resolveBookSummary(book);
             String prompt = String.format(
                     """
                         你是一位资深阅读引导专家。请根据提供的图书信息，生成20个可以向AI深入探讨本书的问题。
@@ -90,7 +91,7 @@ public class BookQuestionGenService {
                     book.getFormatTags() != null ? book.getFormatTags() : "暂无标签",
                     book.getDescription() != null ? book.getDescription() : "暂无简介",
                     book.getToc() != null ? book.getToc() : "暂无目录",
-                    book.getChapterSummary() != null ? book.getChapterSummary() : "暂无摘要"
+                    summary != null ? summary : "暂无摘要"
             );
 
             // 获取 ChatModel 实例

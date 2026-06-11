@@ -3,6 +3,8 @@ package com.kbook.service.embedding;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
+import com.kbook.service.book.BookService;
+import org.springframework.context.annotation.Lazy;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -46,13 +48,16 @@ public class EmbeddingService {
     private final QdrantClient qdrantClient;
     private final ChatModelFactory chatModelFactory;
     private final QdrantProperties qdrantProps;
+    private final BookService bookService;
 
     public EmbeddingService(QdrantClient qdrantClient,
                             ChatModelFactory chatModelFactory,
-                            QdrantProperties qdrantProps) {
+                            QdrantProperties qdrantProps,
+                            @Lazy BookService bookService) {
         this.qdrantClient = qdrantClient;
         this.chatModelFactory = chatModelFactory;
         this.qdrantProps = qdrantProps;
+        this.bookService = bookService;
     }
 
     /**
@@ -1585,11 +1590,12 @@ public class EmbeddingService {
             sb.append("简介:;");
         }
 
-        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-            String summary = book.getChapterSummary().length() > 500
-                    ? book.getChapterSummary().substring(0, 500)
-                    : book.getChapterSummary();
-            sb.append("章节摘要:").append(summary).append(";");
+        String summary = bookService.resolveBookSummary(book);
+        if (summary != null && !summary.isBlank()) {
+            String truncated = summary.length() > 500
+                    ? summary.substring(0, 500)
+                    : summary;
+            sb.append("摘要:").append(truncated).append(";");
         } else if (book.getToc() != null && !book.getToc().isBlank()) {
             String toc = book.getToc().length() > 800
                     ? book.getToc().substring(0, 800)
