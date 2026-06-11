@@ -64,7 +64,7 @@ public class RoundTableCoverageTest {
 
     // ==================== 输入配置 ====================
     /** 修改此处为实际的圆桌派会话 sessionId */
-//    private static final String SESSION_ID = "rt-24650-361cad9f";
+    private static final String SESSION_ID = "rt-20636-2c4a6b8f";
 
     // ==================== 注入依赖 ====================
     @Autowired
@@ -100,86 +100,84 @@ public class RoundTableCoverageTest {
 
     @Test
     public void calculateCoverage() throws Exception {
-        List<RoundTableSession> all = sessionRepository.findAll();
-        for (RoundTableSession session : all) {
-            String SESSION_ID = session.getSessionId();
 
 
-            System.out.println("============================================================");
-            System.out.println("  圆桌派会话覆盖度评估");
-            System.out.println("  会话 ID: " + SESSION_ID);
-            System.out.println("============================================================");
+        System.out.println("============================================================");
+        System.out.println("  圆桌派会话覆盖度评估");
+        System.out.println("  会话 ID: " + SESSION_ID);
+        System.out.println("============================================================");
 
-            // ---- Step 1: 加载数据 ----
-            System.out.println("\n[Step 1] 加载数据...");
-            Book book = bookRepository.findById(session.getBookId())
-                    .orElseThrow(() -> new IllegalArgumentException("图书不存在: " + session.getBookId()));
-            List<RoundTableMessage> messages = messageRepository.findBySessionIdOrderByIdAsc(SESSION_ID);
+        // ---- Step 1: 加载数据 ----
+        System.out.println("\n[Step 1] 加载数据...");
+        RoundTableSession session = sessionRepository.findBySessionId(SESSION_ID)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + SESSION_ID));
+        Book book = bookRepository.findById(session.getBookId())
+                .orElseThrow(() -> new IllegalArgumentException("图书不存在: " + session.getBookId()));
+        List<RoundTableMessage> messages = messageRepository.findBySessionIdOrderByIdAsc(SESSION_ID);
 
-            System.out.println("  图书: 《" + book.getTitle() + "》(" + book.getAuthor() + ")");
-            System.out.println("  参与角色: " + session.getRoleKeys());
-            System.out.println("  发言总数: " + messages.size() + " 条");
-            if (messages.isEmpty()) {
-                System.out.println("  [警告] 会话没有发言记录，无法计算覆盖度");
-                return;
-            }
-            printRoleDistribution(messages);
-
-            // ---- Step 2: 构建讨论全文和分析材料 ----
-            System.out.println("\n[Step 2] 构建讨论数据...");
-            String discussionText = buildDiscussionText(messages);
-            Set<String> discussionKeywords = extractKeyTerms(discussionText);
-            System.out.println("  讨论文本总长度: " + discussionText.length() + " 字符");
-            System.out.println("  讨论关键词数: " + discussionKeywords.size());
-
-            // ---- Step 3: 解析图书元数据 ----
-            List<String> conceptTags = parseJsonArray(book.getConceptTags());
-            List<String> readerNeedTags = parseJsonArray(book.getReaderNeedTags());
-            List<String> formatTags = parseJsonArray(book.getFormatTags());
-            System.out.println("  概念标签: " + conceptTags.size() + " 个");
-            System.out.println("  读者需求标签: " + readerNeedTags.size() + " 个");
-            System.out.println("  体裁标签: " + formatTags.size() + " 个");
-
-            // ---- Step 4: 获取图书 RAG 全量分块 ----
-            System.out.println("\n[Step 3] 获取图书 RAG 分块...");
-            List<BookChunk> allChunks = fetchAllBookChunks(book.getId());
-            System.out.println("  图书内容分块总数: " + allChunks.size() + " 块");
-            boolean hasChunks = !allChunks.isEmpty();
-            if (!hasChunks) {
-                System.out.println("  [警告] 图书无内容分块，内容块算法将跳过RAG匹配层");
-            }
-
-            // ---- Step 5: 运行覆盖度算法 ----
-            System.out.println("\n============================================================");
-            System.out.println("  运行覆盖度算法");
-            System.out.println("============================================================");
-
-            CoverageReport report = new CoverageReport();
-            report.setSession(session);
-            report.setBook(book);
-            report.setMessages(messages);
-            report.setConceptTags(conceptTags);
-            report.setReaderNeedTags(readerNeedTags);
-            report.setTotalChunks(allChunks.size());
-
-            // 算法 1: 内容块覆盖度（核心算法）
-            runContentBlockCoverage(book, discussionText, discussionKeywords, messages, allChunks, conceptTags, report);
-
-            // 算法 2: RAG 语义命中率
-            runRagSemanticCoverage(discussionText, book, allChunks, report);
-
-            // 算法 3: LLM 综合评估
-            runLlmAssessment(discussionText, book, messages, report);
-
-            // 算法 4: 概念标签覆盖度（作为辅助指标）
-            runConceptTagCoverage(discussionText, conceptTags, report);
-
-            // ---- Step 6: 综合评分 ----
-            computeOverallScore(report);
-
-            // ---- Step 7: 打印报告 ----
-            printReport(report);
+        System.out.println("  图书: 《" + book.getTitle() + "》(" + book.getAuthor() + ")");
+        System.out.println("  参与角色: " + session.getRoleKeys());
+        System.out.println("  发言总数: " + messages.size() + " 条");
+        if (messages.isEmpty()) {
+            System.out.println("  [警告] 会话没有发言记录，无法计算覆盖度");
+            return;
         }
+        printRoleDistribution(messages);
+
+        // ---- Step 2: 构建讨论全文和分析材料 ----
+        System.out.println("\n[Step 2] 构建讨论数据...");
+        String discussionText = buildDiscussionText(messages);
+        Set<String> discussionKeywords = extractKeyTerms(discussionText);
+        System.out.println("  讨论文本总长度: " + discussionText.length() + " 字符");
+        System.out.println("  讨论关键词数: " + discussionKeywords.size());
+
+        // ---- Step 3: 解析图书元数据 ----
+        List<String> conceptTags = parseJsonArray(book.getConceptTags());
+        List<String> readerNeedTags = parseJsonArray(book.getReaderNeedTags());
+        List<String> formatTags = parseJsonArray(book.getFormatTags());
+        System.out.println("  概念标签: " + conceptTags.size() + " 个");
+        System.out.println("  读者需求标签: " + readerNeedTags.size() + " 个");
+        System.out.println("  体裁标签: " + formatTags.size() + " 个");
+
+        // ---- Step 4: 获取图书 RAG 全量分块 ----
+        System.out.println("\n[Step 3] 获取图书 RAG 分块...");
+        List<BookChunk> allChunks = fetchAllBookChunks(book.getId());
+        System.out.println("  图书内容分块总数: " + allChunks.size() + " 块");
+        boolean hasChunks = !allChunks.isEmpty();
+        if (!hasChunks) {
+            System.out.println("  [警告] 图书无内容分块，内容块算法将跳过RAG匹配层");
+        }
+
+        // ---- Step 5: 运行覆盖度算法 ----
+        System.out.println("\n============================================================");
+        System.out.println("  运行覆盖度算法");
+        System.out.println("============================================================");
+
+        CoverageReport report = new CoverageReport();
+        report.setSession(session);
+        report.setBook(book);
+        report.setMessages(messages);
+        report.setConceptTags(conceptTags);
+        report.setReaderNeedTags(readerNeedTags);
+        report.setTotalChunks(allChunks.size());
+
+        // 算法 1: 内容块覆盖度（核心算法）
+        runContentBlockCoverage(book, discussionText, discussionKeywords, messages, allChunks, conceptTags, report);
+
+        // 算法 2: RAG 语义命中率
+        runRagSemanticCoverage(discussionText, book, allChunks, report);
+
+        // 算法 3: LLM 综合评估
+        runLlmAssessment(discussionText, book, messages, report);
+
+        // 算法 4: 概念标签覆盖度（作为辅助指标）
+        runConceptTagCoverage(discussionText, conceptTags, report);
+
+        // ---- Step 6: 综合评分 ----
+        computeOverallScore(report);
+
+        // ---- Step 7: 打印报告 ----
+        printReport(report);
     }
 
     // ========================================================================

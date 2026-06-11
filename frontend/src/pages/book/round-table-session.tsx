@@ -1,0 +1,863 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import {
+  ArrowLeft, Volume2, Square, Loader2, Play, Pause, BarChart3, Target, RefreshCw,
+} from 'lucide-react'
+import { Sheet, SheetContent } from '@/components/ui/sheet'
+import MarkdownRenderer from '@/components/ui/markdown-renderer'
+import CoveragePanel from '@/components/round-table/CoveragePanel'
+import {
+  getRoundTableRoles, getRoundTableMessages, getNextSpeaker, streamCharacterSpeak,
+} from '@/api/roundTable'
+import { getBook } from '@/api/book'
+import type { RoundTableRole, RoundTableMessage } from '@/types/roundTable'
+import {
+  ROLE_COLORS, ROLE_NAMES, ROLE_ICONS, ROLE_TTS_CONFIG,
+} from '@/types/roundTable'
+import { toast } from 'sonner'
+
+type Phase = 'loading' | 'discussing' | 'paused' | 'error'
+
+interface DisplayMessage {
+  id: string
+  roleKey: string
+  roleName: string
+  roleColor: string
+  content: string
+  timestamp: number
+  streaming?: boolean
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function RoleBar({
+  roles,
+  speakCounts,
+  speakingKey,
+  grabbingKey,
+}: {
+  roles: RoundTableRole[]
+  speakCounts: Record<string, number>
+  speakingKey: string | null
+  grabbingKey: string | null
+}) {
+  return (
+    <div className="shrink-0 border-b border-border/20 bg-background/80 backdrop-blur-xl px-3 py-2">
+      <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+        {roles.map(role => {
+          const color = ROLE_COLORS[role.key] || '#6B655C'
+          const count = speakCounts[role.key] || 0
+          const isActive = speakingKey === role.key || grabbingKey === role.key
+          return (
+            <div
+              key={role.key}
+              className={`flex shrink-0 items-center gap-1.5 rounded-xl px-2 py-1.5 transition-all duration-300 ${
+                isActive ? 'bg-[var(--role-color)]/[0.08]' : 'bg-muted/40'
+              }`}
+              style={{ '--role-color': color } as React.CSSProperties}
+            >
+              <div
+                className={`flex h-7 w-7 items-center justify-center rounded-full text-sm transition-all duration-300 ${
+                  isActive ? 'scale-110' : ''
+                }`}
+                style={{
+                  backgroundColor: hexToRgba(color, isActive ? 0.2 : 0.08),
+                  border: isActive ? `2px solid ${color}` : `1px solid ${hexToRgba(color, 0.15)}`,
+                  boxShadow: isActive ? `0 0 12px ${hexToRgba(color, 0.25)}` : undefined,
+                }}
+              >
+                {ROLE_ICONS[role.key] || '👤'}
+              </div>
+              <div className="flex flex-col">
+                <span
+                  className="text-xs font-semibold leading-tight"
+                  style={{ color: isActive ? color : undefined }}
+                >
+                  {role.name}
+                </span>
+                <span className="text-[10px] text-muted-foreground/60 leading-tight">
+                  {count}次
+                </span>
+              </div>
+              {isActive && (
+                <span className="flex items-end gap-[1px] h-2 ml-0.5">
+                  {[0, 1, 2].map(i => (
+                    <span
+                      key={i}
+                      className="w-[2px] rounded-full animate-pulse"
+                      style={{
+                        backgroundColor: color,
+                        animationDelay: `${i * 120}ms`,
+                        height: `${3 + (i % 2) * 3}px`,
+                      }}
+                    />
+                  ))}
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function MessageBubble({
+  msg,
+  isSpeaking,
+  onToggleSpeak,
+}: {
+  msg: DisplayMessage
+  isSpeaking: boolean
+  onToggleSpeak: () => void
+}) {
+  const color = msg.roleColor
+
+  return (
+    <div className="group flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="flex flex-col items-center gap-1 shrink-0">
+        <div
+          className="flex h-9 w-9 items-center justify-center rounded-full text-base"
+          style={{
+            backgroundColor: hexToRgba(color, 0.1),
+            border: `1.5px solid ${hexToRgba(color, 0.25)}`,
+          }}
+        >
+          {ROLE_ICONS[msg.roleKey] || '👤'}
+        </div>
+        <div
+          className="w-[2px] flex-1 rounded-full min-h-[20px]"
+          style={{ backgroundColor: hexToRgba(color, 0.15) }}
+        />
+      </div>
+
+      <div className="min-w-0 flex-1 pb-3">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-[11px] font-bold" style={{ color }}>{msg.roleName}</span>
+          <span className="text-[9px] text-muted-foreground/40">
+            {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+          {msg.streaming && (
+            <span className="flex items-end gap-[2px] h-2">
+              {[0, 1, 2].map(i => (
+                <span
+                  key={i}
+                  className="w-[2px] rounded-full bg-foreground/20 animate-pulse"
+                  style={{ animationDelay: `${i * 150}ms`, height: `${3 + (i % 2) * 4}px` }}
+                />
+              ))}
+            </span>
+          )}
+        </div>
+
+        <div className="relative">
+          <div
+            className="absolute left-0 top-0 bottom-0 w-[3px] rounded-full"
+            style={{ backgroundColor: hexToRgba(color, 0.3) }}
+          />
+          <div
+            className="rounded-r-xl rounded-bl-xl px-4 py-3 text-[13px] leading-relaxed ml-3"
+            style={{
+              backgroundColor: hexToRgba(color, 0.04),
+              border: `1px solid ${hexToRgba(color, 0.08)}`,
+              borderLeft: 'none',
+            }}
+          >
+            {msg.content ? (
+              <MarkdownRenderer content={msg.content} className="!text-[13px]" />
+            ) : msg.streaming ? (
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span className="text-xs">麦克风传递中...</span>
+              </span>
+            ) : null}
+            {msg.streaming && msg.content && (
+              <span className="inline-flex items-center ml-1 align-middle">
+                <span className="h-3.5 w-[2px] bg-foreground/30 animate-pulse rounded-full" />
+              </span>
+            )}
+          </div>
+        </div>
+
+        {!msg.streaming && msg.content && msg.content !== '（发言失败）' && (
+          <button
+            onClick={onToggleSpeak}
+            className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] transition-all duration-200 opacity-0 group-hover:opacity-100 ${
+              isSpeaking
+                ? 'text-primary bg-primary/10 opacity-100'
+                : 'text-muted-foreground/60 hover:text-muted-foreground'
+            }`}
+          >
+            {isSpeaking ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SpeakStatsPanel({
+  roles,
+  messages,
+  onClose,
+}: {
+  roles: RoundTableRole[]
+  messages: DisplayMessage[]
+  onClose: () => void
+}) {
+  const stats = roles.map(role => {
+    const count = messages.filter(m => m.roleKey === role.key).length
+    const totalChars = messages
+      .filter(m => m.roleKey === role.key)
+      .reduce((sum, m) => sum + m.content.length, 0)
+    return { role, count, totalChars }
+  }).sort((a, b) => b.count - a.count)
+
+  const maxCount = Math.max(...stats.map(s => s.count), 1)
+
+  return (
+    <div className="bg-background/95 backdrop-blur-xl border-b border-border/20 shadow-sm flex flex-col min-h-0">
+      <div className="px-4 py-3 shrink-0">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-bold flex items-center gap-1.5">
+            <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
+            发言统计
+          </h3>
+          <button onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground mr-7">关闭</button>
+        </div>
+        <div className="space-y-2 overflow-y-auto">
+          {stats.map(({ role, count, totalChars }) => {
+            const color = ROLE_COLORS[role.key] || '#6B655C'
+            const pct = (count / maxCount) * 100
+            return (
+              <div key={role.key} className="flex items-center gap-2">
+                <span className="text-xs font-medium w-12 truncate" style={{ color }}>{role.name}</span>
+                <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${pct}%`, backgroundColor: color }}
+                  />
+                </div>
+                <span className="text-xs text-muted-foreground w-16 text-right">
+                  {count}次 · {totalChars}字
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function RoundTableSessionPage() {
+  const { bookId, sessionId } = useParams<{ bookId: string; sessionId: string }>()
+  const navigate = useNavigate()
+  const bookIdNum = Number(bookId)
+
+  const [phase, setPhase] = useState<Phase>('loading')
+  const [messages, setMessages] = useState<DisplayMessage[]>([])
+  const [speakingKey, setSpeakingKey] = useState<string | null>(null)
+  const [ttsEnabled, setTtsEnabled] = useState(false)
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null)
+  const [currentRound, setCurrentRound] = useState(0)
+  const [grabbingAnimation, setGrabbingAnimation] = useState<string | null>(null)
+  const [showStats, setShowStats] = useState(false)
+  const [showCoverage, setShowCoverage] = useState(false)
+  const [coverageVersion, setCoverageVersion] = useState(0)
+  const [bookTitle, setBookTitle] = useState<string>('')
+
+  const activeRolesRef = useRef<RoundTableRole[]>([])
+  const messagesRef = useRef<DisplayMessage[]>([])
+
+  const abortRef = useRef<AbortController | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const currentMsgIdRef = useRef<string | null>(null)
+  const currentContentRef = useRef<string>('')
+  const userScrollingRef = useRef(false)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const discussionLoopRef = useRef<boolean>(false)
+  const ttsEnabledSpeakerRef = useRef<string | null>(null)
+  const zhVoicesRef = useRef<SpeechSynthesisVoice[]>([])
+  const roleVoiceMapRef = useRef<Map<string, SpeechSynthesisVoice>>(new Map())
+  const ttsEnabledRef = useRef(false)
+  const ttsLastReadIndexRef = useRef<number>(-1)
+
+  useEffect(() => { messagesRef.current = messages }, [messages])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      const synth = window.speechSynthesis
+      const loadVoices = () => {
+        const voices = synth.getVoices()
+        const zhVoices = voices.filter(v => {
+          const lang = (v.lang || '').toLowerCase()
+          return lang.startsWith('zh') || lang.startsWith('cmn')
+        })
+        if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
+      }
+      loadVoices()
+      window.setTimeout(loadVoices, 500)
+      synth.onvoiceschanged = loadVoices
+    }
+    return () => {
+      discussionLoopRef.current = false
+      abortRef.current?.abort()
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = null
+        try { window.speechSynthesis.cancel() } catch {}
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!bookIdNum || !sessionId) return
+    loadSession()
+  }, [bookIdNum, sessionId])
+
+  const loadSession = useCallback(async () => {
+    setPhase('loading')
+    try {
+      const res = await getRoundTableMessages(sessionId!)
+      const data = (res as { data?: RoundTableMessage[] })?.data ?? res as RoundTableMessage[]
+      if (Array.isArray(data)) {
+        const displayMessages: DisplayMessage[] = data.map(msg => ({
+          id: String(msg.id),
+          roleKey: msg.roleKey,
+          roleName: ROLE_NAMES[msg.roleKey] || msg.roleKey,
+          roleColor: ROLE_COLORS[msg.roleKey] || '#6B655C',
+          content: msg.content,
+          timestamp: new Date(msg.createdAt).getTime(),
+        }))
+        setMessages(displayMessages)
+        messagesRef.current = displayMessages
+        setCurrentRound(Math.floor(displayMessages.length / activeRolesRef.current.length) + 1)
+      }
+
+      const rolesRes = await getRoundTableRoles(bookIdNum!)
+      const rolesData = (rolesRes as { data?: RoundTableRole[] })?.data ?? rolesRes as RoundTableRole[]
+      if (Array.isArray(rolesData) && rolesData.length > 0) {
+        activeRolesRef.current = rolesData.filter(r => r.selected)
+      }
+
+      const bookRes = await getBook(bookIdNum!)
+      const bookData = (bookRes as { data?: { title?: string } })?.data ?? bookRes as { title?: string }
+      if (bookData?.title) {
+        setBookTitle(bookData.title)
+      }
+
+      // 有历史消息 → 暂停等待用户点继续；新建会话（无消息）→ 自动开始
+      const hasHistory = Array.isArray(data) && data.length > 0
+      setPhase(hasHistory ? 'paused' : 'discussing')
+      if (!hasHistory) {
+        // 新建会话，立即开始讨论循环
+        discussionLoopRef.current = true
+        setTimeout(() => grabMicAndSpeak(undefined), 1000)
+      }
+    } catch {
+      setPhase('error')
+      toast.error('加载会话失败')
+    }
+  }, [bookIdNum, sessionId])
+
+  useEffect(() => {
+    if (!userScrollingRef.current && messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages])
+
+  const handleUserScroll = () => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const { scrollTop, scrollHeight, clientHeight } = container
+    userScrollingRef.current = scrollHeight - scrollTop - clientHeight > 50
+  }
+
+  const splitLongText = (text: string, maxLen = 180): string[] => {
+    if (text.length <= maxLen) return [text]
+    const chunks: string[] = []
+    let start = 0
+    while (start < text.length) {
+      if (start + maxLen >= text.length) { chunks.push(text.slice(start)); break }
+      let end = start + maxLen
+      let found = false
+      for (let i = end; i > start; i--) {
+        if (/[。！？!?.]/.test(text[i - 1])) { chunks.push(text.slice(start, i)); start = i; found = true; break }
+      }
+      if (found) continue
+      for (let i = end; i > start; i--) {
+        if (/[，；,;、\n]/.test(text[i - 1])) { chunks.push(text.slice(start, i)); start = i; found = true; break }
+      }
+      if (!found) { chunks.push(text.slice(start, end)); start = end }
+    }
+    return chunks
+  }
+
+  const ttsQueueRef = useRef<{ text: string; roleKey: string; msgIndex: number }[]>([])
+  const ttsSpeakingRef = useRef(false)
+
+  const processTtsQueue = useCallback(() => {
+    const synth = window.speechSynthesis
+    if (!synth) return
+    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
+
+    try { synth.resume() } catch {}
+    try { if (synth.speaking) synth.cancel() } catch {}
+
+    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
+
+    const { text, roleKey, msgIndex } = ttsQueueRef.current.shift()!
+    ttsSpeakingRef.current = true
+
+    const utterance = new SpeechSynthesisUtterance(text)
+    const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+    utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
+    utterance.rate = config.rate
+    utterance.lang = 'zh-CN'
+    utterance.volume = 1.0
+
+    let zhVoices = zhVoicesRef.current
+    if (zhVoices.length === 0 && window.speechSynthesis) {
+      try {
+        const allVoices = window.speechSynthesis.getVoices()
+        zhVoices = allVoices.filter(v => {
+          const lang = (v.lang || '').toLowerCase()
+          return lang.startsWith('zh') || lang.startsWith('cmn')
+        })
+        if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
+      } catch {}
+    }
+    if (zhVoices.length > 0) {
+      let voice = roleVoiceMapRef.current.get(roleKey)
+      if (!voice) {
+        let hash = 0
+        for (let i = 0; i < roleKey.length; i++) hash = ((hash << 5) - hash + roleKey.charCodeAt(i)) | 0
+        voice = zhVoices[Math.abs(hash) % zhVoices.length]
+        roleVoiceMapRef.current.set(roleKey, voice)
+      }
+      const stillValid = zhVoices.some(v => v.name === voice!.name && v.lang === voice!.lang)
+      if (stillValid) {
+        utterance.voice = voice
+        utterance.lang = voice.lang
+      }
+    }
+
+    utterance.onend = () => {
+      if (msgIndex >= 0) ttsLastReadIndexRef.current = Math.max(ttsLastReadIndexRef.current, msgIndex)
+      ttsSpeakingRef.current = false
+      processTtsQueue()
+    }
+    utterance.onerror = () => {
+      ttsSpeakingRef.current = false
+      processTtsQueue()
+    }
+
+    try { synth.speak(utterance) } catch { ttsSpeakingRef.current = false }
+  }, [])
+
+  const enqueueTtsRef = useRef<(text: string, roleKey: string, msgIndex: number) => void>((text, roleKey, msgIndex) => {
+    const cleanText = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
+      .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
+    if (!cleanText) return
+    const chunks = splitLongText(cleanText)
+    chunks.forEach(chunk => {
+      ttsQueueRef.current.push({ text: chunk, roleKey, msgIndex })
+    })
+    processTtsQueue()
+  })
+
+  const stopDiscussion = useCallback(() => {
+    discussionLoopRef.current = false
+    abortRef.current?.abort()
+    abortRef.current = null
+    try { window.speechSynthesis?.cancel() } catch {}
+    ttsEnabledSpeakerRef.current = null
+    ttsLastReadIndexRef.current = -1
+    ttsEnabledRef.current = false
+    ttsQueueRef.current = []
+    ttsSpeakingRef.current = false
+    setTtsEnabled(false)
+    setPhase('paused')
+    setSpeakingKey(null)
+  }, [])
+
+  const pauseDiscussion = useCallback(() => {
+    stopDiscussion()
+    setPhase('paused')
+  }, [stopDiscussion])
+
+  const grabMicAndSpeak = useCallback(async (lastSpeakerKey: string | undefined) => {
+    if (!discussionLoopRef.current) return
+    if (speakingKey !== null) return
+
+    try {
+      const nextSpeakerRes = await getNextSpeaker(sessionId!)
+      let nextSpeaker = (nextSpeakerRes as { data?: string })?.data ?? nextSpeakerRes as string
+      if (!nextSpeaker) {
+        setPhase('paused')
+        return
+      }
+
+      // 前端兜底：禁止连续发言
+      if (lastSpeakerKey && nextSpeaker === lastSpeakerKey) {
+        // 后端返回了连续发言者，从其他角色中随机选择
+        const otherRoles = activeRolesRef.current
+          .filter(r => r.key !== lastSpeakerKey && r.selected)
+          .map(r => r.key)
+        if (otherRoles.length > 0) {
+          nextSpeaker = otherRoles[Math.floor(Math.random() * otherRoles.length)]
+        }
+      }
+
+      setGrabbingAnimation(nextSpeaker)
+      setTimeout(() => setGrabbingAnimation(null), 800)
+
+      setSpeakingKey(nextSpeaker)
+      const msgId = `msg-${Date.now()}`
+      currentMsgIdRef.current = msgId
+      currentContentRef.current = ''
+
+      const displayMsg: DisplayMessage = {
+        id: msgId,
+        roleKey: nextSpeaker,
+        roleName: ROLE_NAMES[nextSpeaker] || nextSpeaker,
+        roleColor: ROLE_COLORS[nextSpeaker] || '#6B655C',
+        content: '',
+        timestamp: Date.now(),
+        streaming: true,
+      }
+      setMessages(prev => [...prev, displayMsg])
+
+      abortRef.current?.abort()
+      const stream = streamCharacterSpeak(bookIdNum, nextSpeaker, sessionId!)
+      abortRef.current = stream.abortController
+
+      stream.onMessage((text: string) => {
+        if (!discussionLoopRef.current) { stream.abortController.abort(); return }
+        currentContentRef.current += text
+        setMessages(prev => {
+          const updated = [...prev]
+          const idx = updated.findIndex(m => m.id === msgId)
+          if (idx >= 0) updated[idx] = { ...updated[idx], content: currentContentRef.current }
+          return updated
+        })
+      })
+
+      stream.onDone(() => {
+        setMessages(prev => {
+          const updated = [...prev]
+          const idx = updated.findIndex(m => m.id === msgId)
+          if (idx >= 0) updated[idx] = { ...updated[idx], streaming: undefined }
+          return updated
+        })
+        setSpeakingKey(null)
+
+        if (ttsEnabledRef.current) {
+          enqueueTtsRef.current(currentContentRef.current, nextSpeaker, messagesRef.current.length)
+        }
+
+        setCurrentRound(prev => prev + 1)
+        setCoverageVersion(prev => prev + 1)
+
+        setTimeout(() => {
+          if (discussionLoopRef.current) grabMicAndSpeak(nextSpeaker)
+        }, 1500)
+      })
+
+      stream.onError((err: Error) => {
+        setMessages(prev => {
+          const updated = [...prev]
+          const idx = updated.findIndex(m => m.id === msgId)
+          if (idx >= 0) updated[idx] = { ...updated[idx], streaming: undefined, content: '（发言失败）' }
+          return updated
+        })
+        setSpeakingKey(null)
+        if (discussionLoopRef.current) setTimeout(() => grabMicAndSpeak(lastSpeakerKey), 2000)
+      })
+    } catch {
+      setSpeakingKey(null)
+      if (discussionLoopRef.current) setTimeout(() => grabMicAndSpeak(lastSpeakerKey), 2000)
+    }
+  }, [bookIdNum, sessionId])
+
+  const resumeDiscussion = useCallback(() => {
+    discussionLoopRef.current = true
+    setPhase('discussing')
+    const lastMsg = messagesRef.current[messagesRef.current.length - 1]
+    setTimeout(() => grabMicAndSpeak(lastMsg?.roleKey), 1000)
+  }, [grabMicAndSpeak])
+
+  const handleToggleSpeak = useCallback((msgId: string, content: string, roleKey: string) => {
+    const synth = window.speechSynthesis
+    if (!synth) return
+    if (speakingMsgId === msgId) { synth.cancel(); setSpeakingMsgId(null); return }
+    synth.cancel()
+    setSpeakingMsgId(msgId)
+    const cleanText = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
+      .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
+    if (!cleanText) return
+    const chunks = splitLongText(cleanText)
+    const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+    const voices = synth.getVoices()
+    const zhVoice = voices.find(v => v.lang.startsWith('zh'))
+
+    const speakChunk = (idx: number) => {
+      if (idx >= chunks.length) { setSpeakingMsgId(null); return }
+      const utterance = new SpeechSynthesisUtterance(chunks[idx])
+      utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
+      utterance.rate = config.rate
+      utterance.lang = 'zh-CN'
+      if (zhVoice) utterance.voice = zhVoice
+      utterance.onend = () => speakChunk(idx + 1)
+      utterance.onerror = () => setSpeakingMsgId(null)
+      try { synth.speak(utterance) } catch { setSpeakingMsgId(null) }
+    }
+
+    try { synth.resume() } catch {}
+    speakChunk(0)
+  }, [speakingMsgId])
+
+  const speakCounts = messages.reduce<Record<string, number>>((acc, msg) => {
+    acc[msg.roleKey] = (acc[msg.roleKey] || 0) + 1
+    return acc
+  }, {})
+
+  const roles = activeRolesRef.current.length > 0 ? activeRolesRef.current : []
+  const showSidePanel = showCoverage && typeof window !== 'undefined' && window.innerWidth >= 768
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+
+  return (
+    <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter">
+      <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-background/80 px-4 py-2.5 backdrop-blur-xl z-20">
+        <button
+          onClick={() => navigate(`/book/${bookId}/round-table`)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-sm font-bold text-foreground truncate">
+            {bookTitle ? `《${bookTitle}》圆桌派讨论` : '圆桌派讨论'}
+          </h1>
+          <p className="text-[10px] text-muted-foreground truncate">
+            {phase === 'loading' ? '加载中...' :
+             phase === 'discussing' ? '讨论进行中' :
+             phase === 'paused' ? '讨论已暂停' :
+             phase === 'error' ? '加载出错' : ''}
+          </p>
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden relative">
+        <div className="flex flex-1 flex-col overflow-hidden relative">
+          {showStats && !isMobile && (
+            <SpeakStatsPanel
+              roles={roles}
+              messages={messages}
+              onClose={() => setShowStats(false)}
+            />
+          )}
+          {showStats && isMobile && (
+            <Sheet open={showStats} onOpenChange={(v) => !v && setShowStats(false)}>
+              <SheetContent side="bottom" className="rounded-t-2xl p-0">
+                <SpeakStatsPanel
+                  roles={roles}
+                  messages={messages}
+                  onClose={() => setShowStats(false)}
+                />
+              </SheetContent>
+            </Sheet>
+          )}
+
+          <RoleBar
+            roles={roles}
+            speakCounts={speakCounts}
+            speakingKey={speakingKey}
+            grabbingKey={grabbingAnimation}
+          />
+
+          <div ref={scrollContainerRef} onScroll={handleUserScroll} className="flex-1 overflow-y-auto overscroll-y-contain">
+            {messages.length === 0 && phase === 'loading' && (
+              <div className="flex flex-1 flex-col items-center justify-center py-12 text-muted-foreground">
+                <Loader2 className="h-8 w-8 animate-spin" />
+                <p className="text-sm font-medium mt-4">加载讨论记录...</p>
+              </div>
+            )}
+            <div className="space-y-1 p-4 max-w-3xl mx-auto">
+              {messages.map(msg => (
+                <MessageBubble
+                  key={msg.id}
+                  msg={msg}
+                  isSpeaking={speakingMsgId === msg.id}
+                  onToggleSpeak={() => handleToggleSpeak(msg.id, msg.content, msg.roleKey)}
+                />
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+          </div>
+
+          <div
+            className="shrink-0 border-t border-border/20 bg-background/95 backdrop-blur-xl px-4 py-2.5"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
+          >
+            {/* PC: 左右分布 + 文字标签；手机: 图标-only */}
+            <div className="flex items-center gap-2 max-w-3xl mx-auto">
+              {/* 左区：操作按钮 */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    if (!ttsEnabled) {
+                      ttsEnabledRef.current = true
+                      try {
+                        const allVoices = window.speechSynthesis.getVoices()
+                        const zhVs = allVoices.filter(v => {
+                          const lang = (v.lang || '').toLowerCase()
+                          return lang.startsWith('zh') || lang.startsWith('cmn')
+                        })
+                        if (zhVs.length > 0) zhVoicesRef.current = zhVs
+                      } catch {}
+
+                      const msgs = messagesRef.current
+                      let startIdx = -1
+                      for (let i = msgs.length - 1; i >= 0; i--) {
+                        if (!msgs[i].streaming && msgs[i].content) { startIdx = i; break }
+                      }
+                      if (startIdx >= 0) {
+                        ttsLastReadIndexRef.current = startIdx - 1
+                        for (let i = startIdx; i < msgs.length; i++) {
+                          const m = msgs[i]
+                          if (!m.streaming && m.content) {
+                            enqueueTtsRef.current(m.content, m.roleKey, i)
+                          }
+                        }
+                      }
+                    } else {
+                      ttsEnabledRef.current = false
+                      ttsQueueRef.current = []
+                      ttsSpeakingRef.current = false
+                      try { window.speechSynthesis?.cancel() } catch {}
+                      if (phase === 'discussing') {
+                        ttsLastReadIndexRef.current = -1
+                      }
+                    }
+                    setTtsEnabled(!ttsEnabled)
+                  }}
+                  className={`flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium transition-all duration-200 ${
+                    ttsEnabled
+                      ? 'bg-brand-100 text-brand-500 border border-brand-200'
+                      : 'bg-muted text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Volume2 className="h-3 w-3 shrink-0" />
+                  <span className="hidden sm:inline">{ttsEnabled ? '朗读中' : '语音关'}</span>
+                </button>
+
+                {phase === 'discussing' && (
+                  <button
+                    onClick={pauseDiscussion}
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
+                  >
+                    <Pause className="h-3 w-3 shrink-0" />
+                    <span className="hidden sm:inline">暂停</span>
+                  </button>
+                )}
+
+                {phase === 'paused' && messages.some(m => m.streaming === undefined) && (
+                  <button
+                    onClick={resumeDiscussion}
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
+                  >
+                    <Play className="h-3 w-3 shrink-0" />
+                    <span className="hidden sm:inline">继续</span>
+                  </button>
+                )}
+
+                {phase === 'error' && (
+                  <button
+                    onClick={loadSession}
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
+                  >
+                    <RefreshCw className="h-3 w-3 shrink-0" />
+                    <span className="hidden sm:inline">重试</span>
+                  </button>
+                )}
+
+                {phase === 'discussing' && (
+                  <button
+                    onClick={stopDiscussion}
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+                  >
+                    <Square className="h-3 w-3 shrink-0" />
+                    <span className="hidden sm:inline">结束</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1" />
+
+              {/* 右区：信息开关 */}
+              <div className="flex items-center gap-1">
+                {messages.length > 0 && (
+                  <button
+                    onClick={() => setShowStats(!showStats)}
+                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
+                      showStats ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <BarChart3 className="h-3 w-3 shrink-0" />
+                    <span className="hidden sm:inline">统计</span>
+                  </button>
+                )}
+
+                {messages.length > 0 && (
+                  <button
+                    onClick={() => setShowCoverage(!showCoverage)}
+                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
+                      showCoverage ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Target className="h-3 w-3 shrink-0" />
+                    <span className="hidden sm:inline">覆盖度</span>
+                  </button>
+                )}
+
+                <span className="text-xs text-muted-foreground/60 shrink-0">
+                  {roles.length}人·{currentRound}轮
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {showSidePanel && (
+          <CoveragePanel
+            sessionId={sessionId}
+            open={showCoverage}
+            onClose={() => setShowCoverage(false)}
+            isMobile={false}
+            version={coverageVersion}
+          />
+        )}
+
+        {showCoverage && !showSidePanel && (
+          <CoveragePanel
+            sessionId={sessionId}
+            open={showCoverage}
+            onClose={() => setShowCoverage(false)}
+            isMobile={true}
+            version={coverageVersion}
+          />
+        )}
+      </div>
+    </div>
+  )
+}

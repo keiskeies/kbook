@@ -27,7 +27,7 @@ export interface RoundTableMessage {
   content: string
   compressedContent: string | null
   round: number | null
-  createTime: string
+  createdAt: string
 }
 
 /** 圆桌派会话 */
@@ -40,8 +40,45 @@ export interface RoundTableSession {
   roleKeys: string
   roleConfigs: string
   status: string
-  createTime: string
-  updateTime: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** 圆桌派覆盖度报告 */
+export interface RoundTableCoverage {
+  id: number
+  sessionId: string
+  bookId: number
+  totalBlocks: number | null
+  coveredBlocks: number | null
+  deepBlocks: number | null
+  blockCoverageScore: number | null
+  blocksJson: string | null
+  blockDetailsJson: string | null
+  totalConcepts: number | null
+  coveredConceptsCount: number | null
+  conceptCoverageScore: number | null
+  coveredConceptsJson: string | null
+  missedConceptsJson: string | null
+  llmDimensionsJson: string | null
+  llmStrengthsJson: string | null
+  llmWeaknessesJson: string | null
+  llmSuggestionsJson: string | null
+  llmAssessmentScore: number | null
+  overallScore: number | null
+  grade: string | null
+  totalChunks: number | null
+  processedMessageCount: number | null
+}
+
+/** 内容块覆盖详情 */
+export interface BlockCoverageDetail {
+  title: string
+  coverageLevel: number  // 0=未覆盖, 1=提及, 2=部分讨论, 3=深入讨论
+  score: number
+  keywordOverlap: number
+  judgeMethod: string
+  evidence: string
 }
 
 /** 角色颜色映射 — 学术沙龙暖色调 */

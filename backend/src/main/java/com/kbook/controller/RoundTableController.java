@@ -4,8 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.kbook.common.api.Result;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.SpeakRequest;
+import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
 import com.kbook.entity.RoundTableSession;
+import com.kbook.service.ai.RoundTableCoverageService;
 import com.kbook.service.ai.RoundTableService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -35,6 +37,9 @@ public class RoundTableController extends BaseController {
 
     /** 圆桌派服务 */
     private final RoundTableService roundTableService;
+
+    /** 圆桌派覆盖度服务 */
+    private final RoundTableCoverageService coverageService;
 
     /**
      * 获取推荐角色列表（LLM 驱动）
@@ -146,16 +151,20 @@ public class RoundTableController extends BaseController {
     }
 
     /**
-     * 获取书籍讨论上下文
-     * <p>
-     * 返回书籍信息 + RAG 检索结果
-     *
-     * @param bookId 书籍ID
-     * @return 书籍上下文字符串
+     * 获取会话覆盖度报告
      */
-    @Operation(summary = "获取书籍上下文")
-    @GetMapping("/books/{bookId}/context")
-    public Result<String> getBookContext(@PathVariable Long bookId) {
-        return Result.ok(roundTableService.getBookContext(bookId));
+    @Operation(summary = "获取覆盖度报告")
+    @GetMapping("/sessions/{sessionId}/coverage")
+    public Result<RoundTableCoverage> getCoverage(@PathVariable String sessionId) {
+        return Result.ok(coverageService.getCoverage(sessionId));
+    }
+
+    /**
+     * 手动触发覆盖度计算（管理用）
+     */
+    @Operation(summary = "刷新覆盖度")
+    @PostMapping("/sessions/{sessionId}/coverage/refresh")
+    public Result<RoundTableCoverage> refreshCoverage(@PathVariable String sessionId) {
+        return Result.ok(coverageService.updateCoverage(sessionId));
     }
 }

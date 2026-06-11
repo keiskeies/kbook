@@ -8,7 +8,9 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ClassUtils;
 
 import java.lang.reflect.Method;
 
@@ -50,8 +52,10 @@ public class ServiceLogAspect {
     }
 
     /**
-     * 解析操作名称：@LogModule(value) + @LogAction(value) → "模块名-操作名"
-     * 缺少任一注解时回退到方法签名
+     * 解析操作名称并附带源码位置，格式: "模块名-操作名 (ClassName.java:line)"
+     * <p>
+     * IDEA 控制台自动识别 (Xxx.java:数字) 格式为可点击的源码链接,
+     * 行号通过 ASM 解析 .class 文件的 LineNumberTable 获取。
      */
     private String resolveAction(ProceedingJoinPoint pjp) {
         MethodSignature ms = (MethodSignature) pjp.getSignature();
@@ -63,16 +67,22 @@ public class ServiceLogAspect {
         String moduleName = (lm != null && !lm.value().isEmpty()) ? lm.value() : null;
         String opName = (la != null && !la.value().isEmpty()) ? la.value() : null;
 
+        String action;
         if (moduleName != null && opName != null) {
-            return moduleName + "-" + opName;
+            action = moduleName + "-" + opName;
+        } else if (opName != null) {
+            action = opName;
+        } else if (moduleName != null) {
+            action = moduleName + "-" + ms.getMethod().getName();
+        } else {
+            action = ms.toShortString();
         }
-        if (opName != null) {
-            return opName;
-        }
-        if (moduleName != null) {
-            return moduleName + "-" + ms.getMethod().getName();
-        }
-        return ms.toShortString();
+
+        // 附加源码位置 (ClassName.java:line) 格式，IDEA 控制台自动识别为可点击链接
+        Class<?> actualClass = ClassUtils.getUserClass(pjp.getTarget());
+        int line = MethodLineNumberCache.getLineNumber(actualClass, method.getName(), method);
+        action += " (" + actualClass.getSimpleName() + ".java:" + line + ")";
+        return action;
     }
 
     private String extractParams(ProceedingJoinPoint pjp) {

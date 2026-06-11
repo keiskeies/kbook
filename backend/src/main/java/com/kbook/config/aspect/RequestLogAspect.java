@@ -11,6 +11,7 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ClassUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.multipart.MultipartFile;
@@ -76,8 +77,10 @@ public class RequestLogAspect {
     }
 
     /**
-     * 解析操作名称：@Tag(name) + @Operation(summary) → "模块名-操作名"
-     * 缺少任一注解时回退到方法签名
+     * 解析操作名称并附带源码位置，格式: "模块名-操作名 (ControllerName.java:methodName)"
+     * <p>
+     * IDEA 控制台能自动识别 (Xxx.java:xxx) 模式生成可点击的源码链接,
+     * 解决了 AOP 日志无法定位到原始方法的问题。
      */
     private String resolveOpName(ProceedingJoinPoint pjp) {
         MethodSignature ms = (MethodSignature) pjp.getSignature();
@@ -89,16 +92,22 @@ public class RequestLogAspect {
         String tagName = (tag != null && !tag.name().isEmpty()) ? tag.name() : null;
         String opSummary = (op != null && !op.summary().isEmpty()) ? op.summary() : null;
 
+        String action;
         if (tagName != null && opSummary != null) {
-            return tagName + "-" + opSummary;
+            action = tagName + "-" + opSummary;
+        } else if (opSummary != null) {
+            action = opSummary;
+        } else if (tagName != null) {
+            action = tagName + "-" + ms.getMethod().getName();
+        } else {
+            action = ms.toShortString();
         }
-        if (opSummary != null) {
-            return opSummary;
-        }
-        if (tagName != null) {
-            return tagName + "-" + ms.getMethod().getName();
-        }
-        return ms.toShortString();
+
+        // 附加源码位置 (ClassName.java:line) 格式，IDEA 控制台自动识别为可点击链接
+        Class<?> actualClass = ClassUtils.getUserClass(pjp.getTarget());
+        int line = MethodLineNumberCache.getLineNumber(actualClass, method.getName(), method);
+        action += " (" + actualClass.getSimpleName() + ".java:" + line + ")";
+        return action;
     }
 
     /**

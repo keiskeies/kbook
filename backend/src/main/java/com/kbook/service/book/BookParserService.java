@@ -1873,32 +1873,6 @@ public class BookParserService {
         }
     }
 
-    /**
-     * 生成图书速读摘要（无用户上下文）
-     * <p>
-     * 基于图书内容生成速读摘要，包括核心观点、关键章节等，
-     * 帮助读者快速了解图书主旨和精华内容。
-     *
-     * @param book 图书实体对象
-     * @return 速读摘要VO对象
-     */
-    public BookSpeedReadVO generateSpeedRead(Book book) {
-        return chatModelManager.generateSpeedRead(book);
-    }
-
-    /**
-     * 生成图书速读摘要（带用户上下文）
-     * <p>
-     * 结合用户阅读偏好和历史，生成个性化的速读摘要，
-     * 根据用户兴趣突出相关章节和观点。
-     *
-     * @param book 图书实体对象
-     * @param user 用户实体对象
-     * @return 个性化速读摘要VO对象
-     */
-    public BookSpeedReadVO generateSpeedRead(Book book, User user) {
-        return chatModelManager.generateSpeedRead(book, user);
-    }
 
     /**
      * 流式生成图书速读摘要（SSE推送）

@@ -377,11 +377,6 @@ export interface BookSpeedRead {
   currentSection?: string
 }
 
-/** 获取3分钟速读摘要 */
-export function getBookSpeedRead(bookId: number) {
-  return request.get<BookSpeedRead>(`/books/${bookId}/speed-read`)
-}
-
 // ==================== 管理员AI图书操作 ====================
 
 /** 按作者删除所有书籍（全链路：DB+缓存+RAG+ES+封面） */

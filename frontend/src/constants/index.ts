@@ -27,6 +27,7 @@ export const ROUTES = {
   CHAT: '/chat',
   CHAT_ROOM: '/chat/:conversationId',
   ROUND_TABLE: '/book/:bookId/round-table',
+  ROUND_TABLE_SESSION: '/book/:bookId/round-table/sessions/:sessionId',
   TERMS: '/terms',
   PRIVACY: '/privacy',
 } as const

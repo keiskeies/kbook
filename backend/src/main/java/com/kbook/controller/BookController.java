@@ -229,41 +229,6 @@ public class BookController {
         return Result.ok(bookSearchService.rebuildIndex());
     }
 
-    @Operation(summary = "获取速读摘要")
-    @GetMapping("/{id}/speed-read")
-    public Result<BookSpeedReadVO> getSpeedRead(@PathVariable Long id, Authentication authentication) {
-        Book book = bookService.getBookById(id);
-        if (book == null) {
-            return Result.fail("图书不存在");
-        }
-
-        // 获取当前用户画像（用于个性化速读）
-        User currentUser = null;
-        if (authentication != null && authentication.getPrincipal() != null) {
-            try {
-                Long userId = (Long) authentication.getPrincipal();
-                currentUser = userService.getUserById(userId);
-            } catch (Exception e) {
-                log.debug("获取当前用户失败: {}", e.getMessage());
-            }
-        }
-
-        // 生成个性化速读（每次根据用户画像实时生成，不缓存，因为不同用户结果不同）
-        BookSpeedReadVO vo = bookParserService.generateSpeedRead(book, currentUser);
-        if (vo != null) {
-            return Result.ok(vo);
-        }
-
-        return Result.ok(BookSpeedReadVO.builder()
-                .bookId(id)
-                .corePoints(List.of())
-                .suitableFor(List.of())
-                .notSuitableFor(List.of())
-                .takeaways(List.of())
-                .difficulty("未知")
-                .build());
-    }
-
     @Operation(summary = "流式获取速读摘要")
     @PostMapping(value = "/{id}/speed-read/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamSpeedRead(@PathVariable Long id, Authentication authentication) {

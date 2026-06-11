@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 import { createSsePostConnectionWithEvents } from '@/utils/sse-request'
-import type { RoundTableRole, RoundTableSession, RoundTableMessage } from '@/types/roundTable'
+import type { RoundTableRole, RoundTableSession, RoundTableMessage, RoundTableCoverage } from '@/types/roundTable'
 
 /** 获取推荐角色列表（LLM选角） */
 export function getRoundTableRoles(bookId: number, refresh?: boolean) {
@@ -32,6 +32,16 @@ export function getRoundTableMessages(sessionId: string) {
 /** 删除会话 */
 export function deleteRoundTableSession(sessionId: string) {
   return request.delete(`/round-table/sessions/${sessionId}`)
+}
+
+/** 获取覆盖度报告 */
+export function getRoundTableCoverage(sessionId: string) {
+  return request.get<RoundTableCoverage>(`/round-table/sessions/${sessionId}/coverage`)
+}
+
+/** 刷新覆盖度 */
+export function refreshRoundTableCoverage(sessionId: string) {
+  return request.post<RoundTableCoverage>(`/round-table/sessions/${sessionId}/coverage/refresh`)
 }
 
 /** LLM 判断下一轮发言人 */

@@ -1,25 +1,19 @@
 package com.kbook.service.ai;
 
-import com.kbook.service.recommend.RecommendMatchCalculator;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.constants.AiPromptConstants;
-import com.kbook.dto.book.BookSpeedReadVO;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
+import com.kbook.service.recommend.RecommendMatchCalculator;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.PartialResponse;
-import dev.langchain4j.model.chat.response.PartialResponseContext;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
-import dev.langchain4j.model.chat.response.StreamingHandle;
+import dev.langchain4j.model.chat.response.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -73,7 +67,7 @@ public class ChatModelManager {
      * @return AI 响应文本，如果模型未配置或调用失败则返回 null
      */
     public String callAi(String logName, String logDetail,
-                          Supplier<ChatModel> modelSupplier, List<ChatMessage> messages) {
+                         Supplier<ChatModel> modelSupplier, List<ChatMessage> messages) {
         // 获取 ChatModel 实例，如果模型未配置则直接返回 null
         ChatModel model = modelSupplier.get();
         if (model == null) {
@@ -111,7 +105,7 @@ public class ChatModelManager {
      * @return AI 响应文本
      */
     public String callAi(String logName, String logDetail,
-                          Supplier<ChatModel> modelSupplier, String userPrompt) {
+                         Supplier<ChatModel> modelSupplier, String userPrompt) {
         return callAi(logName, logDetail, modelSupplier, List.of(UserMessage.from(userPrompt)));
     }
 
@@ -143,6 +137,18 @@ public class ChatModelManager {
     public String callAi(String logName, String logDetail, String systemPrompt, String userPrompt) {
         return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinkingFromYml,
                 List.of(SystemMessage.from(systemPrompt), UserMessage.from(userPrompt)));
+    }
+
+    /**
+     * 带完整消息列表的公共 AI 调用入口（消息已由调用方组装）。
+     *
+     * @param logName   日志标识
+     * @param logDetail 日志详情
+     * @param messages  完整的 ChatMessage 列表
+     * @return AI 响应文本
+     */
+    public String callAi(String logName, String logDetail, List<ChatMessage> messages) {
+        return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinkingFromYml, messages);
     }
 
     // ================================================================
@@ -188,7 +194,7 @@ public class ChatModelManager {
                     "- author: 作者名（如果内容中能看出来，否则填 null）\n" +
                     "- description: 简短的内容简介（50-200字，概括书籍主题和内容，如果内容中自带简介则提取原简介）\n" +
                     "只返回JSON，不要其他文字。\n\n" +
-                    "书籍内容：\n" + CommonUtils.truncateText(content, 2000);
+                    "书籍内容：\n" + CommonUtils.truncateText(content, SPEED_READ_CONTENT_LIMIT);
 
             // 调用 AI 推断元数据，使用专用的系统提示词
             String result = callAi("元数据推断", "TXT/PDF 元数据推断",
@@ -196,7 +202,7 @@ public class ChatModelManager {
                     List.of(SystemMessage.from(AiPromptConstants.BOOK_INFO_EXTRACT_SYSTEM_PROMPT),
                             UserMessage.from(prompt)));
             // 移除 AI 响应中的代码围栏
-            result = stripCodeFence(result);
+            result = CommonUtils.stripCodeFence(result);
             if (result != null) {
                 // 解析 JSON 响应
                 var node = objectMapper.readTree(result);
@@ -245,61 +251,34 @@ public class ChatModelManager {
         String bookInfo = buildSpeedReadContent(book);
 
         try {
-            String prompt;
+            // 固定指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
+            String systemPrompt = """
+                    你正在和读者讨论一本书。根据图书基本信息、读者画像和上轮问答，审视你刚才的回答，找出其中3个最可能引发这位读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
+                    - 你说了一个结论，但没有给出这个结论成立的条件或前提
+                    - 你使用了一个关键概念，但它的含义在语境中可能被误解
+                    - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
+                    - 你提出了一个判断，但没有说明它适用的边界或反例
+                    
+                    要求：
+                    - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
+                    - 问题要贴合读者的背景和处境，能引发他的共鸣或思考
+                    - 问题要与本书内容紧密相关，不要偏离书籍主题
+                    - 问题的提问对象是你这个AI，问题本身你必须能回答
+                    - 每行一个，不超25字，无序号
+                    """;
+
+            // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像) → UserMessage(上轮问答)
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(SystemMessage.from(systemPrompt));
+            messages.add(UserMessage.from("【图书信息】\n" + bookInfo));
             if (!userProfileDesc.isBlank()) {
-                prompt = String.format("""
-                        你正在和读者讨论一本书，以下是这本书的基本信息：
-
-                        【图书信息】
-                        %s
-
-                        【读者画像】
-                        %s
-
-                        读者问：%s
-                        你回答：%s
-
-                        现在，审视你刚才的回答，找出其中3个最可能引发这位读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
-                        - 你说了一个结论，但没有给出这个结论成立的条件或前提
-                        - 你使用了一个关键概念，但它的含义在语境中可能被误解
-                        - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
-                        - 你提出了一个判断，但没有说明它适用的边界或反例
-
-                        要求：
-                        - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
-                        - 问题要贴合读者的背景和处境，能引发他的共鸣或思考
-                        - 问题要与本书内容紧密相关，不要偏离书籍主题
-                        - 问题的提问对象是你这个AI，问题本身你必须能回答
-                        - 每行一个，不超25字，无序号
-                        """,
-                        bookInfo, userProfileDesc, question, answer);
-            } else {
-                prompt = String.format("""
-                        你正在和读者讨论一本书，以下是这本书的基本信息：
-
-                        【图书信息】
-                        %s
-
-                        读者问：%s
-                        你回答：%s
-
-                        现在，审视你刚才的回答，找出其中3个最可能引发读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
-                        - 你说了一个结论，但没有给出这个结论成立的条件或前提
-                        - 你使用了一个关键概念，但它的含义在语境中可能被误解
-                        - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
-                        - 你提出了一个判断，但没有说明它适用的边界或反例
-
-                        要求：
-                        - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
-                        - 问题要与本书内容紧密相关，不要偏离书籍主题
-                        - 问题的提问对象是你这个AI，问题本身你必须能回答
-                        - 每行一个，不超25字，无序号
-                        """,
-                        bookInfo, question, answer);
+                messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc));
             }
+            messages.add(UserMessage.from("读者问：" + question + "\n你回答：" + answer));
 
             String aiText = callAi("生成深入追问问题",
-                    String.format("title=%s", title), prompt);
+                    String.format("title=%s", title),
+                    chatModelFactory::buildChatModelWithoutThinkingFromYml, messages);
             if (aiText != null) {
                 return parseQuestions(aiText).stream().limit(3).collect(Collectors.toList());
             }
@@ -320,85 +299,73 @@ public class ChatModelManager {
      * </ul>
      * </p>
      *
-     * @param question      用户原始问题
-     * @param bookTitle     书籍标题
-     * @param author        作者（可为 null）
+     * @param question     用户原始问题
      * @param lastAiAnswer 上一轮 AI 回答摘要（可为 null，用于追问场景）
-     * @param toc           书籍目录（可为 null）
+     * @param book         书籍
      * @return 扩展后的查询列表（最多 9 个），包含原始查询
      */
-    public List<String> expandQuery(String question, String bookTitle, String author, String lastAiAnswer, String toc) {
-        // 初始化查询列表，首先添加原始查询
+    public List<String> expandQuery(String question, String lastAiAnswer, Book book) {
+        // 初始化查询列表
         List<String> queries = new ArrayList<>();
-        queries.add(question);
+
+        // 原始查询：如果超过15字，提取关键词作为首个查询
+        String primaryQuery = question.length() > 15 ? extractKeywords(question) : question;
+        queries.add(primaryQuery);
 
         try {
-            // 构建上下文信息，用于让 AI 理解问题背景
-            StringBuilder contextBuilder = new StringBuilder();
-            contextBuilder.append("书名：《").append(bookTitle).append("》\n");
-            if (author != null && !author.isBlank()) {
-                contextBuilder.append("作者：").append(author).append("\n");
-            }
-            if (toc != null && !toc.isBlank()) {
-                String truncatedToc = toc.length() > 2000
-                        ? toc.substring(0, 2000) + "..."
-                        : toc;
-                contextBuilder.append("目录：\n").append(truncatedToc).append("\n");
-            }
+            // 构建静态书籍信息（书名、作者、目录）— 同书复用 KV Cache
+            String bookContext = buildSpeedReadContent(book);
+
+            // 固定指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
+            String systemPrompt = """
+                    你是一个向量检索查询生成器。将用户问题拆解为多个短小的检索关键词短语，每行一个。
+
+                    【拆解步骤】
+                    1. 提取问题中的核心名词（2-4个）
+                    2. 找出这些名词在书中可能对应的章节/主题
+                    3. 用"名词+名词"或"名词+动词"组合成5-15字的短语
+                    4. 从3个角度生成：核心概念、相关主题、上下位概念
+
+                    【硬性要求】
+                    - 每个短语必须≤15字
+                    - 短语必须是名词性词组，不要完整句子
+                    - 短语必须像"书中某个章节的小标题"
+                    - 禁止使用"的关系""的影响""的作用"等学术后缀
+                    - 禁止出现用户原话中的口语化表达
+
+                    【宏观问题】当用户问全书性问题（"讲了什么""核心观点"等）：
+                    - 从目录中提取每个章节的核心主题词
+                    - 最多8个
+
+                    【具体问题】当用户问具体问题时：
+                    - 问题中的核心概念 → 1-2个短语
+                    - 问题涉及的书中相关章节主题 → 1-2个短语
+                    - 问题的上位/下位概念 → 1个短语
+                    - 共3-5个
+
+                    只输出短语，每行一个，不带序号、引号、解释。""";
+
+            // 消息顺序：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(动态上下文+问题)
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(SystemMessage.from(systemPrompt));
+            messages.add(UserMessage.from("【书籍信息】\n" + bookContext.trim()));
+
+            // 动态内容（上轮回答 + 用户问题）
+            StringBuilder dynamicContext = new StringBuilder();
             if (lastAiAnswer != null && !lastAiAnswer.isBlank()) {
-                String truncated = lastAiAnswer.length() > 500
-                        ? lastAiAnswer.substring(0, 500) + "..."
-                        : lastAiAnswer;
-                contextBuilder.append("上轮AI回答摘要：").append(truncated).append("\n");
+                dynamicContext.append("上轮AI回答：").append(lastAiAnswer).append("\n");
             }
-
-            String prompt = String.format("""
-                    你是一个向量检索查询生成器。根据以下上下文，为用户的问题生成向量搜索查询，每行一个。
-
-                    上下文：
-                    %s
-
-                    用户问题：%s
-
-                    请先判断问题类型，然后按对应策略生成查询：
-
-                    【宏观问题】当用户问的是全书性、概览性问题（如"讲了什么""核心观点""主要内容""框架""概述""思路""核心思想""这本书的主题"等）时，根据目录为每个主要章节生成一个检索查询，确保覆盖全书内容。每个查询用该章节的核心主题词组合而成，使用书中可能出现的措辞。最多8个查询。
-
-                    【具体问题】当用户问的是具体的、局部的问题时，生成2-3个不同粒度的查询：
-                    - 精准定位：提取核心名词/关键论断，组合成书中可能出现的原文级短语
-                    - 宽泛召回：将问题抽象到上一层主题或相关概念，补充检索遗漏
-
-                    通用要求：
-                    1. 先解析代词指代（"上面""这些""该理论"等），在查询中替换为具体实体
-                    2. 如果用户追问上轮回答，查询应指向书中原文出处而非复述AI回答
-                    3. 使用书籍中可能出现的措辞，避免口语化
-                    4. 每行只输出查询文本，不带序号、引号或任何额外文字
-
-                    示例（宏观问题）：
-                    用户问题：这本书主要讲了什么？
-                    输出：
-                    情绪心理学的基本概念与理论框架
-                    情绪的生理基础与神经机制
-                    认知评价理论的核心观点
-                    情绪建构论的主要论点与证据
-                    情绪调节的策略与心理过程
-                    情绪与社会互动的关系
-                    情绪的个体差异与文化影响
-
-                    示例（具体问题）：
-                    用户问题：情绪是否完全由生理反应决定？
-                    输出：
-                    情绪理论中生理反应与认知评价的关系
-                    情绪产生的生理机制与詹姆斯-兰格理论
-                    情绪建构论对生理反应的解释
-                    """, contextBuilder.toString().trim(), question);
+            dynamicContext.append("\n用户问题：").append(question);
+            messages.add(UserMessage.from("【上下文】\n" + dynamicContext.toString().trim()));
 
             String aiText = callAi("RAG查询扩展",
-                    String.format("原始: %s", question), prompt);
+                    String.format("原始: %s", question),
+                    chatModelFactory::buildChatModelWithoutThinkingFromYml, messages);
             if (aiText != null) {
                 for (String line : aiText.split("\n")) {
                     line = line.trim();
-                    if (!line.isBlank() && !line.equals(question)) {
+                    // 过滤：非空、不过长、不重复
+                    if (!line.isBlank() && line.length() <= 15 && !queries.contains(line)) {
                         queries.add(line);
                         if (queries.size() >= 9) break;
                     }
@@ -411,56 +378,6 @@ public class ChatModelManager {
         }
 
         return queries;
-    }
-
-    /**
-     * 生成查询改写版本，用于 Multi-Query Retrieval 策略。
-     *
-     * <p>通过同义词替换、句式变换等方式生成 2 个语义相似但表达不同的改写版本，
-     * 提高向量检索的召回率。改写保持原始查询的核心意图不变。</p>
-     *
-     * @param query   原始查询
-     * @param context 上下文信息（如书籍信息、对话历史）
-     * @return 改写后的查询列表（最多 3 个，包含原始查询）
-     */
-    public List<String> generateQueryRewrites(String query, String context) {
-        // 初始化改写列表，首先添加原始查询
-        List<String> rewrites = new ArrayList<>();
-        rewrites.add(query);
-
-        try {
-            // 构建提示词，要求 AI 生成语义相似但表达不同的改写版本
-            String prompt = String.format("""
-                    请为以下用户查询生成 2 个语义相似的改写版本，用于向量检索召回。
-
-                    要求：
-                    1. 不改变查询的核心意图。
-                    2. 从不同角度表达同一问题（如同义词替换、句式变换、问法侧重不同）。
-                    3. 改写要自然，像真实用户会问的问题。
-                    4. 每行输出一个改写版本，不带序号、不带引号、不输出任何额外文字（如"好的""以下是"等）。
-
-                    %s
-
-                    用户查询：%s
-                    """, context, query);
-
-            String aiText = callAi("查询改写",
-                    String.format("query=%s", query.substring(0, Math.min(30, query.length()))), prompt);
-            if (aiText != null) {
-                for (String line : aiText.split("\n")) {
-                    line = line.trim();
-                    if (!line.isBlank() && !line.equals(query)) {
-                        rewrites.add(line);
-                        if (rewrites.size() >= 3) break;
-                    }
-                }
-            }
-            log.debug("LLM 向量检索相似改写结果: {} -> {}", query, rewrites);
-        } catch (Exception e) {
-            log.warn("LLM 查询改写失败，使用原始查询: {}", e.getMessage());
-        }
-
-        return rewrites;
     }
 
     /**
@@ -477,16 +394,16 @@ public class ChatModelManager {
             // 构建提示词，指导 AI 从多维度推断用户需求并生成关键词
             String prompt = String.format("""
                     你是一个图书搜索查询扩展器。用户输入了口语化的搜索词，你的任务是推断用户真正的阅读需求，从多个维度生成检索关键词。
-
+                    
                     关键原则：不要改写或解释用户的原话，而是思考——一个有这种需求的人，真正需要读什么书？从哪些不同方向能找到能满足他的书？
-
+                    
                     规则：
                     1. 生成3-5个不同维度的关键词短语，每行一个
                     2. 每个短语2-8个字，简洁精准
                     3. 各关键词覆盖不同维度，有本质差异，避免同义重复
                     4. 关键词应是书籍标签、分类或简介中可能出现的短语
                     5. 只输出关键词，不要序号、引号或任何额外文字
-
+                    
                     用户查询：%s
                     """, query);
 
@@ -551,26 +468,26 @@ public class ChatModelManager {
 
             String prompt = String.format("""
                     你是一位专业的图书编辑。请根据以下图书信息，生成一份精炼的结构化摘要。
-
+                    
                     要求：
                     1. 精炼高于简短：不设字数上限，但每个字都要有价值，不废话
                     2. 保留所有关键信息：核心论点、论证思路、重要概念、章节脉络
                     3. 结构化输出：
-
+                    
                     【一句话概括】用一句话概括本书的核心内容（≤100字）
-
+                    
                     【核心论点】列出 3-5 个核心论点或观点，每条用 1-2 句话说明
-
+                    
                     【章节脉络】按目录顺序，说明各主要章节/部分的核心内容及其关系（每章一句话）
-
+                    
                     【关键概念】列出书中重要的术语、概念及其简要定义
-
+                    
                     【独特贡献】本书在该领域中的独特贡献或与同类书的差异（如有）
-
+                    
                     【适合读者】适合什么样的读者阅读
-
+                    
                     ———
-
+                    
                     %s
                     """, input.toString());
 
@@ -590,102 +507,6 @@ public class ChatModelManager {
         return null;
     }
 
-    /**
-     * 生成 3 分钟速读摘要（不含用户画像）。
-     *
-     * @param book 书籍实体
-     * @return 速读摘要 VO，失败时返回 null
-     * @see #generateSpeedRead(Book, User)
-     */
-    public BookSpeedReadVO generateSpeedRead(Book book) {
-        return generateSpeedRead(book, null);
-    }
-
-    /**
-     * 生成 3 分钟速读摘要，包含读者画像的个性化推荐。
-     *
-     * <p>基于书籍信息（标题、作者、标签、简介、章节摘要）和读者画像（年龄、职业、MBTI 等），
-     * 生成结构化的速读摘要，包括核心观点、适合人群、不适合人群、阅读收获和难度等级。</p>
-     *
-     * @param book 书籍实体
-     * @param user 用户实体（可为 null，影响摘要的个性化程度）
-     * @return 速读摘要 VO，失败时返回 null
-     */
-    public BookSpeedReadVO generateSpeedRead(Book book, User user) {
-        try {
-            // 构建书籍内容和用户画像
-            String bookContent = buildSpeedReadContent(book);
-            String userProfileDesc = buildUserProfileDesc(user);
-
-            String prompt;
-            if (!userProfileDesc.isBlank()) {
-                prompt = """
-                        你是一位资深阅读顾问。请基于以下书籍信息，为特定读者生成一份「3分钟速读」摘要。
-                        
-                        【读者画像】
-                        %s
-                        
-                        【书籍信息】
-                        %s
-                        
-                        请严格按照以下JSON格式输出（不要输出其他内容）：
-                        {
-                          "corePoints": ["核心观点1", "核心观点2", "核心观点3"],
-                          "suitableFor": ["适合人群1", "适合人群2"],
-                          "notSuitableFor": ["不适合人群1", "不适合人群2"],
-                          "takeaways": ["读完能收获什么1", "读完能收获什么2"],
-                          "difficulty": "入门/中等/进阶"
-                        }
-                        
-                        要求：
-                        - corePoints: 3个最核心的观点或主题，每个不超过30字。请结合读者画像，突出与其最相关的内容。
-                        - suitableFor: 2-3类最适合阅读的人群描述，请特别说明为什么适合这位读者（如果匹配的话）。
-                        - notSuitableFor: 2-3类不适合阅读的人群描述。
-                        - takeaways: 2-3个读完能获得的具体收获，请结合读者的职业和人生阶段给出个性化收获。
-                        - difficulty: 根据内容深度和读者的背景判断阅读难度。
-                        """.formatted(userProfileDesc, bookContent);
-            } else {
-                prompt = """
-                        你是一位资深阅读顾问。请基于以下书籍信息，生成一份「3分钟速读」摘要，帮助读者快速判断这本书是否值得阅读。
-                        
-                        %s
-                        
-                        请严格按照以下JSON格式输出（不要输出其他内容）：
-                        {
-                          "corePoints": ["核心观点1", "核心观点2", "核心观点3"],
-                          "suitableFor": ["适合人群1", "适合人群2"],
-                          "notSuitableFor": ["不适合人群1", "不适合人群2"],
-                          "takeaways": ["读完能收获什么1", "读完能收获什么2"],
-                          "difficulty": "入门/中等/进阶"
-                        }
-                        
-                        要求：
-                        - corePoints: 3个最核心的观点或主题，每个不超过30字
-                        - suitableFor: 2-3类最适合阅读的人群描述
-                        - notSuitableFor: 2-3类不适合阅读的人群描述
-                        - takeaways: 2-3个读完能获得的具体收获
-                        - difficulty: 根据内容深度判断阅读难度
-                        """.formatted(bookContent);
-            }
-
-            String aiText = callAi("3分钟速读",
-                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()), prompt);
-            aiText = stripCodeFence(aiText);
-            if (aiText == null || aiText.isBlank()) {
-                log.warn("AI 速读摘要为空: bookId={}", book.getId());
-                return null;
-            }
-
-            BookSpeedReadVO vo = objectMapper.readValue(aiText, BookSpeedReadVO.class);
-            vo.setBookId(book.getId());
-            vo.setRawContent(aiText);
-
-            return vo;
-        } catch (Exception e) {
-            log.warn("生成速读摘要失败: bookId={} - {}", book.getId(), e.getMessage());
-            return null;
-        }
-    }
 
     // ================================================================
     // 公共工具方法（供其他服务使用，如流式速读）
@@ -731,9 +552,17 @@ public class ChatModelManager {
     }
 
     /**
-     * 流式生成 3 分钟速读摘要，通过 SSE 实时推送内容。
+     * 获取流式聊天模型实例（不带思考模式）。
      *
-     * <p>与 {@link #generateSpeedRead(Book, User)} 功能相同，但使用流式模型逐字输出，
+     * @return StreamingChatModel 实例，未配置时返回 null
+     */
+    public StreamingChatModel getStreamingChatModel() {
+        return chatModelFactory.buildStreamingChatModelWithoutThinkingFromYml();
+    }
+
+    /**
+     * 流式生成 3 分钟速读摘要，通过 SSE 实时推送内容。
+     * <p>
      * 提升用户体验。输出格式为 Markdown 标题 + 内容行，便于前端渲染。</p>
      *
      * @param book    书籍实体
@@ -753,98 +582,58 @@ public class ChatModelManager {
             String bookContent = buildSpeedReadContent(book);
             String userProfileDesc = buildUserProfileDesc(user);
 
-            String prompt;
+            // 固定角色 + 格式指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
+            String systemPrompt = """
+                    你是一位资深阅读顾问。请基于书籍信息和读者画像，生成一份「3分钟速读」摘要，帮助读者快速判断这本书是否值得阅读。
+                    
+                    请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行：
+                    
+                    ### 核心观点
+                    xxxxx
+                    xxxxx
+                    xxxxx
+                    
+                    ### 适合谁读
+                    xxxxx
+                    xxxxx
+                    xxxxx
+                    
+                    ### 不适合谁读
+                    xxxxx
+                    xxxxx
+                    xxxxx
+                    
+                    ### 读完能收获什么
+                    xxxxx
+                    xxxxx
+                    xxxxx
+                    
+                    ### 难度
+                    入门/中等/进阶
+                    
+                    要求：
+                    - 核心观点: 3个最核心的观点或主题，每个不超过30字。如提供读者画像，请突出与其最相关的内容。
+                    - 适合谁读: 2-3类最适合阅读的人群描述。如提供读者画像，请特别说明为什么适合这位读者。
+                    - 不适合谁读: 2-3类不适合阅读的人群描述。
+                    - 读完能收获什么: 2-3个读完能获得的具体收获。如提供读者画像，请结合其职业和人生阶段给出个性化收获。
+                    - 难度: 根据内容深度判断阅读难度，只输出"入门"、"中等"或"进阶"。
+                    - 不要输出任何其他内容，不要使用Markdown加粗或列表符号。
+                    - 每个标题占一行，标题下的每条内容各占一行
+                    """;
+
+            // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像)
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(SystemMessage.from(systemPrompt));
+            messages.add(UserMessage.from("【书籍信息】\n" + bookContent));
             if (!userProfileDesc.isBlank()) {
-                prompt = """
-                        你是一位资深阅读顾问。请基于以下书籍信息，为特定读者生成一份「3分钟速读」摘要。
-
-                        【读者画像】
-                        %s
-
-                        【书籍信息】
-                        %s
-
-                        请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行,每个标题占一行，标题下的每条内容各占一行,每个标题占一行，标题下的每条内容各占一行：
-
-                        ### 核心观点
-                        xxxxx
-                        xxxxx
-                        xxxxx
-
-                        ### 适合谁读
-                        xxxxx
-                        xxxxx
-                        xxxxx
-
-                        ### 不适合谁读
-                        xxxxx
-                        xxxxx
-                        xxxxx
-
-                        ### 读完能收获什么
-                        xxxxx
-                        xxxxx
-                        xxxxx
-
-                        ### 难度
-                        入门/中等/进阶
-
-                        要求：
-                        - 核心观点: 3个最核心的观点或主题，每个不超过30字。请结合读者画像，突出与其最相关的内容。
-                        - 适合谁读: 2-3类最适合阅读的人群描述，请特别说明为什么适合这位读者（如果匹配的话）。
-                        - 不适合谁读: 2-3类不适合阅读的人群描述。
-                        - 读完能收获什么: 2-3个读完能获得的具体收获，请结合读者的职业和人生阶段给出个性化收获。
-                        - 难度: 根据内容深度和读者的背景判断阅读难度，只输出"入门"、"中等"或"进阶"。
-                        - 不要输出任何其他内容，不要使用Markdown加粗或列表符号。
-                        - 每个标题占一行，标题下的每条内容各占一行
-                        """.formatted(userProfileDesc, bookContent);
-            } else {
-                prompt = """
-                        你是一位资深阅读顾问。请基于以下书籍信息，生成一份「3分钟速读」摘要，帮助读者快速判断这本书是否值得阅读。
-
-                        %s
-
-                        请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行：
-
-                        ### 核心观点
-                        xxxxx
-                        xxxxx
-                        xxxxx
-
-                        ### 适合谁读
-                        xxxxx
-                        xxxxx
-                        xxxxx
-
-                        ### 不适合谁读
-                        xxxxx
-                        xxxxx
-                        xxxxx
-
-                        ### 读完能收获什么
-                        xxxxx
-                        xxxxx
-                        xxxxx
-
-                        ### 难度
-                        入门/中等/进阶
-
-                        要求：
-                        - 核心观点: 3个最核心的观点或主题，每个不超过30字
-                        - 适合谁读: 2-3类最适合阅读的人群描述
-                        - 不适合谁读: 2-3类不适合阅读的人群描述
-                        - 读完能收获什么: 2-3个读完能获得的具体收获
-                        - 难度: 根据内容深度判断阅读难度，只输出"入门"、"中等"或"进阶"
-                        - 不要输出任何其他内容，不要使用Markdown加粗或列表符号。
-                        - 每个标题占一行，标题下的每条内容各占一行
-                        """.formatted(bookContent);
+                messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc));
             }
 
             long startTime = System.currentTimeMillis();
             final boolean[] connectionClosed = {false};
 
             model.chat(
-                    List.of(UserMessage.from(prompt)),
+                    messages,
                     new StreamingChatResponseHandler() {
                         StreamingHandle streamingHandle;
 
@@ -853,7 +642,8 @@ public class ChatModelManager {
                             if (streamingHandle == null) {
                                 streamingHandle = context.streamingHandle();
                             }
-                            if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) return;
+                            if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
+                                return;
                             String text = partialResponse.text();
                             if (text != null && !text.isEmpty()) {
                                 if (!SseHelper.safeSendEvent(emitter, "message", text)) {
@@ -969,33 +759,34 @@ public class ChatModelManager {
         return profileBuilder.toString();
     }
 
-    // ================================================================
-    // 私有工具方法
-    // ================================================================
-
     /**
-     * 移除 AI 响应中的代码围栏标记（```json ... ```）。
+     * 从长问题中提取关键词，用于向量检索。
+     * <p>
+     * 策略：去掉口语化表达，提取核心名词组合，限制在15字以内。
+     * </p>
      *
-     * <p>AI 模型有时会将 JSON 响应包裹在代码围栏中，此方法用于提取纯 JSON 内容。</p>
-     *
-     * @param text AI 原始响应文本
-     * @return 去除围栏后的文本，输入为 null 时返回 null
+     * @param question 用户原始问题
+     * @return 提取的关键词短语（≤15字）
      */
-    private static String stripCodeFence(String text) {
-        // 空值检查
-        if (text == null) return null;
-        String result = text.trim();
-        // 移除开头的代码围栏标记
-        if (result.startsWith("```json")) {
-            result = result.substring(7);
-        } else if (result.startsWith("```")) {
-            result = result.substring(3);
+    private static String extractKeywords(String question) {
+        // 去除口语化前缀和标点
+        String cleaned = question
+                .replaceAll("^(既然|那么|如果|请问|我想问|请告诉我|你能告诉我)", "")
+                .replaceAll("[？?!！。，,、\"“”‘’（）()\\[\\]【】]", " ")
+                .trim();
+
+        // 按空格/标点分割，取核心词
+        String[] words = cleaned.split("\\s+");
+        StringBuilder keywords = new StringBuilder();
+        for (String word : words) {
+            if (word.length() >= 2 && keywords.length() + word.length() <= 15) {
+                if (!keywords.isEmpty()) keywords.append(" ");
+                keywords.append(word);
+            }
         }
-        // 移除结尾的代码围栏标记
-        if (result.endsWith("```")) {
-            result = result.substring(0, result.length() - 3);
-        }
-        return result.trim();
+
+        String result = keywords.toString().trim();
+        return result.isEmpty() ? question.substring(0, Math.min(15, question.length())) : result;
     }
 
     /**

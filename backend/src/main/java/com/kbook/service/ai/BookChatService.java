@@ -252,7 +252,9 @@ public class BookChatService {
                 } catch (Exception ignored) {
                 }
 
-                String fullPrompt = buildPrompt(book, question, ragContext);
+                // 构建图书基本信息（静态，跨会话共享 KV Cache）和 RAG+问题（每次变化）
+                String bookInfoPrompt = buildBookInfoPrompt(book);
+                String prompt = buildPrompt(question, ragContext);
 
                 StreamingChatModel streamingChatModel = chatModelFactory.buildStreamingChatModel();
                 if (streamingChatModel == null) {
@@ -262,10 +264,11 @@ public class BookChatService {
 
                 long startTime = System.currentTimeMillis();
 
-                log.debug("图书问答: bookId={}, question={}, ragContextLen={}, fullPromptLen={}",
-                        bookId, question, ragContext.length(), fullPrompt.length());
+                log.debug("图书问答: bookId={}, question={}, bookInfoLen={}, ragContextLen={}, promptLen={}",
+                        bookId, question, bookInfoPrompt.length(), ragContext.length(), prompt.length());
 
-                List<ChatMessage> messages = buildChatMessages(finalSessionId, userId, fullPrompt);
+                // SystemMessage → UserMessage(bookInfo) → HistoryMessages → UserMessage(RAG + question)
+                List<ChatMessage> messages = buildChatMessages(finalSessionId, userId, bookInfoPrompt, prompt);
 
                 StringBuilder fullResponse = new StringBuilder();
                 StringBuilder fullThinking = new StringBuilder();
@@ -438,23 +441,35 @@ public class BookChatService {
     }
 
     /**
-     * 构建包含系统提示词、历史对话和当前问题的完整消息列表
+     * 构建包含系统提示词、图书基本信息、历史对话和当前问题的完整消息列表。
+     * <p>
+     * 消息顺序（优化 KV Cache 命中）：
+     * SystemMessage（固定提示词）→ UserMessage（图书基本信息，静态）→
+     * 历史对话 → UserMessage（RAG + 当前问题）
+     * <p>
      * 历史消息数量由压缩机制动态控制，不硬限轮数
      *
-     * @param sessionId     会话ID
-     * @param userId        用户ID
-     * @param currentPrompt 当前用户提示词
+     * @param sessionId      会话ID
+     * @param userId         用户ID
+     * @param bookInfoPrompt 图书基本信息提示词（静态，用于 KV Cache 前缀复用）
+     * @param currentPrompt  当前用户提示词（RAG + 问题）
      * @return 完整的 ChatMessage 列表
      */
-    private List<ChatMessage> buildChatMessages(String sessionId, Long userId, String currentPrompt) {
+    private List<ChatMessage> buildChatMessages(String sessionId, Long userId, String bookInfoPrompt, String currentPrompt) {
         List<ChatMessage> messages = new ArrayList<>();
         String style = getChatStyleForUser(userId);
         String systemPrompt = getSystemPromptForStyle(style);
         messages.add(SystemMessage.from(systemPrompt));
 
+        // 图书基本信息作为独立 UserMessage（静态前缀，跨会话共享 KV Cache）
+        if (bookInfoPrompt != null && !bookInfoPrompt.isBlank()) {
+            messages.add(UserMessage.from(bookInfoPrompt));
+        }
+
         try {
             // 加载历史消息并同步压缩，确保 LLM 上下文不超限
             int currentOverhead = AiPromptConstants.BOOK_CHAT_SYSTEM_PROMPT.length()
+                    + (bookInfoPrompt != null ? bookInfoPrompt.length() : 0)
                     + currentPrompt.length()
                     + 2000; // AI 回复预留
             List<AiConversation> history = loadAndCompressHistory(userId, sessionId, currentOverhead);
@@ -502,7 +517,7 @@ public class BookChatService {
                 return "";
             }
 
-            List<String> subQueries = chatModelManager.expandQuery(question, book.getTitle(), book.getAuthor(), lastAiAnswer, book.getToc());
+            List<String> subQueries = chatModelManager.expandQuery(question, lastAiAnswer, book);
             Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
             int rawCount = 0, rawChars = 0;
             // 优化策略：多查询检索 + 相邻片段合并 + 关键词重排序 + 自适应 topK
@@ -584,7 +599,7 @@ public class BookChatService {
             }
 
             String ragContext = sb.toString();
-            log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重{}条{}字 → 合并{}条{}字 → 最终{}字",
+            log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重后得{}条{}字 → 合并后得{}条{}字 → 最终{}字",
                     book.getId(),
                     rawCount, rawChars,
                     dedupedMatches.size(), dedupChars,
@@ -733,16 +748,14 @@ public class BookChatService {
     }
 
     /**
-     * 构建完整的图书问答提示词，包含书籍信息、RAG 上下文和用户问题
+     * 构建图书基本信息提示词（纯静态信息，用于 KV Cache 前缀复用）
+     * 包括书名、作者、标签、简介、目录、摘要。不会变化的数据放在这里。
      *
-     * @param book       书籍实体
-     * @param question   用户问题
-     * @param ragContext RAG 检索到的参考内容
-     * @return 完整的提示词文本
+     * @param book 书籍实体
+     * @return 图书基本信息文本
      */
-    private String buildPrompt(Book book, String question, String ragContext) {
+    private String buildBookInfoPrompt(Book book) {
         StringBuilder sb = new StringBuilder();
-
         sb.append("【当前讨论的书籍】\n");
         sb.append("书名：《").append(book.getTitle()).append("》\n");
         if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
@@ -778,11 +791,25 @@ public class BookChatService {
             sb.append("\n【章节摘要】（每章核心内容概述）\n").append(book.getChapterSummary()).append("\n");
         }
 
+        return sb.toString();
+    }
+
+    /**
+     * 构建 RAG 检索上下文 + 用户问题的提示词
+     * 不包含图书基本信息（已由 buildBookInfoPrompt 单独发送以优化 KV Cache）
+     *
+     * @param question   用户问题
+     * @param ragContext RAG 检索到的参考内容
+     * @return RAG + 问题文本
+     */
+    private String buildPrompt(String question, String ragContext) {
+        StringBuilder sb = new StringBuilder();
+
         if (!ragContext.isBlank()) {
-            sb.append("\n【书籍参考内容】（以下是从原著中检索到的与问题相关的片段）\n");
+            sb.append("【书籍参考内容】（以下是从原著中检索到的与问题相关的片段）\n");
             sb.append(ragContext);
         } else {
-            sb.append("\n【注意】未从原著中检索到直接相关的内容片段，请根据书籍基本信息谨慎回答。\n");
+            sb.append("【注意】未从原著中检索到直接相关的内容片段，请根据书籍基本信息谨慎回答。\n");
         }
 
         sb.append("\n【读者的问题】\n").append(question);
@@ -793,8 +820,7 @@ public class BookChatService {
 
         long qmCount = prompt.chars().filter(c -> c == '?').count();
         if (qmCount > prompt.length() * 0.05) {
-            log.warn("[编码诊断] 提示词疑似乱码! bookId={}, 问号占比={}/{}, JVM默认编码={}",
-                    book.getId(), qmCount, prompt.length(), java.nio.charset.Charset.defaultCharset());
+            log.warn("[编码诊断] RAG提示词疑似乱码! 问号占比={}/{}", qmCount, prompt.length());
         }
 
         return prompt;

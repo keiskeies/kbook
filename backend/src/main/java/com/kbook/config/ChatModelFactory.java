@@ -3,7 +3,6 @@ package com.kbook.config;
 import com.kbook.config.properties.AiModelProperties;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
@@ -19,7 +18,6 @@ import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -47,7 +45,6 @@ import java.util.List;
  * 特性：
  * - 支持启用/禁用模型的思考过程（thinking）
  * - 自动重试机制（通过 {@link RetryableChatModel} 包装）
- * - Ollama KV 缓存自动管理（每 50 次请求自动重置缓存）
  * - 请求诊断和监听
  */
 
@@ -61,15 +58,6 @@ public class ChatModelFactory {
 
     /** AI 提供商配置仓库（用于从数据库读取配置） */
     private final AiProviderConfigRepository configRepository;
-
-    /** Redis 模板（用于 Ollama 缓存管理） */
-    private final StringRedisTemplate redisTemplate;
-
-    /** Ollama 请求计数器在 Redis 中的键名 */
-    private static final String OLLAMA_COUNTER_KEY = "ollama:request_count";
-
-    /** Ollama 缓存重置间隔（每 50 次请求重置一次缓存） */
-    private static final long OLLAMA_RESET_INTERVAL = 50;
 
     // ======================== 8 个无参公开方法 ========================
 
@@ -633,41 +621,10 @@ public class ChatModelFactory {
             public void onRequest(ChatModelRequestContext ctx) {}
 
             @Override
-            public void onResponse(ChatModelResponseContext ctx) {
-                long count = redisTemplate.opsForValue().increment(OLLAMA_COUNTER_KEY);
-                if (count > 0 && count % OLLAMA_RESET_INTERVAL == 0) {
-                    performOllamaSoftReset(count);
-                }
-            }
+            public void onResponse(ChatModelResponseContext ctx) {}
 
             @Override
             public void onError(ChatModelErrorContext ctx) {}
         };
-    }
-
-    /**
-     * 执行 Ollama 缓存软重置。
-     * <p>
-     * 通过发送一个空请求来触发 Ollama 服务的缓存清理，避免长时间运行后出现性能下降或缓存问题。
-     * 包含完整的异常处理，确保重置失败不影响正常服务。
-     *
-     * @param count 当前请求计数
-     */
-    private void performOllamaSoftReset(long count) {
-        try {
-            log.info("========== Ollama KV 缓存软重置 (#{}) ==========", count);
-            try {
-                ChatModel chatModel = buildChatModel();
-                if (chatModel instanceof OllamaChatModel) {
-                    chatModel.chat(List.of(UserMessage.from("")));
-                    log.info("Ollama ChatModel 缓存已重置");
-                }
-            } catch (Exception e) {
-                log.warn("ChatModel 缓存重置失败: {}", e.getMessage());
-            }
-            log.info("========== Ollama 缓存重置完成 ==========");
-        } catch (Exception e) {
-            log.error("Ollama 缓存重置异常: {}", e.getMessage());
-        }
     }
 }

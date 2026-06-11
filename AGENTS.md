@@ -89,7 +89,6 @@ All 8 methods return `ChatModel` or `StreamingChatModel`, zero parameters, provi
 - `RetryableChatModel` — exponential backoff 1s/2s/4s, ±25% jitter, max 30s, 3 retries on 429
 - `customHeaders` with UTF-8 charset (Ollama only)
 - OpenAI models get `DiagnosticChatListener`
-- Ollama models get `ollamaCounterListener` — increments Redis counter every request, triggers KV cache reset every 50 requests
 
 ## AiProviderConfig.provider — enum
 - `Provider` enum: `OLLAMA`, `OPENAI`
@@ -100,9 +99,6 @@ All 8 methods return `ChatModel` or `StreamingChatModel`, zero parameters, provi
 ## Callers using yml-only methods
 - `BookParserService.generateSpeedRead()` → `buildChatModelWithoutThinkingFromYml()`
 - `BookChatService.followUpQuestions()` → `buildChatModelWithoutThinkingFromYml()`
-
-## Known issues / TODO
-- `performOllamaSoftReset` calls `buildChatModel()` (which is DB→yml fallback) — might need to use yml version instead to avoid potential DB dependency during reset
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
