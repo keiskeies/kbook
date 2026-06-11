@@ -51,6 +51,7 @@ public class RagHitStatisticsService {
 
     private static final String HIT_KEY = "rag:hit:";
     private static final String MISS_KEY = "rag:miss:";
+    private static final String LOW_SCORE_HIT_KEY = "rag:low_score_hit:";
     private static final String MISS_TS_KEY = "rag:miss:ts:";
     private static final String AUTO_RETRY_KEY = "rag:auto_retry:";
     private static final String ZERO_VEC_CHECKED_KEY = "rag:zerovec_checked:";
@@ -60,6 +61,20 @@ public class RagHitStatisticsService {
 
     /** 未命中率超过此值触发自动重新向量化 */
     private static final double AUTO_RETRY_MISS_RATE = 0.5;
+
+    /** 有效命中阈值（score ≥ 此值视为有效命中，清除未命中统计） */
+    private static final double EFFECTIVE_HIT_THRESHOLD = 0.6;
+
+    /** 低分命中阈值（score < 此值视为低分命中，累积触发重建） */
+    private static final double LOW_SCORE_THRESHOLD = 0.3;
+
+    /** 低分命中率超过此值触发自动重新向量化 */
+    private static final double LOW_SCORE_HIT_RATE = 0.5;
+
+    /** 低分命中加权因子（分数越低，向量失效风险越大，权重越高） */
+    private static final double LOW_SCORE_WEIGHT_HIGH = 3.0;   // score < 0.1
+    private static final double LOW_SCORE_WEIGHT_MEDIUM = 2.0; // score < 0.2
+    private static final double LOW_SCORE_WEIGHT_LOW = 1.0;    // score < 0.3
 
     /** 统计数据过期时间（30 天自动清除） */
     private static final Duration STATS_TTL = Duration.ofDays(30);
@@ -74,19 +89,49 @@ public class RagHitStatisticsService {
 
     /**
      * 记录一次向量检索命中
-     * 命中时清除该书的未命中统计（表示数据已恢复正常）
+     * <p>
+     * 三级策略：
+     * - score ≥ 0.6：有效命中，清除未命中统计（向量质量正常）
+     * - 0.3 ≤ score < 0.6：缓冲区，只记录分母（不算无效，但不够好）
+     * - score < 0.3：低分命中，累积触发重建
+     *
+     * @param bookId 书籍ID
+     * @param topScore 最高命中分数
      */
-    public void recordHit(Long bookId) {
+    public void recordHit(Long bookId, double topScore) {
+        // 命中计数（所有 score 都计入分母）
         String key = HIT_KEY + bookId;
         redisTemplate.opsForValue().increment(key);
         redisTemplate.expire(key, STATS_TTL);
 
-        // 命中说明向量数据正常，清除未命中相关统计
-        redisTemplate.delete(List.of(
-                MISS_KEY + bookId,
-                MISS_TS_KEY + bookId,
-                ZERO_VEC_CHECKED_KEY + bookId
-        ));
+        if (topScore >= EFFECTIVE_HIT_THRESHOLD) {
+            // 有效命中：清除未命中和低分命中统计（向量质量恢复正常）
+            redisTemplate.delete(List.of(
+                    MISS_KEY + bookId,
+                    MISS_TS_KEY + bookId,
+                    LOW_SCORE_HIT_KEY + bookId,
+                    ZERO_VEC_CHECKED_KEY + bookId
+            ));
+        } else if (topScore < LOW_SCORE_THRESHOLD) {
+            // 低分命中：根据分数加权计数（分数越低，向量失效风险越大）
+            double weight = calculateLowScoreWeight(topScore);
+            String lowScoreKey = LOW_SCORE_HIT_KEY + bookId;
+            // 使用 INCRBYFLOAT 实现加权累加
+            long lowScoreCount = redisTemplate.opsForValue().increment(lowScoreKey);
+            // 额外累加权重差值（weight - 1）* 100 作为整数存储
+            if (weight > 1.0) {
+                String weightKey = LOW_SCORE_HIT_KEY + bookId + ":weight";
+                redisTemplate.opsForValue().increment(weightKey, (long) ((weight - 1.0) * 100));
+                redisTemplate.expire(weightKey, STATS_TTL);
+            }
+            redisTemplate.expire(lowScoreKey, STATS_TTL);
+            log.debug("低分命中记录: bookId={}, score={}, weight={}, lowScoreCount={}",
+                    bookId, String.format("%.4f", topScore), String.format("%.1f", weight), lowScoreCount);
+
+            // 检查低分命中率（使用加权值）
+            checkLowScoreHitRate(bookId);
+        }
+        // 0.3 ≤ score < 0.6：缓冲区，不做额外处理
     }
 
     /**
@@ -145,86 +190,13 @@ public class RagHitStatisticsService {
     }
 
     /**
-     * 获取某本书的命中统计
-     */
-    public Map<String, Object> getStatistics(Long bookId) {
-        long hits = getCounter(HIT_KEY + bookId);
-        long misses = getCounter(MISS_KEY + bookId);
-        long total = hits + misses;
-        double hitRate = total > 0 ? (double) hits / total : 0.0;
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("bookId", bookId);
-        result.put("hits", hits);
-        result.put("misses", misses);
-        result.put("totalQueries", total);
-        result.put("hitRate", Math.round(hitRate * 10000.0) / 100.0);
-        return result;
-    }
-
-    /**
-     * 获取最近未命中率最高的书籍列表
-     */
-    public List<Map<String, Object>> getLowHitBooks(int topN) {
-        Set<String> missKeys = redisTemplate.keys(MISS_KEY + "*");
-        if (missKeys.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        List<Map<String, Object>> books = new ArrayList<>();
-        for (String missKey : missKeys) {
-            String bookIdStr = missKey.substring(MISS_KEY.length());
-            long bookId;
-            try {
-                bookId = Long.parseLong(bookIdStr);
-            } catch (NumberFormatException e) {
-                continue;
-            }
-
-            long hits = getCounter(HIT_KEY + bookIdStr);
-            long misses = getCounter(missKey);
-            long total = hits + misses;
-
-            if (total < MIN_TOTAL_QUERIES) continue;
-
-            double missRate = (double) misses / total;
-            if (missRate < 0.1) continue;
-
-            Map<String, Object> stat = new LinkedHashMap<>();
-            stat.put("bookId", bookId);
-            stat.put("hits", hits);
-            stat.put("misses", misses);
-            stat.put("totalQueries", total);
-            stat.put("missRate", Math.round(missRate * 10000.0) / 100.0);
-
-            String tsStr = redisTemplate.opsForValue().get(MISS_TS_KEY + bookIdStr);
-            if (tsStr != null) {
-                try {
-                    long ts = Long.parseLong(tsStr);
-                    stat.put("firstMissAt", DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-                            .withZone(ZoneId.systemDefault())
-                            .format(Instant.ofEpochSecond(ts)));
-                } catch (NumberFormatException ignored) {}
-            }
-
-            books.add(stat);
-        }
-
-        books.sort((a, b) -> Double.compare(
-                (Double) b.get("missRate"),
-                (Double) a.get("missRate")
-        ));
-
-        return books.stream().limit(topN).collect(Collectors.toList());
-    }
-
-    /**
      * 清除某本书的命中统计
      */
     public void clearStatistics(Long bookId) {
         redisTemplate.delete(List.of(
                 HIT_KEY + bookId,
                 MISS_KEY + bookId,
+                LOW_SCORE_HIT_KEY + bookId,
                 MISS_TS_KEY + bookId,
                 AUTO_RETRY_KEY + bookId,
                 ZERO_VEC_CHECKED_KEY + bookId
@@ -234,7 +206,8 @@ public class RagHitStatisticsService {
 
     /**
      * 统计阈值触发自动重建
-     * 增加快速通道：连续未命中 3 次直接触发，无需等待 10 次阈值
+     * 快速通道：连续未命中 3 次直接触发，无需等待 10 次阈值
+     * 注意：missCount 是累计未命中次数（命中时会清除），所以就是连续未命中次数
      */
     private void checkAndTriggerAutoRetry(Long bookId, long missCount) {
         // 快速通道：连续未命中达到 3 次，直接触发重建
@@ -252,6 +225,37 @@ public class RagHitStatisticsService {
         if (missRate < AUTO_RETRY_MISS_RATE) return;
 
         triggerImmediateRebuild(bookId, String.format("未命中率 %.1f%%", missRate * 100));
+    }
+
+    /**
+     * 检查低分命中率（使用加权值，分数越低权重越高）
+     * 低分命中率过高说明向量质量差，需要重建
+     */
+    private void checkLowScoreHitRate(Long bookId) {
+        long totalHits = getCounter(HIT_KEY + bookId);
+        long lowScoreHits = getCounter(LOW_SCORE_HIT_KEY + bookId);
+        long extraWeight = getCounter(LOW_SCORE_HIT_KEY + bookId + ":weight");
+
+        if (totalHits < MIN_TOTAL_QUERIES) return;
+
+        // 加权低分命中数 = 基础计数 + 额外权重
+        double weightedLowScoreHits = lowScoreHits + (extraWeight / 100.0);
+        double lowScoreRate = weightedLowScoreHits / totalHits;
+        if (lowScoreRate < LOW_SCORE_HIT_RATE) return;
+
+        log.warn("低分命中率过高: bookId={}, lowScoreHits={}, extraWeight={}, totalHits={}, weightedRate=%.1f%%",
+                bookId, lowScoreHits, extraWeight, totalHits, lowScoreRate * 100);
+        triggerImmediateRebuild(bookId, String.format("低分命中率 %.1f%%（加权）", lowScoreRate * 100));
+    }
+
+    /**
+     * 根据分数计算低分命中权重
+     * 分数越低，向量失效风险越大，权重越高
+     */
+    private double calculateLowScoreWeight(double score) {
+        if (score < 0.1) return LOW_SCORE_WEIGHT_HIGH;    // 极低分，高风险
+        if (score < 0.2) return LOW_SCORE_WEIGHT_MEDIUM;  // 低分，中风险
+        return LOW_SCORE_WEIGHT_LOW;                       // 边界分，低风险
     }
 
     /**

@@ -557,6 +557,7 @@ public class BookChatService {
                     for (String subQuery : subQueries) {
                         try {
                             List<EmbeddingMatch<TextSegment>> matches =
+
                                     embeddingService.searchContent(subQuery, maxResult, book);
                             for (EmbeddingMatch<TextSegment> match : matches) {
                                 String chunkText = match.embedded() != null ? match.embedded().text() : "";
@@ -575,12 +576,10 @@ public class BookChatService {
                 }
 
                 if (allMatches.isEmpty()) {
-                    ragHitStatisticsService.recordMiss(book.getId());
+                    // 命中统计已在 EmbeddingService.searchContent 中记录
                     return "";
                 }
             }
-
-            ragHitStatisticsService.recordHit(book.getId());
 
             List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(allMatches);
             int mergeChars = merged.stream()
@@ -616,8 +615,8 @@ public class BookChatService {
 
             return ragContext;
         } catch (Exception e) {
+            // 命中统计已在 EmbeddingService.searchContent 中记录
             log.warn("RAG 检索异常: bookId={} - {}", book.getId(), e.getMessage());
-            ragHitStatisticsService.recordMiss(book.getId());
             return "";
         }
     }

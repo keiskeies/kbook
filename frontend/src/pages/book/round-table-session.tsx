@@ -571,7 +571,7 @@ export default function RoundTableSessionPage() {
         }, 1500)
       })
 
-      stream.onError((err: Error) => {
+      stream.onError((_err: Error) => {
         setMessages(prev => {
           const updated = [...prev]
           const idx = updated.findIndex(m => m.id === msgId)
@@ -840,7 +840,7 @@ export default function RoundTableSessionPage() {
 
         {showSidePanel && (
           <CoveragePanel
-            sessionId={sessionId}
+            sessionId={sessionId ?? null}
             open={showCoverage}
             onClose={() => setShowCoverage(false)}
             isMobile={false}
@@ -850,7 +850,7 @@ export default function RoundTableSessionPage() {
 
         {showCoverage && !showSidePanel && (
           <CoveragePanel
-            sessionId={sessionId}
+            sessionId={sessionId ?? null}
             open={showCoverage}
             onClose={() => setShowCoverage(false)}
             isMobile={true}

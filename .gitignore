@@ -8,6 +8,7 @@ target/
 .reasonix/
 .junie/
 .claude/
+.omo/
 
 # 环境变量（生产）
 .env

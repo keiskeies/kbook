@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { X, RefreshCw, Loader2, Target, BookOpen, Tag, Sparkles, CheckCircle, AlertTriangle, Lightbulb } from 'lucide-react'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { RefreshCw, Loader2, Target, BookOpen, Tag, Sparkles, CheckCircle, AlertTriangle, Lightbulb } from 'lucide-react'
+import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { getRoundTableCoverage } from '@/api/roundTable'
 import type { RoundTableCoverage, BlockCoverageDetail } from '@/types/roundTable'
 
@@ -69,25 +69,25 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
   if (!open) return null
 
   const blockDetails: BlockCoverageDetail[] = coverage?.blockDetailsJson
-    ? safeParseJson(coverage.blockDetailsJson) ?? []
+    ? safeParseJson<BlockCoverageDetail[]>(coverage.blockDetailsJson) ?? []
     : []
   const coveredConcepts: string[] = coverage?.coveredConceptsJson
-    ? safeParseJson(coverage.coveredConceptsJson) ?? []
+    ? safeParseJson<string[]>(coverage.coveredConceptsJson) ?? []
     : []
   const missedConcepts: string[] = coverage?.missedConceptsJson
-    ? safeParseJson(coverage.missedConceptsJson) ?? []
+    ? safeParseJson<string[]>(coverage.missedConceptsJson) ?? []
     : []
   const llmDimensions: Record<string, number> = coverage?.llmDimensionsJson
-    ? safeParseJson(coverage.llmDimensionsJson) ?? {}
+    ? safeParseJson<Record<string, number>>(coverage.llmDimensionsJson) ?? {}
     : {}
   const llmStrengths: string[] = coverage?.llmStrengthsJson
-    ? safeParseJson(coverage.llmStrengthsJson) ?? []
+    ? safeParseJson<string[]>(coverage.llmStrengthsJson) ?? []
     : []
   const llmWeaknesses: string[] = coverage?.llmWeaknessesJson
-    ? safeParseJson(coverage.llmWeaknessesJson) ?? []
+    ? safeParseJson<string[]>(coverage.llmWeaknessesJson) ?? []
     : []
   const llmSuggestions: string[] = coverage?.llmSuggestionsJson
-    ? safeParseJson(coverage.llmSuggestionsJson) ?? []
+    ? safeParseJson<string[]>(coverage.llmSuggestionsJson) ?? []
     : []
 
   const overallScore = coverage?.overallScore ?? 0
@@ -339,7 +339,7 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
   )
 }
 
-function safeParseJson(json: string): unknown {
+function safeParseJson<T>(json: string): T | null {
   try {
     return JSON.parse(json)
   } catch {

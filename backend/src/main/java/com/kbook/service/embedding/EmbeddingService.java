@@ -49,15 +49,18 @@ public class EmbeddingService {
     private final ChatModelFactory chatModelFactory;
     private final QdrantProperties qdrantProps;
     private final BookService bookService;
+    private final RagHitStatisticsService ragHitStatisticsService;
 
     public EmbeddingService(QdrantClient qdrantClient,
                             ChatModelFactory chatModelFactory,
                             QdrantProperties qdrantProps,
-                            @Lazy BookService bookService) {
+                            @Lazy BookService bookService,
+                            @Lazy RagHitStatisticsService ragHitStatisticsService) {
         this.qdrantClient = qdrantClient;
         this.chatModelFactory = chatModelFactory;
         this.qdrantProps = qdrantProps;
         this.bookService = bookService;
+        this.ragHitStatisticsService = ragHitStatisticsService;
     }
 
     /**
@@ -713,6 +716,8 @@ public class EmbeddingService {
 
     /**
      * RAG 语义检索：根据查询在书籍内容中搜索相关片段
+     * <p>
+     * 自动记录命中/未命中统计到 RagHitStatisticsService，用于风控重建。
      *
      * @param query      查询文本
      * @param maxResults 最大返回数量
@@ -725,26 +730,42 @@ public class EmbeddingService {
             return List.of();
         }
 
+        List<EmbeddingMatch<TextSegment>> results = List.of();
         try {
             String expandedQuery = expandQueryWithContext(query, book);
             Embedding queryEmbedding = embeddingModel.embed(expandedQuery).content();
 
             if (book != null && qdrantClient != null) {
-                return searchContentWithFilter(queryEmbedding, maxResults, book.getId());
+                results = searchContentWithFilter(queryEmbedding, maxResults, book.getId());
+            } else if (contentEmbeddingStore != null) {
+                EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
+                        .queryEmbedding(queryEmbedding)
+                        .maxResults(maxResults)
+                        .minScore(0.2)
+                        .build();
+                results = contentEmbeddingStore.search(request).matches();
             }
 
-            if (contentEmbeddingStore == null) {
-                return List.of();
+            // 记录命中统计（有结果 = 命中，无结果 = 未命中）
+            if (book != null && ragHitStatisticsService != null) {
+                if (results.isEmpty()) {
+                    ragHitStatisticsService.recordMiss(book.getId());
+                } else {
+                    double topScore = results.stream()
+                            .mapToDouble(EmbeddingMatch::score)
+                            .max()
+                            .orElse(0.0);
+                    ragHitStatisticsService.recordHit(book.getId(), topScore);
+                }
             }
-            EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
-                    .queryEmbedding(queryEmbedding)
-                    .maxResults(maxResults)
-                    .minScore(0.2)
-                    .build();
 
-            return contentEmbeddingStore.search(request).matches();
+            return results;
         } catch (Exception e) {
             log.error("RAG 内容检索失败: {}", e.getMessage());
+            // 异常时也记录未命中
+            if (book != null && ragHitStatisticsService != null) {
+                ragHitStatisticsService.recordMiss(book.getId());
+            }
             return List.of();
         }
     }
