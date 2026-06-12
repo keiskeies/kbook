@@ -84,6 +84,7 @@ public class NotificationController {
         vo.setType(n.getType());
         vo.setCommentId(n.getCommentId());
         vo.setBookId(n.getBookId());
+        vo.setSessionId(n.getSessionId());
         vo.setIsRead(n.getIsRead());
         vo.setCreatedAt(n.getCreatedAt() != null ? n.getCreatedAt().toString() : null);
         return vo;
@@ -95,10 +96,15 @@ public class NotificationController {
      */
     private void fillTriggerUser(List<NotificationVO> vos) {
         if (vos == null || vos.isEmpty()) return;
-        List<Long> userIds = vos.stream().map(NotificationVO::getTriggerUserId).distinct().toList();
+        List<Long> userIds = vos.stream()
+                .map(NotificationVO::getTriggerUserId)
+                .filter(id -> id != null)
+                .distinct().toList();
+        if (userIds.isEmpty()) return;
         Map<Long, User> userMap = userRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(User::getId, u -> u));
         for (NotificationVO vo : vos) {
+            if (vo.getTriggerUserId() == null) continue;
             User user = userMap.get(vo.getTriggerUserId());
             if (user != null) {
                 vo.setTriggerUserNickname(user.getNickname());

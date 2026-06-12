@@ -1,20 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  ArrowLeft, Volume2, Square, Loader2, Play, Pause, BarChart3, Target, RefreshCw,
+  ArrowLeft, Volume2, Square, Loader2, Play, Pause, BarChart3, Target, RefreshCw, FileText,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import CoveragePanel from '@/components/round-table/CoveragePanel'
 import {
   getRoundTableRoles, getRoundTableMessages, getNextSpeaker, streamCharacterSpeak,
+  triggerRoundTableReport, getRoundTableReport,
 } from '@/api/roundTable'
 import { getBook } from '@/api/book'
-import type { RoundTableRole, RoundTableMessage } from '@/types/roundTable'
+import type { RoundTableRole, RoundTableMessage, RoundTableReport } from '@/types/roundTable'
 import {
   ROLE_COLORS, ROLE_NAMES, ROLE_ICONS, ROLE_TTS_CONFIG,
 } from '@/types/roundTable'
 import { toast } from 'sonner'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 type Phase = 'loading' | 'discussing' | 'paused' | 'error'
 
@@ -205,10 +207,12 @@ function SpeakStatsPanel({
   roles,
   messages,
   onClose,
+  isMobile,
 }: {
   roles: RoundTableRole[]
   messages: DisplayMessage[]
   onClose: () => void
+  isMobile?: boolean
 }) {
   const stats = roles.map(role => {
     const count = messages.filter(m => m.roleKey === role.key).length
@@ -221,31 +225,32 @@ function SpeakStatsPanel({
   const maxCount = Math.max(...stats.map(s => s.count), 1)
 
   return (
-    <div className="bg-background/95 backdrop-blur-xl border-b border-border/20 shadow-sm flex flex-col min-h-0">
-      <div className="px-4 py-3 shrink-0">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-bold flex items-center gap-1.5">
-            <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
-            发言统计
-          </h3>
+    <div className="flex flex-col min-h-0">
+      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/20">
+        <h3 className="text-xs font-bold flex items-center gap-1.5">
+          <BarChart3 className="h-3.5 w-3.5 text-brand-500" />
+          发言统计
+        </h3>
+        {!isMobile && (
           <button onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground mr-7">关闭</button>
-        </div>
+        )}
+      </div>
+      <div className="px-4 py-3 shrink-0">
         <div className="space-y-2 overflow-y-auto">
           {stats.map(({ role, count, totalChars }) => {
             const color = ROLE_COLORS[role.key] || '#6B655C'
             const pct = (count / maxCount) * 100
             return (
               <div key={role.key} className="flex items-center gap-2">
-                <span className="text-xs font-medium w-12 truncate" style={{ color }}>{role.name}</span>
+                <span className="text-xs font-bold w-20 truncate" style={{ color }}>{role.name}</span>
                 <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{ width: `${pct}%`, backgroundColor: color }}
                   />
                 </div>
-                <span className="text-xs text-muted-foreground w-32 text-right shrink-0 whitespace-nowrap">
-                  {count}次 · {totalChars}字
-                </span>
+                <span className="text-xs font-bold text-muted-foreground/80 w-14 text-right shrink-0 tabular-nums">{count}次</span>
+                <span className="text-xs font-bold text-muted-foreground/80 w-20 text-right shrink-0 tabular-nums">{totalChars}字</span>
               </div>
             )
           })}
@@ -255,9 +260,83 @@ function SpeakStatsPanel({
   )
 }
 
+function ReportPanel({
+  report,
+  isGenerating,
+  onTrigger,
+}: {
+  report: RoundTableReport | null
+  isGenerating: boolean
+  onTrigger: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="flex flex-col min-h-0 h-full">
+      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/20">
+        <h3 className="text-xs font-bold flex items-center gap-1.5">
+          <FileText className="h-3.5 w-3.5 text-brand-500" />
+          解读报告
+        </h3>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3">
+        {!report && !isGenerating && (
+          <div className="text-center py-6">
+            <p className="text-xs text-muted-foreground mb-3">AI 将深度解读本次讨论，生成七维度分析报告</p>
+            <button
+              onClick={onTrigger}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-2 text-xs font-medium text-white shadow-sm active:scale-[0.97] transition-transform"
+            >
+              <FileText className="h-3 w-3" />
+              生成解读报告
+            </button>
+            <p className="text-[10px] text-muted-foreground/60 mt-2">预计 2-3 分钟，完成后站内信通知</p>
+          </div>
+        )}
+
+        {isGenerating && (
+          <div className="text-center py-6">
+            <Loader2 className="h-6 w-6 animate-spin text-brand-500 mx-auto mb-2" />
+            <p className="text-xs text-muted-foreground">AI 正在深度解读讨论内容...</p>
+            <p className="text-[10px] text-muted-foreground/60 mt-1">预计 2-3 分钟，完成后站内信通知</p>
+          </div>
+        )}
+
+        {report?.status === 'COMPLETED' && report.content && (
+          <div className="[&_h2]:border-border/30 [&_h2]:pb-1.5 [&_h2]:mb-3 [&_h2]:!text-base
+                          [&_h3]:!text-sm [&_h3]:mb-2
+                          [&_p]:my-2
+                          [&_blockquote]:!border-l-4 [&_blockquote]:!border-brand-300 [&_blockquote]:!bg-brand-50/50 dark:[&_blockquote]:!bg-brand-500/10 [&_blockquote]:pl-4
+                          [&_strong]:!text-brand-600 dark:[&_strong]:!text-brand-400
+                          [&_li]:my-0.5
+                          [&_hr]:!my-4
+                          [&_ul]:my-2 [&_ol]:my-2
+                          [&_.table-scroll-wrapper]:-mx-4 [&_.table-scroll]:px-4">
+            <MarkdownRenderer content={report.content} className="!text-[14px] !leading-relaxed" />
+          </div>
+        )}
+
+        {report?.status === 'FAILED' && (
+          <div className="text-center py-6">
+            <p className="text-xs text-red-500 mb-2">报告生成失败：{report.errorMessage || '未知错误'}</p>
+            <button
+              onClick={onTrigger}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-2 text-xs font-medium text-white shadow-sm active:scale-[0.97] transition-transform"
+            >
+              <RefreshCw className="h-3 w-3" />
+              重新生成
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function RoundTableSessionPage() {
   const { bookId, sessionId } = useParams<{ bookId: string; sessionId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const bookIdNum = Number(bookId)
 
   const [phase, setPhase] = useState<Phase>('loading')
@@ -271,6 +350,10 @@ export default function RoundTableSessionPage() {
   const [showCoverage, setShowCoverage] = useState(false)
   const [coverageVersion, setCoverageVersion] = useState(0)
   const [bookTitle, setBookTitle] = useState<string>('')
+  const [showReport, setShowReport] = useState(false)
+  const [report, setReport] = useState<RoundTableReport | null>(null)
+  const [reportPolling, setReportPolling] = useState(false)
+  const reportPollingStartRef = useRef<number>(0)
 
   const activeRolesRef = useRef<RoundTableRole[]>([])
   const messagesRef = useRef<DisplayMessage[]>([])
@@ -319,6 +402,65 @@ export default function RoundTableSessionPage() {
     if (!bookIdNum || !sessionId) return
     loadSession()
   }, [bookIdNum, sessionId])
+
+  // 加载报告状态
+  const loadReport = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      const res = await getRoundTableReport(sessionId)
+      const data = (res as { data?: RoundTableReport })?.data ?? res as RoundTableReport
+      setReport(data)
+      return data
+    } catch {
+      return null
+    }
+  }, [sessionId])
+
+  // 报告生成中的轮询（最多 5 分钟，超时自动停止）
+  useEffect(() => {
+    if (!reportPolling || !sessionId) return
+    if (!reportPollingStartRef.current) reportPollingStartRef.current = Date.now()
+    const POLLING_TIMEOUT = 5 * 60 * 1000 // 5 分钟
+    const interval = setInterval(async () => {
+      // 超时兜底：5 分钟还没完成，停止轮询
+      if (Date.now() - reportPollingStartRef.current > POLLING_TIMEOUT) {
+        setReportPolling(false)
+        reportPollingStartRef.current = 0
+        // 刷新一下状态，后端可能已标记为 FAILED
+        await loadReport()
+        return
+      }
+      const data = await loadReport()
+      if (data && (data.status === 'COMPLETED' || data.status === 'FAILED')) {
+        setReportPolling(false)
+        reportPollingStartRef.current = 0
+      }
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [reportPolling, sessionId, loadReport])
+
+  // URL 参数 ?report=1 自动展开报告
+  useEffect(() => {
+    if (searchParams.get('report') === '1' && sessionId) {
+      setShowReport(true)
+      loadReport().then(data => {
+        if (data && data.status === 'GENERATING') {
+          setReportPolling(true)
+        }
+      })
+    }
+  }, [searchParams, sessionId])
+
+  // 打开报告面板时，自动加载报告状态
+  useEffect(() => {
+    if (showReport && sessionId && !report) {
+      loadReport().then(data => {
+        if (data && data.status === 'GENERATING') {
+          setReportPolling(true)
+        }
+      })
+    }
+  }, [showReport, sessionId])
 
   const loadSession = useCallback(async () => {
     setPhase('loading')
@@ -602,6 +744,41 @@ export default function RoundTableSessionPage() {
     setTimeout(() => grabMicAndSpeak(lastMsg?.roleKey), 1000)
   }, [grabMicAndSpeak])
 
+  const handleTriggerReport = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      const res = await triggerRoundTableReport(sessionId)
+      const data = (res as { data?: RoundTableReport })?.data ?? res as RoundTableReport
+      setReport(data)
+      if (data.status === 'GENERATING') {
+        setReportPolling(true)
+        toast.success('解读报告生成中，预计 2-3 分钟，完成后站内信通知')
+      } else if (data.status === 'COMPLETED') {
+        toast.success('解读报告已就绪')
+      }
+    } catch {
+      toast.error('触发报告生成失败')
+    }
+  }, [sessionId])
+
+  // 点击报告按钮时：切换面板 + 打开时如果正在生成则恢复轮询
+  const handleToggleReport = useCallback(() => {
+    if (showReport) {
+      setShowReport(false)
+      return
+    }
+    setShowReport(true)
+    if (report?.status === 'GENERATING' && !reportPolling) {
+      setReportPolling(true)
+    } else if (!report && sessionId) {
+      loadReport().then(data => {
+        if (data && data.status === 'GENERATING') {
+          setReportPolling(true)
+        }
+      })
+    }
+  }, [showReport, report, reportPolling, sessionId, loadReport])
+
   const handleToggleSpeak = useCallback((msgId: string, content: string, roleKey: string) => {
     const synth = window.speechSynthesis
     if (!synth) return
@@ -640,14 +817,22 @@ export default function RoundTableSessionPage() {
   }, {})
 
   const roles = activeRolesRef.current.length > 0 ? activeRolesRef.current : []
-  const showSidePanel = showCoverage && typeof window !== 'undefined' && window.innerWidth >= 768
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  const isMobile = useIsMobile()
+  const showSidePanel = showCoverage && !isMobile
+
+  // 切换到手机版时自动关闭桌面侧面板
+  useEffect(() => {
+    if (isMobile) {
+      setShowCoverage(false)
+      setShowReport(false)
+    }
+  }, [isMobile])
 
   return (
     <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter">
       <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-background/80 px-4 py-2.5 backdrop-blur-xl z-20">
         <button
-          onClick={() => navigate(`/book/${bookId}/round-table`)}
+          onClick={() => navigate(-1)}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -666,7 +851,7 @@ export default function RoundTableSessionPage() {
       </header>
 
       <div className="flex flex-1 overflow-hidden relative">
-        <div className="flex flex-1 flex-col overflow-hidden relative">
+        <div className="flex flex-1 flex-col overflow-hidden relative transition-all duration-300 ease-out">
           {showStats && !isMobile && (
             <SpeakStatsPanel
               roles={roles}
@@ -681,6 +866,7 @@ export default function RoundTableSessionPage() {
                   roles={roles}
                   messages={messages}
                   onClose={() => setShowStats(false)}
+                  isMobile
                 />
               </SheetContent>
             </Sheet>
@@ -838,6 +1024,22 @@ export default function RoundTableSessionPage() {
                   </button>
                 )}
 
+                {messages.length > 0 && (
+                  <button
+                    onClick={handleToggleReport}
+                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
+                      showReport ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {reportPolling || report?.status === 'GENERATING' ? (
+                      <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                    ) : (
+                      <FileText className="h-3 w-3 shrink-0" />
+                    )}
+                    <span className="hidden sm:inline">报告</span>
+                  </button>
+                )}
+
                 <span className="text-xs text-muted-foreground/60 shrink-0">
                   {roles.length}人·{currentRound}轮
                 </span>
@@ -845,16 +1047,6 @@ export default function RoundTableSessionPage() {
             </div>
           </div>
         </div>
-
-        {showSidePanel && (
-          <CoveragePanel
-            sessionId={sessionId ?? null}
-            open={showCoverage}
-            onClose={() => setShowCoverage(false)}
-            isMobile={false}
-            version={coverageVersion}
-          />
-        )}
 
         {showCoverage && !showSidePanel && (
           <CoveragePanel
@@ -864,6 +1056,42 @@ export default function RoundTableSessionPage() {
             isMobile={true}
             version={coverageVersion}
           />
+        )}
+
+        <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out ${showSidePanel ? 'w-80' : 'w-0'}`}>
+          <CoveragePanel
+            sessionId={sessionId ?? null}
+            open={showCoverage}
+            onClose={() => setShowCoverage(false)}
+            isMobile={false}
+            version={coverageVersion}
+          />
+        </div>
+
+        <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out ${showReport && !isMobile ? 'w-[420px] max-w-[90vw]' : 'w-0'}`}>
+          {showReport && !isMobile && (
+            <div className="w-[420px] max-w-[90vw] h-full border-l border-border/20 bg-background/95 backdrop-blur-xl animate-in slide-in-from-right duration-200 flex flex-col overflow-hidden">
+              <ReportPanel
+                report={report}
+                isGenerating={reportPolling || report?.status === 'GENERATING'}
+                onTrigger={handleTriggerReport}
+                onClose={() => setShowReport(false)}
+              />
+            </div>
+          )}
+        </div>
+
+        {showReport && isMobile && (
+          <Sheet open={showReport} onOpenChange={(v) => !v && setShowReport(false)}>
+            <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[80vh]">
+              <ReportPanel
+                report={report}
+                isGenerating={reportPolling || report?.status === 'GENERATING'}
+                onTrigger={handleTriggerReport}
+                onClose={() => setShowReport(false)}
+              />
+            </SheetContent>
+          </Sheet>
         )}
       </div>
     </div>

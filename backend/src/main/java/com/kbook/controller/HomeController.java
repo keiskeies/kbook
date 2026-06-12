@@ -9,11 +9,9 @@ import com.kbook.dto.stats.ReadingStats;
 import com.kbook.dto.stats.ReadingStatsVO;
 import com.kbook.dto.stats.TagStat;
 import com.kbook.dto.book.RecentBookVO;
-import com.kbook.dto.book.SimpleBookVO;
 import com.kbook.dto.recommend.RecommendedBook;
 import com.kbook.dto.recommend.RecommendedItem;
 import com.kbook.service.book.BookService;
-import com.kbook.service.rank.RankService;
 import com.kbook.service.progress.ReadingProgressService;
 import com.kbook.service.recommend.RecommendService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,8 +28,7 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * 首页数据聚合控制器
- * 一次请求返回首页所需的所有数据，减少前端请求次数
+ * 首页数据控制器
  */
 @Slf4j
 @RestController
@@ -43,7 +40,6 @@ public class HomeController {
     private final BookService bookService;
     private final ReadingProgressService progressService;
     private final RecommendService recommendService;
-    private final RankService rankService;
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -111,36 +107,6 @@ public class HomeController {
             log.error("个性化推荐失败", e);
             return Result.ok(List.of());
         }
-    }
-
-    /**
-     * 获取高分佳作 — 4分以上随机6本（定时刷新缓存）
-     */
-    @Operation(summary = "获取高分佳作")
-    @GetMapping("/top-rated")
-    public Result<List<SimpleBookVO>> getTopRated() {
-        var topRated = rankService.getHighRatedRandom();
-        return Result.ok(topRated.stream().map(SimpleBookVO::from).toList());
-    }
-
-    /**
-     * 获取新书速递 — 全部书籍随机12本（定时刷新缓存）
-     */
-    @Operation(summary = "获取新书速递")
-    @GetMapping("/new-books")
-    public Result<List<SimpleBookVO>> getNewBooks() {
-        var newBooks = rankService.getNewArrivalsRandom();
-        return Result.ok(newBooks.stream().map(SimpleBookVO::from).toList());
-    }
-
-    /**
-     * 获取热门榜单
-     */
-    @Operation(summary = "获取热门榜单")
-    @GetMapping("/popular")
-    public Result<List<SimpleBookVO>> getPopular() {
-        var popular = rankService.getReadRank(1, 6).getList();
-        return Result.ok(popular.stream().map(SimpleBookVO::from).toList());
     }
 
     /**

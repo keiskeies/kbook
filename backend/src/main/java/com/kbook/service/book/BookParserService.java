@@ -22,7 +22,6 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import nl.siegmann.epublib.domain.MediaType;
 import nl.siegmann.epublib.domain.TOCReference;
@@ -32,6 +31,7 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -54,7 +54,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -80,7 +79,6 @@ import java.util.zip.ZipOutputStream;
 @Slf4j
 @Service
 @LogModule("图书解析")
-@RequiredArgsConstructor
 public class BookParserService {
 
     private final ChatModelFactory chatModelFactory;
@@ -90,8 +88,26 @@ public class BookParserService {
     private final EmbeddingService embeddingService; // 嵌入向量服务
     private final ObjectMapper objectMapper; // JSON对象映射器
     private final BookStorageProperties storageProps; // 书籍存储配置属性
+    private final ExecutorService sseExecutor;
 
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+    public BookParserService(
+            ChatModelFactory chatModelFactory,
+            ChatModelManager chatModelManager,
+            BookService bookService,
+            UserService userService,
+            EmbeddingService embeddingService,
+            ObjectMapper objectMapper,
+            BookStorageProperties storageProps,
+            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+        this.chatModelFactory = chatModelFactory;
+        this.chatModelManager = chatModelManager;
+        this.bookService = bookService;
+        this.userService = userService;
+        this.embeddingService = embeddingService;
+        this.objectMapper = objectMapper;
+        this.storageProps = storageProps;
+        this.sseExecutor = sseExecutor;
+    }
 
     /**
      * 封面最大宽度（像素）
@@ -1677,7 +1693,7 @@ public class BookParserService {
     /**
      * 合并AI调用结果
      */
-    private record CombinedAiResult(List<String> tags, List<String> concept, List<String> readerNeed, List<String> targetReader, Double rating, String relevanceScoresJson, String description) {
+    public record CombinedAiResult(List<String> tags, List<String> concept, List<String> readerNeed, List<String> targetReader, Double rating, String relevanceScoresJson, String description) {
     }
 
     /**

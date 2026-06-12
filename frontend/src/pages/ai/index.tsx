@@ -438,7 +438,7 @@ export default function AIPage() {
         <div
           ref={scrollContainerRef}
           onScroll={handleUserScroll}
-          className="flex-1 overflow-y-auto overscroll-y-contain px-4 pt-12 pb-4 md:pt-4 md:px-6"
+          className="flex-1 overflow-y-auto overscroll-y-contain px-4 pt-12 pb-4 md:pt-4 md:px-6 lg:px-8"
         >
           <div className="mx-auto max-w-3xl">
           {messages.length === 0 ? (
@@ -576,7 +576,7 @@ export default function AIPage() {
         </div>
 
         {/* 输入区域 — 固定在底部 */}
-        <div className="shrink-0 border-t bg-background px-4 pt-3 md:px-6" style={{ paddingBottom: isMobile ? (tabBarVisible ? 'calc(0.75rem + 5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)') : '0.75rem' }}>
+        <div className="shrink-0 border-t bg-background px-4 pt-3 md:px-6 lg:px-8" style={{ paddingBottom: isMobile ? (tabBarVisible ? 'calc(0.75rem + 5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)') : '0.75rem' }}>
           <div className="flex items-end gap-2 max-w-3xl mx-auto">
             <textarea
               ref={textareaRef}

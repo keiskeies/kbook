@@ -39,14 +39,13 @@ import dev.langchain4j.model.chat.response.PartialThinkingContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.*;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
@@ -61,7 +60,6 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("图书问答")
-@RequiredArgsConstructor
 public class BookChatService {
 
     /**
@@ -82,11 +80,38 @@ public class BookChatService {
     private final RagHitStatisticsService ragHitStatisticsService;
     private final BookQuestionGenService questionGenService;
     private final UserService userService;
+    private final ExecutorService sseExecutor;
 
-    /**
-     * SSE 异步执行线程池
-     */
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+    public BookChatService(
+            EmbeddingService embeddingService,
+            BookService bookService,
+            BookParserService bookParserService,
+            AiProviderConfigService aiProviderConfigService,
+            ChatModelFactory chatModelFactory,
+            ChatModelManager chatModelManager,
+            AiConversationRepository conversationRepository,
+            AiSessionRepository sessionRepository,
+            BookSuggestedQuestionRepository suggestedQuestionRepository,
+            QdrantProperties qdrantProperties,
+            RagHitStatisticsService ragHitStatisticsService,
+            BookQuestionGenService questionGenService,
+            UserService userService,
+            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+        this.embeddingService = embeddingService;
+        this.bookService = bookService;
+        this.bookParserService = bookParserService;
+        this.aiProviderConfigService = aiProviderConfigService;
+        this.chatModelFactory = chatModelFactory;
+        this.chatModelManager = chatModelManager;
+        this.conversationRepository = conversationRepository;
+        this.sessionRepository = sessionRepository;
+        this.suggestedQuestionRepository = suggestedQuestionRepository;
+        this.qdrantProperties = qdrantProperties;
+        this.ragHitStatisticsService = ragHitStatisticsService;
+        this.questionGenService = questionGenService;
+        this.userService = userService;
+        this.sseExecutor = sseExecutor;
+    }
 
     /**
      * 根据书籍标签获取预设推荐问题

@@ -227,105 +227,166 @@ function TableScrollWrapper({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ==================== 可点击放大图片 ====================
+
+function ZoomableImage({ src, alt, ...props }: { src?: string; alt?: string; [key: string]: any }) {
+  const [zoomed, setZoomed] = useState(false)
+
+  if (!src) return null
+
+  return (
+    <>
+      <img
+        {...props}
+        src={src}
+        alt={alt || ''}
+        loading="lazy"
+        onClick={() => setZoomed(true)}
+        className="rounded-lg max-w-full my-2 cursor-zoom-in border border-border/30"
+      />
+      {zoomed && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-8 cursor-zoom-out"
+          onClick={() => setZoomed(false)}
+        >
+          <img
+            src={src}
+            alt={alt || ''}
+            className="max-w-full max-h-full rounded-xl object-contain shadow-2xl"
+          />
+        </div>
+      )}
+    </>
+  )
+}
+
 const markdownComponents = {
-  // 书名号高亮
-  p: ({ children, ...props }: any) => (
-    <p {...props}>
+  // 书名号高亮（段落加透气行高）
+  p: ({ children, node, ...props }: any) => (
+    <p {...props} className="leading-relaxed">
       {highlightBookTitle(children)}
     </p>
   ),
   // 行内代码
-  code: ({ className: codeClassName, children, ...props }: any) => {
+  code: ({ className: codeClassName, children, node, ...props }: any) => {
     const isInline = !codeClassName
     if (isInline) {
       return (
-        <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono" {...props}>
+        <code {...props} className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
           {children}
         </code>
       )
     }
     return (
-      <code className={codeClassName} {...props}>
+      <code {...props} className={codeClassName}>
         {children}
       </code>
     )
   },
   // 代码块容器
-  pre: ({ children, ...props }: any) => (
-    <pre className="rounded-lg bg-muted/80 p-3 overflow-x-auto text-xs my-2" {...props}>
+  pre: ({ children, node, ...props }: any) => (
+    <pre {...props} className="rounded-lg bg-muted/80 p-3 overflow-x-auto text-xs my-2">
       {children}
     </pre>
   ),
   // 列表样式
-  ul: ({ children, ...props }: any) => (
-    <ul className="list-disc pl-5 my-1 space-y-0.5" {...props}>
+  ul: ({ children, node, ...props }: any) => (
+    <ul {...props} className="list-disc pl-5 my-1 space-y-0.5">
       {children}
     </ul>
   ),
-  ol: ({ children, ...props }: any) => (
-    <ol className="list-decimal pl-5 my-1 space-y-0.5" {...props}>
+  ol: ({ children, node, ...props }: any) => (
+    <ol {...props} className="list-decimal pl-5 my-1 space-y-0.5">
       {children}
     </ol>
   ),
-  // 引用
-  blockquote: ({ children, ...props }: any) => (
-    <blockquote className="border-l-3 border-primary/40 pl-3 my-2 text-muted-foreground" {...props}>
+  // 引用（品牌色淡底 + 左边框）
+  blockquote: ({ children, node, ...props }: any) => (
+    <blockquote {...props} className="border-l-[3px] border-primary/40 pl-3 my-2 text-muted-foreground bg-primary/5 dark:bg-primary/10 rounded-r-lg py-2 pr-2">
       {children}
     </blockquote>
   ),
-  // 标题
-  h1: ({ children, ...props }: any) => (
-    <h1 className="text-base font-bold mt-3 mb-1" {...props}>{children}</h1>
+  // 标题（底部划线分割）
+  h1: ({ children, node, ...props }: any) => (
+    <h1 {...props} className="text-base font-bold mt-3 mb-2 border-b border-border/40 pb-1.5">{children}</h1>
   ),
-  h2: ({ children, ...props }: any) => (
-    <h2 className="text-sm font-bold mt-2.5 mb-1" {...props}>{children}</h2>
+  h2: ({ children, node, ...props }: any) => (
+    <h2 {...props} className="text-sm font-bold mt-3 mb-2 border-b border-border/40 pb-1">{children}</h2>
   ),
-  h3: ({ children, ...props }: any) => (
-    <h3 className="text-sm font-semibold mt-2 mb-0.5" {...props}>{children}</h3>
+  h3: ({ children, node, ...props }: any) => (
+    <h3 {...props} className="text-sm font-semibold mt-2 mb-1">{children}</h3>
   ),
   // 链接（支持 kbook:// 内部协议）
-  a: ({ href, children, ...props }: any) => {
+  a: ({ href, children, node, ...props }: any) => {
     if (href?.startsWith('kbook://')) {
       return (
         <a
+          {...props}
           href={href}
           className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-primary font-medium hover:underline cursor-pointer"
-          {...props}
         >
           {children}
         </a>
       )
     }
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" {...props}>
+      <a {...props} href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
         {children}
       </a>
     )
   },
   // 表格
-  table: ({ children, ...props }: any) => (
+  table: ({ children, node, ...props }: any) => (
     <TableScrollWrapper>
-      <div className="table-scroll" style={{ maxWidth: 'calc(100vw - 6rem)' }}>
-        <table className="text-xs border-collapse border border-border/50 min-w-max" {...props}>
+      <div className="table-scroll">
+        <table {...props} className="text-xs border-collapse border border-border/50 w-full">
           {children}
         </table>
       </div>
     </TableScrollWrapper>
   ),
-  th: ({ children, ...props }: any) => (
-    <th className="border border-border/50 px-2 py-1 bg-muted font-medium" {...props}>
+  th: ({ children, node, ...props }: any) => (
+    <th {...props} className="border border-border/50 px-2 py-1 bg-muted font-medium">
       {children}
     </th>
   ),
-  td: ({ children, ...props }: any) => (
-    <td className="border border-border/50 px-2 py-1" {...props}>
+  td: ({ children, node, ...props }: any) => (
+    <td {...props} className="border border-border/50 px-2 py-1 even:bg-muted/30">
       {children}
     </td>
   ),
   // 分隔线
   hr: ({ ...props }: any) => (
-    <hr className="my-3 border-border/50" {...props} />
+    <hr className="my-4 border-border/30" {...props} />
   ),
+  // 加粗（品牌色强调）
+  strong: ({ children, node, ...props }: any) => (
+    <strong {...props} className="text-primary font-bold">{children}</strong>
+  ),
+  // 斜体（微妙区分，不过度变灰）
+  em: ({ children, node, ...props }: any) => (
+    <em {...props} className="text-foreground/70 italic">{children}</em>
+  ),
+  // 图片（圆角 + 点击放大）
+  img: ({ src, alt, node, ...props }: any) => (
+    <ZoomableImage src={src} alt={alt} {...props} />
+  ),
+  // 任务列表复选框（品牌色）
+  input: ({ type, checked, disabled, node, ...props }: any) => {
+    if (type === 'checkbox') {
+      return (
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          readOnly
+          className="accent-primary h-3.5 w-3.5 rounded border-border/50 cursor-default"
+          {...props}
+        />
+      )
+    }
+    return <input type={type} {...props} />
+  },
 }
 
 // ==================== 辅助函数 ====================

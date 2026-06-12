@@ -9,7 +9,7 @@ import {
   getHomeStats, getHomeRecent, getHomePersonalized,
   getHomeCategories,
 } from '@/api/home'
-import type { RecentBookVO, RecommendedBook, ReadingStatsVO, TagStat, SimpleBookVO } from '@/api/home'
+import type { RecentBookVO, RecommendedBook, ReadingStatsVO, TagStat } from '@/api/home'
 import { formatRelativeTime } from '@/utils/time'
 import { parseFormatTags } from '@/types/book'
 import BookCover from '@/components/book/BookCover'
@@ -20,15 +20,22 @@ import { useAuthStore } from '@/store/auth'
 /** 固定在顶部的 Logo 区域 */
 function Header() {
   const navigate = useNavigate()
+  const nickname = useAuthStore((s) => s.userInfo?.nickname)
+  const hour = new Date().getHours()
+  const greeting = hour < 6 ? '夜深了' : hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好'
+
   return (
     <header className="sticky top-0 z-50 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 pt-safe-top pb-2 bg-background/80 backdrop-blur-xl border-b border-border/30">
       <div className="flex items-center justify-between py-3">
-        <div className="flex items-center gap-2">
-          <div className="md:hidden flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="md:hidden flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary">
             <BookOpen className="h-4.5 w-4.5 text-primary-foreground" strokeWidth={2.5} />
           </div>
           <h1 className="md:hidden text-xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">KBook</h1>
-          <h1 className="hidden md:block text-lg font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">发现</h1>
+          <div className="hidden md:block min-w-0">
+            <p className="text-xs text-muted-foreground font-medium">{greeting}</p>
+            <h1 className="text-base font-bold truncate">{nickname || '你好'}，今天想探索什么？</h1>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => navigate('/reviews')} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">
@@ -52,8 +59,8 @@ function HeroSection({ onSearchClick }: {
   const greeting = hour < 6 ? '夜深了' : hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好'
 
   return (
-    <div className="mb-2">
-      <div className="mb-2">
+    <div>
+      <div className="lg:hidden mb-2">
         <p className="text-xs text-muted-foreground font-medium">{greeting}</p>
         <h2 className="text-lg font-bold mt-0.5">
           {nickname || '你好'}，今天想探索什么？
@@ -240,7 +247,7 @@ function fmtReadCount(n: number): string {
 
 /** 竖向图书列表 — PC 双列 */
 function VerticalBookList({ books, onBookClick, matchScores }: {
-  books: (SimpleBookVO | RecommendedBook)[]
+  books: RecommendedBook[]
   onBookClick: (id: number) => void
   matchScores?: Record<string, number>
 }) {
@@ -426,13 +433,13 @@ export default function HomePage() {
       <Header />
 
       {/* 移动端：Hero + MoodQuickSwitch */}
-      <div className="lg:hidden mt-4">
+      <div className="lg:hidden mt-4 space-y-6">
         <HeroSection onSearchClick={() => navigate('/search')} />
         <MoodQuickSwitch />
       </div>
 
       {/* PC端：左右双栏；移动端：单列 */}
-      <div className="mt-4 lg:grid lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_340px] lg:gap-6">
+      <div className="mt-6 lg:mt-4 lg:grid lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_340px] lg:gap-6">
         {/* 左栏：主内容 */}
         <div className="space-y-6">
           {/* PC端：Hero 在左栏顶部 */}
@@ -501,9 +508,7 @@ export default function HomePage() {
 
         {/* 右栏：侧边栏 — 仅 PC 端显示 */}
         <div className="hidden lg:flex lg:flex-col lg:gap-4">
-          <div className="mt-[50px]">
-            <MoodQuickSwitch />
-          </div>
+          <MoodQuickSwitch />
           {statsLoading ? (
             <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
               <div className="flex items-center justify-between">

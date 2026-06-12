@@ -80,7 +80,7 @@ export default function FollowListPage() {
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       {/* 顶部 */}
-      <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
+      <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 md:px-6 lg:px-8 py-3 backdrop-blur-xl z-20">
         <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -108,7 +108,7 @@ export default function FollowListPage() {
       </div>
 
       {/* 列表内容 */}
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-3">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="h-6 w-6 animate-spin rounded-full border-3 border-primary border-t-transparent" />

@@ -18,6 +18,7 @@ import { usePdfReader } from '@/hooks/usePdfReader'
 import { useTtsReader } from '@/hooks/useTtsReader'
 import { ttsService } from '@/utils/tts'
 import { useAuthStore } from '@/store/auth'
+import { useKeepAliveStore } from '@/store/keepAlive'
 import { toast } from 'sonner'
 import TxtRenderer from '@/components/reader/TxtRenderer'
 import EpubRenderer from '@/components/reader/EpubRenderer'
@@ -84,6 +85,8 @@ export default function ReaderPage() {
     setShowImageViewer(true)
   }, [])
 
+  const clearPageData = useKeepAliveStore((s) => s.clearPageData)
+
   const handleSetAsCover = useCallback(async () => {
     if (!viewerImageSrc || !book) return
     try {
@@ -93,11 +96,13 @@ export default function ReaderPage() {
       const file = new File([blob], 'cover.png', { type: blob.type || 'image/png' })
       const updated = await updateBookCover(book.id, file)
       setBook(updated as unknown as Book)
+      // 清除图书详情缓存，确保封面刷新
+      clearPageData(`/book/${book.id}`)
       toast.success('已设为封面')
     } catch (err: any) {
       toast.error(err?.message || '设置封面失败')
     }
-  }, [viewerImageSrc, book])
+  }, [viewerImageSrc, book, clearPageData])
 
   const epubReader = useEpubReader({
     bookId: id,

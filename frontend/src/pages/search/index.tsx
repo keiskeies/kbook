@@ -359,7 +359,7 @@ export default function SearchPage() {
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter">
       {/* 顶部固定区域：搜索框 + 筛选标签 */}
       <div className="shrink-0 z-10 bg-background/80 backdrop-blur-xl">
-        <header className="flex items-center gap-2 border-b border-border/50 px-4 py-3">
+        <header className="flex items-center gap-2 border-b border-border/50 px-4 md:px-6 lg:px-8 py-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -411,11 +411,11 @@ export default function SearchPage() {
         )}
       </div>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain p-4">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-4">
         {loading ? (
-          <div className="space-y-3">
+          <div className="columns-1 sm:columns-2 lg:columns-3 gap-3 space-y-3">
             {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className="rounded-2xl bg-card p-3 shadow-sm border border-border/50">
+              <div key={i} className="rounded-2xl bg-card p-3 shadow-sm border border-border/50 break-inside-avoid">
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <div className="flex gap-3">
@@ -440,14 +440,14 @@ export default function SearchPage() {
             <p className="text-sm text-muted-foreground">试试其他关键词吧</p>
           </div>
         ) : results.length > 0 ? (
-          <div className="space-y-2.5">
+          <div className="columns-1 sm:columns-2 lg:columns-3 gap-3 space-y-3">
             {results.map((book: any) => {
               const tags = parseFormatTags(book.formatTags)
               const ms = matchScores?.[String(book.id)]
               return (
                 <div
                   key={book.id}
-                  className="rounded-2xl bg-card p-3 shadow-sm border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150"
+                  className="rounded-2xl bg-card p-3 shadow-sm border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150 break-inside-avoid"
                   onClick={() => navigate(`/book/${book.id}`)}
                 >
                   <div className="flex gap-3">

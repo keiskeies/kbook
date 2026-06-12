@@ -6,8 +6,10 @@ import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.SpeakRequest;
 import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
+import com.kbook.entity.RoundTableReport;
 import com.kbook.entity.RoundTableSession;
 import com.kbook.service.ai.RoundTableCoverageService;
+import com.kbook.service.ai.RoundTableReportService;
 import com.kbook.service.ai.RoundTableService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -41,6 +43,9 @@ public class RoundTableController extends BaseController {
     /** 圆桌派覆盖度服务 */
     private final RoundTableCoverageService coverageService;
 
+    /** 圆桌派解读报告服务 */
+    private final RoundTableReportService reportService;
+
     /**
      * 获取推荐角色列表（LLM 驱动）
      * <p>
@@ -53,7 +58,7 @@ public class RoundTableController extends BaseController {
     @GetMapping("/books/{bookId}/roles")
     public Result<List<RoleVO>> getRecommendedRoles(
             @PathVariable Long bookId,
-            @RequestParam(required = false, defaultValue = "false") boolean refresh) throws JsonProcessingException {
+            @RequestParam(required = false, defaultValue = "false") boolean refresh) {
         return Result.ok(roundTableService.getRecommendedRoles(bookId, refresh));
     }
 
@@ -166,5 +171,29 @@ public class RoundTableController extends BaseController {
     @PostMapping("/sessions/{sessionId}/coverage/refresh")
     public Result<RoundTableCoverage> refreshCoverage(@PathVariable String sessionId) {
         return Result.ok(coverageService.updateCoverage(sessionId, false));
+    }
+
+    /**
+     * 触发解读报告生成
+     * <p>
+     * 异步生成，约 2-3 分钟完成。完成后通过站内信通知用户。
+     * 如果已有报告（非失败状态），直接返回已有报告。
+     */
+    @Operation(summary = "生成解读报告")
+    @PostMapping("/sessions/{sessionId}/report")
+    public Result<RoundTableReport> triggerReport(@PathVariable String sessionId) {
+        Long userId = extractUserId();
+        return Result.ok(reportService.triggerReport(sessionId, userId));
+    }
+
+    /**
+     * 获取解读报告
+     * <p>
+     * 返回报告实体（含状态和内容），不存在时返回 null
+     */
+    @Operation(summary = "获取解读报告")
+    @GetMapping("/sessions/{sessionId}/report")
+    public Result<RoundTableReport> getReport(@PathVariable String sessionId) {
+        return Result.ok(reportService.getReport(sessionId));
     }
 }

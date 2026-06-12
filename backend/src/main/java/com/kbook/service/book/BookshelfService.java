@@ -114,7 +114,10 @@ public class BookshelfService {
                 .stream().collect(Collectors.toMap(Book::getId, b -> b));
 
         // 批量获取进度
-        List<ReadingProgress> progresses = progressRepository.findByUserIdAndBookIdIn(userId, bookIds);
+        List<ReadingProgress> progresses = progressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .and(ReadingProgress::getBookId, in(bookIds))
+                .list();
         Map<Long, ReadingProgress> progressMap = progresses.stream()
                 .collect(Collectors.toMap(ReadingProgress::getBookId, p -> p));
 
@@ -150,7 +153,7 @@ public class BookshelfService {
     public long getBookshelfCount(Long userId) {
         return bookshelfRepository.query()
                 .where(Bookshelf::getUserId, eq(userId))
-                .count();
+                .value();
     }
 
 }

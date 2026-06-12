@@ -28,6 +28,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+
+import static com.kbook.common.util.QueryBuilder.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -182,7 +184,10 @@ public class UserController {
         }
 
         long completedCount = readingProgressRepository.countCompletedByUserId(userId);
-        List<ReadingProgress> recentReading = readingProgressRepository.findRecentReading(userId, org.springframework.data.domain.PageRequest.of(0, 100));
+        List<ReadingProgress> recentReading = readingProgressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .orderByDesc(ReadingProgress::getUpdatedAt)
+                .list(100);
         vo.setCompletedBooks((int) completedCount);
         vo.setReadingBooks(recentReading.size());
 
@@ -194,12 +199,17 @@ public class UserController {
     public Result<UserBooksVO> getUserBooks(@PathVariable Long userId) {
         UserBooksVO vo = new UserBooksVO();
 
-        List<ReadingProgress> completed = readingProgressRepository.findByUserIdOrderByUpdatedAtDesc(userId).stream()
+        List<ReadingProgress> completed = readingProgressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .list().stream()
                 .filter(rp -> rp.getProgress() >= 1.0)
                 .toList();
         vo.setCompletedBooks(completed.stream().map(this::toBookItem).toList());
 
-        List<ReadingProgress> reading = readingProgressRepository.findRecentReading(userId, org.springframework.data.domain.PageRequest.of(0, 50));
+        List<ReadingProgress> reading = readingProgressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .orderByDesc(ReadingProgress::getUpdatedAt)
+                .list(50);
         vo.setReadingBooks(reading.stream().map(this::toBookItem).toList());
 
         return Result.ok(vo);

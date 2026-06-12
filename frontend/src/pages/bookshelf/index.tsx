@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, MoreVertical, Trash2, ArrowUpDown, Filter, BookOpen } from 'lucide-react'
 import { getBookshelf, removeFromBookshelf } from '@/api/bookshelf'
 import type { BookshelfItem } from '@/types/book'
-import { formatProgress } from '@/types/book'
 import { formatTag } from '@/utils/time'
 import { toast } from 'sonner'
 
@@ -231,13 +230,7 @@ export default function BookshelfPage() {
                   </div>
                 )}
 
-                {/* 进度指示 */}
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/20">
-                  <div
-                    className="h-full bg-brand-400 transition-all"
-                    style={{ width: `${Math.round(item.progress * 100)}%` }}
-                  />
-                </div>
+
               </div>
 
               {/* 书名 */}
@@ -250,10 +243,7 @@ export default function BookshelfPage() {
                 <p className="mt-0.5 text-xs text-muted-foreground truncate">{item.author}</p>
               )}
 
-              {/* 进度文字 */}
-              <p className="mt-1 text-xs text-brand-500 font-medium">
-                {item.progress >= 1 ? '已读完' : formatProgress(item.progress)}
-              </p>
+
             </div>
           ))}
         </div>

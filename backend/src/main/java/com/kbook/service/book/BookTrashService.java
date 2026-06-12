@@ -275,7 +275,7 @@ public class BookTrashService {
     public long getTrashCount(Long userId) {
         return bookTrashRepository.query()
                 .where(BookTrash::getUserId, eq(userId))
-                .count();
+                .value();
     }
 
     /**

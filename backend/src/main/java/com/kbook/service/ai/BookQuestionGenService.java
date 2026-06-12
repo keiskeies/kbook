@@ -12,8 +12,8 @@ import com.kbook.repository.BookSuggestedQuestionRepository;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -28,16 +28,24 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 @LogModule("图书问题生成")
 public class BookQuestionGenService {
 
     private final BookService bookService;
     private final ChatModelFactory chatModelFactory;
     private final BookSuggestedQuestionRepository suggestedQuestionRepository;
+    private final ExecutorService sseExecutor;
 
-    // 创建线程池用于超时控制
-    private static final ExecutorService executor = Executors.newCachedThreadPool();
+    public BookQuestionGenService(
+            BookService bookService,
+            ChatModelFactory chatModelFactory,
+            BookSuggestedQuestionRepository suggestedQuestionRepository,
+            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+        this.bookService = bookService;
+        this.chatModelFactory = chatModelFactory;
+        this.suggestedQuestionRepository = suggestedQuestionRepository;
+        this.sseExecutor = sseExecutor;
+    }
 
     /**
      * 异步生成预设问题
@@ -99,7 +107,7 @@ public class BookQuestionGenService {
 
             // 使用 Future 实现超时控制，防止 AI 调用阻塞线程
             long startTime = System.currentTimeMillis();
-            Future<ChatResponse> future = executor.submit(() -> chatModel.chat(List.of(UserMessage.from(prompt))));
+            Future<ChatResponse> future = sseExecutor.submit(() -> chatModel.chat(List.of(UserMessage.from(prompt))));
             ChatResponse response;
             try {
                 // 设置 2 分钟超时

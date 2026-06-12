@@ -9,7 +9,6 @@ import com.kbook.service.tts.TtsConfigService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
@@ -19,13 +18,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
-
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 @Slf4j
 @RestController
-@RequiredArgsConstructor
 @Tag(name = "语音合成")
 public class TtsConfigController {
 
@@ -34,9 +31,17 @@ public class TtsConfigController {
     /** GPT-SoVITS 音色预设配置 */
     private final GptSovitsProperties gptSovitsProperties;
 
-    /** SSE 异步执行器（由 AsyncExecutorConfig 提供，自动 shutdown） */
-    @Qualifier("sseExecutor")
-    private final ThreadPoolTaskExecutor sseExecutor;
+    /** SSE 异步执行器 */
+    private final ExecutorService sseExecutor;
+
+    public TtsConfigController(
+            TtsConfigService ttsConfigService,
+            GptSovitsProperties gptSovitsProperties,
+            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+        this.ttsConfigService = ttsConfigService;
+        this.gptSovitsProperties = gptSovitsProperties;
+        this.sseExecutor = sseExecutor;
+    }
 
     @Operation(summary = "获取当前TTS配置")
     @GetMapping("/api/tts/config/active")

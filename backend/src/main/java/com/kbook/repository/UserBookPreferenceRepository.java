@@ -3,36 +3,10 @@ package com.kbook.repository;
 import com.kbook.common.repository.BaseRepository;
 import com.kbook.entity.UserBookPreference;
 
-import java.util.List;
-import java.util.Optional;
-
 /**
  * 用户书籍偏好数据访问层
+ * <p>
+ * 查询统一使用 BaseRepository.query() 的 Fluent API
  */
 public interface UserBookPreferenceRepository extends BaseRepository<UserBookPreference, Long> {
-
-    /**
-     * 查询用户的所有排除偏好
-     */
-    List<UserBookPreference> findByUserIdAndType(Long userId, String type);
-
-    /**
-     * 查询用户指定类别的排除偏好
-     */
-    List<UserBookPreference> findByUserIdAndCategoryAndType(Long userId, String category, String type);
-
-    /**
-     * 查询用户特定偏好（用于检查是否已存在）
-     */
-    Optional<UserBookPreference> findByUserIdAndCategoryAndValue(Long userId, String category, String value);
-
-    /**
-     * 查询用户特定偏好（按 type 过滤）
-     */
-    Optional<UserBookPreference> findByUserIdAndCategoryAndValueAndType(Long userId, String category, String value, String type);
-
-    /**
-     * 查询用户所有偏好
-     */
-    List<UserBookPreference> findByUserId(Long userId);
 }

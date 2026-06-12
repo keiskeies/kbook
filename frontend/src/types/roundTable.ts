@@ -71,6 +71,19 @@ export interface RoundTableCoverage {
   processedMessageCount: number | null
 }
 
+/** 圆桌派解读报告 */
+export interface RoundTableReport {
+  id: number
+  sessionId: string
+  userId: number
+  bookId: number
+  content: string | null
+  status: 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED'
+  errorMessage: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 /** 内容块覆盖详情 */
 export interface BlockCoverageDetail {
   title: string

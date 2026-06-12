@@ -186,7 +186,7 @@
 
 /* === 表格横向滚动 === */
 .table-scroll {
-  overflow-x: scroll;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
@@ -236,4 +236,12 @@
 }
 .table-scroll-wrapper.scrolled-end::after {
   opacity: 0;
+}
+
+/* === iOS Safari 输入框防自动缩放 === */
+/* iOS 在聚焦 font-size < 16px 的输入框时会缩放页面，此规则阻止该行为 */
+@media (max-width: 768px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
 }

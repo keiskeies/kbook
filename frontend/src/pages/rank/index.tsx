@@ -335,12 +335,12 @@ export default function RankPage() {
     return (
       <div className="page-enter h-full flex flex-col overflow-hidden">
         {/* 顶部标题 */}
-        <div className="shrink-0 px-6 pt-4 pb-3 border-b border-border/30">
+        <div className="shrink-0 px-4 md:px-6 lg:px-8 pt-4 pb-3 border-b border-border/30">
           <h1 className="text-xl font-bold">发现好书</h1>
         </div>
 
         {/* 三列布局 */}
-        <div className="flex-1 min-h-0 grid grid-cols-3 gap-4 px-6 py-4">
+        <div className="flex-1 min-h-0 grid grid-cols-3 gap-4 px-4 md:px-6 lg:px-8 py-4">
           {RANK_TABS.map((tab) => (
             <RankColumn
               key={tab.key}

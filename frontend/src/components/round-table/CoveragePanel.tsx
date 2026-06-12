@@ -3,6 +3,7 @@ import { RefreshCw, Loader2, Target, BookOpen, Tag, Sparkles, CheckCircle, Alert
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { getRoundTableCoverage } from '@/api/roundTable'
 import type { RoundTableCoverage, BlockCoverageDetail } from '@/types/roundTable'
+import MarkdownRenderer from '@/components/ui/markdown-renderer'
 
 interface CoveragePanelProps {
   sessionId: string | null
@@ -99,8 +100,8 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
     <div className="flex flex-col min-h-0">
       {/* 头部 */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/20">
-        <h3 className="text-sm font-bold flex items-center gap-1.5">
-          <Target className="h-4 w-4 text-brand-500" />
+        <h3 className="text-xs font-bold flex items-center gap-1.5">
+          <Target className="h-3.5 w-3.5 text-brand-500" />
           话题覆盖度
         </h3>
         <div className="flex items-center gap-2 mr-7">
@@ -195,7 +196,7 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
                   {llmStrengths.map((s, i) => (
                     <div key={i} className="flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 bg-green-500/5 border border-green-500/15">
                       <span className="text-xs text-green-600 dark:text-green-400 mt-px shrink-0 font-bold">✓</span>
-                      <span className="text-xs text-foreground leading-relaxed">{s}</span>
+                      <MarkdownRenderer content={s} className="!text-xs !leading-relaxed" />
                     </div>
                   ))}
                 </div>
@@ -213,7 +214,7 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
                   {llmWeaknesses.map((s, i) => (
                     <div key={i} className="flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 bg-amber-500/5 border border-amber-500/15">
                       <span className="text-xs text-amber-600 dark:text-amber-400 mt-px shrink-0 font-bold">✗</span>
-                      <span className="text-xs text-foreground leading-relaxed">{s}</span>
+                      <MarkdownRenderer content={s} className="!text-xs !leading-relaxed" />
                     </div>
                   ))}
                 </div>
@@ -231,7 +232,7 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
                   {llmSuggestions.map((s, i) => (
                     <div key={i} className="flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 bg-blue-500/5 border border-blue-500/15">
                       <span className="text-xs text-blue-600 dark:text-blue-400 mt-px shrink-0 font-bold">→</span>
-                      <span className="text-xs text-foreground leading-relaxed">{s}</span>
+                      <MarkdownRenderer content={s} className="!text-xs !leading-relaxed" />
                     </div>
                   ))}
                 </div>

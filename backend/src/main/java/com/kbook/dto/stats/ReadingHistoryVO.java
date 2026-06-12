@@ -41,6 +41,8 @@ public class ReadingHistoryVO {
     private Double rating;
     /** 阅读次数 */
     private Long readCount;
+    /** 图书简介 */
+    private String description;
 
     /**
      * 从阅读进度实体和图书实体构建视图对象
@@ -65,6 +67,7 @@ public class ReadingHistoryVO {
             vo.setFileSize(book.getFileSize());
             vo.setRating(book.getRating());
             vo.setReadCount(book.getReadCount());
+            vo.setDescription(book.getDescription());
         }
         return vo;
     }

@@ -1,7 +1,6 @@
 package com.kbook.common.util;
 
 import jakarta.persistence.criteria.CriteriaBuilder;
-import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import org.springframework.data.domain.Page;
@@ -13,39 +12,41 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 /**
- * Fluent API 查询构建器
+ * Fluent API 查询构建器 — 统一 WHERE 条件构建
  * <p>
- * 使用示例：
+ * 通过 {@code BaseRepository} 的便捷方法创建：
  * <pre>
- * List<Book> books = queryBuilder.query(bookRepository)
- *     .where("sessionId", eq(sessionId))
- *     .and("title", like("%关键词%"))
- *     .orderByDesc("createdAt")
- *     .list();
+ * bookRepository.query().where(Book::getStatus, eq("ACTIVE")).list();
+ * bookRepository.delete().where(Book::getStatus, eq("DELETED")).execute();
+ * bookRepository.query().where(Book::getStatus, eq("DELETED")).value();
+ * bookRepository.query().where(Book::getEmail, eq("test@example.com")).exists();
+ * bookRepository.update().where(Book::getStatus, eq("PENDING")).execute(e -> e.setStatus("ACTIVE"));
  * </pre>
  */
 public class QueryBuilder<T> {
 
-    private final JpaSpecificationExecutor<T> repository;
+    private final JpaSpecificationExecutor<T> specRepository;
+    private final org.springframework.data.jpa.repository.JpaRepository<T, ?> crudRepository;
     private final List<PredicateBuilder<T>> predicates = new ArrayList<>();
-    private final List<OrderBuilder<T>> orderBuilders = new ArrayList<>();
+    private final List<String> orderFields = new ArrayList<>();
+    private final List<Boolean> orderDescFlags = new ArrayList<>();
 
-    public QueryBuilder(JpaSpecificationExecutor<T> repository) {
-        this.repository = repository;
+    public QueryBuilder(JpaSpecificationExecutor<T> specRepository,
+                        org.springframework.data.jpa.repository.JpaRepository<T, ?> crudRepository) {
+        this.specRepository = specRepository;
+        this.crudRepository = crudRepository;
     }
+
+    // ==================== WHERE 条件 ====================
 
     public QueryBuilder<T> where(String field, Condition condition) {
         predicates.add(new PredicateBuilder<>(field, condition));
         return this;
     }
 
-    /**
-     * Lambda 方式的 WHERE 条件
-     * <p>
-     * 使用示例：.where(Book::getSessionId, eq(sessionId))
-     */
     public <R> QueryBuilder<T> where(SFunction<T, R> fieldFn, Condition condition) {
         return where(LambdaUtils.resolve(fieldFn), condition);
     }
@@ -55,58 +56,111 @@ public class QueryBuilder<T> {
         return this;
     }
 
-    /**
-     * Lambda 方式的 AND 条件
-     * <p>
-     * 使用示例：.and(Book::getTitle, like("%关键词%"))
-     */
     public <R> QueryBuilder<T> and(SFunction<T, R> fieldFn, Condition condition) {
         return and(LambdaUtils.resolve(fieldFn), condition);
     }
 
+    // ==================== 排序 ====================
+
     public QueryBuilder<T> orderBy(String field) {
-        orderBuilders.add(new OrderBuilder<>(field, true));
+        orderFields.add(field);
+        orderDescFlags.add(false);
         return this;
     }
 
-    /**
-     * Lambda 方式的 ORDER BY（升序）
-     */
     public <R> QueryBuilder<T> orderBy(SFunction<T, R> fieldFn) {
         return orderBy(LambdaUtils.resolve(fieldFn));
     }
 
     public QueryBuilder<T> orderByDesc(String field) {
-        orderBuilders.add(new OrderBuilder<>(field, false));
+        orderFields.add(field);
+        orderDescFlags.add(true);
         return this;
     }
 
-    /**
-     * Lambda 方式的 ORDER BY（降序）
-     */
     public <R> QueryBuilder<T> orderByDesc(SFunction<T, R> fieldFn) {
         return orderByDesc(LambdaUtils.resolve(fieldFn));
     }
 
+    // ==================== 查询操作 ====================
+
     public List<T> list() {
-        return repository.findAll(buildSpec(), buildPageable(Integer.MAX_VALUE)).getContent();
+        return specRepository.findAll(buildSpec(), buildPageable(Integer.MAX_VALUE)).getContent();
     }
 
     public List<T> list(int limit) {
-        return repository.findAll(buildSpec(), buildPageable(limit)).getContent();
+        return specRepository.findAll(buildSpec(), buildPageable(limit)).getContent();
     }
 
     public Page<T> page(int pageNum, int pageSize) {
-        return repository.findAll(buildSpec(), PageRequest.of(pageNum - 1, pageSize));
+        return specRepository.findAll(buildSpec(), buildPageable(pageNum, pageSize));
     }
 
-    public long count() {
-        return repository.count(buildSpec());
+    private Pageable buildPageable(int pageNum, int pageSize) {
+        if (orderFields.isEmpty()) {
+            return PageRequest.of(pageNum, pageSize);
+        }
+        List<Sort.Order> orders = new ArrayList<>();
+        for (int i = 0; i < orderFields.size(); i++) {
+            Sort.Order order = orderDescFlags.get(i)
+                    ? Sort.Order.desc(orderFields.get(i))
+                    : Sort.Order.asc(orderFields.get(i));
+            orders.add(order);
+        }
+        return PageRequest.of(pageNum, pageSize, Sort.by(orders));
+    }
+
+    // ==================== 统计操作 ====================
+
+    public long value() {
+        return specRepository.count(buildSpec());
+    }
+
+    // ==================== 判断操作 ====================
+
+    public boolean valueAsBoolean() {
+        return specRepository.exists(buildSpec());
     }
 
     public boolean exists() {
-        return repository.exists(buildSpec());
+        return specRepository.exists(buildSpec());
     }
+
+    // ==================== 删除操作 ====================
+
+    /**
+     * 批量删除符合查询条件的所有记录
+     *
+     * @return 删除的记录数
+     */
+    public long execute() {
+        List<T> records = specRepository.findAll(buildSpec(), PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+        if (!records.isEmpty()) {
+            crudRepository.deleteAllInBatch(records);
+        }
+        return records.size();
+    }
+
+    // ==================== 更新操作 ====================
+
+    /**
+     * 批量更新符合查询条件的所有记录
+     *
+     * @param setter 字段设置函数
+     * @return 更新的记录数
+     */
+    public long execute(BiConsumer<T, Void> setter) {
+        List<T> records = specRepository.findAll(buildSpec(), PageRequest.of(0, Integer.MAX_VALUE)).getContent();
+        for (T record : records) {
+            setter.accept(record, null);
+        }
+        if (!records.isEmpty()) {
+            crudRepository.saveAll(records);
+        }
+        return records.size();
+    }
+
+    // ==================== 内部方法 ====================
 
     @SuppressWarnings("unchecked")
     private org.springframework.data.jpa.domain.Specification<T> buildSpec() {
@@ -120,41 +174,7 @@ public class QueryBuilder<T> {
     }
 
     private Pageable buildPageable(int limit) {
-        if (orderBuilders.isEmpty()) {
-            return PageRequest.of(0, Math.min(limit, 1000));
-        }
-        Sort sort = Sort.unsorted();
-        for (OrderBuilder<?> ob : orderBuilders) {
-            sort = ob.isAsc ? sort.and(Sort.by(Sort.Direction.ASC, ob.field))
-                    : sort.and(Sort.by(Sort.Direction.DESC, ob.field));
-        }
-        return PageRequest.of(0, Math.min(limit, 1000), sort);
-    }
-
-    // ==================== 内部类 ====================
-
-    private static class PredicateBuilder<T> {
-        final String field;
-        final Condition condition;
-
-        PredicateBuilder(String field, Condition condition) {
-            this.field = field;
-            this.condition = condition;
-        }
-
-        Predicate build(Root<?> root, CriteriaBuilder cb) {
-            return condition.apply(root, cb, field);
-        }
-    }
-
-    private static class OrderBuilder<T> {
-        final String field;
-        final boolean isAsc;
-
-        OrderBuilder(String field, boolean isAsc) {
-            this.field = field;
-            this.isAsc = isAsc;
-        }
+        return buildPageable(0, Math.min(limit, 1000));
     }
 
     // ==================== 条件工厂方法 ====================
@@ -206,5 +226,21 @@ public class QueryBuilder<T> {
     @FunctionalInterface
     public interface Condition {
         Predicate apply(Root<?> root, CriteriaBuilder cb, String field);
+    }
+
+    // ==================== 内部类 ====================
+
+    private static class PredicateBuilder<T> {
+        final String field;
+        final Condition condition;
+
+        PredicateBuilder(String field, Condition condition) {
+            this.field = field;
+            this.condition = condition;
+        }
+
+        Predicate build(Root<?> root, CriteriaBuilder cb) {
+            return condition.apply(root, cb, field);
+        }
     }
 }

@@ -166,12 +166,13 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
             <Clock className="h-4 w-4 text-primary" />
           </div>
           <h3 className="text-sm font-bold">3分钟速读</h3>
-          {!loading && data?.difficulty && (
+          {data?.difficulty && (
             <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${getDifficultyBadge(data.difficulty)}`}>
               {data.difficulty}
+              {loading && data.currentSection === '难度' && <span className="animate-pulse">|</span>}
             </span>
           )}
-          {loading && data?.currentSection === '难度' && data?.currentItem && (
+          {loading && data?.currentSection === '难度' && !data?.difficulty && data?.currentItem && (
             <span className="rounded-full border px-2 py-0.5 text-[10px] font-medium bg-primary/5 text-primary border-primary/20">
               {data.currentItem}<span className="animate-pulse">|</span>
             </span>

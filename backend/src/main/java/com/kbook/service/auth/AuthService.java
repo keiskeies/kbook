@@ -22,6 +22,8 @@ import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.util.concurrent.TimeUnit;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * 认证服务 - 注册、登录、验证码、Token 刷新
  * <p>
@@ -71,10 +73,12 @@ public class AuthService {
     @LogAction("发送验证码")
     public void sendVerificationCode(String email, String scene, String captchaId) {
         // 场景校验
-        if ("register".equals(scene) && userRepository.existsByEmail(email)) {
+        if ("register".equals(scene) && userRepository.query()
+                .where(User::getEmail, eq(email)).exists()) {
             throw new BusinessException("该邮箱已注册");
         }
-        if ("reset".equals(scene) && !userRepository.existsByEmail(email)) {
+        if ("reset".equals(scene) && !userRepository.query()
+                .where(User::getEmail, eq(email)).exists()) {
             throw new BusinessException("该邮箱未注册");
         }
 
@@ -131,7 +135,10 @@ public class AuthService {
         log.info("验证码登录: email={}", email);
         validateCode(email, code, "login");
 
-        User user = userRepository.findByEmail(email)
+        User user = userRepository.query()
+                .where(User::getEmail, eq(email))
+                .list(1)
+                .stream().findFirst()
                 .orElseGet(() -> {
                     log.info("用户不存在，自动注册: email={}", email);
                     User newUser = User.builder()
@@ -160,7 +167,10 @@ public class AuthService {
         }
 
         log.info("密码登录: email={}", email);
-        User user = userRepository.findByEmail(email)
+        User user = userRepository.query()
+                .where(User::getEmail, eq(email))
+                .list(1)
+                .stream().findFirst()
                 .orElseThrow(() -> new BusinessException("邮箱未注册"));
 
         if (user.getPassword() == null || !passwordEncoder.matches(password, user.getPassword())) {
@@ -187,7 +197,8 @@ public class AuthService {
                                 Boolean hasChildren, String mbti) {
         validateCode(email, code, "register");
 
-        if (userRepository.existsByEmail(email)) {
+        if (userRepository.query()
+                .where(User::getEmail, eq(email)).exists()) {
             throw new BusinessException("该邮箱已注册");
         }
 
@@ -269,7 +280,10 @@ public class AuthService {
     public void resetPassword(String email, String code, String newPassword) {
         validateCode(email, code, "reset");
 
-        User user = userRepository.findByEmail(email)
+        User user = userRepository.query()
+                .where(User::getEmail, eq(email))
+                .list(1)
+                .stream().findFirst()
                 .orElseThrow(() -> new BusinessException("邮箱未注册"));
 
         validatePassword(newPassword);

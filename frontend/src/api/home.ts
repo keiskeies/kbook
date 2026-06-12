@@ -32,37 +32,10 @@ export interface RecommendedBook {
   readCount: number
 }
 
-/** 简单图书信息 */
-export interface SimpleBookVO {
-  id: number
-  title: string
-  author: string | null
-  coverUrl: string | null
-  format: string
-  rating: number
-  readCount: number
-}
-
 /** 热门标签 */
 export interface TagStat {
   name: string
   count: number
-}
-
-/** 首页数据 */
-export interface HomeData {
-  stats: ReadingStatsVO
-  recentBooks: RecentBookVO[]
-  personalizedBooks: RecommendedBook[]
-  topRatedBooks: SimpleBookVO[]
-  newBooks: SimpleBookVO[]
-  popularBooks: SimpleBookVO[]
-  categories: TagStat[]
-}
-
-/** 获取首页全部数据（兼容旧接口） */
-export function getHomeData() {
-  return request.get<HomeData>('/home')
 }
 
 /** 获取阅读统计 */
@@ -78,21 +51,6 @@ export function getHomeRecent() {
 /** 获取猜你喜欢 */
 export function getHomePersonalized() {
   return request.get<RecommendedBook[]>('/home/personalized')
-}
-
-/** 获取高分佳作 */
-export function getHomeTopRated() {
-  return request.get<SimpleBookVO[]>('/home/top-rated')
-}
-
-/** 获取新书速递 */
-export function getHomeNewBooks() {
-  return request.get<SimpleBookVO[]>('/home/new-books')
-}
-
-/** 获取热门榜单 */
-export function getHomePopular() {
-  return request.get<SimpleBookVO[]>('/home/popular')
 }
 
 /** 获取热门标签 */

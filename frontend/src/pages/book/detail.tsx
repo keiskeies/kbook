@@ -63,6 +63,7 @@ export default function BookDetailPage() {
   const goBack = useGoBack()
   const savePageData = useKeepAliveStore((s) => s.savePageData)
   const getPageData = useKeepAliveStore((s) => s.getPageData)
+  const clearPageData = useKeepAliveStore((s) => s.clearPageData)
 
   const cacheKey = `${DETAIL_CACHE_PREFIX}${bookId}`
   const cached = getPageData<DetailCache>(cacheKey)
@@ -138,7 +139,6 @@ export default function BookDetailPage() {
     cmtCount: number,
     cmtPage: number,
     hasMore: boolean,
-    srData: BookSpeedRead | null,
   ) => {
     if (!b) return
     savePageData(cacheKey, {
@@ -151,7 +151,7 @@ export default function BookDetailPage() {
       commentCount: cmtCount,
       commentPage: cmtPage,
       hasMoreComments: hasMore,
-      speedReadData: srData ? { bookId: srData.bookId, corePoints: srData.corePoints, suitableFor: srData.suitableFor, notSuitableFor: srData.notSuitableFor, takeaways: srData.takeaways, difficulty: srData.difficulty } : srData,
+      speedReadData: null, // 不缓存 AI 摘要（数据量大且变化快）
       timestamp: Date.now(),
     })
   }, [savePageData, cacheKey])
@@ -188,7 +188,7 @@ export default function BookDetailPage() {
       setProgress(prog)
       if (rating) setUserRating(rating)
       setLoading(false)
-      updateCache(b, shelf, trash, prog, rating, [], 0, 1, true, null)
+      updateCache(b, shelf, trash, prog, rating, [], 0, 1, true)
     })
     loadComments(1)
     countBookComments(id).then(res => setCommentCount((res as any)?.data || (res as any) || 0)).catch(() => {})
@@ -267,7 +267,7 @@ export default function BookDetailPage() {
           }
           setSpeedReadLoading(false)
           setSpeedReadData(prev => {
-            if (prev) updateCache(bookRef.current, inShelfRef.current, inTrashRef.current, progressRef.current, userRatingRef.current, commentsRef.current, commentCountRef.current, commentPageRef.current, hasMoreCommentsRef.current, prev)
+            if (prev) updateCache(bookRef.current, inShelfRef.current, inTrashRef.current, progressRef.current, userRatingRef.current, commentsRef.current, commentCountRef.current, commentPageRef.current, hasMoreCommentsRef.current)
             return prev
           })
         },
@@ -275,7 +275,7 @@ export default function BookDetailPage() {
           flushCurrentItem()
           setSpeedReadLoading(false)
           setSpeedReadData(prev => {
-            if (prev && prev.corePoints?.length > 0) updateCache(bookRef.current, inShelfRef.current, inTrashRef.current, progressRef.current, userRatingRef.current, commentsRef.current, commentCountRef.current, commentPageRef.current, hasMoreCommentsRef.current, prev)
+            if (prev && prev.corePoints?.length > 0) updateCache(bookRef.current, inShelfRef.current, inTrashRef.current, progressRef.current, userRatingRef.current, commentsRef.current, commentCountRef.current, commentPageRef.current, hasMoreCommentsRef.current)
             return prev
           })
         },
@@ -356,6 +356,8 @@ export default function BookDetailPage() {
     try {
       const updated = await updateBookCover(book.id, file)
       setBook(updated as unknown as Book)
+      // 清除缓存以确保封面刷新
+      clearPageData(cacheKey)
       toast.success('封面已更新')
     } catch (err: any) {
       toast.error(err?.message || '封面更新失败')
@@ -534,7 +536,7 @@ export default function BookDetailPage() {
       </header>
 
       {/* PC端顶部导航 */}
-      <header className="hidden md:flex shrink-0 items-center gap-3 border-b border-border/50 bg-background/80 px-6 py-3 backdrop-blur-xl z-20">
+      <header className="hidden md:flex shrink-0 items-center gap-3 border-b border-border/50 bg-background/80 px-4 md:px-6 lg:px-8 py-3 backdrop-blur-xl z-20">
         <button onClick={() => goBack()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>

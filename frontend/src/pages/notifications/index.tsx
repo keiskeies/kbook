@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
-import { ArrowLeft, Bell, Heart, Bookmark, MessageCircle, BookOpen, CheckCheck } from 'lucide-react'
+import { ArrowLeft, Bell, Heart, Bookmark, MessageCircle, BookOpen, CheckCheck, FileText } from 'lucide-react'
 import { getNotifications, markAsRead, markAllAsRead } from '@/api/notification'
 import type { NotificationVO } from '@/api/notification'
 import { formatRelativeTime } from '@/utils/time'
@@ -13,6 +13,7 @@ const typeConfig: Record<string, { icon: typeof Heart; label: string; color: str
   COMMENT_LIKED: { icon: Heart, label: '赞了你的评论', color: 'text-danger' },
   COMMENT_FAVORITED: { icon: Bookmark, label: '收藏了你的评论', color: 'text-warning' },
   NEW_REVIEW: { icon: BookOpen, label: '发表了新书评', color: 'text-success' },
+  ROUND_TABLE_REPORT: { icon: FileText, label: '解读报告已生成', color: 'text-brand-500' },
 }
 
 export default function NotificationsPage() {
@@ -59,7 +60,11 @@ export default function NotificationsPage() {
 
   const handleClick = (n: NotificationVO) => {
     if (!n.isRead) handleMarkRead(n.id)
-    if (n.bookId) navigate(`/book/${n.bookId}`)
+    if (n.type === 'ROUND_TABLE_REPORT' && n.sessionId && n.bookId) {
+      navigate(`/book/${n.bookId}/round-table/sessions/${n.sessionId}?report=1`)
+    } else if (n.bookId) {
+      navigate(`/book/${n.bookId}`)
+    }
   }
 
   if (loading) {
@@ -72,7 +77,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
-      <header className="shrink-0 flex items-center justify-between border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
+      <header className="shrink-0 flex items-center justify-between border-b border-border/50 bg-background/80 px-4 md:px-6 lg:px-8 py-3 backdrop-blur-xl z-20">
         <div className="flex items-center gap-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
@@ -87,7 +92,7 @@ export default function NotificationsPage() {
         )}
       </header>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8">
         {notifications.length === 0 ? (
           <div className="py-16 text-center text-sm text-muted-foreground">
             <Bell className="mx-auto h-10 w-10 text-muted-foreground/30" />
@@ -109,7 +114,7 @@ export default function NotificationsPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm">
-                      <span className="font-semibold">{n.triggerUserNickname || '用户'}</span>
+                      <span className="font-semibold">{n.triggerUserNickname || '系统通知'}</span>
                       <span className="text-muted-foreground"> {config.label}</span>
                     </p>
                     <p className="mt-0.5 text-[10px] text-muted-foreground">{formatRelativeTime(n.createdAt)}</p>

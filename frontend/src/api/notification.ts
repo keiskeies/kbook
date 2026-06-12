@@ -4,12 +4,13 @@ import type { PageResult } from '@/types/common'
 /** 通知 VO */
 export interface NotificationVO {
   id: number
-  triggerUserId: number
+  triggerUserId: number | null
   triggerUserNickname: string
   triggerUserAvatar: string | null
-  type: 'COMMENT_REPLY' | 'COMMENT_LIKED' | 'COMMENT_FAVORITED' | 'NEW_REVIEW'
+  type: 'COMMENT_REPLY' | 'COMMENT_LIKED' | 'COMMENT_FAVORITED' | 'NEW_REVIEW' | 'ROUND_TABLE_REPORT'
   commentId: number | null
   bookId: number | null
+  sessionId: string | null
   isRead: boolean
   createdAt: string
 }

@@ -36,6 +36,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static com.kbook.common.util.QueryBuilder.eq;
+
 /**
  * 圆桌派会话覆盖度评估工具
  * <p>
@@ -109,11 +111,17 @@ public class RoundTableCoverageTest {
 
         // ---- Step 1: 加载数据 ----
         System.out.println("\n[Step 1] 加载数据...");
-        RoundTableSession session = sessionRepository.findBySessionId(SESSION_ID)
+        RoundTableSession session = sessionRepository.query()
+                .where("sessionId", eq(SESSION_ID))
+                .list(1).stream()
+                .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + SESSION_ID));
         Book book = bookRepository.findById(session.getBookId())
                 .orElseThrow(() -> new IllegalArgumentException("图书不存在: " + session.getBookId()));
-        List<RoundTableMessage> messages = messageRepository.findBySessionIdOrderByIdAsc(SESSION_ID);
+        List<RoundTableMessage> messages = messageRepository.query()
+                .where("sessionId", eq(SESSION_ID))
+                .orderBy("id")
+                .list();
 
         System.out.println("  图书: 《" + book.getTitle() + "》(" + book.getAuthor() + ")");
         System.out.println("  参与角色: " + session.getRoleKeys());

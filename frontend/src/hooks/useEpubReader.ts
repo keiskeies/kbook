@@ -502,18 +502,15 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
 
             // 桌面端点击（移动端由 touchend 处理，避免重复）
             doc.addEventListener('click', (e: MouseEvent) => {
-              // 检查是否点击图片
-              const target = e.target as HTMLElement
-              if (target?.tagName === 'IMG') {
-                const imgSrc = (target as HTMLImageElement).src
-                if (imgSrc) {
-                  const imageClickHandler = onImageClickRef.current
-                  if (imageClickHandler) {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    imageClickHandler(imgSrc)
-                    return
-                  }
+              // 检查是否点击图片（支持 HTML img / SVG image / 包裹在 a/div 中的图片）
+              const imgSrc = findImageSrc(e.target as HTMLElement)
+              if (imgSrc) {
+                const imageClickHandler = onImageClickRef.current
+                if (imageClickHandler) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  imageClickHandler(imgSrc)
+                  return
                 }
               }
 
@@ -631,6 +628,29 @@ export function useEpubReader({ bookId, initialPosition, isSystemDark, onContent
     book, chapters, currentChapterIndex, currentChapterId, progress,
     loading, error, containerRef, goPage, goToChapter, renditionRef, epubBookRef,
   }
+}
+
+/** 从点击元素向上查找图片 src（支持 img / SVG image / picture 等） */
+function findImageSrc(el: HTMLElement | null): string | null {
+  for (let node: HTMLElement | null = el; node && node !== document.body; node = node.parentElement) {
+    const tag = node.tagName?.toUpperCase()
+    // HTML img
+    if (tag === 'IMG') return (node as HTMLImageElement).src || (node as HTMLImageElement).getAttribute('src')
+    // SVG <image>
+    if (tag === 'IMAGE') return node.getAttribute('href') || node.getAttribute('xlink:href')
+    // <picture> > <img>（取第一个 img）
+    if (tag === 'PICTURE') {
+      const img = node.querySelector('img')
+      if (img) return img.src || img.getAttribute('src')
+    }
+    // 背景图兜底
+    const bg = node.style?.backgroundImage || getComputedStyle(node).backgroundImage
+    if (bg && bg !== 'none') {
+      const match = bg.match(/url\(["']?([^"')]+)["']?\)/)
+      if (match) return match[1]
+    }
+  }
+  return null
 }
 
 function getThemeColors(themeKey: string) {

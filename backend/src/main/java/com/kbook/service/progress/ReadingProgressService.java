@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * 阅读进度服务类
  * <p>
@@ -59,10 +61,14 @@ public class ReadingProgressService {
     @LogAction("上报阅读进度")
     @RedisLock(key = "'progress:' + #userId + ':' + #bookId", leaseTime = 10)
     public ProgressResult reportProgress(Long userId, Long bookId, Double progress, String currentPosition) {
-        log.debug("上报阅读进度: userId={}, bookId={}, progress={}", userId, bookId, progress); // 记录调试日志
+        log.debug("上报阅读进度: userId={}, bookId={}, progress={}", userId, bookId, progress);
 
         // 查询是否已存在该用户的阅读进度记录
-        ReadingProgress existing = progressRepository.findByUserIdAndBookId(userId, bookId).orElse(null);
+        ReadingProgress existing = progressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .and(ReadingProgress::getBookId, eq(bookId))
+                .list(1)
+                .stream().findFirst().orElse(null);
         boolean isNew = (existing == null);
 
         ReadingProgress rp = isNew ? ReadingProgress.builder()
@@ -74,15 +80,18 @@ public class ReadingProgressService {
         rp.setCurrentPosition(currentPosition);
 
         try {
-            ReadingProgress saved = isNew ? progressRepository.save(rp) : progressRepository.save(rp);
+            ReadingProgress saved = progressRepository.save(rp);
             log.debug("阅读进度保存成功: userId={}, bookId={}, progress={}, isNew={}", userId, bookId, saved.getProgress(), isNew);
             return new ProgressResult(saved, isNew);
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
             // 并发竞态：两次请求同时 INSERT 同一条记录，第二次触发唯一约束冲突
-            // 此时重试：直接查出现有记录并更新
             if (isNew) {
                 log.debug("并发冲突，重试更新已有进度: userId={}, bookId={}", userId, bookId);
-                existing = progressRepository.findByUserIdAndBookId(userId, bookId).orElse(null);
+                existing = progressRepository.query()
+                        .where(ReadingProgress::getUserId, eq(userId))
+                        .and(ReadingProgress::getBookId, eq(bookId))
+                        .list(1)
+                        .stream().findFirst().orElse(null);
                 if (existing != null) {
                     existing.setProgress(clampProgress(progress));
                     existing.setCurrentPosition(currentPosition);
@@ -90,7 +99,7 @@ public class ReadingProgressService {
                     return new ProgressResult(saved, false);
                 }
             }
-            throw e; // 不是并发竞态，原样抛出
+            throw e;
         }
     }
 
@@ -123,8 +132,11 @@ public class ReadingProgressService {
         // 遍历每个进度项进行处理
         for (ProgressBatchItem item : items) {
             // 查询是否已存在该书籍的进度记录
-            ReadingProgress existing = progressRepository.findByUserIdAndBookId(userId, item.getBookId())
-                    .orElse(null);
+            ReadingProgress existing = progressRepository.query()
+                    .where(ReadingProgress::getUserId, eq(userId))
+                    .and(ReadingProgress::getBookId, eq(item.getBookId()))
+                    .list(1)
+                    .stream().findFirst().orElse(null);
 
             if (existing == null) {
                 // 如果不存在则创建新的进度记录
@@ -186,9 +198,11 @@ public class ReadingProgressService {
      */
     @LogAction("获取阅读进度")
     public ReadingProgress getProgress(Long userId, Long bookId) {
-        // 查询并返回用户的阅读进度，不存在则返回null
-        return progressRepository.findByUserIdAndBookId(userId, bookId)
-                .orElse(null);
+        return progressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .and(ReadingProgress::getBookId, eq(bookId))
+                .list(1)
+                .stream().findFirst().orElse(null);
     }
 
     /**
@@ -200,22 +214,19 @@ public class ReadingProgressService {
      */
     @LogAction("批量获取阅读进度")
     public Map<Long, ReadingProgress> getProgressBatch(Long userId, List<Long> bookIds) {
-        // 批量查询用户在这些书籍上的阅读进度
-        List<ReadingProgress> list = progressRepository.findByUserIdAndBookIdIn(userId, bookIds);
-        // 将列表转换为以书籍ID为键的Map，方便快速查找
+        List<ReadingProgress> list = progressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .and(ReadingProgress::getBookId, in(bookIds))
+                .list();
         return list.stream().collect(Collectors.toMap(ReadingProgress::getBookId, p -> p));
     }
 
-    /**
-     * 获取用户所有阅读进度
-     * 按更新时间降序排列，最近阅读的排在前面
-     * @param userId 用户ID
-     * @return 阅读进度列表
-     */
     @LogAction("获取用户所有阅读进度")
     public List<ReadingProgress> getUserProgresses(Long userId) {
-        // 查询用户的所有阅读进度，按更新时间降序排列
-        return progressRepository.findByUserIdOrderByUpdatedAtDesc(userId);
+        return progressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .orderByDesc(ReadingProgress::getUpdatedAt)
+                .list();
     }
 
     /**
@@ -228,17 +239,17 @@ public class ReadingProgressService {
      */
     @LogAction("获取阅读历史")
     public com.kbook.common.api.PageResult<ReadingHistoryVO> getUserReadingHistory(Long userId, int page, int size) {
-        // 分页查询用户的阅读进度，按更新时间降序排列
-        org.springframework.data.domain.Page<ReadingProgress> pageData = progressRepository
-                .findByUserIdOrderByUpdatedAtDesc(userId, org.springframework.data.domain.PageRequest.of(page, size));
+        org.springframework.data.domain.Page<ReadingProgress> pageData = progressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .orderByDesc(ReadingProgress::getUpdatedAt)
+                .page(page, size);
 
-        // 将阅读进度转换为包含书籍信息的视图对象
         List<ReadingHistoryVO> list = pageData.getContent().stream().map(rp -> {
-            Book book = bookRepository.findById(rp.getBookId()).orElse(null); // 查询书籍信息
-            return ReadingHistoryVO.from(rp, book); // 构建阅读历史视图对象
+            Book book = bookRepository.findById(rp.getBookId()).orElse(null);
+            return ReadingHistoryVO.from(rp, book);
         }).collect(Collectors.toList());
 
-        return com.kbook.common.api.PageResult.of(list, pageData.getTotalElements(), page, size); // 构建分页结果返回
+        return com.kbook.common.api.PageResult.of(list, pageData.getTotalElements(), page, size);
     }
 
     /**
@@ -250,8 +261,10 @@ public class ReadingProgressService {
      */
     @LogAction("获取最近阅读")
     public List<ReadingProgress> getRecentReading(Long userId, int limit) {
-        // 查询最近阅读的书籍，限制返回数量
-        return progressRepository.findRecentReading(userId, PageRequest.of(0, limit));
+        return progressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .orderByDesc(ReadingProgress::getUpdatedAt)
+                .list(limit);
     }
 
     /**
@@ -262,11 +275,12 @@ public class ReadingProgressService {
      */
     @LogAction("获取阅读统计")
     public ReadingStats getReadingStats(Long userId) {
-        // 获取用户的所有阅读进度
-        List<ReadingProgress> all = progressRepository.findByUserIdOrderByUpdatedAtDesc(userId);
-        long totalBooks = all.size(); // 计算总书籍数
-        long completedBooks = all.stream().filter(p -> p.getProgress() >= 1.0).count(); // 统计已完成书籍数（进度>=1.0）
-        long readingBooks = totalBooks - completedBooks; // 计算阅读中书籍数
+        List<ReadingProgress> all = progressRepository.query()
+                .where(ReadingProgress::getUserId, eq(userId))
+                .list();
+        long totalBooks = all.size();
+        long completedBooks = all.stream().filter(p -> p.getProgress() >= 1.0).count();
+        long readingBooks = totalBooks - completedBooks;
 
         // 构建并返回阅读统计对象
         return ReadingStats.builder()

@@ -112,14 +112,14 @@ export default function UserProfilePage() {
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
-      <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
+      <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 md:px-6 lg:px-8 py-3 backdrop-blur-xl z-20">
         <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-base font-bold">{profile.nickname}</h1>
       </header>
 
-      <div className="shrink-0 bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
+      <div className="shrink-0 bg-gradient-to-b from-primary/5 to-transparent px-4 md:px-6 lg:px-8 py-5">
         <div className="flex items-center gap-4">
           <div className="h-16 w-16 shrink-0 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden ring-2 ring-primary/20">
             {profile.avatar ? (
@@ -184,7 +184,7 @@ export default function UserProfilePage() {
         )}
       </div>
 
-      <div className="shrink-0 flex border-b border-border/50 px-4">
+      <div className="shrink-0 flex border-b border-border/50 px-4 md:px-6 lg:px-8">
         {[
           { key: 'reading' as const, label: '在读', icon: BookOpen },
           { key: 'completed' as const, label: '已读', icon: CheckCircle2 },
@@ -203,7 +203,7 @@ export default function UserProfilePage() {
         ))}
       </div>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 pt-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 pt-3">
         {tab === 'reading' && (
           readingBooks.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">暂无在读书籍</p>

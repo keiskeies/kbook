@@ -222,14 +222,14 @@ export default function AiConfigPage() {
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background overscroll-contain">
       {/* Header */}
-      <header className="shrink-0 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-20">
+      <header className="shrink-0 flex items-center gap-3 border-b bg-background/95 px-4 md:px-6 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-20">
         <button onClick={() => goBack()} className="rounded-full p-1.5 active:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-bold">AI 配置管理</h1>
       </header>
 
-      <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain p-4">
+      <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-4">
         {/* 说明卡片 — 全宽 */}
         <section className="rounded-xl bg-card p-4 shadow-xs">
           <div className="flex items-start gap-3">

@@ -35,11 +35,11 @@ public class Notification extends BaseEntity {
     @Column(name = "receiver_id", nullable = false)
     private Long receiverId;
 
-    /** 触发通知的用户 ID */
-    @Column(name = "trigger_user_id", nullable = false)
+    /** 触发通知的用户 ID（系统通知时为 null） */
+    @Column(name = "trigger_user_id")
     private Long triggerUserId;
 
-    /** 通知类型：COMMENT_REPLY / COMMENT_LIKED / COMMENT_FAVORITED / NEW_REVIEW */
+    /** 通知类型：COMMENT_REPLY / COMMENT_LIKED / COMMENT_FAVORITED / NEW_REVIEW / ROUND_TABLE_REPORT */
     @Column(name = "type", nullable = false, length = 30)
     private String type;
 
@@ -50,6 +50,10 @@ public class Notification extends BaseEntity {
     /** 关联的图书 ID */
     @Column(name = "book_id")
     private Long bookId;
+
+    /** 关联的圆桌派会话 ID（ROUND_TABLE_REPORT 类型使用） */
+    @Column(name = "session_id", length = 100)
+    private String sessionId;
 
     /** 是否已读 */
     @Column(name = "is_read", nullable = false)

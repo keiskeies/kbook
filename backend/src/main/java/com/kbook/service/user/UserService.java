@@ -18,6 +18,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+
+import static com.kbook.common.util.QueryBuilder.*;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -384,7 +386,8 @@ public class UserService {
         if (Boolean.TRUE.equals(user.getEmailBound())) {
             throw new BusinessException("邮箱已绑定");
         }
-        if (userRepository.existsByEmail(email)) {
+        if (userRepository.query()
+                .where(User::getEmail, eq(email)).exists()) {
             throw new BusinessException("该邮箱已被使用");
         }
         user.setEmail(email);

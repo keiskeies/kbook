@@ -686,7 +686,7 @@ export default function ChatRoomPage() {
   return (
     <div ref={containerRef} className="absolute inset-0 z-40 flex flex-col overscroll-none bg-background">
       {/* Header - 固定在顶部 */}
-      <header className="flex-shrink-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 pt-safe-top pb-3 backdrop-blur-xl">
+      <header className="flex-shrink-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 md:px-6 lg:px-8 pt-safe-top pb-3 backdrop-blur-xl">
         <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -715,7 +715,7 @@ export default function ChatRoomPage() {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-4"
         style={{
           scrollBehavior: 'auto',
           transform: 'rotate(180deg)',

@@ -28,7 +28,10 @@ public class NotificationVO {
     
     /** 关联的图书ID */
     private Long bookId;
-    
+
+    /** 关联的圆桌派会话ID（ROUND_TABLE_REPORT类型使用） */
+    private String sessionId;
+
     /** 是否已读 */
     private Boolean isRead;
     

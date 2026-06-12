@@ -9,8 +9,8 @@ import com.kbook.repository.AiSessionRepository;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.service.Result;
 import dev.langchain4j.service.TokenStream;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -23,7 +23,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -38,7 +37,6 @@ import static com.kbook.common.util.QueryBuilder.*;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiChatService {
 
     /** 会话类型标识：通用助理 */
@@ -48,9 +46,20 @@ public class AiChatService {
     private final AiSessionRepository sessionRepository;
     private final AiProviderConfigService providerConfigService;
     private final AiChatMemory chatMemoryStore;
+    private final ExecutorService sseExecutor;
 
-    /** SSE 异步执行线程池 */
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+    public AiChatService(
+            AiConversationRepository conversationRepository,
+            AiSessionRepository sessionRepository,
+            AiProviderConfigService providerConfigService,
+            AiChatMemory chatMemoryStore,
+            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+        this.conversationRepository = conversationRepository;
+        this.sessionRepository = sessionRepository;
+        this.providerConfigService = providerConfigService;
+        this.chatMemoryStore = chatMemoryStore;
+        this.sseExecutor = sseExecutor;
+    }
 
     /**
      * 创建新的对话会话，并初始化 SystemMessage 到 ChatMemory

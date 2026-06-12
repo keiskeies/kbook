@@ -10,6 +10,8 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * 初始管理员账号注入方案
  * <p>
@@ -62,15 +64,21 @@ public class DataInitializer implements CommandLineRunner {
      */
     private void initAdmin() {
         // 检查是否已存在任意管理员
-        boolean adminExists = userRepository.findByRole("ADMIN").stream()
+        boolean adminExists = userRepository.query()
+                .where(User::getRole, eq("ADMIN"))
+                .list()
+                .stream()
                 .anyMatch(u -> u.getEmail().equals(adminEmail));
 
         if (!adminExists) {
             // 检查该邮箱是否已被普通用户占用
-            userRepository.findByEmail(adminEmail).ifPresent(existing -> {
+            boolean emailUsed = userRepository.query()
+                    .where(User::getEmail, eq(adminEmail))
+                    .exists();
+            if (emailUsed) {
                 log.warn("管理员邮箱 {} 已被普通用户占用，跳过管理员初始化", adminEmail);
                 return;
-            });
+            }
 
             User admin = User.builder()
                     .email(adminEmail)

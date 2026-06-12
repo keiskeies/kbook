@@ -13,9 +13,9 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.Result;
 import dev.langchain4j.service.TokenStream;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -38,7 +37,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 @LogModule("图书管理对话")
 public class BookAdminChatService {
 
@@ -50,13 +48,26 @@ public class BookAdminChatService {
     /** 管理员专用工具：增删改查、统计 */
     private final ObjectProvider<AdminBookToolService> adminToolServiceProvider;
     private final BookAdminChatMemory bookAdminChatMemory;
-
-    /** SSE 异步执行线程池 */
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+    private final ExecutorService sseExecutor;
 
     /** 管理员 Assistant 实例缓存（单例） */
     private final ConcurrentHashMap<String, BookAdminAssistant> adminAssistantCache = new ConcurrentHashMap<>();
     private final ChatModelFactory chatModelFactory;
+
+    public BookAdminChatService(
+            AiConversationRepository conversationRepository,
+            AiSessionRepository sessionRepository,
+            ObjectProvider<AdminBookToolService> adminToolServiceProvider,
+            BookAdminChatMemory bookAdminChatMemory,
+            @Qualifier("sseExecutor") ExecutorService sseExecutor,
+            ChatModelFactory chatModelFactory) {
+        this.conversationRepository = conversationRepository;
+        this.sessionRepository = sessionRepository;
+        this.adminToolServiceProvider = adminToolServiceProvider;
+        this.bookAdminChatMemory = bookAdminChatMemory;
+        this.sseExecutor = sseExecutor;
+        this.chatModelFactory = chatModelFactory;
+    }
 
     /**
      * 创建管理员对话会话

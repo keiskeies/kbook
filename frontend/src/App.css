@@ -148,45 +148,73 @@ body::-webkit-scrollbar {
   margin: 0.75em 0;
 }
 
-/* highlight.js 极简暗色主题覆盖（适配浅色/深色模式） */
+/* highlight.js 代码高亮配色（适配 .dark class 日夜间模式） */
 .markdown-body pre code.hljs {
   background: transparent;
   padding: 0;
 }
 
+/* 关键词 / 标签 / 字面量 */
 .markdown-body .hljs-keyword,
 .markdown-body .hljs-selector-tag,
-.markdown-body .hljs-literal { color: hsl(280, 60%, 55%); }
+.markdown-body .hljs-literal,
+.markdown-body .hljs-type { color: hsl(280, 60%, 55%); }
 
+/* 字符串 / 模板 */
 .markdown-body .hljs-string,
 .markdown-body .hljs-doctag,
-.markdown-body .hljs-template-variable { color: hsl(140, 50%, 40%); }
+.markdown-body .hljs-template-variable,
+.markdown-body .hljs-regexp { color: hsl(140, 50%, 40%); }
 
+/* 数字 / 内置 */
 .markdown-body .hljs-number,
-.markdown-body .hljs-built_in { color: hsl(30, 80%, 50%); }
+.markdown-body .hljs-built_in,
+.markdown-body .hljs-symbol { color: hsl(30, 80%, 50%); }
 
+/* 注释 */
 .markdown-body .hljs-comment,
 .markdown-body .hljs-quote { color: hsl(var(--muted-foreground)); font-style: italic; }
 
+/* 函数 / 标题 */
 .markdown-body .hljs-title,
-.markdown-body .hljs-function { color: hsl(210, 70%, 55%); }
+.markdown-body .hljs-function,
+.markdown-body .hljs-title.function_ { color: hsl(210, 70%, 55%); }
 
+/* 属性 / 参数 / 变量 */
 .markdown-body .hljs-attr,
-.markdown-body .hljs-params { color: hsl(var(--foreground)); }
+.markdown-body .hljs-params,
+.markdown-body .hljs-variable { color: hsl(var(--foreground)); }
 
-/* 深色模式微调 */
-@media (prefers-color-scheme: dark) {
-  .markdown-body .hljs-keyword,
-  .markdown-body .hljs-selector-tag,
-  .markdown-body .hljs-literal { color: hsl(280, 70%, 70%); }
+/* 元数据 / 强调 */
+.markdown-body .hljs-meta { color: hsl(280, 40%, 55%); }
+.markdown-body .hljs-strong { color: hsl(20, 80%, 50%); font-weight: bold; }
+.markdown-body .hljs-emphasis { font-style: italic; }
 
-  .markdown-body .hljs-string,
-  .markdown-body .hljs-doctag,
-  .markdown-body .hljs-template-variable { color: hsl(140, 60%, 60%); }
+/* 新增 / 删除（diff） */
+.markdown-body .hljs-addition { color: hsl(140, 60%, 40%); background: hsl(140, 60%, 95%); }
+.markdown-body .hljs-deletion { color: hsl(0, 60%, 50%); background: hsl(0, 60%, 95%); }
 
-  .markdown-body .hljs-number,
-  .markdown-body .hljs-built_in { color: hsl(30, 90%, 65%); }
+/* 深色模式 — 提亮所有颜色 */
+.dark .markdown-body .hljs-keyword,
+.dark .markdown-body .hljs-selector-tag,
+.dark .markdown-body .hljs-literal,
+.dark .markdown-body .hljs-type { color: hsl(280, 70%, 72%); }
 
-  .markdown-body .hljs-title,
-  .markdown-body .hljs-function { color: hsl(210, 80%, 70%); }
-}
+.dark .markdown-body .hljs-string,
+.dark .markdown-body .hljs-doctag,
+.dark .markdown-body .hljs-template-variable,
+.dark .markdown-body .hljs-regexp { color: hsl(140, 60%, 62%); }
+
+.dark .markdown-body .hljs-number,
+.dark .markdown-body .hljs-built_in,
+.dark .markdown-body .hljs-symbol { color: hsl(30, 90%, 67%); }
+
+.dark .markdown-body .hljs-title,
+.dark .markdown-body .hljs-function,
+.dark .markdown-body .hljs-title.function_ { color: hsl(210, 80%, 72%); }
+
+.dark .markdown-body .hljs-meta { color: hsl(280, 50%, 70%); }
+.dark .markdown-body .hljs-strong { color: hsl(20, 90%, 67%); }
+
+.dark .markdown-body .hljs-addition { color: hsl(140, 70%, 55%); background: hsl(140, 20%, 12%); }
+.dark .markdown-body .hljs-deletion { color: hsl(0, 70%, 60%); background: hsl(0, 20%, 12%); }

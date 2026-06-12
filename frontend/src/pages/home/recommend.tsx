@@ -124,7 +124,7 @@ function SwipeableBookCard({
   const tags = parseFormatTags(book.formatTags || '')
 
   return (
-    <div className="relative overflow-hidden rounded-2xl">
+    <div className="relative overflow-hidden rounded-2xl break-inside-avoid">
       <div
         className="absolute right-0 top-0 bottom-0 flex items-center justify-center bg-red-500 text-white transition-opacity duration-200"
         style={{ 
@@ -433,7 +433,7 @@ export default function RecommendPage() {
         </header>
       </div>
 
-      <div ref={scrollRefCallback} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+      <div ref={scrollRefCallback} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-3">
         {generating && progress ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-full max-w-xs">
@@ -471,7 +471,7 @@ export default function RecommendPage() {
           </div>
         ) : books.length > 0 ? (
           <>
-            <div className="space-y-2.5">
+            <div className="columns-1 sm:columns-2 lg:columns-3 gap-3 space-y-3">
               {books.map((book) => (
                 <SwipeableBookCard
                   key={book.bookId}
@@ -480,20 +480,20 @@ export default function RecommendPage() {
                   onTrash={() => handleTrashClick(book)}
                 />
               ))}
+
+              {loadingMore && (
+                <div className="[column-span:all] flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-xs text-muted-foreground">加载中...</span>
+                </div>
+              )}
+
+              {!hasMoreRef.current && books.length > 0 && (
+                <div className="[column-span:all] flex justify-center py-6">
+                  <span className="text-xs text-muted-foreground">— 已展示全部推荐 —</span>
+                </div>
+              )}
             </div>
-
-            {loadingMore && (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-xs text-muted-foreground">加载中...</span>
-              </div>
-            )}
-
-            {!hasMoreRef.current && books.length > 0 && (
-              <div className="flex justify-center py-6">
-                <span className="text-xs text-muted-foreground">— 已展示全部推荐 —</span>
-              </div>
-            )}
 
             {hasMoreRef.current && <div ref={sentinelRef} className="h-1" />}
           </>

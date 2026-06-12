@@ -1,7 +1,5 @@
 package com.kbook.service.ai;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
@@ -20,8 +18,6 @@ import com.kbook.repository.RoundTableSessionRepository;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
 import com.kbook.service.embedding.EmbeddingService;
-
-import static com.kbook.common.util.QueryBuilder.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -29,8 +25,8 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.*;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,11 +35,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.*;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import static com.kbook.common.util.QueryBuilder.eq;
 
 /**
  * 圆桌派服务 — 多角色 AI 讨论功能
@@ -57,7 +53,6 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @LogModule("圆桌派")
-@RequiredArgsConstructor
 public class RoundTableService {
 
     private final EmbeddingService embeddingService;
@@ -69,11 +64,30 @@ public class RoundTableService {
     private final RoundTableMessageRepository messageRepository;
     private final StringRedisTemplate stringRedisTemplate;
     private final RoundTableCoverageService coverageService;
+    private final ExecutorService sseExecutor;
 
-    /**
-     * SSE 异步执行线程池
-     */
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+    public RoundTableService(
+            EmbeddingService embeddingService,
+            BookService bookService,
+            BookParserService bookParserService,
+            ChatModelManager chatModelManager,
+            AiProviderConfigService aiProviderConfigService,
+            RoundTableSessionRepository sessionRepository,
+            RoundTableMessageRepository messageRepository,
+            StringRedisTemplate stringRedisTemplate,
+            RoundTableCoverageService coverageService,
+            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+        this.embeddingService = embeddingService;
+        this.bookService = bookService;
+        this.bookParserService = bookParserService;
+        this.chatModelManager = chatModelManager;
+        this.aiProviderConfigService = aiProviderConfigService;
+        this.sessionRepository = sessionRepository;
+        this.messageRepository = messageRepository;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.coverageService = coverageService;
+        this.sseExecutor = sseExecutor;
+    }
 
     /**
      * JSON 序列化
@@ -120,7 +134,7 @@ public class RoundTableService {
      * @return 推荐角色列表（含 selected 标记）
      */
     @LogAction("推荐角色")
-    public List<RoleVO> getRecommendedRoles(Long bookId, boolean refresh) throws JsonProcessingException {
+    public List<RoleVO> getRecommendedRoles(Long bookId, boolean refresh) {
         Book book = bookService.getBookById(bookId);
         if (book == null) {
             return getDefaultRoles();

@@ -96,6 +96,27 @@ public class NotificationService {
         }
     }
 
+    /** 系统通知的触发用户 ID（0 表示系统） */
+    private static final Long SYSTEM_TRIGGER_USER_ID = 0L;
+
+    /**
+     * 圆桌派解读报告生成完成时发送通知
+     *
+     * @param receiverId 接收通知的用户ID
+     * @param sessionId  圆桌派会话ID
+     * @param bookId     书籍ID
+     */
+    public void notifyRoundTableReport(Long receiverId, String sessionId, Long bookId) {
+        Notification notification = Notification.builder()
+                .receiverId(receiverId)
+                .triggerUserId(SYSTEM_TRIGGER_USER_ID)
+                .type("ROUND_TABLE_REPORT")
+                .sessionId(sessionId)
+                .bookId(bookId)
+                .build();
+        notificationRepository.save(notification);
+    }
+
     /**
      * 创建站内通知（自动过滤自身通知）
      * 防止用户触发操作后收到自己的通知，减少无效打扰

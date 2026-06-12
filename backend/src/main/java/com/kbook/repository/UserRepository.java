@@ -8,22 +8,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * 用户数据访问层
+ * <p>
+ * 简单查询统一使用 BaseRepository.query() 的 Fluent API
  */
 public interface UserRepository extends BaseRepository<User, Long> {
-
-    /**
-     * 根据邮箱查询用户
-     */
-    Optional<User> findByEmail(String email);
-
-    /**
-     * 判断邮箱是否已注册
-     */
-    boolean existsByEmail(String email);
 
     /**
      * 按状态分页查询用户
@@ -50,9 +41,4 @@ public interface UserRepository extends BaseRepository<User, Long> {
      */
     @Query("SELECT u.status, COUNT(u) FROM User u GROUP BY u.status")
     List<Object[]> countGroupByStatus();
-
-    /**
-     * 根据角色查询用户列表（如查询所有管理员）
-     */
-    List<User> findByRole(String role);
 }

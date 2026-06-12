@@ -2,13 +2,14 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
-import { ArrowLeft, Clock, CheckCircle2, BookOpen, Star, Sparkles, Loader2 } from 'lucide-react'
+import { ArrowLeft, Clock, ChevronDown, ChevronUp, BookOpen, Star, Sparkles, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
 import { getReadingHistory } from '@/api/progress'
 import { formatRelativeTime } from '@/utils/time'
 import BookCover from '@/components/book/BookCover'
 import { useMatchScores } from '@/hooks/useMatchScores'
 import { useKeepAliveStore } from '@/store/keepAlive'
+import { toast } from 'sonner'
 
 const PAGE_SIZE = 10
 
@@ -21,6 +22,30 @@ interface HistoryCache {
   page: number
   hasMore: boolean
   timestamp: number
+}
+
+function DescriptionBlock({ description }: { description: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const short = description.length > 80 ? description.slice(0, 80) + '...' : description
+  const needToggle = description.length > 80
+
+  return (
+    <div className="px-3.5 pb-3.5">
+      <div
+        onClick={(e) => { e.stopPropagation(); if (needToggle) setExpanded(!expanded) }}
+        className={needToggle ? 'cursor-pointer' : ''}
+      >
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          {expanded ? description : short}
+        </p>
+        {needToggle && (
+          <button className="flex items-center gap-0.5 mt-1 text-[10px] text-primary hover:underline">
+            {expanded ? <><ChevronUp className="h-3 w-3" />收起</> : <><ChevronDown className="h-3 w-3" />展开</>}
+          </button>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
@@ -73,6 +98,7 @@ interface HistoryItem {
   fileSize: number | null
   rating: number | null
   readCount: number | null
+  description: string | null
 }
 
 export default function ReadingHistoryPage() {
@@ -89,6 +115,7 @@ export default function ReadingHistoryPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(() => isCacheValid ? cached.hasMore : true)
   const [total, setTotal] = useState(() => isCacheValid ? cached.total : 0)
+  const [error, setError] = useState<string | null>(null)
   const fetchingRef = useRef(false)
   const hasMoreRef = useRef(isCacheValid ? cached.hasMore : true)
   const pageRef = useRef(isCacheValid ? cached.page : 0)
@@ -137,6 +164,7 @@ export default function ReadingHistoryPage() {
         fileSize: r.fileSize,
         rating: r.rating,
         readCount: r.readCount,
+        description: r.description,
       }))
 
       const hasNext = mapped.length === PAGE_SIZE && (pageNum + 1) * PAGE_SIZE < totalCount
@@ -150,8 +178,14 @@ export default function ReadingHistoryPage() {
       hasMoreRef.current = hasNext
       setHasMore(hasNext)
       pageRef.current = pageNum
-    } catch {
-      if (pageNum === 0) setItems([])
+    } catch (err: any) {
+      const msg = err?.message || '加载失败'
+      if (pageNum === 0) {
+        setItems([])
+        setError(msg)
+      } else {
+        toast.error(msg)
+      }
     } finally {
       fetchingRef.current = false
       setLoading(false)
@@ -172,8 +206,6 @@ export default function ReadingHistoryPage() {
   const bookIds = items.map((i) => i.bookId).filter(Boolean)
   const matchScores = useMatchScores(bookIds)
 
-  const isCompleted = (p: number) => p >= 1.0
-
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -192,24 +224,41 @@ export default function ReadingHistoryPage() {
         <span className="text-xs text-muted-foreground">{total} 本</span>
       </header>
 
-      <div ref={scrollRefCallback} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain">
+      <div ref={scrollRefCallback} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8">
       {items.length === 0 ? (
         <div className="flex h-60 flex-col items-center justify-center text-muted-foreground">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
-            <BookOpen className="h-8 w-8 text-muted-foreground/50" />
-          </div>
-          <p className="mt-4 text-sm">暂无阅读记录</p>
+          {error ? (
+            <>
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-danger/10">
+                <AlertCircle className="h-8 w-8 text-danger/60" />
+              </div>
+              <p className="mt-4 text-sm text-danger">{error}</p>
+              <button
+                onClick={() => { setError(null); loadPage(0) }}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-medium text-primary-foreground active:scale-[0.97] transition-transform"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                重试
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+                <BookOpen className="h-8 w-8 text-muted-foreground/50" />
+              </div>
+              <p className="mt-4 text-sm">暂无阅读记录</p>
+            </>
+          )}
         </div>
       ) : (
-        <div className="px-4 py-3 space-y-2.5">
+        <div className="py-3 columns-1 sm:columns-2 lg:columns-3 gap-3 space-y-3">
           {items.map((item) => {
-            const completed = isCompleted(item.progress)
             const ms = item.bookId ? matchScores?.[String(item.bookId)] : null
 
             return (
               <div
                 key={item.progressId}
-                className="flex flex-col rounded-2xl bg-card shadow-sm border border-border/50 active:scale-[0.98] transition-all duration-150 cursor-pointer overflow-hidden"
+                className="flex flex-col rounded-2xl bg-card shadow-sm border border-border/50 active:scale-[0.98] transition-all duration-150 cursor-pointer overflow-hidden break-inside-avoid"
                 onClick={() => item.bookId && navigate(`/book/${item.bookId}`)}
               >
                 <div className="flex items-center gap-3.5 p-3.5">
@@ -217,7 +266,7 @@ export default function ReadingHistoryPage() {
 
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{item.title || '未知图书'}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{item.author || '未知作者'}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground truncate">{item.author || '未知作者'}</p>
 
                     <div className="mt-1.5 flex items-center gap-1.5">
                       <RatingBadgeCN rating={item.rating} />
@@ -238,37 +287,22 @@ export default function ReadingHistoryPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 px-3.5 pb-3.5">
-                  {completed ? (
-                    <span className="flex items-center gap-1 text-[10px] font-semibold text-success">
-                      <CheckCircle2 className="h-3 w-3" />
-                      已读完
-                    </span>
-                  ) : (
-                    <>
-                      <div className="h-1.5 flex-1 rounded-full bg-primary/10">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70 transition-all"
-                          style={{ width: `${Math.round(item.progress * 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-[10px] font-bold text-primary">{Math.round(item.progress * 100)}%</span>
-                    </>
-                  )}
-                </div>
+                {item.description && (
+                  <DescriptionBlock description={item.description} />
+                )}
               </div>
             )
           })}
 
           {loadingMore && (
-            <div className="flex items-center justify-center py-4">
+            <div className="[column-span:all] flex items-center justify-center py-4">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               <span className="ml-2 text-xs text-muted-foreground">加载中...</span>
             </div>
           )}
 
           {!hasMore && items.length > 0 && (
-            <div className="py-4 text-center text-xs text-muted-foreground">
+            <div className="[column-span:all] py-4 text-center text-xs text-muted-foreground">
               没有更多了
             </div>
           )}

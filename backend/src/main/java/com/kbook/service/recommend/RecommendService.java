@@ -9,6 +9,7 @@ import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.recommend.RecommendedItem;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
+import com.kbook.entity.UserBookPreference;
 import com.kbook.entity.UserReadHistory;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.ReadingProgressRepository;
@@ -28,6 +29,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+
+import static com.kbook.common.util.QueryBuilder.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.function.IntConsumer;
@@ -518,7 +521,7 @@ public class RecommendService {
                             excludedTags, excludedAuthors, excludedFormats,
                             includedTags, includedAuthors, includedFormats, ruleMinScore))
                     .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+                    .toList();
 
             scoredBooks.addAll(chunkResults);
 
@@ -853,72 +856,53 @@ public class RecommendService {
      * @return 排除的标签列表
      */
     private List<String> getExcludedTags(Long userId) {
-        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "EXCLUDE")
-                .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
+        return preferenceRepository.query()
+                .where(UserBookPreference::getUserId, eq(userId))
+                .and(UserBookPreference::getCategory, eq("TAG"))
+                .and(UserBookPreference::getType, eq("EXCLUDE"))
+                .list().stream().map(UserBookPreference::getValue).toList();
     }
 
-    /**
-     * 获取用户排除的作者偏好
-     *
-     * @param userId 用户ID
-     * @return 排除的作者列表
-     */
     private List<String> getExcludedAuthors(Long userId) {
-        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "EXCLUDE")
-                .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
+        return preferenceRepository.query()
+                .where(UserBookPreference::getUserId, eq(userId))
+                .and(UserBookPreference::getCategory, eq("AUTHOR"))
+                .and(UserBookPreference::getType, eq("EXCLUDE"))
+                .list().stream().map(UserBookPreference::getValue).toList();
     }
 
-    /**
-     * 获取用户排除的格式偏好
-     *
-     * @param userId 用户ID
-     * @return 排除的格式列表
-     */
     private List<String> getExcludedFormats(Long userId) {
-        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "EXCLUDE")
-                .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
+        return preferenceRepository.query()
+                .where(UserBookPreference::getUserId, eq(userId))
+                .and(UserBookPreference::getCategory, eq("FORMAT"))
+                .and(UserBookPreference::getType, eq("EXCLUDE"))
+                .list().stream().map(UserBookPreference::getValue).toList();
     }
 
-    /**
-     * 获取用户偏好的标签
-     *
-     * @param userId 用户ID
-     * @return 偏好标签列表
-     */
     private List<String> getIncludedTags(Long userId) {
-        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "TAG", "INCLUDE")
-                .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
+        return preferenceRepository.query()
+                .where(UserBookPreference::getUserId, eq(userId))
+                .and(UserBookPreference::getCategory, eq("TAG"))
+                .and(UserBookPreference::getType, eq("INCLUDE"))
+                .list().stream().map(UserBookPreference::getValue).toList();
     }
 
-    /**
-     * 获取用户偏好的作者
-     *
-     * @param userId 用户ID
-     * @return 偏好作者列表
-     */
     private List<String> getIncludedAuthors(Long userId) {
-        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "AUTHOR", "INCLUDE")
-                .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
+        return preferenceRepository.query()
+                .where(UserBookPreference::getUserId, eq(userId))
+                .and(UserBookPreference::getCategory, eq("AUTHOR"))
+                .and(UserBookPreference::getType, eq("INCLUDE"))
+                .list().stream().map(UserBookPreference::getValue).toList();
     }
 
-    /**
-     * 获取用户偏好的格式
-     *
-     * @param userId 用户ID
-     * @return 偏好格式列表
-     */
     private List<String> getIncludedFormats(Long userId) {
-        return preferenceRepository.findByUserIdAndCategoryAndType(userId, "FORMAT", "INCLUDE")
-                .stream().map(com.kbook.entity.UserBookPreference::getValue).toList();
+        return preferenceRepository.query()
+                .where(UserBookPreference::getUserId, eq(userId))
+                .and(UserBookPreference::getCategory, eq("FORMAT"))
+                .and(UserBookPreference::getType, eq("INCLUDE"))
+                .list().stream().map(UserBookPreference::getValue).toList();
     }
 
-    /**
-     * 解析格式标签字符串为集合
-     * 支持JSON数组格式和逗号分隔格式
-     *
-     * @param formatTags 标签字符串（如 "[\"科幻\",\"奇幻\"]" 或 "科幻,奇幻"）
-     * @return 标签集合
-     */
     private Set<String> parseTags(String formatTags) {
         if (formatTags == null || formatTags.isBlank()) return Set.of();
         return Arrays.stream(formatTags.replaceAll("[\\[\\]\"]", "").split("[,，]"))

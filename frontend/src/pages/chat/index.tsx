@@ -56,13 +56,13 @@ export default function ChatListPage() {
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter">
       <header className="shrink-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-        <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex items-center gap-3 px-4 md:px-6 lg:px-8 py-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="text-base font-bold">私信</h1>
         </div>
-        <div className="px-4 pb-3">
+        <div className="px-4 md:px-6 lg:px-8 pb-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -76,7 +76,7 @@ export default function ChatListPage() {
         </div>
       </header>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-3">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="h-6 w-6 animate-spin rounded-full border-3 border-primary border-t-transparent" />
