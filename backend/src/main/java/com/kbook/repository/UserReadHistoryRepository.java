@@ -1,7 +1,7 @@
 package com.kbook.repository;
 
+import com.kbook.common.repository.BaseRepository;
 import com.kbook.entity.UserReadHistory;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,11 +17,6 @@ public interface UserReadHistoryRepository extends BaseRepository<UserReadHistor
      * 查询用户的所有阅读历史记录
      */
     List<UserReadHistory> findByUserId(Long userId);
-
-    /**
-     * 按用户和行为类型查询阅读历史记录
-     */
-    List<UserReadHistory> findByUserIdAndAction(Long userId, String action);
 
     /**
      * 查询用户对指定图书的特定行为记录

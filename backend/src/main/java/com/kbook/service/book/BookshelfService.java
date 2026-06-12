@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * 书架服务
  * <p>
@@ -60,7 +62,10 @@ public class BookshelfService {
         if (!bookRepository.existsById(bookId)) {
             throw new BusinessException("图书不存在");
         }
-        if (bookshelfRepository.existsByUserIdAndBookId(userId, bookId)) {
+        if (bookshelfRepository.query()
+                .where(Bookshelf::getUserId, eq(userId))
+                .and(Bookshelf::getBookId, eq(bookId))
+                .exists()) {
             throw new BusinessException("已在书架中");
         }
         Bookshelf item = Bookshelf.builder()
@@ -72,13 +77,14 @@ public class BookshelfService {
         log.info("加入书架: userId={}, bookId={}", userId, bookId);
     }
 
-    /**
-     * 从书架移除
-     */
     @Transactional
     @LogAction("移出书架")
     public void removeFromBookshelf(Long userId, Long bookId) {
-        Bookshelf item = bookshelfRepository.findByUserIdAndBookId(userId, bookId).orElse(null);
+        Bookshelf item = bookshelfRepository.query()
+                .where(Bookshelf::getUserId, eq(userId))
+                .and(Bookshelf::getBookId, eq(bookId))
+                .list(1)
+                .stream().findFirst().orElse(null);
         if (item != null) {
             bookshelfRepository.deleteById(item.getId());
         }
@@ -86,20 +92,21 @@ public class BookshelfService {
         log.info("移出书架: userId={}, bookId={}", userId, bookId);
     }
 
-    /**
-     * 检查是否在书架中
-     */
     @LogAction("检查书架状态")
     public boolean isInBookshelf(Long userId, Long bookId) {
-        return bookshelfRepository.existsByUserIdAndBookId(userId, bookId);
+        return bookshelfRepository.query()
+                .where(Bookshelf::getUserId, eq(userId))
+                .and(Bookshelf::getBookId, eq(bookId))
+                .exists();
     }
 
-    /**
-     * 获取书架列表（含图书详情和阅读进度）
-     */
     @LogAction("获取书架列表")
     public List<BookshelfItem> getBookshelf(Long userId) {
-        List<Bookshelf> items = bookshelfRepository.findByUserIdOrderBySortOrderDescAddedAtDesc(userId);
+        List<Bookshelf> items = bookshelfRepository.query()
+                .where(Bookshelf::getUserId, eq(userId))
+                .orderByDesc(Bookshelf::getSortOrder)
+                .orderByDesc(Bookshelf::getAddedAt)
+                .list();
         if (items.isEmpty()) return new ArrayList<>();
 
         List<Long> bookIds = items.stream().map(Bookshelf::getBookId).collect(Collectors.toList());
@@ -141,7 +148,9 @@ public class BookshelfService {
      */
     @LogAction("获取书架数量")
     public long getBookshelfCount(Long userId) {
-        return bookshelfRepository.countByUserId(userId);
+        return bookshelfRepository.query()
+                .where(Bookshelf::getUserId, eq(userId))
+                .count();
     }
 
 }

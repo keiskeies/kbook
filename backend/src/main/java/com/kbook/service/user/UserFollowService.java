@@ -15,6 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * 用户关注服务
  * <p>
@@ -49,7 +51,10 @@ public class UserFollowService {
         if (!userRepository.existsById(followingId)) {
             throw new BusinessException("用户不存在");
         }
-        if (userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId)) {
+        if (userFollowRepository.query()
+                .where(UserFollow::getFollowerId, eq(followerId))
+                .and(UserFollow::getFollowingId, eq(followingId))
+                .exists()) {
             throw new BusinessException("已经关注了该用户");
         }
 
@@ -70,23 +75,20 @@ public class UserFollowService {
         log.info("用户关注: follower={}, following={}", followerId, followingId);
     }
 
-    /**
-     * 取消关注用户
-     * @param followerId 关注者ID
-     * @param followingId 被关注者ID
-     * @throws BusinessException 未关注该用户时抛出
-     */
     @Transactional
     @LogAction("取消关注")
     @RedisLock(key = "'follow:' + #followerId + ':' + #followingId", leaseTime = 10)
     public void unfollowUser(Long followerId, Long followingId) {
-        if (!userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId)) {
+        UserFollow follow = userFollowRepository.query()
+                .where(UserFollow::getFollowerId, eq(followerId))
+                .and(UserFollow::getFollowingId, eq(followingId))
+                .list(1)
+                .stream().findFirst().orElse(null);
+        if (follow == null) {
             throw new BusinessException("尚未关注该用户");
         }
 
-        userFollowRepository.findByFollowerIdAndFollowingId(followerId, followingId).ifPresent(
-                follow -> userFollowRepository.deleteById(follow.getId())
-        );
+        userFollowRepository.deleteById(follow.getId());
 
         // 更新计数（处理 null 值）
         User follower = userRepository.findById(followerId).orElseThrow();
@@ -107,34 +109,22 @@ public class UserFollowService {
      */
     @LogAction("检查关注状态")
     public boolean isFollowing(Long followerId, Long followingId) {
-        return userFollowRepository.existsByFollowerIdAndFollowingId(followerId, followingId);
+        return userFollowRepository.query()
+                .where(UserFollow::getFollowerId, eq(followerId))
+                .and(UserFollow::getFollowingId, eq(followingId))
+                .exists();
     }
 
-    /**
-     * 获取用户关注的用户ID列表
-     * @param userId 用户ID
-     * @return 关注的用户ID列表
-     */
     @LogAction("获取关注列表ID")
     public List<Long> getFollowingIds(Long userId) {
         return userFollowRepository.findFollowingIds(userId);
     }
 
-    /**
-     * 获取用户的粉丝列表
-     * @param userId 用户ID
-     * @return 粉丝关系列表
-     */
     @LogAction("获取粉丝列表")
     public List<UserFollow> getFollowers(Long userId) {
         return userFollowRepository.findFollowers(userId);
     }
 
-    /**
-     * 获取用户的关注列表
-     * @param userId 用户ID
-     * @return 关注关系列表
-     */
     @LogAction("获取关注列表")
     public List<UserFollow> getFollowings(Long userId) {
         return userFollowRepository.findFollowings(userId);

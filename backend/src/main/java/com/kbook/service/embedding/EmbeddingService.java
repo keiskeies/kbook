@@ -1746,4 +1746,65 @@ public class EmbeddingService {
 
         return result;
     }
+
+    // ==================== 全量 Scroll（RoundTableCoverageService 用） ====================
+
+    /**
+     * 从 Qdrant gRPC scroll 获取指定书籍的所有内容分块。
+     * <p>
+     * 使用 gRPC scroll API 分页（200条/页），避免直接调 REST API。
+     * 替换 RoundTableCoverageService 之前的 HttpClient 直调方式。
+     *
+     * @param bookId 书籍 ID
+     * @return 内容分块列表（text + pointId）
+     */
+    public List<ChunkInfo> scrollAllContentChunks(Long bookId) {
+        List<ChunkInfo> chunks = new ArrayList<>();
+        if (qdrantClient == null) {
+            log.warn("QdrantClient 未初始化，跳过 scrollContentChunks: bookId={}", bookId);
+            return chunks;
+        }
+
+        try {
+            var filter = buildBookIdFilter(bookId);
+            Common.PointId offset = null;
+
+            do {
+                var builder = io.qdrant.client.grpc.Points.ScrollPoints.newBuilder()
+                        .setCollectionName(qdrantProps.getContentCollection())
+                        .setFilter(filter)
+                        .setLimit(200)
+                        .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(true).build());
+
+                var response = qdrantClient.scrollAsync(builder.build())
+                        .get(30, java.util.concurrent.TimeUnit.SECONDS);
+                var points = response.getResultList();
+
+                for (var point : points) {
+                    var payloadMap = point.getPayloadMap();
+                    String text = null;
+                    if (payloadMap.containsKey(PAYLOAD_TEXT_KEY)) {
+                        text = extractPayloadString(payloadMap, PAYLOAD_TEXT_KEY);
+                    } else if (payloadMap.containsKey("text")) {
+                        text = extractPayloadString(payloadMap, "text");
+                    }
+                    if (text != null && !text.isBlank()) {
+                        chunks.add(new ChunkInfo(text, point.getId().getNum()));
+                    }
+                }
+
+                offset = response.hasNextPageOffset() ? response.getNextPageOffset() : null;
+            } while (offset != null);
+        } catch (Exception e) {
+            log.warn("从 Qdrant scroll 获取内容分块失败: bookId={} - {}", bookId, e.getMessage());
+        }
+
+        return chunks;
+    }
+
+    /**
+     * 内容分块简略信息（text + pointId），用于全量 scroll 场景
+     */
+    public record ChunkInfo(String text, long pointId) {
+    }
 }

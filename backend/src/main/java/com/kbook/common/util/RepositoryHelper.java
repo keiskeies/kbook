@@ -29,7 +29,9 @@ public class RepositoryHelper {
         this.entityManager = entityManager;
     }
 
-    public <T> Page<T> page(List<ConditionDTO> conditions, List<String> ascFields, 
+    // ==================== 旧 API（保留兼容） ====================
+
+    public <T> Page<T> page(List<ConditionDTO> conditions, List<String> ascFields,
                             List<String> descFields, Pageable pageable, 
                             JpaSpecificationExecutor<T> executor) {
         Specification<T> spec = buildSpecification(conditions);

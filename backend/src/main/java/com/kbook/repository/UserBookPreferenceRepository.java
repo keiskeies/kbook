@@ -1,7 +1,7 @@
 package com.kbook.repository;
 
+import com.kbook.common.repository.BaseRepository;
 import com.kbook.entity.UserBookPreference;
-import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;

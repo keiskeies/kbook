@@ -1,27 +1,18 @@
 package com.kbook.repository;
 
+import com.kbook.common.repository.BaseRepository;
 import com.kbook.entity.RoundTableMessage;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
 import java.util.Optional;
 
 /**
  * 圆桌派消息数据访问层
+ * <p>
+ * 简单查询统一使用 BaseRepository.query() 的 Fluent API
  */
 public interface RoundTableMessageRepository extends BaseRepository<RoundTableMessage, Long> {
-
-    /**
-     * 按会话ID查询消息，按创建时间升序排列
-     */
-    List<RoundTableMessage> findBySessionIdOrderByIdAsc(String sessionId);
-
-    /**
-     * 按用户和会话ID查询消息，按创建时间升序排列
-     */
-    List<RoundTableMessage> findByUserIdAndSessionIdOrderByIdAsc(Long userId, String sessionId);
 
     /**
      * 统计会话 compressed_content 总长度（字符数）
@@ -41,9 +32,4 @@ public interface RoundTableMessageRepository extends BaseRepository<RoundTableMe
             "ORDER BY id LIMIT 1",
             nativeQuery = true)
     Optional<RoundTableMessage> findFirstUncompressibleMessage(@Param("userId") Long userId, @Param("sessionId") String sessionId);
-
-    /**
-     * 删除指定用户和会话ID的所有消息
-     */
-    void deleteByUserIdAndSessionId(Long userId, String sessionId);
 }

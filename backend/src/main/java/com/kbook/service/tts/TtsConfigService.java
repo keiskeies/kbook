@@ -4,9 +4,6 @@ import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.TtsConfig;
 import com.kbook.repository.TtsConfigRepository;
-import com.kbook.service.tts.TtsCache;
-import com.kbook.service.tts.TtsEngine;
-import com.kbook.service.tts.TtsEngineFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -16,6 +13,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.Base64;
 import java.util.List;
+
+import static com.kbook.common.util.QueryBuilder.eq;
 
 /**
  * TTS配置管理服务类
@@ -41,17 +40,19 @@ public class TtsConfigService {
      */
     @LogAction("获取TTS配置列表")
     public List<TtsConfig> listAll() {
-        return ttsConfigRepository.findByOrderByIsDefaultDescUpdatedAtDesc();
+        return ttsConfigRepository.query()
+                .orderByDesc(TtsConfig::getIsDefault)
+                .orderByDesc(TtsConfig::getUpdatedAt)
+                .list();
     }
 
-    /**
-     * 获取当前活跃的TTS配置
-     * 返回默认且启用的配置，如果没有则返回null
-     * @return 活跃配置或null
-     */
     @LogAction("获取活跃TTS配置")
     public TtsConfig getActiveConfig() {
-        return ttsConfigRepository.findByIsDefaultTrueAndEnabledTrue().orElse(null);
+        return ttsConfigRepository.query()
+                .where(TtsConfig::getIsDefault, eq(true))
+                .and(TtsConfig::getEnabled, eq(true))
+                .list(1)
+                .stream().findFirst().orElse(null);
     }
 
     /**

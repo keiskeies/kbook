@@ -16,6 +16,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * 文件存储服务
  * <p>
@@ -39,7 +41,10 @@ public class FileStorageService {
      */
     @Transactional(readOnly = true)
     public Resource serveChatFile(Long requestingUserId, String filename) {
-        UploadedFile file = uploadedFileRepository.findByFilename(filename)
+        UploadedFile file = uploadedFileRepository.query()
+                .where(UploadedFile::getFilename, eq(filename))
+                .list(1)
+                .stream().findFirst()
                 .orElseThrow(() -> new BusinessException("文件不存在"));
 
         boolean isOwner = file.getUploaderId().equals(requestingUserId);

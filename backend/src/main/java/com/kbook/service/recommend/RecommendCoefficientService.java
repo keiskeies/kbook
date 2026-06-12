@@ -22,6 +22,8 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * 推荐系数服务 — 动态系数管理 + 基于反馈的自动调参
  * <p>
@@ -236,7 +238,11 @@ public class RecommendCoefficientService {
 
         // 3. 数据库
         try {
-            Optional<RecommendCoefficient> opt = coefficientRepository.findByCategoryAndCoeffKey(category, key);
+            Optional<RecommendCoefficient> opt = coefficientRepository.query()
+                    .where(RecommendCoefficient::getCategory, eq(category))
+                    .and(RecommendCoefficient::getCoeffKey, eq(key))
+                    .list(1)
+                    .stream().findFirst();
             if (opt.isPresent()) {
                 double v = opt.get().getCoeffValue();
                 coefficientCache.put(cacheKey, v);
@@ -417,9 +423,7 @@ public class RecommendCoefficientService {
         normalizeFusionWeights();
     }
 
-    /**
-     * 归一化四路召回权重，使其总和为 1.0
-     */
+
     /**
      * 归一化四路召回权重，使其总和为 1.0
      * 权重调整后必须归一化，否则会导致概率分布异常
@@ -438,20 +442,21 @@ public class RecommendCoefficientService {
             coefficientCache.put("FUSION:" + key, normalized);
 
             // 同步到数据库
-            coefficientRepository.findByCategoryAndCoeffKey("FUSION", key).ifPresent(rc -> {
-                if (!rc.getLocked()) {
-                    rc.setCoeffValue(Math.max(rc.getMinValue(), Math.min(rc.getMaxValue(), normalized)));
-                    coefficientRepository.save(rc);
-                }
-            });
+            coefficientRepository.query()
+                    .where(RecommendCoefficient::getCategory, eq("FUSION"))
+                    .and(RecommendCoefficient::getCoeffKey, eq(key))
+                    .list(1)
+                    .stream().findFirst()
+                    .ifPresent(rc -> {
+                        if (!rc.getLocked()) {
+                            rc.setCoeffValue(Math.max(rc.getMinValue(), Math.min(rc.getMaxValue(), normalized)));
+                            coefficientRepository.save(rc);
+                        }
+                    });
         }
     }
 
-    /**
-     * 调整质量因子
-     * 如果用户平均评分偏高（>3.5），说明低质量因子压制效果好，可以保持或增强
-     * 如果用户平均评分偏低（<2.5），说明推荐了太多低质量书，需要增强压制
-     */
+
     /**
      * 调整质量因子
      * 根据用户平均评分动态调整低分书籍的压制力度：
@@ -475,9 +480,6 @@ public class RecommendCoefficientService {
     }
 
     /**
-     * 微调单个系数（考虑 locked 和 min/max 钳位）
-     */
-    /**
      * 微调单个系数（考虑锁定状态和范围钳位）
      * 自动调参时使用，管理员手动设置的系数（locked=true）不会被修改
      *
@@ -486,7 +488,12 @@ public class RecommendCoefficientService {
      * @param delta    调整增量（正数增加，负数减少）
      */
     private void adjustCoefficient(String category, String key, double delta) {
-        coefficientRepository.findByCategoryAndCoeffKey(category, key).ifPresent(rc -> {
+        coefficientRepository.query()
+                .where(RecommendCoefficient::getCategory, eq(category))
+                .and(RecommendCoefficient::getCoeffKey, eq(key))
+                .list(1)
+                .stream().findFirst()
+                .ifPresent(rc -> {
             if (rc.getLocked()) {
                 log.debug("系数已锁定，跳过调参: {}.{}", category, key);
                 return;

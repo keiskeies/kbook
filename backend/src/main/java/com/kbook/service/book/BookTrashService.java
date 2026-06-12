@@ -29,6 +29,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * 图书垃圾桶服务类
  * <p>
@@ -79,7 +81,10 @@ public class BookTrashService {
             throw new BusinessException("图书不存在");
         }
         // 检查是否已经在垃圾桶中
-        if (bookTrashRepository.existsByUserIdAndBookId(userId, bookId)) {
+        if (bookTrashRepository.query()
+                .where(BookTrash::getUserId, eq(userId))
+                .and(BookTrash::getBookId, eq(bookId))
+                .exists()) {
             throw new BusinessException("已在垃圾桶中");
         }
         // 创建垃圾桶记录并保存
@@ -121,11 +126,16 @@ public class BookTrashService {
     @RedisLock(key = "'trash:' + #userId + ':' + #bookId", leaseTime = 10)
     public void removeFromTrash(Long userId, Long bookId) {
         // 检查是否在垃圾桶中
-        if (!bookTrashRepository.existsByUserIdAndBookId(userId, bookId)) {
+        BookTrash trash = bookTrashRepository.query()
+                .where(BookTrash::getUserId, eq(userId))
+                .and(BookTrash::getBookId, eq(bookId))
+                .list(1)
+                .stream().findFirst().orElse(null);
+        if (trash == null) {
             throw new BusinessException("不在垃圾桶中");
         }
         // 删除垃圾桶记录
-        bookTrashRepository.deleteByUserIdAndBookId(userId, bookId);
+        bookTrashRepository.delete(trash);
 
         // 获取图书信息并更新维度评分计数
         Book book = bookRepository.findById(bookId).orElseThrow();
@@ -211,7 +221,10 @@ public class BookTrashService {
      */
     @LogAction("检查是否在垃圾桶")
     public boolean isInTrash(Long userId, Long bookId) {
-        return bookTrashRepository.existsByUserIdAndBookId(userId, bookId);
+        return bookTrashRepository.query()
+                .where(BookTrash::getUserId, eq(userId))
+                .and(BookTrash::getBookId, eq(bookId))
+                .exists();
     }
 
     /**
@@ -223,7 +236,10 @@ public class BookTrashService {
     @LogAction("获取垃圾桶列表")
     public List<BookTrashItem> getTrashList(Long userId) {
         // 查询用户的垃圾桶记录，按创建时间降序排列
-        List<BookTrash> trashItems = bookTrashRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        List<BookTrash> trashItems = bookTrashRepository.query()
+                .where(BookTrash::getUserId, eq(userId))
+                .orderByDesc(BookTrash::getCreatedAt)
+                .list();
         if (trashItems.isEmpty()) return new ArrayList<>();
 
         // 提取所有图书ID并批量查询图书信息
@@ -257,7 +273,9 @@ public class BookTrashService {
      */
     @LogAction("获取垃圾桶数量")
     public long getTrashCount(Long userId) {
-        return bookTrashRepository.countByUserId(userId);
+        return bookTrashRepository.query()
+                .where(BookTrash::getUserId, eq(userId))
+                .count();
     }
 
     /**
@@ -268,7 +286,10 @@ public class BookTrashService {
      */
     @LogAction("获取垃圾桶中的图书ID")
     public List<Long> getTrashedBookIds(Long userId) {
-        return bookTrashRepository.findByUserIdOrderByCreatedAtDesc(userId)
+        return bookTrashRepository.query()
+                .where(BookTrash::getUserId, eq(userId))
+                .orderByDesc(BookTrash::getCreatedAt)
+                .list()
                 .stream().map(BookTrash::getBookId).collect(Collectors.toList());
     }
 

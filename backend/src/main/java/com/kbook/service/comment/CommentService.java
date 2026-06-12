@@ -26,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * 评论服务类
  * 提供书籍评论和章节评论的完整功能，包括创建、删除、查询、点赞、收藏等操作
@@ -186,16 +188,23 @@ public class CommentService {
         List<Comment> replies = commentRepository.findByParentIdOrderByCreatedAtAsc(commentId); // 查询所有子评论
         for (Comment reply : replies) {
             // 删除子评论的点赞记录
-            commentLikeRepository.deleteByCommentIdAndUserId(reply.getId(), reply.getUserId());
+            commentLikeRepository.deleteAll(commentLikeRepository.query()
+                    .where(CommentLike::getCommentId, eq(reply.getId()))
+                    .and(CommentLike::getUserId, eq(reply.getUserId()))
+                    .list());
             // 删除子评论的收藏记录
-            commentFavoriteRepository.deleteByCommentIdAndUserId(reply.getId(), reply.getUserId());
+            commentFavoriteRepository.deleteAll(commentFavoriteRepository.query()
+                    .where(CommentFavorite::getCommentId, eq(reply.getId()))
+                    .and(CommentFavorite::getUserId, eq(reply.getUserId()))
+                    .list());
         }
         commentRepository.deleteAllById(replies.stream().map(Comment::getId).toList()); // 批量删除所有子评论
 
         // 删除本评论的点赞和收藏记录
-        // 查找并删除当前用户对该评论的点赞记录
-        commentLikeRepository.findByCommentIdAndUserId(commentId, userId)
-                .ifPresent(cl -> commentLikeRepository.deleteByCommentIdAndUserId(commentId, userId));
+        commentLikeRepository.deleteAll(commentLikeRepository.query()
+                .where(CommentLike::getCommentId, eq(commentId))
+                .and(CommentLike::getUserId, eq(userId))
+                .list());
 
         commentRepository.deleteById(comment.getId()); // 删除主评论
     }
@@ -293,7 +302,10 @@ public class CommentService {
     @RedisLock(key = "'comment:like:' + #commentId + ':' + #userId", leaseTime = 10)
     public void likeComment(Long commentId, Long userId) {
         // 检查用户是否已经点赞过，避免重复点赞
-        if (commentLikeRepository.existsByCommentIdAndUserId(commentId, userId)) {
+        if (commentLikeRepository.query()
+                .where(CommentLike::getCommentId, eq(commentId))
+                .and(CommentLike::getUserId, eq(userId))
+                .exists()) {
             throw new BusinessException("已经点赞过了");
         }
         // 创建点赞记录
@@ -373,11 +385,16 @@ public class CommentService {
     @RedisLock(key = "'comment:like:' + #commentId + ':' + #userId", leaseTime = 10)
     public void unlikeComment(Long commentId, Long userId) {
         // 检查用户是否已经点赞过，未点赞则抛出异常
-        if (!commentLikeRepository.existsByCommentIdAndUserId(commentId, userId)) {
+        CommentLike like = commentLikeRepository.query()
+                .where(CommentLike::getCommentId, eq(commentId))
+                .and(CommentLike::getUserId, eq(userId))
+                .list(1)
+                .stream().findFirst().orElse(null);
+        if (like == null) {
             throw new BusinessException("尚未点赞");
         }
         // 删除点赞记录
-        commentLikeRepository.deleteByCommentIdAndUserId(commentId, userId);
+        commentLikeRepository.delete(like);
 
         // 查找评论并更新点赞数
         Comment comment = commentRepository.findOneById(commentId);
@@ -400,7 +417,10 @@ public class CommentService {
     @RedisLock(key = "'comment:fav:' + #commentId + ':' + #userId", leaseTime = 10)
     public void favoriteComment(Long commentId, Long userId) {
         // 检查用户是否已经收藏过，避免重复收藏
-        if (commentFavoriteRepository.existsByCommentIdAndUserId(commentId, userId)) {
+        if (commentFavoriteRepository.query()
+                .where(CommentFavorite::getCommentId, eq(commentId))
+                .and(CommentFavorite::getUserId, eq(userId))
+                .exists()) {
             throw new BusinessException("已经收藏过了");
         }
         // 创建收藏记录
@@ -433,11 +453,16 @@ public class CommentService {
     @RedisLock(key = "'comment:fav:' + #commentId + ':' + #userId", leaseTime = 10)
     public void unfavoriteComment(Long commentId, Long userId) {
         // 检查用户是否已经收藏过，未收藏则抛出异常
-        if (!commentFavoriteRepository.existsByCommentIdAndUserId(commentId, userId)) {
+        CommentFavorite fav = commentFavoriteRepository.query()
+                .where(CommentFavorite::getCommentId, eq(commentId))
+                .and(CommentFavorite::getUserId, eq(userId))
+                .list(1)
+                .stream().findFirst().orElse(null);
+        if (fav == null) {
             throw new BusinessException("尚未收藏");
         }
         // 删除收藏记录
-        commentFavoriteRepository.deleteByCommentIdAndUserId(commentId, userId);
+        commentFavoriteRepository.delete(fav);
 
         // 查找评论并更新收藏数
         Comment comment = commentRepository.findOneById(commentId);
@@ -508,9 +533,15 @@ public class CommentService {
         // 如果提供了当前用户ID，则查询该用户对评论的交互状态
         if (currentUserId != null) {
             // 检查当前用户是否已点赞该评论
-            vo.setLiked(commentLikeRepository.existsByCommentIdAndUserId(comment.getId(), currentUserId));
+            vo.setLiked(commentLikeRepository.query()
+                    .where(CommentLike::getCommentId, eq(comment.getId()))
+                    .and(CommentLike::getUserId, eq(currentUserId))
+                    .exists());
             // 检查当前用户是否已收藏该评论
-            vo.setFavorited(commentFavoriteRepository.existsByCommentIdAndUserId(comment.getId(), currentUserId));
+            vo.setFavorited(commentFavoriteRepository.query()
+                    .where(CommentFavorite::getCommentId, eq(comment.getId()))
+                    .and(CommentFavorite::getUserId, eq(currentUserId))
+                    .exists());
         }
         return vo; // 返回转换后的视图对象
     }

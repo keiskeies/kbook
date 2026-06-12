@@ -1,6 +1,7 @@
 package com.kbook.repository;
 
-import com.kbook.entity.BaseEntity;
+import com.kbook.common.entity.BaseEntity;
+import com.kbook.common.repository.BaseRepository;
 import org.springframework.data.repository.NoRepositoryBean;
 
 import java.util.Collection;

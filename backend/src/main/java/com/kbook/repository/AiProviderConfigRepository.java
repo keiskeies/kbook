@@ -1,7 +1,7 @@
 package com.kbook.repository;
 
+import com.kbook.common.repository.BaseRepository;
 import com.kbook.entity.AiProviderConfig;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -19,11 +19,6 @@ public interface AiProviderConfigRepository extends BaseRepository<AiProviderCon
      * 查找指定用途的默认（激活）配置
      */
     Optional<AiProviderConfig> findByPurposeAndIsDefaultTrueAndEnabledTrue(String purpose);
-
-    /**
-     * 根据用途查找配置（不区分启用状态）
-     */
-    Optional<AiProviderConfig> findByPurpose(String purpose);
 
     /**
      * 查找指定用途的所有配置，按 isDefault 降序、updatedAt 降序

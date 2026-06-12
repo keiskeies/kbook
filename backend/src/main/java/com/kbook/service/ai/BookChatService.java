@@ -23,6 +23,8 @@ import com.kbook.entity.User;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
 import com.kbook.repository.BookSuggestedQuestionRepository;
+
+import static com.kbook.common.util.QueryBuilder.*;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -118,7 +120,9 @@ public class BookChatService {
      */
     @LogAction("获取推荐问题")
     public List<String> getSuggestedQuestions(Long bookId) {
-        List<BookSuggestedQuestion> existing = suggestedQuestionRepository.findByBookId(bookId);
+        List<BookSuggestedQuestion> existing = suggestedQuestionRepository.query()
+                .where(BookSuggestedQuestion::getBookId, eq(bookId))
+                .list();
         if (!existing.isEmpty()) {
             String introQuestion = "这本书主要讲了什么？";
             List<String> all = existing.stream()
@@ -396,23 +400,26 @@ public class BookChatService {
         if (sessionId != null && !sessionId.isBlank()) {
             return conversationRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
         }
-        List<AiSession> sessions = sessionRepository.findByUserIdAndTypeAndBookIdOrderByUpdatedAtDesc(userId, TYPE, bookId);
+        List<AiSession> sessions = sessionRepository.query()
+                .where(AiSession::getUserId, eq(userId))
+                .and(AiSession::getType, eq(TYPE))
+                .and(AiSession::getBookId, eq(bookId))
+                .orderByDesc(AiSession::getUpdatedAt)
+                .list();
         if (sessions.isEmpty()) {
             return Collections.emptyList();
         }
         return conversationRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessions.get(0).getSessionId());
     }
 
-    /**
-     * 获取用户对指定书籍的所有问答会话
-     *
-     * @param userId 用户ID
-     * @param bookId 书籍ID
-     * @return 会话列表
-     */
     @LogAction("获取问答会话列表")
     public List<AiSession> getBookChatSessions(Long userId, Long bookId) {
-        return sessionRepository.findByUserIdAndTypeAndBookIdOrderByUpdatedAtDesc(userId, TYPE, bookId);
+        return sessionRepository.query()
+                .where(AiSession::getUserId, eq(userId))
+                .and(AiSession::getType, eq(TYPE))
+                .and(AiSession::getBookId, eq(bookId))
+                .orderByDesc(AiSession::getUpdatedAt)
+                .list();
     }
 
     /**
@@ -829,27 +836,32 @@ public class BookChatService {
      * 确保会话记录存在，不存在则自动创建（含 bookId）
      */
     private void ensureSession(Long userId, String sessionId, String userMessage, Long bookId) {
-        sessionRepository.findBySessionId(sessionId).orElseGet(() -> {
-            String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
-            AiSession session = AiSession.builder()
-                    .userId(userId)
-                    .type(TYPE)
-                    .bookId(bookId)
-                    .sessionId(sessionId)
-                    .title(title)
-                    .build();
-            return sessionRepository.save(session);
-        });
+        sessionRepository.query()
+                .where(AiSession::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst()
+                .orElseGet(() -> {
+                    String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
+                    AiSession session = AiSession.builder()
+                            .userId(userId)
+                            .type(TYPE)
+                            .bookId(bookId)
+                            .sessionId(sessionId)
+                            .title(title)
+                            .build();
+                    return sessionRepository.save(session);
+                });
     }
 
-    /**
-     * 更新会话的最后活跃时间
-     */
     private void updateSessionTimestamp(String sessionId) {
-        sessionRepository.findBySessionId(sessionId).ifPresent(session -> {
-            session.setUpdatedAt(java.time.LocalDateTime.now());
-            sessionRepository.save(session);
-        });
+        sessionRepository.query()
+                .where(AiSession::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst()
+                .ifPresent(session -> {
+                    session.setUpdatedAt(java.time.LocalDateTime.now());
+                    sessionRepository.save(session);
+                });
     }
 
     /**

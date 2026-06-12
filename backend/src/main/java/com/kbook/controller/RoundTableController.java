@@ -165,6 +165,6 @@ public class RoundTableController extends BaseController {
     @Operation(summary = "刷新覆盖度")
     @PostMapping("/sessions/{sessionId}/coverage/refresh")
     public Result<RoundTableCoverage> refreshCoverage(@PathVariable String sessionId) {
-        return Result.ok(coverageService.updateCoverage(sessionId));
+        return Result.ok(coverageService.updateCoverage(sessionId, false));
     }
 }

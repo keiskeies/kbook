@@ -1,5 +1,6 @@
 package com.kbook.entity;
 
+import com.kbook.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -127,6 +128,11 @@ public class RoundTableCoverage extends BaseEntity {
     @Column(name = "processed_message_count")
     @Builder.Default
     private Integer processedMessageCount = 0;
+
+    /** 上次 LLM 评估时的消息数（用于频控：每凑一轮跑一次） */
+    @Column(name = "llm_message_count")
+    @Builder.Default
+    private Integer llmMessageCount = 0;
 
     @Override
     public Long getId() {

@@ -11,6 +11,7 @@ import com.kbook.entity.ChatMessage;
 import com.kbook.entity.Conversation;
 import com.kbook.entity.UploadedFile;
 import com.kbook.entity.User;
+import com.kbook.entity.UserFollow;
 import com.kbook.repository.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +19,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import static com.kbook.common.util.QueryBuilder.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.IIOImage;
@@ -138,7 +141,10 @@ public class ChatService {
 
     /** 陌生人消息限制检查：未互关用户30天内只能发1条消息 */
     private void checkStrangerLimit(Long senderId, Long recipientId) {
-        boolean isFollowing = userFollowRepository.existsByFollowerIdAndFollowingId(senderId, recipientId);
+        boolean isFollowing = userFollowRepository.query()
+                .where(UserFollow::getFollowerId, eq(senderId))
+                .and(UserFollow::getFollowingId, eq(recipientId))
+                .exists();
         if (isFollowing) {
             return;
         }

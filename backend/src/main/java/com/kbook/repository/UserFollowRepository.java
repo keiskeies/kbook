@@ -1,7 +1,7 @@
 package com.kbook.repository;
 
+import com.kbook.common.repository.BaseRepository;
 import com.kbook.entity.UserFollow;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -9,23 +9,10 @@ import java.util.List;
 
 /**
  * 用户关注数据访问层
+ * <p>
+ * 简单查询统一使用 BaseRepository.query() 的 Fluent API
  */
 public interface UserFollowRepository extends BaseRepository<UserFollow, Long> {
-
-    /**
-     * 判断用户是否关注了指定用户
-     */
-    boolean existsByFollowerIdAndFollowingId(Long followerId, Long followingId);
-
-    /**
-     * 根据关注者和被关注者ID查询关注记录
-     */
-    java.util.Optional<UserFollow> findByFollowerIdAndFollowingId(Long followerId, Long followingId);
-
-    /**
-     * 取消关注指定用户
-     */
-    void deleteByFollowerIdAndFollowingId(Long followerId, Long followingId);
 
     /** 查询用户的关注列表（我关注了谁） */
     @Query("SELECT uf FROM UserFollow uf WHERE uf.followerId = :userId ORDER BY uf.createdAt DESC")

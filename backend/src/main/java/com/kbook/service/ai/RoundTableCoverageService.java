@@ -3,7 +3,6 @@ package com.kbook.service.ai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
-import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
@@ -12,24 +11,22 @@ import com.kbook.repository.BookRepository;
 import com.kbook.repository.RoundTableCoverageRepository;
 import com.kbook.repository.RoundTableMessageRepository;
 import com.kbook.repository.RoundTableSessionRepository;
-import com.kbook.service.book.BookService;
+import com.kbook.service.embedding.EmbeddingService;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import static com.kbook.common.util.QueryBuilder.eq;
 
 /**
  * 圆桌派覆盖度服务 — 从 RoundTableCoverageTest 提取的实时版
@@ -50,15 +47,10 @@ public class RoundTableCoverageService {
     private final RoundTableMessageRepository messageRepository;
     private final RoundTableSessionRepository sessionRepository;
     private final BookRepository bookRepository;
-    private final BookService bookService;
     private final ChatModelManager chatModelManager;
-    private final QdrantProperties qdrantProps;
+    private final EmbeddingService embeddingService;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
-
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(java.time.Duration.ofSeconds(30))
-            .build();
 
     /**
      * 内容块最大数量
@@ -79,13 +71,25 @@ public class RoundTableCoverageService {
      * 更新会话覆盖度（增量）。
      * <p>
      * 每次角色发言完成后调用，只处理新增消息。
+     * LLM 综合评估的频控策略：
+     * - forHost=true（HOST 发言前）：始终执行，确保覆盖度引导最新
+     * - forHost=false（非 HOST 发言后）：每凑够 roleCount 条新消息执行一次
+     *
+     * @param sessionId 会话ID
+     * @param forHost   是否为 HOST 发言前调用
      */
-    public RoundTableCoverage updateCoverage(String sessionId) {
+    public RoundTableCoverage updateCoverage(String sessionId, boolean forHost) {
         // 1. 加载已有覆盖度记录
-        RoundTableCoverage coverage = coverageRepository.findBySessionId(sessionId).orElse(null);
+        RoundTableCoverage coverage = coverageRepository.query()
+                .where(RoundTableCoverage::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst().orElse(null);
 
         // 2. 加载所有消息
-        List<RoundTableMessage> allMessages = messageRepository.findBySessionIdOrderByIdAsc(sessionId);
+        List<RoundTableMessage> allMessages = messageRepository.query()
+                .where(RoundTableMessage::getSessionId, eq(sessionId))
+                .orderBy(RoundTableMessage::getId)
+                .list();
         if (allMessages.isEmpty()) return coverage;
 
         // 3. 增量判断：已处理的消息数
@@ -120,7 +124,10 @@ public class RoundTableCoverageService {
                 : (double) conceptResult.covered.size() / conceptTags.size() * 100;
 
         // 10. 获取会话信息，计算最小轮次（角色数 × 2）
-        RoundTableSession session = sessionRepository.findBySessionId(sessionId).orElse(null);
+        RoundTableSession session = sessionRepository.query()
+                .where(RoundTableSession::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst().orElse(null);
         int roleCount = 4; // 默认4个角色
         if (session != null && session.getRoleKeys() != null && !session.getRoleKeys().isBlank()) {
             roleCount = session.getRoleKeys().split(",").length;
@@ -128,12 +135,21 @@ public class RoundTableCoverageService {
         int minRoundsForLlm = roleCount * 2;
 
         // 11. LLM 综合评估（消息 >= 角色数×2 条时执行，较慢）
+        // 频控：forHost（HOST 发言前）每次都跑；非 HOST 每 roleCount 条新消息跑一次
         LlmAssessmentResult llmResult = null;
         if (allMessages.size() >= minRoundsForLlm) {
-            try {
-                llmResult = runLlmAssessment(allMessages, book);
-            } catch (Exception e) {
-                log.warn("LLM 综合评估失败: sessionId={} - {}", sessionId, e.getMessage());
+            boolean shouldRunLlm = forHost;
+            if (!shouldRunLlm && coverage != null) {
+                int lastLlmCount = coverage.getLlmMessageCount() != null
+                        ? coverage.getLlmMessageCount() : 0;
+                shouldRunLlm = (allMessages.size() - lastLlmCount) >= roleCount;
+            }
+            if (shouldRunLlm) {
+                try {
+                    llmResult = runLlmAssessment(allMessages, book);
+                } catch (Exception e) {
+                    log.warn("LLM 综合评估失败: sessionId={} - {}", sessionId, e.getMessage());
+                }
             }
         }
 
@@ -180,6 +196,7 @@ public class RoundTableCoverageService {
                 coverage.setLlmWeaknessesJson(objectMapper.writeValueAsString(llmResult.weaknesses));
                 coverage.setLlmSuggestionsJson(objectMapper.writeValueAsString(llmResult.suggestions));
                 coverage.setLlmAssessmentScore(llmResult.assessmentScore);
+                coverage.setLlmMessageCount(allMessages.size());
             }
         } catch (Exception e) {
             log.warn("序列化覆盖度数据失败: {}", e.getMessage());
@@ -200,7 +217,10 @@ public class RoundTableCoverageService {
      * 让 HOST 能精准知道"该聊什么"和"哪里聊得不够"。
      */
     public String buildHostCoverageGuidance(String sessionId) {
-        RoundTableCoverage coverage = coverageRepository.findBySessionId(sessionId).orElse(null);
+        RoundTableCoverage coverage = coverageRepository.query()
+                .where(RoundTableCoverage::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst().orElse(null);
         if (coverage == null) return "";
 
         StringBuilder sb = new StringBuilder();
@@ -289,7 +309,10 @@ public class RoundTableCoverageService {
      * 获取会话覆盖度记录
      */
     public RoundTableCoverage getCoverage(String sessionId) {
-        return coverageRepository.findBySessionId(sessionId).orElse(null);
+        return coverageRepository.query()
+                .where(RoundTableCoverage::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst().orElse(null);
     }
 
     // ==================== 内容块构建（三层回退 + Redis 缓存） ====================
@@ -831,6 +854,7 @@ public class RoundTableCoverageService {
         }
     }
 
+
     private String buildDiscussionSummary(List<RoundTableMessage> messages) {
         StringBuilder sb = new StringBuilder();
         for (RoundTableMessage msg : messages) {
@@ -970,77 +994,12 @@ public class RoundTableCoverageService {
     }
 
     /**
-     * 从 Qdrant REST API scrolling 获取所有内容分块
+     * 从 EmbeddingService gRPC scroll 获取所有内容分块
      */
     private List<BookChunk> fetchAllBookChunks(Long bookId) {
-        List<BookChunk> chunks = new ArrayList<>();
-        String scrollUrl = "http://" + qdrantProps.getHost() + ":6333/collections/"
-                + qdrantProps.getContentCollection() + "/points/scroll";
-
-        try {
-            ObjectMapper localMapper = new ObjectMapper();
-            String offset = null;
-
-            do {
-                Map<String, Object> bodyMap = getStringObjectMap(bookId, offset);
-
-                HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
-                        .uri(URI.create(scrollUrl))
-                        .timeout(java.time.Duration.ofSeconds(30))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(localMapper.writeValueAsString(bodyMap)));
-                if (qdrantProps.getApiKey() != null && !qdrantProps.getApiKey().isBlank()) {
-                    reqBuilder.header("api-key", qdrantProps.getApiKey());
-                }
-
-                HttpResponse<String> response = httpClient.send(
-                        reqBuilder.build(), HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() != 200) break;
-
-                var result = localMapper.readTree(response.body()).get("result");
-                if (result == null) break;
-
-                var points = result.get("points");
-                if (points != null && points.isArray()) {
-                    for (var point : points) {
-                        var payload = point.get("payload");
-                        if (payload == null) continue;
-                        String text = payload.has("text_segment") ? payload.get("text_segment").asText()
-                                : payload.has("text") ? payload.get("text").asText() : "";
-                        if (!text.isBlank()) {
-                            chunks.add(new BookChunk(text, point.has("id") ? point.get("id").asLong() : 0));
-                        }
-                    }
-                }
-
-                var nextOffset = result.get("next_page_offset");
-                offset = (nextOffset != null && !nextOffset.isNull()) ? nextOffset.asText() : null;
-            } while (offset != null);
-        } catch (Exception e) {
-            log.warn("从 Qdrant 获取内容分块失败: bookId={} - {}", bookId, e.getMessage());
-        }
-        return chunks;
-    }
-
-    private static @org.jspecify.annotations.NonNull Map<String, Object> getStringObjectMap(Long bookId, String offset) {
-        Map<String, Object> bodyMap = new LinkedHashMap<>();
-        Map<String, Object> filterMap = new LinkedHashMap<>();
-        List<Map<String, Object>> mustList = new ArrayList<>();
-        Map<String, Object> fieldMap = new LinkedHashMap<>();
-        Map<String, Object> matchMap = new LinkedHashMap<>();
-        matchMap.put("value", bookId);
-        fieldMap.put("key", "bookId");
-        fieldMap.put("match", matchMap);
-        Map<String, Object> conditionMap = new LinkedHashMap<>();
-        conditionMap.put("field", fieldMap);
-        mustList.add(conditionMap);
-        filterMap.put("must", mustList);
-        bodyMap.put("filter", filterMap);
-        bodyMap.put("limit", 200);
-        bodyMap.put("with_payload", true);
-        bodyMap.put("with_vector", false);
-        if (offset != null) bodyMap.put("offset", offset);
-        return bodyMap;
+        return embeddingService.scrollAllContentChunks(bookId).stream()
+                .map(c -> new BookChunk(c.text(), c.pointId()))
+                .toList();
     }
 
 

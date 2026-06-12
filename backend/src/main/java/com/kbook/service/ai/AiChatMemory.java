@@ -2,6 +2,7 @@ package com.kbook.service.ai;
 
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
 import dev.langchain4j.data.message.AiMessage;
@@ -18,6 +19,8 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
+
+import static com.kbook.common.util.QueryBuilder.*;
 
 /**
  * LangChain4j ChatMemory 存储实现
@@ -104,7 +107,10 @@ public class AiChatMemory implements ChatMemoryStore {
         }
 
         // 先查 AiSession 获取 userId
-        var sessionOpt = sessionRepository.findBySessionId(sessionId);
+        var sessionOpt = sessionRepository.query()
+                .where(AiSession::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst();
         if (sessionOpt.isEmpty()) {
             log.debug("会话不存在: sessionId={}", sessionId);
             return new CopyOnWriteArrayList<>();

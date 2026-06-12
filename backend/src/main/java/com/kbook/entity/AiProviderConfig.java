@@ -1,6 +1,7 @@
 package com.kbook.entity;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.kbook.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;

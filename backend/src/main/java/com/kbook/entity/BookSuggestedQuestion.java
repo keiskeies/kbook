@@ -1,5 +1,6 @@
 package com.kbook.entity;
 
+import com.kbook.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;

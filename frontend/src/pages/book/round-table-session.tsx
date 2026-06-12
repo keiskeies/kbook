@@ -243,7 +243,7 @@ function SpeakStatsPanel({
                     style={{ width: `${pct}%`, backgroundColor: color }}
                   />
                 </div>
-                <span className="text-xs text-muted-foreground w-16 text-right">
+                <span className="text-xs text-muted-foreground w-32 text-right shrink-0 whitespace-nowrap">
                   {count}次 · {totalChars}字
                 </span>
               </div>
@@ -336,13 +336,19 @@ export default function RoundTableSessionPage() {
         }))
         setMessages(displayMessages)
         messagesRef.current = displayMessages
-        setCurrentRound(Math.floor(displayMessages.length / activeRolesRef.current.length) + 1)
+        const roleCount = activeRolesRef.current.length
+        setCurrentRound(roleCount > 0 ? Math.floor(displayMessages.length / roleCount) + 1 : 1)
       }
 
       const rolesRes = await getRoundTableRoles(bookIdNum!)
       const rolesData = (rolesRes as { data?: RoundTableRole[] })?.data ?? rolesRes as RoundTableRole[]
       if (Array.isArray(rolesData) && rolesData.length > 0) {
         activeRolesRef.current = rolesData.filter(r => r.selected)
+        // 角色加载后重新计算轮数（此时消息已在 messagesRef 中）
+        const roleCount = activeRolesRef.current.length
+        if (roleCount > 0) {
+          setCurrentRound(Math.floor(messagesRef.current.length / roleCount) + 1)
+        }
       }
 
       const bookRes = await getBook(bookIdNum!)
@@ -563,7 +569,9 @@ export default function RoundTableSessionPage() {
           enqueueTtsRef.current(currentContentRef.current, nextSpeaker, messagesRef.current.length)
         }
 
-        setCurrentRound(prev => prev + 1)
+        // 按实际消息数/角色数计算轮数（每轮所有角色各发言一次）
+        const roleCount = activeRolesRef.current.length
+        setCurrentRound(roleCount > 0 ? Math.floor(messagesRef.current.length / roleCount) + 1 : 1)
         setCoverageVersion(prev => prev + 1)
 
         setTimeout(() => {

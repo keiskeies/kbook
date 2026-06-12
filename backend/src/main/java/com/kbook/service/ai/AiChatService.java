@@ -27,6 +27,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.kbook.common.util.QueryBuilder.*;
+
 /**
  * AI 通用对话服务
  * <p>
@@ -326,7 +328,11 @@ public class AiChatService {
      * @return 按更新时间降序排列的会话列表
      */
     public List<AiSession> getSessions(Long userId) {
-        return sessionRepository.findByUserIdAndTypeOrderByUpdatedAtDesc(userId, TYPE);
+        return sessionRepository.query()
+                .where(AiSession::getUserId, eq(userId))
+                .and(AiSession::getType, eq(TYPE))
+                .orderByDesc(AiSession::getUpdatedAt)
+                .list();
     }
 
     /**
@@ -337,26 +343,37 @@ public class AiChatService {
     @Transactional
     public void deleteSession(Long userId, String sessionId) {
         conversationRepository.deleteByUserIdAndSessionId(userId, sessionId);
-        sessionRepository.deleteByUserIdAndSessionId(userId, sessionId);
+        sessionRepository.query()
+                .where(AiSession::getUserId, eq(userId))
+                .and(AiSession::getSessionId, eq(sessionId))
+                .list().forEach(sessionRepository::delete);
     }
 
     /** 确保会话记录存在，不存在则自动创建 */
     private void ensureSession(Long userId, String sessionId, String userMessage) {
-        sessionRepository.findBySessionId(sessionId).orElseGet(() -> {
-            String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
-            AiSession session = AiSession.builder()
-                    .userId(userId)
-                    .type(TYPE)
-                    .sessionId(sessionId)
-                    .title(title)
-                    .build();
-            return sessionRepository.save(session);
-        });
+        sessionRepository.query()
+                .where(AiSession::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst()
+                .orElseGet(() -> {
+                    String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
+                    AiSession session = AiSession.builder()
+                            .userId(userId)
+                            .type(TYPE)
+                            .sessionId(sessionId)
+                            .title(title)
+                            .build();
+                    return sessionRepository.save(session);
+                });
     }
 
     /** 更新会话的最后活跃时间 */
     private void updateSessionTimestamp(String sessionId) {
-        sessionRepository.findBySessionId(sessionId).ifPresent(session -> {
+        sessionRepository.query()
+                .where(AiSession::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst()
+                .ifPresent(session -> {
             session.setUpdatedAt(java.time.LocalDateTime.now());
             sessionRepository.save(session);
         });

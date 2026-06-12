@@ -1,16 +1,12 @@
 package com.kbook.repository;
 
+import com.kbook.common.repository.BaseRepository;
 import com.kbook.entity.RoundTableCoverage;
-
-import java.util.Optional;
 
 /**
  * 圆桌派覆盖度数据访问层
+ * <p>
+ * 查询统一使用 BaseRepository.query() 的 Fluent API
  */
 public interface RoundTableCoverageRepository extends BaseRepository<RoundTableCoverage, Long> {
-
-    /**
-     * 根据会话ID查询覆盖度记录
-     */
-    Optional<RoundTableCoverage> findBySessionId(String sessionId);
 }
