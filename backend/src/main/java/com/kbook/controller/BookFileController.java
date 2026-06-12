@@ -3,7 +3,7 @@ package com.kbook.controller;
 import com.kbook.common.api.Result;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.dto.admin.TextInfoResponse;
-import com.kbook.entity.Book;
+import com.kbook.dto.book.BookProjection;
 import com.kbook.service.book.BookService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -43,7 +43,7 @@ public class BookFileController {
             @PathVariable Long id,
             @RequestHeader(value = "Range", required = false) String rangeHeader) {
 
-        Book book = bookService.getBookById(id);
+        BookProjection book = bookService.getBookProjectionById(id);
 
         if (book.getFileUrl() == null || book.getFileUrl().isEmpty()) {
             throw new BusinessException("图书文件不存在");
@@ -99,7 +99,7 @@ public class BookFileController {
      */
     @GetMapping(value = "/{id}/text-info", produces = MediaType.APPLICATION_JSON_VALUE)
     public Result<TextInfoResponse> getBookTextInfo(@PathVariable Long id) {
-        Book book = bookService.getBookById(id);
+        BookProjection book = bookService.getBookProjectionById(id);
 
         if (!"TXT".equals(book.getFormat())) {
             throw new BusinessException("仅支持 TXT 格式");

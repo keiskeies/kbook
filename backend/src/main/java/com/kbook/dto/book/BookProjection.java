@@ -23,6 +23,14 @@ public class BookProjection {
     private String description;
     private String relevanceScores;
     private LocalDateTime createdAt;
+    private String conceptTags;
+    private String readerNeedTags;
+    private String targetReaderTags;
+    private String toc;
+    private Long ratingCount;
+    private Integer dimensionRatingCount;
+    private Boolean contentEmbedded;
+    private LocalDateTime updatedAt;
 
     public static BookProjection from(Book book) {
         return new BookProjection(
@@ -30,7 +38,10 @@ public class BookProjection {
                 book.getCoverUrl(), book.getFormat(), book.getFileSize(),
                 book.getFileUrl(), book.getFormatTags(), book.getRating(),
                 book.getReadCount(), book.getTotalUnits(),
-                book.getDescription(), book.getRelevanceScores(), book.getCreatedAt()
+                book.getDescription(), book.getRelevanceScores(), book.getCreatedAt(),
+                book.getConceptTags(), book.getReaderNeedTags(), book.getTargetReaderTags(),
+                book.getToc(), book.getRatingCount(), book.getDimensionRatingCount(),
+                book.getContentEmbedded(), book.getUpdatedAt()
         );
     }
 }

@@ -2,6 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.service.book.BookScanService;
@@ -193,15 +194,13 @@ public class BookAdminController {
      */
     @Operation(summary = "更新图书书名")
     @PutMapping("/{id}/title")
-    public Result<Book> updateBookTitle(@PathVariable Long id, @RequestBody Map<String, String> body) {
+    public Result<BookProjection> updateBookTitle(@PathVariable Long id, @RequestBody Map<String, String> body) {
         String title = body.get("title");
         if (title == null || title.isBlank()) {
             return Result.fail("书名不能为空");
         }
-        Book book = bookService.getBookById(id);
-        book.setTitle(title.trim());
-        bookService.updateBook(id, book);
-        return Result.ok(bookService.getBookById(id));
+        bookService.updateBook(id, Book.builder().title(title.trim()).build());
+        return Result.ok(bookService.getBookProjectionById(id));
     }
 
     /**
@@ -209,12 +208,10 @@ public class BookAdminController {
      */
     @Operation(summary = "更新图书作者")
     @PutMapping("/{id}/author")
-    public Result<Book> updateBookAuthor(@PathVariable Long id, @RequestBody Map<String, String> body) {
+    public Result<BookProjection> updateBookAuthor(@PathVariable Long id, @RequestBody Map<String, String> body) {
         String author = body.get("author");
-        Book book = bookService.getBookById(id);
-        book.setAuthor(author != null ? author.trim() : null);
-        bookService.updateBook(id, book);
-        return Result.ok(bookService.getBookById(id));
+        bookService.updateBook(id, Book.builder().author(author != null ? author.trim() : null).build());
+        return Result.ok(bookService.getBookProjectionById(id));
     }
 
     /**
@@ -222,10 +219,10 @@ public class BookAdminController {
      */
     @Operation(summary = "更新图书简介")
     @PutMapping("/{id}/description")
-    public Result<Book> updateBookDescription(@PathVariable Long id, @RequestBody Map<String, String> body) {
+    public Result<BookProjection> updateBookDescription(@PathVariable Long id, @RequestBody Map<String, String> body) {
         String description = body.get("description");
         bookService.updateDescription(id, description != null ? description.trim() : null);
-        return Result.ok(bookService.getBookById(id));
+        return Result.ok(bookService.getBookProjectionById(id));
     }
 
 

@@ -3,8 +3,8 @@ import com.kbook.service.notification.NotificationService;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
+import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.user.UserInfo;
-import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.service.auth.AuthService;
 import com.kbook.service.book.BookService;
@@ -209,9 +209,11 @@ public class AdminController {
         // 获取图书信息
         String bookTitle = "KBook";
         if (req.getBookId() != null) {
-            Book book = bookService.getBookById(req.getBookId());
-            if (book != null) {
+            try {
+                BookProjection book = bookService.getBookProjectionById(req.getBookId());
                 bookTitle = book.getTitle();
+            } catch (Exception e) {
+                // 图书不存在时使用默认标题
             }
         }
 

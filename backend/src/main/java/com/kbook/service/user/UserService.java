@@ -67,7 +67,7 @@ public class UserService {
      * @param id 用户ID
      * @return 用户实体
      */
-    @LogAction("获取用户详情")
+//    @LogAction("获取用户详情")
     public User getUserById(Long id) {
         User user = userRepository.findOneById(id);
         if (user == null) {

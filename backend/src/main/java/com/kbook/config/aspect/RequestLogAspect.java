@@ -12,17 +12,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ClassUtils;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.lang.reflect.Method;
 
 /**
- * 请求日志切面 — 自动记录所有 Controller 方法的入口和出口
+ * 请求日志切面 — 自动记录标注了 @Operation 的 Controller 方法的入口和出口
  * <p>
  * 使用 @Tag(name="模块名") + @Operation(summary="操作名") 组合为日志标识，
- * 格式：模块名-操作名（如：图书-获取详情）。无注解时回退到方法签名。
+ * 格式：模块名-操作名（如：图书-获取详情）。
  * <p>
  * 日志格式：
  * - 入口: 模块名-操作名 start-params: 参数摘要
@@ -33,30 +31,9 @@ import java.lang.reflect.Method;
 @Component
 public class RequestLogAspect {
 
-    /** 跳过日志记录的 URI 前缀（静态资源、文件下载等高频低价值请求） */
-    private static final String[] SKIP_URIS = {
-            "/books/{id}/file",
-            "/books/{id}/cover",
-            "/user/avatar/",
-            "/book-files/",
-            "/captcha/",
-            "/health",
-    };
-
-    @Around("execution(public * com.kbook.controller..*.*(..))")
+    @Around("@annotation(io.swagger.v3.oas.annotations.Operation)")
     public Object around(ProceedingJoinPoint pjp) throws Throwable {
         Logger log = LoggerFactory.getLogger(pjp.getTarget().getClass());
-
-        ServletRequestAttributes attrs =
-                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        HttpServletRequest request = attrs != null ? attrs.getRequest() : null;
-
-        String uri = request != null ? shortenUri(request.getRequestURI()) : "?";
-
-        // 跳过静态资源等低价值请求
-        if (shouldSkip(uri)) {
-            return pjp.proceed();
-        }
 
         String opName = resolveOpName(pjp);
         String params = extractParams(pjp);
@@ -110,15 +87,6 @@ public class RequestLogAspect {
         return action;
     }
 
-    /**
-     * 缩短 URI：去掉 /api 前缀，数字 ID 替换为 {id}
-     * /api/books/20572/speed-read/stream → /books/{id}/speed-read/stream
-     */
-    private String shortenUri(String uri) {
-        if (uri == null) return "?";
-        String s = uri.startsWith("/api") ? uri.substring(4) : uri;
-        return s.replaceAll("/\\d+", "/{id}");
-    }
 
     /**
      * 提取方法参数摘要，过滤掉 request/response/file 等不可序列化参数
@@ -147,13 +115,4 @@ public class RequestLogAspect {
         return s;
     }
 
-    /**
-     * 判断是否跳过该 URI 的日志记录
-     */
-    private boolean shouldSkip(String uri) {
-        for (String prefix : SKIP_URIS) {
-            if (uri.startsWith(prefix)) return true;
-        }
-        return false;
-    }
 }

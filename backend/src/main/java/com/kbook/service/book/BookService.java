@@ -69,7 +69,6 @@ public class BookService {
      */
     private static final long CACHE_TTL_HOURS = 72;
 
-    private static final String BOOK_CACHE_KEY_PREFIX = "book:detail:";
     private static final String BOOK_PROJ_CACHE_KEY_PREFIX = "book:proj:";
     private static final long CACHE_BASE_TTL_MINUTES = 30;
     private static final long CACHE_RANDOM_TTL_MINUTES = 10; // 防雪崩随机范围
@@ -156,41 +155,12 @@ public class BookService {
     }
 
     /**
-     * 获取图书详情（带 Redis 缓存，防穿透/雪崩）
+     * 获取图书详情（直接查库，完整实体包含摘要/目录等重字段）
      */
     @LogAction("获取图书详情")
     public Book getBookById(Long bookId) {
-        String cacheKey = BOOK_CACHE_KEY_PREFIX + bookId;
-        try {
-            // 1. 查缓存
-            String cachedJson = redisTemplate.opsForValue().get(cacheKey);
-            if (cachedJson != null) {
-                // 处理空值缓存
-                if ("NULL".equals(cachedJson)) {
-                    throw new BusinessException("图书不存在");
-                }
-                return objectMapper.readValue(cachedJson, Book.class);
-            }
-
-            // 2. 查数据库
-            Book book = bookRepository.findById(bookId)
-                    .orElseThrow(() -> new BusinessException("图书不存在"));
-
-            // 3. 写缓存 (基础 TTL + 随机 TTL 防雪崩)
-            long ttl = CACHE_BASE_TTL_MINUTES + ThreadLocalRandom.current().nextLong(CACHE_RANDOM_TTL_MINUTES);
-            String json = objectMapper.writeValueAsString(book);
-            redisTemplate.opsForValue().set(cacheKey, json, ttl, TimeUnit.MINUTES);
-
-            return book;
-        } catch (BusinessException e) {
-            // 业务异常直接抛出，不缓存
-            throw e;
-        } catch (Exception e) {
-            // 缓存异常降级，直接查库
-            log.warn("获取图书缓存失败，降级查库: bookId={}", bookId, e);
-            return bookRepository.findById(bookId)
-                    .orElseThrow(() -> new BusinessException("图书不存在"));
-        }
+        return bookRepository.findById(bookId)
+                .orElseThrow(() -> new BusinessException("图书不存在"));
     }
 
     /**
@@ -224,7 +194,6 @@ public class BookService {
      */
     private void evictBookCache(Long bookId) {
         try {
-            redisTemplate.delete(BOOK_CACHE_KEY_PREFIX + bookId);
             redisTemplate.delete(BOOK_PROJ_CACHE_KEY_PREFIX + bookId);
         } catch (Exception e) {
             log.warn("清除图书缓存失败: bookId={}", bookId, e);
@@ -272,6 +241,7 @@ public class BookService {
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
         Book saved = bookRepository.save(book);
+        TransactionUtils.afterCommit(() -> evictBookCache(id));
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
     /**
@@ -298,6 +268,7 @@ public class BookService {
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
         Book saved = bookRepository.save(book);
+        TransactionUtils.afterCommit(() -> evictBookCache(id));
         log.info("图书ALL更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
 
@@ -340,6 +311,7 @@ public class BookService {
             String coverUrl = "/api/books/cover/" + tempFileName;
             book.setCoverUrl(coverUrl);
             Book saved = bookRepository.save(book);
+            TransactionUtils.afterCommit(() -> evictBookCache(bookId));
 
             log.info("封面更新成功: bookId={}, path={}", bookId, coverPath);
             return saved;
@@ -452,6 +424,7 @@ public class BookService {
         Book book = getBookById(bookId);
         book.setReadCount(book.getReadCount() + 1);
         Book saved = bookRepository.save(book);
+        TransactionUtils.afterCommit(() -> evictBookCache(bookId));
         log.debug("阅读计数增加: bookId={}, readCount={}", bookId, saved.getReadCount());
     }
 
@@ -466,7 +439,9 @@ public class BookService {
                 .map(t -> "\"" + t + "\"")
                 .collect(Collectors.joining(",", "[", "]"));
         book.setFormatTags(tagsJson);
-        return bookRepository.save(book);
+        Book saved = bookRepository.save(book);
+        TransactionUtils.afterCommit(() -> evictBookCache(bookId));
+        return saved;
     }
 
     /**
@@ -478,6 +453,7 @@ public class BookService {
         Book book = getBookById(bookId);
         book.setRelevanceScores(scoresJson);
         bookRepository.save(book);
+        TransactionUtils.afterCommit(() -> evictBookCache(bookId));
     }
 
     /**
@@ -494,6 +470,7 @@ public class BookService {
         Book book = getBookById(bookId);
         book.setRating(rating);
         bookRepository.save(book);
+        TransactionUtils.afterCommit(() -> evictBookCache(bookId));
         log.info("AI 初始评分: bookId={}, rating={}", bookId, rating);
     }
 
@@ -514,6 +491,7 @@ public class BookService {
         book.setCoverUrl(coverUrl);
 
         bookRepository.save(book);
+        TransactionUtils.afterCommit(() -> evictBookCache(bookId));
 
         log.info("图书封面图片: bookId={}, coverUrl={}", bookId, coverUrl);
     }
@@ -546,11 +524,12 @@ public class BookService {
             book.setRating(newRating);
         }
         book.setRatingCount(userCount + 1);
-
         Book saved = bookRepository.save(book);
+        TransactionUtils.afterCommit(() -> evictBookCache(bookId));
         log.info("用户评分: bookId={}, newRating={}, userCount={}", bookId, saved.getRating(), saved.getRatingCount());
         return saved;
     }
+
 
 
     /**
@@ -562,6 +541,7 @@ public class BookService {
         Book book = getBookById(bookId);
         book.setDescription(description);
         bookRepository.save(book);
+        TransactionUtils.afterCommit(() -> evictBookCache(bookId));
     }
 
     /**
@@ -612,6 +592,7 @@ public class BookService {
         }
 
         int count = 0;
+        List<Long> deletedIds = new ArrayList<>();
         for (Book book : books) {
             try {
                 // 删除封面
@@ -622,6 +603,7 @@ public class BookService {
                 // 删除 JPA + ES
                 bookRepository.deleteById(book.getId());
                 bookSearchService.deleteIndex(book.getId());
+                deletedIds.add(book.getId());
                 count++;
             } catch (Exception e) {
                 log.error("删除书籍失败: id={}, title={} - {}", book.getId(), book.getTitle(), e.getMessage());
@@ -629,7 +611,11 @@ public class BookService {
         }
 
         // 事务提交后清除缓存
-        TransactionUtils.afterCommit(this::clearBookRelatedCache);
+        List<Long> ids = deletedIds;
+        TransactionUtils.afterCommit(() -> {
+            clearBookRelatedCache();
+            ids.forEach(this::evictBookCache);
+        });
         log.info("按作者删除书籍完成: author={}, deleted={}", author, count);
         return count;
     }

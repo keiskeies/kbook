@@ -4,7 +4,6 @@ import com.kbook.common.api.Result;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.recommend.MatchScoreDetailVO;
 import com.kbook.dto.recommend.RecommendedItem;
-import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
@@ -110,7 +109,7 @@ public class RecommendController {
      * 批量获取规则匹配分（轻量级，基于用户画像+书籍relevanceScores）
      * 用于在图书列表中展示"与你的匹配度"
      */
-    @Operation(summary = "批量获取匹配分")
+//    @Operation(summary = "批量获取匹配分")
     @GetMapping("/match-scores")
     public Result<Map<Long, Double>> getMatchScores(
             Authentication authentication,
@@ -127,11 +126,10 @@ public class RecommendController {
             @PathVariable Long bookId) {
         Long userId = (Long) authentication.getPrincipal();
         User user = userService.getUserById(userId);
-        Book book = bookService.getBookById(bookId);
-        if (book == null) {
+        BookProjection bp = bookService.getBookProjectionById(bookId);
+        if (bp == null) {
             return Result.fail("图书不存在");
         }
-        BookProjection bp = BookProjection.from(book);
         MatchScoreDetailVO detail = RecommendMatchCalculator.calculateMatchScoreDetail(
                 user, bp, coefficientService, objectMapper, dimensionStatsService);
         double fullScore = recommendService.computeFullScore(user, bp, userId);

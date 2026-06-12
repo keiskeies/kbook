@@ -15,9 +15,10 @@ import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.AiConversation;
-import com.kbook.entity.AiSession;
 import com.kbook.entity.Book;
+import com.kbook.entity.AiSession;
 import com.kbook.entity.BookSuggestedQuestion;
 import com.kbook.entity.User;
 import com.kbook.repository.AiConversationRepository;
@@ -119,7 +120,7 @@ public class BookChatService {
      * @param book 书籍实体
      * @return 推荐问题列表
      */
-    private List<String> getSuggestedQuestionsForBook(Book book) {
+    private List<String> getSuggestedQuestionsForBook(BookProjection book) {
         if (book.getFormatTags() == null || book.getFormatTags().isBlank()) {
             return BookTagQuestions.getQuestions(null);
         }
@@ -161,11 +162,12 @@ public class BookChatService {
 
         questionGenService.asyncGenerateQuestions(bookId);
 
-        Book book = bookService.getBookById(bookId);
-        if (book == null) {
+        try {
+            BookProjection book = bookService.getBookProjectionById(bookId);
+            return getSuggestedQuestionsForBook(book);
+        } catch (Exception e) {
             return BookTagQuestions.getQuestions(null);
         }
-        return getSuggestedQuestionsForBook(book);
     }
 
     /**

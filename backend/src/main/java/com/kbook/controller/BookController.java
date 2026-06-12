@@ -84,8 +84,8 @@ public class BookController {
      */
     @Operation(summary = "获取图书详情")
     @GetMapping("/{id}")
-    public Result<Book> getBook(@PathVariable Long id) {
-        return Result.ok(bookService.getBookById(id));
+    public Result<BookProjection> getBook(@PathVariable Long id) {
+        return Result.ok(bookService.getBookProjectionById(id));
     }
 
     /**

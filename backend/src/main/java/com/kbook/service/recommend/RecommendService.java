@@ -98,7 +98,7 @@ public class RecommendService {
      * @param bookIds 书籍ID列表
      * @return bookId → 匹配度得分 的映射
      */
-    @LogAction("批量计算匹配度")
+//    @LogAction("批量计算匹配度")
     public Map<Long, Double> batchCalculateMatchScores(Long userId, List<Long> bookIds) {
         if (bookIds == null || bookIds.isEmpty()) return Map.of();
 
