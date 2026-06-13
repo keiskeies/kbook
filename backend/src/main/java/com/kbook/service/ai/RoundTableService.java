@@ -860,8 +860,14 @@ public class RoundTableService {
                 }
                 boolean isOpening = historyMessages.isEmpty();
 
-                // 构建系统提示词（含语言风格和性格维度）
+                // 构建系统提示词（仅共享规则）
                 String systemPrompt = buildCharacterSystemPrompt(role, domainRelevance, request.getTopic(), languageStyle, isOpening);
+
+                // 构建角色设定 UserMessage（每个角色不同，KV 缓存在此处分叉）
+                String roleSetting = buildRoleSettingPrompt(role, domainRelevance, languageStyle);
+
+                // 构建额外指令（话题方向 / 开场引导）
+                String extraInstructions = buildExtraInstructions(role, request.getTopic(), isOpening);
 
                 // 构建书籍上下文（静态信息）和 RAG 内容（每次变化）
                 String bookInfo = book != null ? buildBookInfo(book) : "";
@@ -899,9 +905,9 @@ public class RoundTableService {
                     }
                 }
 
-                // 消息顺序：SystemMessage(角色提示) → UserMessage(书籍信息) → History → UserMessage(RAG/覆盖度) → UserMessage(发言指令)
+                // 消息顺序：SystemMessage(规则) → UserMessage(书籍信息) → History → UserMessage(RAG) → UserMessage(角色设定) → UserMessage(发言指令)
                 List<ChatMessage> messages = buildChatMessages(
-                        request.getSessionId(), userId, systemPrompt, bookInfo, ragContent, role.getName());
+                        request.getSessionId(), userId, systemPrompt, bookInfo, ragContent, roleSetting, extraInstructions, role.getName());
 
                 // 构建流式模型（不使用 thinking 模式）
                 StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
@@ -1051,29 +1057,29 @@ public class RoundTableService {
      */
     private String buildCharacterSystemPrompt(RoundTableRole role, int domainRelevance, String topic, String languageStyle, boolean isOpening) {
         if (role == RoundTableRole.HOST) {
+            return AiPromptConstants.ROUND_TABLE_HOST_PROMPT;
+        } else {
+            return AiPromptConstants.ROUND_TABLE_CHARACTER_PROMPT;
+        }
+    }
+
+    /**
+     * 构建角色设定 UserMessage（包含人设核心、说话方式、风格、性格参数）
+     * 此部分每个角色不同，KV 缓存在此处分叉
+     */
+    private String buildRoleSettingPrompt(RoundTableRole role, int domainRelevance, String languageStyle) {
+        if (role == RoundTableRole.HOST) {
             String hostStyle = (languageStyle != null && !languageStyle.isBlank()) ? languageStyle : "沉稳大方，善于引导和总结";
-            String extraInstructions;
-            if (topic != null && !topic.isBlank()) {
-                extraInstructions = "【话题方向】\n请围绕以下方向引导讨论：" + topic;
-            } else if (isOpening) {
-                extraInstructions = "【开场（第一轮）】这是圆桌派讨论的开场。你作为主持人，最重要的任务是做开场介绍："
-                        + "首先欢迎各位嘉宾，然后简要介绍今天要讨论的书籍的核心主题和为什么值得讨论，"
-                        + "最后向嘉宾抛出第一个讨论问题。此指令优先于「每次发言必须引入新主题」。";
-            } else {
-                extraInstructions = "请回顾之前的对话。如果讨论陷入僵局、重复或钻牛角尖，请果断抛出一个新的话题或角度来激发讨论。如果讨论还在正常进行，可以简短回应或向某位嘉宾提问。";
-            }
-            return String.format(AiPromptConstants.ROUND_TABLE_HOST_PROMPT,
+            return String.format(AiPromptConstants.ROUND_TABLE_ROLE_SETTING_HOST,
                     hostStyle,
                     role.getChallenge(), describeChallenge(role.getChallenge()),
                     role.getEmpathy(), describeEmpathy(role.getEmpathy()),
                     role.getOpinionated(), describeOpinionated(role.getOpinionated()),
-                    role.getVerbosity(), describeVerbosity(role.getVerbosity()),
-                    extraInstructions);
+                    role.getVerbosity(), describeVerbosity(role.getVerbosity()));
         } else {
             String charStyle = (languageStyle != null && !languageStyle.isBlank()) ? languageStyle : "自然流畅，符合你的专业身份";
-            String extraInstructions = "";
             String catchphrase = role.getCatchphrase() != null ? role.getCatchphrase() : "用你自己的方式表达，保持自然";
-            return String.format(AiPromptConstants.ROUND_TABLE_CHARACTER_PROMPT,
+            return String.format(AiPromptConstants.ROUND_TABLE_ROLE_SETTING_GUEST,
                     role.getPrompt(),
                     catchphrase,
                     charStyle,
@@ -1082,9 +1088,26 @@ public class RoundTableService {
                     role.getOpinionated(), describeOpinionated(role.getOpinionated()),
                     role.getVerbosity(), describeVerbosity(role.getVerbosity()),
                     role.getHumor(), describeHumor(role.getHumor()),
-                    domainRelevance, describeDomainRelevance(domainRelevance),
-                    extraInstructions);
+                    domainRelevance, describeDomainRelevance(domainRelevance));
         }
+    }
+
+    /**
+     * 构建额外指令（话题方向 / 开场引导 / 覆盖度），作为发言指令的前缀
+     */
+    private String buildExtraInstructions(RoundTableRole role, String topic, boolean isOpening) {
+        if (role == RoundTableRole.HOST) {
+            if (topic != null && !topic.isBlank()) {
+                return "【话题方向】\n请围绕以下方向引导讨论：" + topic;
+            } else if (isOpening) {
+                return "【开场（第一轮）】这是圆桌派讨论的开场。你作为主持人，最重要的任务是做开场介绍："
+                        + "首先欢迎各位嘉宾，然后简要介绍今天要讨论的书籍的核心主题和为什么值得讨论，"
+                        + "最后向嘉宾抛出第一个讨论问题。此指令优先于「每次发言必须引入新主题」。";
+            } else {
+                return "请回顾之前的对话。如果讨论陷入僵局、重复或钻牛角尖，请果断抛出一个新的话题或角度来激发讨论。如果讨论还在正常进行，可以简短回应或向某位嘉宾提问。";
+            }
+        }
+        return "";
     }
 
     /**
@@ -1189,13 +1212,15 @@ public class RoundTableService {
 
     /**
      * 构建消息列表，顺序优化 KV Cache：
-     * SystemMessage(角色提示) → UserMessage(书籍信息) → 历史对话 → UserMessage(RAG/覆盖度) → UserMessage(发言指令)
+     * SystemMessage(共享规则) → UserMessage(书籍信息) → 历史对话 → UserMessage(角色设定，角色内稳定)
+     * → UserMessage(RAG，每次不同) → UserMessage(额外指令+发言指令)
      */
     private List<ChatMessage> buildChatMessages(String sessionId, Long userId,
-                                                String systemPrompt, String bookInfo, String ragContent, String roleName) {
+                                                String systemPrompt, String bookInfo, String ragContent,
+                                                String roleSetting, String extraInstructions, String roleName) {
         List<ChatMessage> messages = new ArrayList<>();
 
-        // 1. 系统提示词（角色人设 + 性格参数 + 发言规则）
+        // 1. 系统提示词（仅共享规则）
         messages.add(SystemMessage.from(systemPrompt));
 
         // 2. 静态书籍基础信息（跨会话共享 KV Cache 前缀）
@@ -1215,6 +1240,8 @@ public class RoundTableService {
         int currentOverhead = systemPrompt.length()
                 + (bookInfo != null ? bookInfo.length() : 0)
                 + (ragContent != null ? ragContent.length() : 0)
+                + (roleSetting != null ? roleSetting.length() : 0)
+                + (extraInstructions != null ? extraInstructions.length() : 0)
                 + speakInstruction.length()
                 + 2000;
         try {
@@ -1251,27 +1278,54 @@ public class RoundTableService {
                 // 3. 历史对话
                 messages.add(UserMessage.from(historyBuilder.toString()));
 
-                // 4. RAG 内容或覆盖度引导（每次变化，放在历史后面以分离动态部分）
+                // 4. 角色设定（每个角色不同 — 角色内稳定，放在 RAG 前以复用缓存）
+                if (roleSetting != null && !roleSetting.isBlank()) {
+                    messages.add(UserMessage.from(roleSetting));
+                }
+
+                // 5. RAG 内容或覆盖度引导（每次变化，放在最后以最小化缓存失效）
                 if (ragContent != null && !ragContent.isBlank()) {
                     messages.add(UserMessage.from("【书籍参考内容】\n" + ragContent));
                 }
 
-                // 5. 发言指令
-                messages.add(UserMessage.from(speakInstruction));
+                // 6. 发言指令（含额外指令）
+                StringBuilder finalInstruction = new StringBuilder();
+                if (extraInstructions != null && !extraInstructions.isBlank()) {
+                    finalInstruction.append(extraInstructions).append("\n\n");
+                }
+                finalInstruction.append(speakInstruction);
+                messages.add(UserMessage.from(finalInstruction.toString()));
 
                 log.debug("加载圆桌派历史: sessionId={}, totalRecords={}", sessionId, history.size());
             } else {
+                // 无历史：书籍信息 → 角色设定 → RAG → 发言指令
+                if (roleSetting != null && !roleSetting.isBlank()) {
+                    messages.add(UserMessage.from(roleSetting));
+                }
                 if (ragContent != null && !ragContent.isBlank()) {
                     messages.add(UserMessage.from("【书籍参考内容】\n" + ragContent));
                 }
-                messages.add(UserMessage.from(speakInstruction));
+                StringBuilder finalInstruction = new StringBuilder();
+                if (extraInstructions != null && !extraInstructions.isBlank()) {
+                    finalInstruction.append(extraInstructions).append("\n\n");
+                }
+                finalInstruction.append(speakInstruction);
+                messages.add(UserMessage.from(finalInstruction.toString()));
             }
         } catch (Exception e) {
             log.warn("加载圆桌派历史失败，继续无历史对话: {}", e.getMessage());
+            if (roleSetting != null && !roleSetting.isBlank()) {
+                messages.add(UserMessage.from(roleSetting));
+            }
             if (ragContent != null && !ragContent.isBlank()) {
                 messages.add(UserMessage.from("【书籍参考内容】\n" + ragContent));
             }
-            messages.add(UserMessage.from(speakInstruction));
+            StringBuilder finalInstruction = new StringBuilder();
+            if (extraInstructions != null && !extraInstructions.isBlank()) {
+                finalInstruction.append(extraInstructions).append("\n\n");
+            }
+            finalInstruction.append(speakInstruction);
+            messages.add(UserMessage.from(finalInstruction.toString()));
         }
 
         return messages;

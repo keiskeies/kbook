@@ -1058,7 +1058,7 @@ export default function RoundTableSessionPage() {
           />
         )}
 
-        <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out ${showSidePanel ? 'w-80' : 'w-0'}`}>
+        <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out flex flex-col ${showSidePanel ? 'w-80' : 'w-0'}`}>
           <CoveragePanel
             sessionId={sessionId ?? null}
             open={showCoverage}

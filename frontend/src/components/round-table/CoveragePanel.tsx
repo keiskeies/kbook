@@ -97,7 +97,7 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
   const hasLlmData = Object.keys(llmDimensions).length > 0
 
   const content = (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* 头部 */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/20">
         <h3 className="text-xs font-bold flex items-center gap-1.5">
@@ -324,7 +324,7 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
   // PC: 右侧面板
   if (!isMobile) {
     return (
-      <div className="shrink-0 w-80 border-l border-border/20 bg-background/95 backdrop-blur-xl animate-in slide-in-from-right duration-200 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 w-80 border-l border-border/20 bg-background/95 backdrop-blur-xl animate-in slide-in-from-right duration-200 flex flex-col overflow-hidden">
         {content}
       </div>
     )

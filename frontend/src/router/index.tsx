@@ -31,6 +31,8 @@ const ChatListPage = lazy(() => import('@/pages/chat'))
 const ChatRoomPage = lazy(() => import('@/pages/chat/room'))
 const RoundTablePage = lazy(() => import('@/pages/book/round-table'))
 const RoundTableSessionPage = lazy(() => import('@/pages/book/round-table-session'))
+const DebatePage = lazy(() => import('@/pages/book/debate'))
+const DebateSessionPage = lazy(() => import('@/pages/book/debate-session'))
 const NotFoundPage = lazy(() => import('@/pages/not-found'))
 const OnboardingPage = lazy(() => import('@/pages/auth/onboarding'))
 const TermsPage = lazy(() => import('@/pages/legal/terms'))
@@ -66,6 +68,8 @@ export const router = createBrowserRouter([
       { path: ROUTES.CHAT_ROOM, element: <LazyLoad><ChatRoomPage /></LazyLoad> },
       { path: ROUTES.ROUND_TABLE, element: <LazyLoad><RoundTablePage /></LazyLoad> },
       { path: ROUTES.ROUND_TABLE_SESSION, element: <LazyLoad><RoundTableSessionPage /></LazyLoad> },
+      { path: ROUTES.DEBATE, element: <LazyLoad><DebatePage /></LazyLoad> },
+      { path: ROUTES.DEBATE_SESSION, element: <LazyLoad><DebateSessionPage /></LazyLoad> },
       { path: ROUTES.CHANGE_PASSWORD, element: <LazyLoad><ChangePasswordPage /></LazyLoad> },
       { path: '/onboarding', element: <LazyLoad><OnboardingPage /></LazyLoad> },
       { path: ROUTES.ADMIN_REVIEW, element: <AdminGuard><LazyLoad><AdminReviewPage /></LazyLoad></AdminGuard> },

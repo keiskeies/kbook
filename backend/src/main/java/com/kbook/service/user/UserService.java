@@ -1,5 +1,6 @@
 package com.kbook.service.user;
 import com.kbook.service.auth.AuthService;
+import com.kbook.service.notification.EmailNotificationService;
 
 import com.kbook.service.recommend.RecommendService;
 
@@ -61,6 +62,10 @@ public class UserService {
     @Autowired
     @Lazy
     private RecommendService recommendService;
+    /** 邮件通知服务（@Lazy 避免循环依赖） */
+    @Autowired
+    @Lazy
+    private EmailNotificationService emailNotificationService;
 
     /**
      * 根据ID获取用户，不存在则抛出异常
@@ -150,6 +155,8 @@ public class UserService {
         user.setStatus("APPROVED");
         userRepository.save(user);
         log.info("用户审核通过: userId={}", userId);
+        // 异步发送审核通过邮件通知
+        emailNotificationService.sendAccountApprovedEmail(user.getEmail(), user.getNickname());
     }
 
     /**
@@ -165,6 +172,7 @@ public class UserService {
         for (User user : users) {
             if ("PENDING".equals(user.getStatus())) {
                 user.setStatus("APPROVED");
+                emailNotificationService.sendAccountApprovedEmail(user.getEmail(), user.getNickname());
                 count++;
             }
         }
@@ -184,6 +192,8 @@ public class UserService {
         user.setStatus("BANNED");
         userRepository.save(user);
         log.info("用户审核拒绝: userId={}", userId);
+        // 异步发送账号封禁邮件通知
+        emailNotificationService.sendAccountBannedEmail(user.getEmail(), user.getNickname());
     }
 
     /**
@@ -195,7 +205,10 @@ public class UserService {
     @LogAction("批量审核拒绝")
     public int batchReject(List<Long> userIds) {
         List<User> users = userRepository.findListByIds(userIds);
-        users.forEach(user -> user.setStatus("BANNED"));
+        users.forEach(user -> {
+            user.setStatus("BANNED");
+            emailNotificationService.sendAccountBannedEmail(user.getEmail(), user.getNickname());
+        });
         userRepository.saveAll(users);
         log.info("批量审核拒绝: count={}", users.size());
         return users.size();
@@ -216,6 +229,8 @@ public class UserService {
         user.setStatus("APPROVED");
         userRepository.save(user);
         log.info("用户解封: userId={}", userId);
+        // 异步发送账号解封邮件通知
+        emailNotificationService.sendAccountUnbannedEmail(user.getEmail(), user.getNickname());
     }
 
     /**
@@ -233,6 +248,8 @@ public class UserService {
         user.setStatus("BANNED");
         userRepository.save(user);
         log.info("用户被封禁: userId={}", userId);
+        // 异步发送账号封禁邮件通知
+        emailNotificationService.sendAccountBannedEmail(user.getEmail(), user.getNickname());
     }
 
     /**

@@ -576,6 +576,13 @@ export default function BookDetailPage() {
           <Users className="h-4 w-4" />
           圆桌派
         </button>
+        <button
+          onClick={() => navigate(`/book/${book.id}/debate`)}
+          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-sm font-semibold text-white hover:from-orange-500 hover:to-orange-600 transition-colors shadow-lg shadow-orange-500/25"
+        >
+          <MessageSquare className="h-4 w-4" />
+          奇葩说
+        </button>
       </header>
 
       {/* 内容区域 - 移动端单列 / PC端双栏 */}
