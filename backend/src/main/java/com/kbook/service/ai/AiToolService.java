@@ -96,13 +96,8 @@ public class AiToolService {
             if (result.getList().isEmpty()) {
                 return "没有找到相关图书。";
             }
-            List<BookDocument> sorted = new ArrayList<>(result.getList());
-            sorted.sort((a, b) -> {
-                double ra = a.getRating() != null ? a.getRating() : 0.0;
-                double rb = b.getRating() != null ? b.getRating() : 0.0;
-                return Double.compare(rb, ra);
-            });
-            return sorted.stream()
+            List<BookDocument> list = result.getList();
+            return list.stream()
                     .peek(b -> recordBook(b.getTitle(), b.getId()))
                     .map(b -> {
                         StringBuilder entry = new StringBuilder();

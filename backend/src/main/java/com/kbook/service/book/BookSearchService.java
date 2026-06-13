@@ -286,11 +286,12 @@ public class BookSearchService {
 
     /**
      * ES 关键词召回，返回 bookId → rank
+     * 使用 searchForRecall（function_score 加权评分+阅读量），使得高分/热门书籍排名更靠前
      */
     private Map<Long, Integer> esKeywordRecall(String keyword) {
         Map<Long, Integer> ranks = new LinkedHashMap<>();
         Pageable pageable = PageRequest.of(0, RECALL_SIZE);
-        Page<BookDocument> result = searchRepository.searchWithHighlight(keyword, pageable);
+        Page<BookDocument> result = searchRepository.searchForRecall(keyword, pageable);
 
         List<BookDocument> docs = result.getContent();
         for (int i = 0; i < docs.size(); i++) {
@@ -551,6 +552,9 @@ public class BookSearchService {
                 .rating(book.getRating())
                 .totalUnits(book.getTotalUnits())
                 .fileUrl(book.getFileUrl())
+                .conceptTags(book.getConceptTags())
+                .readerNeedTags(book.getReaderNeedTags())
+                .targetReaderTags(book.getTargetReaderTags())
                 .createdAt(book.getCreatedAt() != null ? book.getCreatedAt().toEpochSecond(java.time.ZoneOffset.of("+8")) : 0L)
                 .build();
     }
@@ -569,6 +573,9 @@ public class BookSearchService {
                 .rating(book.getRating())
                 .totalUnits(book.getTotalUnits())
                 .fileUrl(book.getFileUrl())
+                .conceptTags(book.getConceptTags())
+                .readerNeedTags(book.getReaderNeedTags())
+                .targetReaderTags(book.getTargetReaderTags())
                 .createdAt(book.getCreatedAt() != null ? book.getCreatedAt().toEpochSecond(java.time.ZoneOffset.of("+8")) : 0L)
                 .build();
     }

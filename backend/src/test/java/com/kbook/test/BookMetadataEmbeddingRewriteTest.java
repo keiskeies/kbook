@@ -35,7 +35,7 @@ public class BookMetadataEmbeddingRewriteTest {
             return;
         }
 
-        List<Book> allBooks = bookRepository.findAll();
+        List<Book> allBooks = bookRepository.findAllByOrderByRatingDesc();
         int total = allBooks.size();
         System.out.println("========== 重写图书元数据向量 ==========");
         System.out.println("总图书数: " + total);

@@ -1603,26 +1603,17 @@ public class EmbeddingService {
         }
 
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            String desc = book.getDescription().length() > 1500
-                    ? book.getDescription().substring(0, 1500)
-                    : book.getDescription();
-            sb.append("简介:").append(desc).append(";");
+            sb.append("简介:").append(book.getDescription()).append(";");
         } else {
             sb.append("简介:;");
         }
 
-        String summary = bookService.resolveBookSummary(book);
-        if (summary != null && !summary.isBlank()) {
-            String truncated = summary.length() > 500
-                    ? summary.substring(0, 500)
-                    : summary;
-            sb.append("摘要:").append(truncated).append(";");
-        } else if (book.getToc() != null && !book.getToc().isBlank()) {
-            String toc = book.getToc().length() > 800
-                    ? book.getToc().substring(0, 800)
-                    : book.getToc();
-            sb.append("目录:").append(toc).append(";");
-        }
+//        String summary = bookService.resolveBookSummary(book);
+//        if (summary != null && !summary.isBlank()) {
+//            sb.append("摘要:").append(summary).append(";");
+//        } else if (book.getToc() != null && !book.getToc().isBlank()) {
+//            sb.append("目录:").append(book.getToc()).append(";");
+//        }
 
         return sb.toString();
     }

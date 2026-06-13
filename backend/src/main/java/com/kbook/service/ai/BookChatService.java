@@ -810,6 +810,16 @@ public class BookChatService {
             String tags = book.getTargetReaderTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
             sb.append("目标读者：").append(tags).append("\n");
         }
+        if (book.getRating() != null) {
+            sb.append("评分：").append(String.format("%.1f", book.getRating()));
+            if (book.getRatingCount() != null && book.getRatingCount() > 0) {
+                sb.append("（").append(book.getRatingCount()).append("人评分）");
+            }
+            sb.append("\n");
+        }
+        if (book.getReadCount() != null && book.getReadCount() > 0) {
+            sb.append("阅读量：").append(book.getReadCount()).append("次\n");
+        }
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
             sb.append("简介：").append(book.getDescription()).append("\n");
         }

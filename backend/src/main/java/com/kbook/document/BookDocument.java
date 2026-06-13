@@ -65,6 +65,18 @@ public class BookDocument {
     @Field(type = FieldType.Long, index = false)
     private Long totalUnits;
 
+    /** 核心概念标签（AI 生成） */
+    @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
+    private String conceptTags;
+
+    /** 读者需求标签（AI 生成） */
+    @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
+    private String readerNeedTags;
+
+    /** 目标读者标签（AI 生成） */
+    @Field(type = FieldType.Text, analyzer = "ik_max_word", searchAnalyzer = "ik_smart")
+    private String targetReaderTags;
+
     /** 文件路径 */
     @Field(type = FieldType.Keyword, index = false)
     private String fileUrl;
