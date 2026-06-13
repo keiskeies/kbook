@@ -89,7 +89,7 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
             评分面板
           </h3>
           {!isMobile && (
-            <button onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground">关闭</button>
+            <button onClick={onClose} className="text-[11px] text-muted-foreground hover:text-foreground">关闭</button>
           )}
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -109,7 +109,7 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
         <div className="flex items-center gap-1">
           <button
             onClick={() => onRefresh?.()}
-            className="text-[10px] text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted transition-colors flex items-center gap-0.5"
+            className="text-[11px] text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted transition-colors flex items-center gap-0.5"
           >
             <RefreshCw className="h-3 w-3" />
             <span className="hidden sm:inline">刷新</span>
@@ -129,7 +129,7 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
                 <div key={d.key} className="text-xs">
                   <div className="flex justify-between mb-0.5">
                     <span className="font-medium">{d.label}</span>
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-[11px] text-muted-foreground">
                       正{d.score.toFixed(1)} / 反{conScore.toFixed(1)}
                     </span>
                   </div>
@@ -156,7 +156,7 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
             <h4 className="text-xs font-bold text-muted-foreground">角色评分汇总</h4>
             <button
               onClick={() => setSortBy(sortBy === 'position' ? 'score' : 'position')}
-              className={`flex items-center gap-0.5 text-[10px] p-1 rounded transition-colors ${
+              className={`flex items-center gap-0.5 text-[11px] p-1 rounded transition-colors ${
                 sortBy === 'score' ? 'bg-brand-100 text-brand-500' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -176,14 +176,14 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
                   <div className="space-y-1">
                     {role.dims.map(d => (
                       <div key={d.key} className="flex items-center gap-2">
-                        <span className="text-[10px] w-16 shrink-0 text-muted-foreground">{d.label}</span>
+                        <span className="text-[11px] w-16 shrink-0 text-muted-foreground">{d.label}</span>
                         <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all"
                             style={{ width: `${d.score * 10}%`, backgroundColor: d.color }}
                           />
                         </div>
-                        <span className="text-[10px] w-6 text-right text-muted-foreground tabular-nums">{d.score.toFixed(1)}</span>
+                        <span className="text-[11px] w-6 text-right text-muted-foreground tabular-nums">{d.score.toFixed(1)}</span>
                       </div>
                     ))}
                   </div>
