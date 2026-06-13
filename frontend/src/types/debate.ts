@@ -91,17 +91,17 @@ export interface DebateTopic {
 
 // ==================== 位置常量（PRO_1/CON_2/HOST — 用于颜色/图标/排序） ====================
 
-/** 位置 → 颜色映射 — 正方蓝/反方红/主持人金 */
+/** 位置 → 颜色映射 — 正方钢蓝/反方柔红/主持人品牌绿 */
 export const DEBATE_ROLE_COLORS: Record<string, string> = {
-  HOST: '#D4A843',      /* 金色 */
-  PRO_1: '#3B82F6',     /* 蓝色 — 正方一辩 */
-  PRO_2: '#2563EB',     /* 深蓝 — 正方二辩 */
-  PRO_3: '#1D4ED8',     /* 藏蓝 — 正方三辩 */
-  PRO_4: '#1E40AF',     /* 暗蓝 — 正方四辩 */
-  CON_1: '#EF4444',     /* 红色 — 反方一辩 */
-  CON_2: '#DC2626',     /* 深红 — 反方二辩 */
-  CON_3: '#B91C1C',     /* 暗红 — 反方三辩 */
-  CON_4: '#991B1B',     /* 棕红 — 反方四辩 */
+  HOST: '#7DBA7C',
+  PRO_1: '#6B8FA8',
+  PRO_2: '#5A7E98',
+  PRO_3: '#4A6D88',
+  PRO_4: '#3A5C78',
+  CON_1: '#C75B5B',
+  CON_2: '#B54D4D',
+  CON_3: '#A34343',
+  CON_4: '#913939',
 }
 
 /** 位置 → 名称映射 */
@@ -134,7 +134,7 @@ export const DEBATE_ROLE_ICONS: Record<string, string> = {
 
 /** 人格 → 颜色映射 */
 export const DEBATE_PERSONALITY_COLORS: Record<string, string> = {
-  HOST: '#D4A843',
+  HOST: '#7DBA7C',
   LOGICAL: '#3B82F6',
   SHARP: '#EF4444',
   HUMOROUS: '#F59E0B',

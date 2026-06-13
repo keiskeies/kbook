@@ -235,7 +235,7 @@ function RoleBar({ speakingKey, allRoleKeys, personalityTitles }: {
       >
         {/* 正方（反向：4→1） */}
         {proKeys.map(key => {
-          const color = DEBATE_ROLE_COLORS[key] || '#3B82F6'
+          const color = DEBATE_ROLE_COLORS[key] || '#6B8FA8'
           const isActive = speakingKey === key
           return (
             <div
@@ -338,7 +338,7 @@ function RoleBar({ speakingKey, allRoleKeys, personalityTitles }: {
         })}
         {/* 反方 */}
         {conKeys.map(key => {
-          const color = DEBATE_ROLE_COLORS[key] || '#EF4444'
+          const color = DEBATE_ROLE_COLORS[key] || '#C75B5B'
           const isActive = speakingKey === key
           return (
             <div
@@ -1199,7 +1199,7 @@ export default function DebateSessionPage() {
           <p className="text-[10px] text-muted-foreground truncate flex items-center gap-1.5">
             {sessionStatus === 'COMPLETED' ? (
               <>
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-500" />
                 已完成
               </>
             ) : (
@@ -1221,11 +1221,11 @@ export default function DebateSessionPage() {
             {ROUND_SEQUENCE.map((r, i) => (
               <div key={r} className="flex items-center gap-0.5 sm:gap-2">
                 <div className={`flex items-center gap-0.5 ${
-                  sessionStatus === 'COMPLETED' ? 'text-green-500' :
+                  sessionStatus === 'COMPLETED' ? 'text-brand-500' :
                   currentPhase === r ? 'text-brand-500 font-bold' : 'text-muted-foreground/50'
                 }`}>
                   <div className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
-                    sessionStatus === 'COMPLETED' ? 'bg-green-500' :
+                    sessionStatus === 'COMPLETED' ? 'bg-brand-500' :
                     currentPhase === r ? 'bg-brand-500' : 'bg-muted'
                   }`} />
                   <span className="text-[8px] sm:text-[9px]">{ROUND_LABELS[r]}</span>
@@ -1237,10 +1237,10 @@ export default function DebateSessionPage() {
             ))}
             <div className="h-px w-1.5 sm:w-4 bg-border/30" />
             <div className={`flex items-center gap-0.5 ${
-              sessionStatus === 'COMPLETED' ? 'text-green-500 font-bold' : 'text-muted-foreground/30'
+              sessionStatus === 'COMPLETED' ? 'text-brand-500 font-bold' : 'text-muted-foreground/30'
             }`}>
               <div className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
-                sessionStatus === 'COMPLETED' ? 'bg-green-500' : 'bg-muted'
+                sessionStatus === 'COMPLETED' ? 'bg-brand-500' : 'bg-muted'
               }`} />
               <span className="text-[8px] sm:text-[9px]">结束</span>
             </div>
@@ -1276,7 +1276,7 @@ export default function DebateSessionPage() {
                               {m.roleName}
                             </span>
                             {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-[9px] text-muted-foreground/70" style={{ color: (DEBATE_ROLE_COLORS[m.roleKey] || '#3B82F6') + '80' }}>
+                              <span className="text-[9px] text-muted-foreground">
                                 {m.personalityTitle}
                               </span>
                             )}
@@ -1301,14 +1301,14 @@ export default function DebateSessionPage() {
                     {/* 中心区（主持人）— 更窄，固定宽度 */}
                     <div onScroll={handleScroll} className="w-72 shrink-0 p-3 space-y-3 overflow-y-auto">
                       {messages.filter(m => m.side === 'NEUTRAL').map(m => (
-                        <div key={m.id} className="rounded-xl bg-yellow-50/50 dark:bg-yellow-500/5 border border-yellow-200/30 p-3 max-w-[230px] mx-auto">
+                        <div key={m.id} className="rounded-xl bg-brand-50/50 dark:bg-brand-600/10 border border-brand-200/20 dark:border-brand-600/30 p-3 max-w-[230px] mx-auto">
                           <div className="flex items-center justify-center gap-1.5 mb-1">
                             <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
                               🎙️ {m.roleName}
                             </span>
                           </div>
                           {m.streaming && !m.content ? (
-                            <span className="flex items-center justify-center gap-1.5 text-[11px] text-yellow-500">
+                            <span className="flex items-center justify-center gap-1.5 text-[11px] text-brand-500">
                               <Loader2 className="h-3 w-3 animate-spin" />
                               麦克风传递中...
                             </span>
@@ -1317,7 +1317,7 @@ export default function DebateSessionPage() {
                           )}
                           {m.streaming && m.content && (
                             <span className="inline-flex items-center ml-1">
-                              <span className="h-3 w-[2px] bg-yellow-400 animate-pulse rounded-full" />
+                              <span className="h-3 w-[2px] bg-brand-400 animate-pulse rounded-full" />
                             </span>
                           )}
                         </div>
@@ -1331,7 +1331,7 @@ export default function DebateSessionPage() {
                         <div key={m.id} className="rounded-xl bg-red-500/5 border border-red-200/30 p-3">
                           <div className="flex items-center justify-end gap-1.5 mb-1">
                             {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-[9px] text-muted-foreground/70" style={{ color: (DEBATE_ROLE_COLORS[m.roleKey] || '#EF4444') + '80' }}>
+                              <span className="text-[9px] text-muted-foreground">
                                 {m.personalityTitle}
                               </span>
                             )}
@@ -1367,7 +1367,7 @@ export default function DebateSessionPage() {
                       const color = DEBATE_ROLE_COLORS[m.roleKey] || '#888'
                       const bgColor = isPro ? 'bg-blue-500/5 border-blue-200/30' :
                         isCon ? 'bg-red-500/5 border-red-200/30' :
-                        'bg-yellow-50/50 border-yellow-200/30'
+                        'bg-brand-50/50 dark:bg-brand-600/20 border-brand-200/20 dark:border-brand-600/30'
 
                       return (
                         <div key={m.id} className={`rounded-xl border p-3 ${bgColor}`}
@@ -1378,7 +1378,7 @@ export default function DebateSessionPage() {
                               {m.roleName}
                             </span>
                             {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-[9px] text-muted-foreground/70" style={{ color: color + '80' }}>
+                              <span className="text-[9px] text-muted-foreground">
                                 {m.personalityTitle}
                               </span>
                             )}

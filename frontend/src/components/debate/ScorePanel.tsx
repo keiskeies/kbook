@@ -136,12 +136,12 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
                   <div className="relative h-3 flex rounded-full overflow-hidden bg-muted">
                     <div
                       className="h-full rounded-l-full transition-all"
-                      style={{ width: `${(d.score / maxVal) * 50}%`, backgroundColor: '#3B82F6' }}
+                      style={{ width: `${(d.score / maxVal) * 50}%`, backgroundColor: '#6B8FA8' }}
                     />
                     <div className="flex-1" />
                     <div
                       className="h-full rounded-r-full transition-all"
-                      style={{ width: `${(conScore / maxVal) * 50}%`, backgroundColor: '#EF4444' }}
+                      style={{ width: `${(conScore / maxVal) * 50}%`, backgroundColor: '#C75B5B' }}
                     />
                   </div>
                 </div>

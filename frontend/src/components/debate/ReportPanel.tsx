@@ -1,7 +1,7 @@
 import { FileText, Loader2, RefreshCw, Trophy } from 'lucide-react'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import type { DebateReport } from '@/types/debate'
-import { DEBATE_ROLE_NAMES, DEBATE_ROLE_COLORS } from '@/types/debate'
+import { DEBATE_ROLE_COLORS, DEBATE_ROLE_NAMES, DEBATE_PERSONALITY_NAMES, DEBATE_PERSONALITY_COLORS } from '@/types/debate'
 
 interface ReportPanelProps {
   report: DebateReport | null
@@ -52,7 +52,15 @@ export default function ReportPanel({ report, isGenerating, onTrigger, onClose, 
 
         {report?.status === 'COMPLETED' && report.content && (
           <div>
-            {report.bestDebater && (
+            {report.bestDebater && (() => {
+              const key = report.bestDebater
+              const posName = DEBATE_ROLE_NAMES[key] || ''
+              const persName = DEBATE_PERSONALITY_NAMES[key] || ''
+              const color = DEBATE_ROLE_COLORS[key] || DEBATE_PERSONALITY_COLORS[key] || '#D4A843'
+              const displayName = posName || persName || key
+              const subtitle = posName && persName ? persName : ''
+              const initial = posName ? posName.replace(/[方\d辩]/g, '') : key.charAt(0)
+              return (
               <div className="mb-4 rounded-xl border border-amber-200 dark:border-amber-800 bg-gradient-to-br from-amber-50 to-brand-50 dark:from-amber-950/30 dark:to-brand-950/20 p-4">
                 <div className="flex items-center gap-2 mb-1">
                   <Trophy className="h-4 w-4 text-amber-500" />
@@ -61,16 +69,18 @@ export default function ReportPanel({ report, isGenerating, onTrigger, onClose, 
                 <div className="flex items-center gap-2">
                   <div
                     className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold text-white"
-                    style={{ backgroundColor: DEBATE_ROLE_COLORS[report.bestDebater] || '#D4A843' }}
+                    style={{ backgroundColor: color }}
                   >
-                    {DEBATE_ROLE_NAMES[report.bestDebater]?.charAt(0) || '?'}
+                    {initial}
                   </div>
-                  <span className="text-sm font-semibold" style={{ color: DEBATE_ROLE_COLORS[report.bestDebater] || '#D4A843' }}>
-                    {DEBATE_ROLE_NAMES[report.bestDebater] || report.bestDebater}
-                  </span>
+                  <div>
+                    <span className="text-sm font-semibold" style={{ color }}>{displayName}</span>
+                    {subtitle && <span className="text-[10px] text-muted-foreground ml-1.5">{subtitle}</span>}
+                  </div>
                 </div>
               </div>
-            )}
+              )
+            })()}
             <div className="[&_h2]:border-border/30 [&_h2]:pb-1.5 [&_h2]:mb-3 [&_h2]:!text-base
                           [&_h3]:!text-sm [&_h3]:mb-2
                           [&_p]:my-2

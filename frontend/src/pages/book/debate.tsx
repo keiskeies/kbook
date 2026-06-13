@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Sparkles, MessageSquare, Trash2, Loader2, History, Check, X,
+  ArrowLeft, Sparkles, MessageSquare, Swords, Trash2, Loader2, History, Check, X,
 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import {
@@ -348,7 +348,7 @@ export default function DebatePage() {
         {/* 辩题选择区 */}
         <section className="px-4 pt-4 pb-2">
           <h2 className="text-xs font-bold text-muted-foreground mb-3 flex items-center gap-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-orange-500" />
+            <MessageSquare className="h-3.5 w-3.5 text-brand-500" />
             选择辩题
           </h2>
 
@@ -366,7 +366,7 @@ export default function DebatePage() {
                   onClick={() => { setSelectedTopic(t); setShowManualInput(false); setManualTopic('') }}
                   className={`w-full text-left rounded-xl border p-3 transition-all ${
                     selectedTopic?.topic === t.topic
-                      ? 'border-orange-400/50 bg-orange-50/50 dark:bg-orange-500/10'
+                      ? 'border-brand-400/50 bg-brand-50/50 dark:bg-brand-500/10'
                       : 'border-border/30 hover:border-border/60'
                   }`}
                 >
@@ -396,13 +396,13 @@ export default function DebatePage() {
                   value={manualTopic}
                   onChange={e => setManualTopic(e.target.value)}
                   placeholder="输入你的辩题..."
-                  className="w-full rounded-xl border border-border/30 bg-background p-3 text-sm resize-none focus:outline-none focus:border-orange-400/50 pr-10"
+                  className="w-full rounded-xl border border-border/30 bg-background p-3 text-sm resize-none focus:outline-none focus:border-brand-400/50 pr-10"
                   rows={3}
                 />
                 <button
                   onClick={handleOptimizeTopic}
                   disabled={optimizing || !manualTopic.trim()}
-                  className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-orange-50 dark:bg-orange-950/30 text-orange-500 hover:bg-orange-100 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-90"
+                  className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-600/10 text-brand-500 hover:bg-brand-100 dark:hover:bg-brand-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-90"
                   title="使用AI优化辩题"
                 >
                   {optimizing ? (
@@ -441,7 +441,7 @@ export default function DebatePage() {
             <div className="flex justify-center mt-4">
               <button
                 onClick={() => { setShowManualInput(true); setSelectedTopic(null) }}
-                className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border/40 hover:border-orange-300/50 px-8 py-3 text-sm font-medium text-muted-foreground hover:text-orange-500 transition-all"
+                className="flex items-center justify-center gap-2 rounded-xl border border-brand-200/40 bg-brand-50/30 dark:bg-brand-600/10 px-6 py-2.5 text-sm font-medium text-primary hover:border-brand-300/60 hover:bg-brand-50/50 active:scale-[0.98] transition-all"
               >
                 <MessageSquare className="h-4 w-4" />
                 自定义辩题
@@ -468,12 +468,12 @@ export default function DebatePage() {
           <button
             onClick={handleCreateSession}
             disabled={creating || (!selectedTopic && !manualTopic.trim())}
-            className="mt-2 w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all"
+            className="mt-2 w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all"
           >
             {creating ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Sparkles className="h-4 w-4" />
+              <Swords className="h-4 w-4" />
             )}
             {creating ? '创建中...' : '开始辩论'}
           </button>
