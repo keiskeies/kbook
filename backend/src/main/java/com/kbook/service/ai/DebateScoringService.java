@@ -45,10 +45,10 @@ public class DebateScoringService {
      * 异步评分 — 不阻塞调用方
      */
     @Async
-    public void scoreSpeechAsync(Long userId, String sessionId, String roleKey,
+    public void scoreSpeechAsync(Long userId, String sessionId, String roleKey, String positionKey,
                                   String side, String content, int roundNumber, String roundType) {
         try {
-            DebateScore score = doScore(userId, sessionId, roleKey, side, content, roundNumber, roundType);
+            DebateScore score = doScore(userId, sessionId, roleKey, positionKey, side, content, roundNumber, roundType);
             if (score != null) {
                 log.info("辩论评分完成: sessionId={}, roleKey={}, round={}, avg={}",
                         sessionId, roleKey, roundNumber, score.getAverageScore());
@@ -62,8 +62,8 @@ public class DebateScoringService {
     /**
      * 执行评分
      */
-    private DebateScore doScore(Long userId, String sessionId, String roleKey,
-                                 String side, String content, int roundNumber, String roundType) {
+    private DebateScore doScore(Long userId, String sessionId, String roleKey, String positionKey,
+                                  String side, String content, int roundNumber, String roundType) {
         // 获取最后一条消息的 ID
         var messages = messageRepository.findBySessionIdAndRoundNumberOrderByPhaseOrder(sessionId, roundNumber);
         if (messages.isEmpty()) return null;
@@ -112,6 +112,7 @@ public class DebateScoringService {
                     .sessionId(sessionId)
                     .messageId(messageId)
                     .roleKey(roleKey)
+                    .positionKey(positionKey)
                     .side(side)
                     .roundNumber(roundNumber)
                     .roundType(roundType)

@@ -219,21 +219,6 @@ public class DebateController extends BaseController {
         return Result.ok(nextSpeaker);
     }
 
-    // ==================== 主持人串场 ====================
-
-    @Operation(summary = "主持人串场发言（SSE）")
-    @PostMapping(value = "/books/{bookId}/speak/host", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter speakHost(
-            @PathVariable Long bookId,
-            @RequestBody Map<String, String> body) {
-        Long userId = extractUserId();
-        String sessionId = body.get("sessionId");
-        String hostSpeechType = body.get("hostSpeechType"); // INTRO / TRANSITION / WRAPUP
-        String fromPhase = body.get("fromPhase");
-        String toPhase = body.get("toPhase");
-        return debateService.streamHostSpeech(userId, bookId, sessionId, hostSpeechType, fromPhase, toPhase);
-    }
-
     // ==================== 轮次 ====================
 
     @Operation(summary = "推进到下一轮")

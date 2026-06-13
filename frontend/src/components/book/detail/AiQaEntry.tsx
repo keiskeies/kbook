@@ -5,9 +5,11 @@ import { getBookSuggestedQuestions } from '@/api/bookChat'
 interface AiQaEntryProps {
   bookId: number
   onOpenChat: (initialQuestion?: string) => void
+  /** PC 端始终展开，手机端可收起 */
+  isMobile?: boolean
 }
 
-export function AiQaEntry({ bookId, onOpenChat }: AiQaEntryProps) {
+export function AiQaEntry({ bookId, onOpenChat, isMobile }: AiQaEntryProps) {
   const [questions, setQuestions] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [showAll, setShowAll] = useState(false)
@@ -67,7 +69,7 @@ export function AiQaEntry({ bookId, onOpenChat }: AiQaEntryProps) {
           )}
           {/* 深度问题 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {(showAll ? deepQuestions : deepQuestions.slice(0, 5)).map((q, idx) => (
+            {(isMobile && !showAll ? deepQuestions.slice(0, 5) : deepQuestions).map((q, idx) => (
               <button
                 key={idx}
                 onClick={() => onOpenChat(q)}
@@ -78,7 +80,7 @@ export function AiQaEntry({ bookId, onOpenChat }: AiQaEntryProps) {
               </button>
             ))}
           </div>
-          {hasMore && !showAll && (
+          {isMobile && hasMore && !showAll && (
             <button
               onClick={() => setShowAll(true)}
               className="text-xs text-muted-foreground hover:text-primary transition-colors mt-1"

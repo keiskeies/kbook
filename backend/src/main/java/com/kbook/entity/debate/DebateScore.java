@@ -50,6 +50,10 @@ public class DebateScore extends BaseEntity {
     @Column(name = "role_key", nullable = false, length = 30)
     private String roleKey;
 
+    /** 位置键名（如 PRO_1、CON_2） */
+    @Column(name = "position_key", length = 10)
+    private String positionKey;
+
     /** 立场 */
     @Column(name = "side", nullable = false, length = 10)
     private String side;

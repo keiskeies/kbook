@@ -229,16 +229,3 @@ export function streamDebateRebuttalSpeech(
   )
 }
 
-/** 主持人串场 SSE 发音 */
-export function streamDebateHostSpeech(
-  bookId: number,
-  sessionId: string,
-  hostSpeechType: 'INTRO' | 'TRANSITION' | 'WRAPUP',
-  fromPhase?: string,
-  toPhase?: string,
-) {
-  return createSseSpeakConnection(
-    `/debate/books/${bookId}/speak/host`,
-    { sessionId, hostSpeechType, fromPhase, toPhase },
-  )
-}

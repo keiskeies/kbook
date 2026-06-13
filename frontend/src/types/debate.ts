@@ -52,6 +52,7 @@ export interface DebateScore {
   sessionId: string
   messageId: number
   roleKey: string
+  positionKey: string
   side: string
   roundNumber: number
   roundType: string

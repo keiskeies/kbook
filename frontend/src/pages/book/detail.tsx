@@ -106,6 +106,10 @@ export default function BookDetailPage() {
   const ms = book ? matchScores?.[String(book.id)] : null
   const [speedReadData, setSpeedReadData] = useState<BookSpeedRead | null>(() => hasSpeedReadCache ? cached.speedReadData : null)
   const [speedReadLoading, setSpeedReadLoading] = useState(() => !hasSpeedReadCache)
+  const speedReadDataRef = useRef(speedReadData)
+
+  // sync ref for updateCache
+  useEffect(() => { speedReadDataRef.current = speedReadData }, [speedReadData])
 
   // Refs for SSE onDone callback to access latest state (avoids stale closure)
   const bookRef = useRef(book)
@@ -151,7 +155,7 @@ export default function BookDetailPage() {
       commentCount: cmtCount,
       commentPage: cmtPage,
       hasMoreComments: hasMore,
-      speedReadData: null, // 不缓存 AI 摘要（数据量大且变化快）
+      speedReadData: speedReadDataRef.current,
       timestamp: Date.now(),
     })
   }, [savePageData, cacheKey])
@@ -533,6 +537,12 @@ export default function BookDetailPage() {
             <Bookmark className="h-5 w-5" />
           )}
         </button>
+        {isAdmin && (
+          <button onClick={() => navigate(`/reader/${book.id}`)} className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">
+            <BookOpen className="h-4 w-4" />
+            阅读
+          </button>
+        )}
       </header>
 
       {/* PC端顶部导航 */}
@@ -578,7 +588,7 @@ export default function BookDetailPage() {
         </button>
         <button
           onClick={() => navigate(`/book/${book.id}/debate`)}
-          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-sm font-semibold text-white hover:from-orange-500 hover:to-orange-600 transition-colors shadow-lg shadow-orange-500/25"
+          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-2 text-sm font-semibold text-white hover:from-brand-500 hover:to-brand-600 transition-colors shadow-lg shadow-brand-500/25"
         >
           <MessageSquare className="h-4 w-4" />
           奇葩说
@@ -740,7 +750,7 @@ export default function BookDetailPage() {
       )}
 
         {/* AI 深度问答入口 */}
-        <AiQaEntry bookId={id} onOpenChat={handleOpenChat} />
+        <AiQaEntry bookId={id} onOpenChat={handleOpenChat} isMobile />
       </div>
 
       {/* 评论区 */}
@@ -907,36 +917,25 @@ export default function BookDetailPage() {
       <div className="md:hidden shrink-0 border-t border-border/50 bg-background/95 backdrop-blur-xl px-3 pt-3 z-20" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
         <div className="flex gap-2">
           <button
-            onClick={toggleShelf}
-            className={`flex h-11 w-14 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 ${inShelf ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-muted text-foreground hover:bg-muted/80'}`}
-          >
-            {inShelf ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
-            <span className="truncate">{inShelf ? '在书架' : '加书架'}</span>
-          </button>
-
-          {isAdmin && (
-            <button
-              onClick={() => navigate(`/reader/${book.id}`)}
-              className="flex h-11 w-14 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
-            >
-              <BookOpen className="h-4 w-4" />
-              <span className="truncate">{progress > 0 ? '继续' : '阅读'}</span>
-            </button>
-          )}
-
-          <button
             onClick={() => handleOpenChat()}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 active:scale-[0.97] transition-transform"
+            className="flex h-11 flex-[2] items-center justify-center gap-2 rounded-2xl bg-primary text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 active:scale-[0.97] transition-transform"
           >
             <BlinkingBot className="h-4 w-4" />
             AI 问答
           </button>
           <button
             onClick={() => navigate(`/book/${book.id}/round-table`)}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-purple-600 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 active:scale-[0.97] transition-transform"
+            className="flex h-11 flex-1 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
           >
-            <Users className="h-4 w-4" />
-            圆桌派
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <span>圆桌派</span>
+          </button>
+          <button
+            onClick={() => navigate(`/book/${book.id}/debate`)}
+            className="flex h-11 flex-1 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
+          >
+            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            <span>奇葩说</span>
           </button>
         </div>
       </div>

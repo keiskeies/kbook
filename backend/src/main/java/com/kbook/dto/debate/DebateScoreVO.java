@@ -19,6 +19,7 @@ public class DebateScoreVO {
     private String sessionId;
     private Long messageId;
     private String roleKey;
+    private String positionKey;
     private String side;
     private Integer roundNumber;
     private String roundType;
@@ -40,6 +41,7 @@ public class DebateScoreVO {
                 .sessionId(entity.getSessionId())
                 .messageId(entity.getMessageId())
                 .roleKey(entity.getRoleKey())
+                .positionKey(entity.getPositionKey())
                 .side(entity.getSide())
                 .roundNumber(entity.getRoundNumber())
                 .roundType(entity.getRoundType())

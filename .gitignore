@@ -9,6 +9,7 @@ target/
 .junie/
 .claude/
 .omo/
+.mimocode/
 
 # 环境变量（生产）
 .env

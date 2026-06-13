@@ -18,6 +18,7 @@ import com.kbook.repository.RoundTableSessionRepository;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
 import com.kbook.service.embedding.EmbeddingService;
+import com.kbook.service.progress.ReadingProgressService;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -64,6 +65,7 @@ public class RoundTableService {
     private final RoundTableMessageRepository messageRepository;
     private final StringRedisTemplate stringRedisTemplate;
     private final RoundTableCoverageService coverageService;
+    private final ReadingProgressService readingProgressService;
     private final ExecutorService sseExecutor;
 
     public RoundTableService(
@@ -76,6 +78,7 @@ public class RoundTableService {
             RoundTableMessageRepository messageRepository,
             StringRedisTemplate stringRedisTemplate,
             RoundTableCoverageService coverageService,
+            ReadingProgressService readingProgressService,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -86,6 +89,7 @@ public class RoundTableService {
         this.messageRepository = messageRepository;
         this.stringRedisTemplate = stringRedisTemplate;
         this.coverageService = coverageService;
+        this.readingProgressService = readingProgressService;
         this.sseExecutor = sseExecutor;
     }
 
@@ -468,6 +472,9 @@ public class RoundTableService {
                 stringRedisTemplate.opsForZSet().incrementScore(scoreKey, roleKey.trim(), 1);
             }
         }
+
+        // 将该图书加入阅读历史（标记为讨论行为）
+        readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
         return saved;
     }

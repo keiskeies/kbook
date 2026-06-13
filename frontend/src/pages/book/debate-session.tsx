@@ -1,16 +1,17 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Volume2, Square, Loader2, BarChart3, FileText, Play,
+  ArrowLeft, Volume2, Loader2, BarChart3, FileText, Play, Pause,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import ScorePanel from '@/components/debate/ScorePanel'
 import ReportPanel from '@/components/debate/ReportPanel'
+import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import {
   getDebateMessages, getNextDebateSpeaker, advanceDebateRound,
   getDebateSession,
   streamDebateOpeningSpeech, streamDebateCrossExamSpeech, streamDebateRebuttalSpeech,
-  streamDebateFreeSpeech, streamDebateClosingSpeech, streamDebateHostSpeech,
+  streamDebateFreeSpeech, streamDebateClosingSpeech,
   getDebateScores, getDebateReport, triggerDebateReport,
 } from '@/api/debate'
 import { getBook } from '@/api/book'
@@ -37,8 +38,10 @@ interface DisplayMessage {
   roundType?: string
   roundNumber?: number
   streaming?: boolean
+  examRole?: string
 }
 
+/** 纯色转 rgba */
 function hexToRgba(hex: string, alpha: number) {
   const r = parseInt(hex.slice(1, 3), 16)
   const g = parseInt(hex.slice(3, 5), 16)
@@ -55,18 +58,14 @@ const ROUND_LABELS: Record<string, string> = {
   CLOSING: '总结陈词',
 }
 
-/** 开篇立论发言顺序 — 仅一辩立论 */
-const OPENING_ORDER = ['HOST', 'PRO_1', 'CON_1']
+/** 开篇立论发言顺序 — 仅一辩立论（主持人单独开场） */
+const OPENING_ORDER = ['PRO_1', 'CON_1']
 
-/** 交叉质询顺序 — 二辩质询对方一辩，各2轮问答（Q→A→Q→A） */
+/** 交叉质询顺序 — 二辩质询对方一辩，各1轮（共2 Q&A对） */
 interface CrossExamTurn { roleKey: string; examRole: 'QUESTIONER' | 'ANSWERER'; defenderKey: string }
 const CROSS_EXAM_ORDER: CrossExamTurn[] = [
   { roleKey: 'PRO_2', examRole: 'QUESTIONER', defenderKey: 'CON_1' },
   { roleKey: 'CON_1', examRole: 'ANSWERER',   defenderKey: 'CON_1' },
-  { roleKey: 'PRO_2', examRole: 'QUESTIONER', defenderKey: 'CON_1' },
-  { roleKey: 'CON_1', examRole: 'ANSWERER',   defenderKey: 'CON_1' },
-  { roleKey: 'CON_2', examRole: 'QUESTIONER', defenderKey: 'PRO_1' },
-  { roleKey: 'PRO_1', examRole: 'ANSWERER',   defenderKey: 'PRO_1' },
   { roleKey: 'CON_2', examRole: 'QUESTIONER', defenderKey: 'PRO_1' },
   { roleKey: 'PRO_1', examRole: 'ANSWERER',   defenderKey: 'PRO_1' },
 ]
@@ -80,6 +79,67 @@ const CLOSING_ORDER = ['CON_4', 'PRO_4']
 /** 自由辩论最大发言轮次 */
 const MAX_FREE_EXCHANGES = 12
 
+/** 刷新页面时重建主持人消息（前端预写，不存后端） */
+function insertHostMessages(msgs: DisplayMessage[], bookTitle: string): DisplayMessage[] {
+  const result: DisplayMessage[] = []
+  let id = 0
+  const host = (tag: string, content: string): DisplayMessage => ({
+    id: `host-replay-${tag}-${id++}`, roleKey: 'HOST', roleName: '主持人',
+    side: 'NEUTRAL', positionKey: 'HOST', content, timestamp: 0,
+  })
+
+  // INTRO 开场
+  result.push(host('intro', bookTitle
+    ? `欢迎来到奇葩说辩论。今天讨论的书籍是《${bookTitle}》。有请正方一辩开篇立论。`
+    : `欢迎来到奇葩说辩论。有请正方一辩开篇立论。`))
+
+  let prevRound = ''
+  let crossExamIdx = 0
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i]
+
+    // 环节过渡
+    if (m.roundType && m.roundType !== prevRound && prevRound !== '') {
+      const toLabel = ROUND_LABELS[m.roundType] || m.roundType
+      const next = m.roundType === 'CROSS_EXAM' ? '正方二辩' :
+                   m.roundType === 'REBUTTAL' ? '正方二辩' :
+                   m.roundType === 'FREE' ? '正方' :
+                   m.roundType === 'CLOSING' ? '反方四辩' : '双方辩手'
+      result.push(host(`trans-${m.roundType}`, `下面进入${toLabel}环节。请${next}准备。`))
+      if (m.roundType === 'CROSS_EXAM') crossExamIdx = 0
+    }
+    prevRound = m.roundType || prevRound
+
+    // 交叉质询：CON_1 回答完后，插入 CON_2 质询前的主持词
+    if (m.roundType === 'CROSS_EXAM') crossExamIdx++
+    if (crossExamIdx === 2) {
+      result.push(host('cross-con2', '有请反方二辩质询正方一辩'))
+    }
+
+    // 开篇立论：PRO_1 后插入 CON_1 前主持词
+    if (m.positionKey === 'PRO_1' && m.roundType === 'OPENING') {
+      result.push(m)
+      const next = msgs[i + 1]
+      if (next?.positionKey === 'CON_1' && next?.roundType === 'OPENING') {
+        result.push(host('opening-con1', '感谢正方一辩。有请反方一辩开篇立论'))
+      }
+      continue
+    }
+    // 总结陈词：CON_4 后插入 PRO_4 前主持词
+    if (m.positionKey === 'CON_4' && m.roundType === 'CLOSING') {
+      result.push(m)
+      const next = msgs[i + 1]
+      if (next?.positionKey === 'PRO_4' && next?.roundType === 'CLOSING') {
+        result.push(host('closing-pro4', '感谢反方四辩。有请正方四辩总结陈词'))
+      }
+      continue
+    }
+
+    result.push(m)
+  }
+
+  return result
+}
 
 
 function RoleBar({ speakingKey, allRoleKeys, personalityTitles }: {
@@ -205,7 +265,7 @@ function RoleBar({ speakingKey, allRoleKeys, personalityTitles }: {
                   {DEBATE_ROLE_NAMES[key] || key}
                 </span>
                 {getTitle(key) && (
-                  <span className="text-[8px] text-muted-foreground/50 leading-tight">{getTitle(key)}</span>
+                  <span className="text-[9px] text-muted-foreground/80 leading-tight">{getTitle(key)}</span>
                 )}
               </div>
               {isActive && (
@@ -308,7 +368,7 @@ function RoleBar({ speakingKey, allRoleKeys, personalityTitles }: {
                   {DEBATE_ROLE_NAMES[key] || key}
                 </span>
                 {getTitle(key) && (
-                  <span className="text-[8px] text-muted-foreground/50 leading-tight">{getTitle(key)}</span>
+                  <span className="text-[9px] text-muted-foreground/80 leading-tight">{getTitle(key)}</span>
                 )}
               </div>
               {isActive && (
@@ -354,6 +414,8 @@ export default function DebateSessionPage() {
   const [showReportPanel, setShowReportPanel] = useState(false)
   const [bookTitle, setBookTitle] = useState<string>('')
   const [sessionStatus, setSessionStatus] = useState<string>('ACTIVE')
+  const [sessionProKeys, setSessionProKeys] = useState('')
+  const [sessionConKeys, setSessionConKeys] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const reportPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const handleAdvanceRoundRef = useRef<() => void>(() => {})
@@ -450,6 +512,25 @@ export default function DebateSessionPage() {
     }
   }, [messages, isMobile, isNearBottom])
 
+  // 初始加载完成后，滚动到底部（有历史消息时）
+  const initialScrollDone = useRef(false)
+  useEffect(() => {
+    if (phase === 'loading' || initialScrollDone.current) return
+    if (messages.length === 0) return
+    initialScrollDone.current = true
+
+    requestAnimationFrame(() => {
+      if (isMobile) {
+        messagesEndRef.current?.scrollIntoView({ block: 'end' })
+      } else {
+        const columns = scrollContainerRef.current?.querySelectorAll('.overflow-y-auto')
+        columns?.forEach(col => {
+          col.scrollTop = col.scrollHeight
+        })
+      }
+    })
+  }, [phase, isMobile, messages.length])
+
   // 初始化：加载已保存消息 + 会话状态
   useEffect(() => {
     if (!sessionId) return
@@ -467,6 +548,8 @@ export default function DebateSessionPage() {
           setSessionStatus(session.status)
           setCurrentRound(session.currentRound)
           setCurrentPhase(session.currentPhase as 'OPENING' | 'CROSS_EXAM' | 'REBUTTAL' | 'FREE' | 'CLOSING')
+          setSessionProKeys(session.proRoleKeys || '')
+          setSessionConKeys(session.conRoleKeys || '')
         }
 
         if (msgs.length > 0) {
@@ -482,16 +565,25 @@ export default function DebateSessionPage() {
             timestamp: new Date(m.createdAt).getTime(),
             roundType: m.roundType,
             roundNumber: m.roundNumber,
+            examRole: m.examRole,
           }))
-          setMessages(displayMsgs)
 
-          if (!session) {
-            const lastRound = msgs[msgs.length - 1].roundNumber
-            const lastPhase = msgs[msgs.length - 1].roundType as 'OPENING' | 'CROSS_EXAM' | 'REBUTTAL' | 'FREE' | 'CLOSING'
-            setCurrentRound(lastRound)
-            setCurrentPhase(lastPhase)
+          // 插入主持人消息（预写文本，刷新后重建）
+          const withHost = insertHostMessages(displayMsgs, bookTitle)
+          setMessages(withHost)
+
+          let isCompleted = session?.status === 'COMPLETED'
+
+          if (!session && msgs.length > 0) {
+            const lastMsg = msgs[msgs.length - 1]
+            setCurrentRound(lastMsg.roundNumber)
+            setCurrentPhase(lastMsg.roundType as 'OPENING' | 'CROSS_EXAM' | 'REBUTTAL' | 'FREE' | 'CLOSING')
+            if (lastMsg.roundType === 'CLOSING') {
+              isCompleted = true
+              setSessionStatus('COMPLETED')
+            }
           }
-          setPhase(session?.status === 'COMPLETED' ? 'completed' : (session?.currentPhase || 'OPENING'))
+          setPhase(isCompleted ? 'completed' : (session?.currentPhase || 'OPENING'))
         } else {
           setPhase('OPENING')
         }
@@ -522,6 +614,9 @@ export default function DebateSessionPage() {
     setSpeakingMsgId(null)
   }, [])
 
+  // personalityMap 的 ref 版本，供 startStreaming 使用（避免依赖顺序问题）
+  const personalityMapRef = useRef<Record<string, string>>({})
+
   // ==================== 流式发音（增量更新） ====================
 
   const startStreaming = useCallback((
@@ -549,6 +644,7 @@ export default function DebateSessionPage() {
       content: '',
       timestamp: Date.now(),
       streaming: true,
+      personalityTitle: roleKey !== 'HOST' ? personalityMapRef.current[roleKey] : undefined,
     }
     setMessages(prev => [...prev, placeholder])
 
@@ -565,7 +661,7 @@ export default function DebateSessionPage() {
       if (currentContentRef.current.trim()) {
         // 标记流式结束
         setMessages(prev => prev.map(m =>
-          m.id === msgId ? { ...m, streaming: false } : m
+          m.id === msgId ? { ...m, streaming: false, personalityTitle: roleKey !== 'HOST' ? personalityMap[roleKey] : undefined } : m
         ))
 
         if (ttsEnabled) {
@@ -583,6 +679,8 @@ export default function DebateSessionPage() {
       }
       currentMsgIdRef.current = null
       currentContentRef.current = ''
+      // 页面已退出/链已停止，不再触发回调链
+      if (!discussionLoopRef.current && !isChainActiveRef.current) return
       onDone()
     })
 
@@ -592,6 +690,11 @@ export default function DebateSessionPage() {
       setMessages(prev => prev.filter(m => m.id !== msgId))
       currentMsgIdRef.current = null
       currentContentRef.current = ''
+      // 页面已退出/链已停止，不再触发回调链
+      if (!discussionLoopRef.current && !isChainActiveRef.current) {
+        toast.error('发音失败')
+        return
+      }
       toast.error('发音失败')
       onDone()
     })
@@ -600,19 +703,30 @@ export default function DebateSessionPage() {
   // ==================== 辩论流程控制 ====================
 
   const speakOpening = useCallback((index: number) => {
-    if (!sessionId || index >= OPENING_ORDER.length) return
+    if (!sessionId || index >= OPENING_ORDER.length) {
+      handleAdvanceRoundRef.current()
+      return
+    }
 
     const roleKey = OPENING_ORDER[index]
+
+    // 第二个辩手开始前，插入主持人串场（预写文本，不用 LLM）
+    if (index > 0) {
+      const prevName = DEBATE_ROLE_NAMES[OPENING_ORDER[index - 1]]
+      const nextName = DEBATE_ROLE_NAMES[roleKey]
+      setMessages(prev => [...prev, {
+        id: `host-opening-${index}`,
+        roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
+        content: `感谢${prevName}。有请${nextName}开篇立论`,
+        timestamp: Date.now(),
+      }])
+    }
+
     startStreaming(
       () => streamDebateOpeningSpeech(bookIdNum, roleKey, sessionId, currentRoundRef.current),
       roleKey,
       () => {
-        if (index + 1 < OPENING_ORDER.length) {
-          setTimeout(() => speakOpening(index + 1), 500)
-        } else {
-          // 开篇立论结束 → 自动推送到交叉质询
-          handleAdvanceRoundRef.current()
-        }
+        setTimeout(() => speakOpening(index + 1), 500)
       },
     )
   }, [bookIdNum, sessionId, startStreaming])
@@ -621,16 +735,24 @@ export default function DebateSessionPage() {
 
   // ==================== 主持人过渡发言 ====================
 
-  const speakHostTransition = useCallback((fromPhase: string, toPhase: string): Promise<void> => {
+  const speakHostTransition = useCallback((_fromPhase: string, toPhase: string): Promise<void> => {
     return new Promise<void>(resolve => {
       if (!sessionId) { resolve(); return }
-      startStreaming(
-        () => streamDebateHostSpeech(bookIdNum, sessionId, 'TRANSITION', fromPhase, toPhase),
-        'HOST',
-        () => { setTimeout(resolve, 500) },
-      )
+      // 预写过渡串场词——不靠 LLM，杜绝编造
+      const toLabel = ROUND_LABELS[toPhase] || toPhase
+      const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
+                          toPhase === 'REBUTTAL' ? '正方二辩' :
+                          toPhase === 'FREE' ? (Math.random() > 0.5 ? '正方' : '反方') :
+                          toPhase === 'CLOSING' ? '反方四辩' : '双方辩手'
+      setMessages(prev => [...prev, {
+        id: `host-trans-${toPhase}`,
+        roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
+        content: `下面进入${toLabel}环节。请${nextSpeaker}准备。`,
+        timestamp: Date.now(),
+      }])
+      setTimeout(resolve, 800)
     })
-  }, [bookIdNum, sessionId, startStreaming])
+  }, [sessionId])
 
   // ==================== 交叉质询 (CROSS_EXAM) ====================
 
@@ -653,19 +775,29 @@ export default function DebateSessionPage() {
     const con1Msg = messages.find(m => m.positionKey === 'CON_1' && m.roundType === 'OPENING')
 
     const speakNextTurn = () => {
-      if (turnIndex >= CROSS_EXAM_ORDER.length) {
+      if (turnIndex >= CROSS_EXAM_ORDER.length || !isChainActiveRef.current) {
         handleAdvanceRoundRef.current()
         return
       }
 
       const turn = CROSS_EXAM_ORDER[turnIndex]
+
+      // 两对 Q&A 之间插入主持串场（turnIndex=2 是 CON_2 质询 PRO_1 的开头）
+      if (turnIndex === 2) {
+        setMessages(prev => [...prev, {
+          id: `host-crossexam`,
+          roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
+          content: '接下来有请反方二辩质询正方一辩',
+          timestamp: Date.now(),
+        }])
+      }
+
       const defenderOpening = turn.defenderKey.startsWith('PRO')
         ? pro1Msg?.content || '' : con1Msg?.content || ''
 
       // 如果是被质询方，从 messages 或当前流式内容中获取质询问题
       let questionContent = ''
       if (turn.examRole === 'ANSWERER') {
-        // 优先从已保存的消息中查找最新的 CROSS_EXAM 消息
         const prevMsgs = messages.filter(
           m => m.roundType === 'CROSS_EXAM' && m.roundNumber === currentRoundRef.current
         )
@@ -743,7 +875,7 @@ export default function DebateSessionPage() {
       m => m.roundType === 'FREE' && m.roundNumber === currentRoundRef.current
     )
     let lastContext = freeMsgs.length > 0 ? freeMsgs[freeMsgs.length - 1].content : ''
-    const freeCount = freeMsgs.length
+    let freeCount = freeMsgs.length
 
     // 自由辩论有最大发言次数限制
     if (freeCount >= MAX_FREE_EXCHANGES) {
@@ -752,7 +884,11 @@ export default function DebateSessionPage() {
     }
 
     try {
-      const firstSpeaker = await getNextDebateSpeaker(sessionId)
+      let firstSpeaker: string
+      try {
+        const res = await getNextDebateSpeaker(sessionId)
+        firstSpeaker = (res as any)?.data ?? res as string
+      } catch { firstSpeaker = '' }
       if (!firstSpeaker) {
         handleAdvanceRoundRef.current()
         return
@@ -760,7 +896,7 @@ export default function DebateSessionPage() {
 
       let currentSpeaker = firstSpeaker
       const speakFree = () => {
-        if (!currentSpeaker || !sessionId) {
+        if (!currentSpeaker || !sessionId || !isChainActiveRef.current) {
           handleAdvanceRoundRef.current()
           return
         }
@@ -769,10 +905,11 @@ export default function DebateSessionPage() {
           () => streamDebateFreeSpeech(bookIdNum, currentSpeaker, sessionId, currentRoundRef.current, lastContext),
           currentSpeaker,
           () => {
+            freeCount++
             getNextDebateSpeaker(sessionId)
-              .then(next => {
-                const currentFreeMsgs = messages.filter(m => m.roundType === 'FREE' && m.roundNumber === currentRoundRef.current)
-                if (next && currentFreeMsgs.length < MAX_FREE_EXCHANGES) {
+              .then(nextRaw => {
+                const next = (nextRaw as any)?.data ?? nextRaw as string
+                if (next && freeCount < MAX_FREE_EXCHANGES && isChainActiveRef.current) {
                   currentSpeaker = next
                   setTimeout(speakFree, 500)
                 } else {
@@ -808,14 +945,35 @@ export default function DebateSessionPage() {
 
     const speakClosing = () => {
       if (closeIndex >= CLOSING_ORDER.length) {
-        // 辩论结束
+        // 先通知后端辩论结束，持久化 COMPLETED 状态
+        advanceDebateRound(sessionId).catch(() => {})
+        if (!isChainActiveRef.current) return
+        // 预写结束语
+        setMessages(prev => [...prev, {
+          id: `host-wrapup`,
+          roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
+          content: '本场辩论到此结束。感谢双方辩手的精彩表现！',
+          timestamp: Date.now(),
+        }])
         setPhase('completed')
         setSessionStatus('COMPLETED')
         isChainActiveRef.current = false
         return
       }
+      if (!isChainActiveRef.current) return
 
       const roleKey = CLOSING_ORDER[closeIndex]
+      // 反方四辩结束后，主持人串场再请正方四辩
+      if (closeIndex === 1) {
+        const prevName = DEBATE_ROLE_NAMES[CLOSING_ORDER[0]]
+        setMessages(prev => [...prev, {
+          id: `host-closing-1`,
+          roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
+          content: `感谢${prevName}。有请${DEBATE_ROLE_NAMES[roleKey]}总结陈词`,
+          timestamp: Date.now(),
+        }])
+      }
+
       startStreaming(
         () => streamDebateClosingSpeech(bookIdNum, roleKey, sessionId, currentRoundRef.current),
         roleKey,
@@ -883,29 +1041,54 @@ export default function DebateSessionPage() {
     }
   }, [sessionId, startCrossExamRound, startRebuttalRound, startFreeRound, startClosingRound, speakHostTransition])
 
-  // 从 messages 构建 positionKey → personalityTitle 映射（组件顶层，非 JSX 内）
+  // 从 session 数据 + messages 构建 positionKey → personalityTitle 映射
   const personalityMap = useMemo(() => {
     const map: Record<string, string> = {}
+    // 1. 优先从 session 的 proRoleKeys/conRoleKeys 构建（进页面立即可用）
+    const proKeys = sessionProKeys.split(',').map(k => k.trim()).filter(Boolean)
+    for (let i = 0; i < proKeys.length && i < 4; i++) {
+      map[`PRO_${i + 1}`] = getPersonalityTitle(proKeys[i])
+    }
+    const conKeys = sessionConKeys.split(',').map(k => k.trim()).filter(Boolean)
+    for (let i = 0; i < conKeys.length && i < 4; i++) {
+      map[`CON_${i + 1}`] = getPersonalityTitle(conKeys[i])
+    }
+    // 2. 再用 messages 的 personalityTitle 覆盖（以实际 DB 数据为准）
     for (const m of messages) {
-      if (m.personalityTitle && m.roleKey !== 'HOST' && !map[m.roleKey]) {
+      if (m.personalityTitle && m.roleKey !== 'HOST') {
         map[m.roleKey] = m.personalityTitle
       }
     }
+    personalityMapRef.current = map
     return map
-  }, [messages])
+  }, [messages, sessionProKeys, sessionConKeys])
+
+  // 无消息时自动开始辩论（预写开场白，不用 LLM）
+  const autoStartTriggered = useRef(false)
+  useEffect(() => {
+    if (phase !== 'OPENING' || messages.length > 0 || autoStartTriggered.current) return
+    if (!sessionId || !bookIdNum) return
+    autoStartTriggered.current = true
+    const timer = setTimeout(() => {
+      isChainActiveRef.current = true
+      // 预写主持人开场——绝不编造观点
+      const introText = bookTitle
+        ? `欢迎来到奇葩说辩论。今天讨论的书籍是《${bookTitle}》。有请正方一辩开篇立论。`
+        : `欢迎来到奇葩说辩论。有请正方一辩开篇立论。`
+      setMessages(prev => [...prev, {
+        id: `host-intro`,
+        roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
+        content: introText, timestamp: Date.now(),
+      }])
+      setTimeout(() => speakOpening(0), 600)
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [phase, messages.length, sessionId, bookIdNum, speakOpening, bookTitle])
 
   // 始终同步最新版到 ref，供内部闭包使用（避开 useCallback 闭包过期）
   handleAdvanceRoundRef.current = handleAdvanceRound
   currentRoundRef.current = currentRound
   currentPhaseRef.current = currentPhase
-
-  // ==================== 开始辩论 ====================
-
-  const handleStartDebate = useCallback(() => {
-    isChainActiveRef.current = true
-    setPhase('OPENING')
-    setTimeout(() => speakOpening(0), 1000)
-  }, [speakOpening])
 
   // ==================== 继续辩论 ====================
 
@@ -920,6 +1103,8 @@ export default function DebateSessionPage() {
       const nextIndex = OPENING_ORDER.findIndex(key => !spokenOpeningKeys.has(key))
       if (nextIndex >= 0) {
         speakOpening(nextIndex)
+      } else {
+        handleAdvanceRoundRef.current()
       }
     } else if (currentPhase === 'CROSS_EXAM') {
       setPhase('CROSS_EXAM')
@@ -952,6 +1137,10 @@ export default function DebateSessionPage() {
       m.streaming ? { ...m, streaming: false } : m
     ))
   }, [stopTts])
+
+  const pauseDiscussion = useCallback(() => {
+    handleStop()
+  }, [handleStop])
 
   // ==================== 报告 ====================
 
@@ -988,7 +1177,7 @@ export default function DebateSessionPage() {
   if (phase === 'loading') {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gradient-to-b from-background to-muted/30">
-        <Loader2 className="h-6 w-6 animate-spin text-orange-500" />
+        <Loader2 className="h-6 w-6 animate-spin text-brand-500" />
       </div>
     )
   }
@@ -1008,13 +1197,19 @@ export default function DebateSessionPage() {
             {bookTitle ? `《${bookTitle}》奇葩说辩论` : '奇葩说辩论'}
           </h1>
           <p className="text-[10px] text-muted-foreground truncate flex items-center gap-1.5">
-            <span className={`inline-block h-1.5 w-1.5 rounded-full ${
-              sessionStatus === 'COMPLETED' ? 'bg-green-500' : 'bg-orange-400'
-            }`} />
-            {sessionStatus === 'COMPLETED' ? '已完成' : '进行中'}
-            {' · '}{ROUND_LABELS[currentPhase] || currentPhase}
-            {' · '}第{currentRound}轮
-            {speakingKey ? ' · 发言中' : ''}
+            {sessionStatus === 'COMPLETED' ? (
+              <>
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                已完成
+              </>
+            ) : (
+              <>
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" />
+                进行中
+                {' · '}{ROUND_LABELS[currentPhase] || currentPhase}
+                {speakingKey ? ' · 发言中' : ''}
+              </>
+            )}
           </p>
         </div>
       </header>
@@ -1022,22 +1217,33 @@ export default function DebateSessionPage() {
       <div className="flex flex-1 overflow-hidden relative">
         <div className="flex flex-1 flex-col overflow-hidden relative">
           {/* 轮次指示器 */}
-          <div className="shrink-0 flex items-center justify-center gap-2 px-4 py-2 border-b border-border/10">
+          <div className="shrink-0 flex items-center justify-center gap-0.5 sm:gap-2 px-2 sm:px-4 py-1.5 border-b border-border/10">
             {ROUND_SEQUENCE.map((r, i) => (
-              <div key={r} className="flex items-center gap-2">
-                <div className={`flex items-center gap-1 ${
-                  currentPhase === r ? 'text-orange-500 font-bold' : 'text-muted-foreground/50'
+              <div key={r} className="flex items-center gap-0.5 sm:gap-2">
+                <div className={`flex items-center gap-0.5 ${
+                  sessionStatus === 'COMPLETED' ? 'text-green-500' :
+                  currentPhase === r ? 'text-brand-500 font-bold' : 'text-muted-foreground/50'
                 }`}>
-                  <div className={`h-2 w-2 rounded-full ${
-                    currentPhase === r ? 'bg-orange-500' : 'bg-muted'
+                  <div className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
+                    sessionStatus === 'COMPLETED' ? 'bg-green-500' :
+                    currentPhase === r ? 'bg-brand-500' : 'bg-muted'
                   }`} />
-                  <span className="text-[9px]">{ROUND_LABELS[r]}</span>
+                  <span className="text-[8px] sm:text-[9px]">{ROUND_LABELS[r]}</span>
                 </div>
                 {i < ROUND_SEQUENCE.length - 1 && (
-                  <div className="h-px w-4 bg-border/30" />
+                  <div className="h-px w-1.5 sm:w-4 bg-border/30" />
                 )}
               </div>
             ))}
+            <div className="h-px w-1.5 sm:w-4 bg-border/30" />
+            <div className={`flex items-center gap-0.5 ${
+              sessionStatus === 'COMPLETED' ? 'text-green-500 font-bold' : 'text-muted-foreground/30'
+            }`}>
+              <div className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
+                sessionStatus === 'COMPLETED' ? 'bg-green-500' : 'bg-muted'
+              }`} />
+              <span className="text-[8px] sm:text-[9px]">结束</span>
+            </div>
           </div>
 
           {/* RoleBar — 显示名称 + 称号 */}
@@ -1052,13 +1258,8 @@ export default function DebateSessionPage() {
           <div ref={scrollContainerRef} className={`flex-1 ${isMobile ? 'overflow-y-auto overscroll-y-contain' : 'min-h-0 flex flex-col'}`}>
             {!isStarted ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-12">
-                <p className="text-sm text-muted-foreground">欢迎来到奇葩说！</p>
-                <button
-                  onClick={handleStartDebate}
-                  className="rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-orange-500/25 active:scale-[0.97] transition-transform"
-                >
-                  开始辩论
-                </button>
+                <Loader2 className="h-8 w-8 animate-spin text-brand-400" />
+                <p className="text-sm text-muted-foreground">辩论即将开始...</p>
               </div>
             ) : (
               <>
@@ -1074,6 +1275,11 @@ export default function DebateSessionPage() {
                             <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
                               {m.roleName}
                             </span>
+                            {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
+                              <span className="text-[9px] text-muted-foreground/70" style={{ color: (DEBATE_ROLE_COLORS[m.roleKey] || '#3B82F6') + '80' }}>
+                                {m.personalityTitle}
+                              </span>
+                            )}
                           </div>
                           {m.streaming && !m.content ? (
                             <span className="flex items-center gap-1.5 text-[11px] text-blue-400">
@@ -1081,7 +1287,7 @@ export default function DebateSessionPage() {
                               麦克风传递中...
                             </span>
                           ) : (
-                            <p className="text-xs leading-relaxed">{m.content}</p>
+                            <MarkdownRenderer content={m.content} className="!text-[11px] !leading-relaxed" />
                           )}
                           {m.streaming && m.content && (
                             <span className="inline-flex items-center ml-1">
@@ -1095,7 +1301,7 @@ export default function DebateSessionPage() {
                     {/* 中心区（主持人）— 更窄，固定宽度 */}
                     <div onScroll={handleScroll} className="w-72 shrink-0 p-3 space-y-3 overflow-y-auto">
                       {messages.filter(m => m.side === 'NEUTRAL').map(m => (
-                        <div key={m.id} className="rounded-xl bg-yellow-50/50 dark:bg-yellow-500/5 border border-yellow-200/30 p-3 max-w-[230px] mx-auto text-center">
+                        <div key={m.id} className="rounded-xl bg-yellow-50/50 dark:bg-yellow-500/5 border border-yellow-200/30 p-3 max-w-[230px] mx-auto">
                           <div className="flex items-center justify-center gap-1.5 mb-1">
                             <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
                               🎙️ {m.roleName}
@@ -1107,7 +1313,7 @@ export default function DebateSessionPage() {
                               麦克风传递中...
                             </span>
                           ) : (
-                            <p className="text-xs leading-relaxed">{m.content}</p>
+                            <MarkdownRenderer content={m.content} className="!text-[11px] !leading-relaxed" />
                           )}
                           {m.streaming && m.content && (
                             <span className="inline-flex items-center ml-1">
@@ -1120,10 +1326,15 @@ export default function DebateSessionPage() {
 
                     {/* 反方区（右）— 更宽，2份 */}
                     <div onScroll={handleScroll} className="flex-[2] min-w-0 border-l border-border/10 bg-red-50/20 dark:bg-red-950/10 p-3 space-y-3 overflow-y-auto">
-                      <div className="text-[10px] font-bold text-red-500 uppercase tracking-wider">反方</div>
+                      <div className="text-[10px] font-bold text-red-500 uppercase tracking-wider text-right">反方</div>
                       {messages.filter(m => m.side === 'CON').map(m => (
                         <div key={m.id} className="rounded-xl bg-red-500/5 border border-red-200/30 p-3">
-                          <div className="flex items-center gap-1.5 mb-1">
+                          <div className="flex items-center justify-end gap-1.5 mb-1">
+                            {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
+                              <span className="text-[9px] text-muted-foreground/70" style={{ color: (DEBATE_ROLE_COLORS[m.roleKey] || '#EF4444') + '80' }}>
+                                {m.personalityTitle}
+                              </span>
+                            )}
                             <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
                               {m.roleName}
                             </span>
@@ -1134,7 +1345,7 @@ export default function DebateSessionPage() {
                               麦克风传递中...
                             </span>
                           ) : (
-                            <p className="text-xs leading-relaxed">{m.content}</p>
+                            <MarkdownRenderer content={m.content} className="!text-[11px] !leading-relaxed" />
                           )}
                           {m.streaming && m.content && (
                             <span className="inline-flex items-center ml-1">
@@ -1167,7 +1378,7 @@ export default function DebateSessionPage() {
                               {m.roleName}
                             </span>
                             {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-[9px] text-muted-foreground/60 ml-1" style={{ color: color + '80' }}>
+                              <span className="text-[9px] text-muted-foreground/70" style={{ color: color + '80' }}>
                                 {m.personalityTitle}
                               </span>
                             )}
@@ -1185,7 +1396,7 @@ export default function DebateSessionPage() {
                               麦克风传递中...
                             </span>
                           ) : (
-                            <p className="text-xs leading-relaxed">{m.content}</p>
+                            <MarkdownRenderer content={m.content} className="!text-[11px] !leading-relaxed" />
                           )}
                           {m.streaming && m.content && (
                             <span className="inline-flex items-center ml-1">
@@ -1224,7 +1435,7 @@ export default function DebateSessionPage() {
                   }}
                   className={`flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium transition-all duration-200 ${
                     ttsEnabled
-                      ? 'bg-orange-100 text-orange-500 border border-orange-200'
+                      ? 'bg-brand-100 text-brand-500 border border-brand-200'
                       : 'bg-muted text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -1232,13 +1443,13 @@ export default function DebateSessionPage() {
                   <span className="hidden sm:inline">{ttsEnabled ? '朗读中' : '语音关'}</span>
                 </button>
 
-                {phase !== 'completed' && speakingKey && (
+                {phase !== 'completed' && (speakingKey || isChainActiveRef.current) && (
                   <button
-                    onClick={handleStop}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+                    onClick={pauseDiscussion}
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
                   >
-                    <Square className="h-3 w-3 shrink-0" />
-                    <span className="hidden sm:inline">结束</span>
+                    <Pause className="h-3 w-3 shrink-0" />
+                    <span className="hidden sm:inline">暂停</span>
                   </button>
                 )}
 
@@ -1246,7 +1457,7 @@ export default function DebateSessionPage() {
                 {isStarted && sessionStatus !== 'COMPLETED' && !speakingKey && !isChainActiveRef.current && (
                   <button
                     onClick={handleContinue}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-semibold bg-gradient-to-r from-orange-400 to-orange-500 text-white shadow-md shadow-orange-400/20 active:scale-[0.97] transition-transform"
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
                   >
                     <Play className="h-3 w-3 shrink-0" />
                     <span className="hidden sm:inline">继续</span>
@@ -1270,32 +1481,34 @@ export default function DebateSessionPage() {
                         setShowScorePanel(true)
                       }}
                       className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
-                        showScorePanel ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground hover:text-foreground'
+                        showScorePanel ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       <BarChart3 className="h-3 w-3 shrink-0" />
                       <span className="hidden sm:inline">评分</span>
                     </button>
 
-                    <button
-                      onClick={() => {
-                        if (showReportPanel) { setShowReportPanel(false); return }
-                        setShowReportPanel(true)
-                        if (!report && sessionId) {
-                          getDebateReport(sessionId).then(setReport).catch(() => {})
-                        }
-                      }}
-                      className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
-                        showReportPanel ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {reportGenerating || report?.status === 'GENERATING' ? (
-                        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                      ) : (
-                        <FileText className="h-3 w-3 shrink-0" />
-                      )}
-                      <span className="hidden sm:inline">报告</span>
-                    </button>
+                    {sessionStatus === 'COMPLETED' && (
+                      <button
+                        onClick={() => {
+                          if (showReportPanel) { setShowReportPanel(false); return }
+                          setShowReportPanel(true)
+                          if (!report && sessionId) {
+                            getDebateReport(sessionId).then(setReport).catch(() => {})
+                          }
+                        }}
+                        className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
+                          showReportPanel ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {reportGenerating || report?.status === 'GENERATING' ? (
+                          <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                        ) : (
+                          <FileText className="h-3 w-3 shrink-0" />
+                        )}
+                        <span className="hidden sm:inline">报告</span>
+                      </button>
+                    )}
                   </>
                 )}
 
@@ -1345,6 +1558,7 @@ export default function DebateSessionPage() {
               isGenerating={reportGenerating}
               onTrigger={handleTriggerReport}
               onClose={() => setShowReportPanel(false)}
+              isMobile={isMobile}
             />
           </SheetContent>
         </Sheet>

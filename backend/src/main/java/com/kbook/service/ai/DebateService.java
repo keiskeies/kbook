@@ -6,6 +6,7 @@ import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.debate.DebateMessageVO;
 import com.kbook.dto.debate.DebateRoleVO;
 import com.kbook.dto.debate.DebateSessionVO;
@@ -18,6 +19,7 @@ import com.kbook.enums.DebateRole;
 import com.kbook.repository.debate.DebateMessageRepository;
 import com.kbook.repository.debate.DebateSessionRepository;
 import com.kbook.service.book.BookService;
+import com.kbook.service.progress.ReadingProgressService;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -38,7 +40,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
@@ -71,6 +72,7 @@ public class DebateService {
     private final DebateMessageRepository messageRepository;
     private final DebateScoringService scoringService;
     private final StringRedisTemplate stringRedisTemplate;
+    private final ReadingProgressService readingProgressService;
     private final ExecutorService sseExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -88,6 +90,7 @@ public class DebateService {
             DebateMessageRepository messageRepository,
             DebateScoringService scoringService,
             StringRedisTemplate stringRedisTemplate,
+            ReadingProgressService readingProgressService,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.bookService = bookService;
         this.chatModelManager = chatModelManager;
@@ -95,6 +98,7 @@ public class DebateService {
         this.messageRepository = messageRepository;
         this.scoringService = scoringService;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.readingProgressService = readingProgressService;
         this.sseExecutor = sseExecutor;
     }
 
@@ -109,7 +113,8 @@ public class DebateService {
             String cached = stringRedisTemplate.opsForValue().get(cacheKey);
             if (cached != null && !cached.isBlank()) {
                 List<DebateTopicVO> topics = objectMapper.readValue(cached,
-                        new TypeReference<List<DebateTopicVO>>() {});
+                        new TypeReference<>() {
+                        });
                 if (topics != null && !topics.isEmpty()) {
                     log.debug("辩题缓存命中: bookId={}", bookId);
                     return topics;
@@ -162,10 +167,39 @@ public class DebateService {
 
     private String buildBookInfoForTopic(Book book) {
         StringBuilder sb = new StringBuilder();
-        sb.append("书名：").append(book.getTitle()).append("\n");
-        if (book.getAuthor() != null) sb.append("作者：").append(book.getAuthor()).append("\n");
-        if (book.getDescription() != null) sb.append("简介：").append(book.getDescription()).append("\n");
-        if (book.getConceptTags() != null) sb.append("标签：").append(book.getConceptTags()).append("\n");
+        sb.append("书名：《").append(book.getTitle()).append("》\n");
+        if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
+            sb.append("作者：").append(book.getAuthor()).append("\n");
+        }
+        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+            String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("标签：").append(tags).append("\n");
+        }
+        if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+            String tags = book.getConceptTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("核心概念：").append(tags).append("\n");
+        }
+        if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+            String tags = book.getReaderNeedTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("读者需求：").append(tags).append("\n");
+        }
+        if (book.getTargetReaderTags() != null && !book.getTargetReaderTags().isBlank()) {
+            String tags = book.getTargetReaderTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            sb.append("目标读者：").append(tags).append("\n");
+        }
+        if (book.getDescription() != null && !book.getDescription().isBlank()) {
+            sb.append("简介：").append(book.getDescription()).append("\n");
+        }
+        if (book.getToc() != null && !book.getToc().isBlank()) {
+            sb.append("目录：\n").append(book.getToc()).append("\n");
+        }
+
+        // 摘要：优先 compressedSummary（LLM精炼） → chapterSummary（原始提取），均完整不截断
+        if (book.getCompressedSummary() != null && !book.getCompressedSummary().isBlank()) {
+            sb.append("\n【图书精炼摘要】\n").append(book.getCompressedSummary()).append("\n");
+        } else if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            sb.append("\n【章节摘要】（每章核心内容概述）\n").append(book.getChapterSummary()).append("\n");
+        }
         return sb.toString();
     }
 
@@ -260,6 +294,9 @@ public class DebateService {
 
         stringRedisTemplate.opsForValue().set(
                 DEBATE_SESSION_KEY_PREFIX + sessionId, topic);
+
+        // 将该图书加入阅读历史（标记为讨论行为）
+        readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
         log.info("辩论会话已创建: sessionId={}, bookId={}, topic={}", sessionId, bookId, topic);
         return DebateSessionVO.from(session);
@@ -397,13 +434,11 @@ public class DebateService {
 
         sseExecutor.submit(() -> {
             try {
-                Book book = bookService.getBookById(bookId);
-
                 String systemPrompt = String.format(
                         AiPromptConstants.DEBATE_OPENING_PROMPT);
 
                 List<ChatMessage> messages = buildSpeechMessages(
-                        systemPrompt, book, session, request, personality,
+                        systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, null);
 
                 StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
@@ -445,13 +480,11 @@ public class DebateService {
 
         sseExecutor.submit(() -> {
             try {
-                Book book = bookService.getBookById(bookId);
-
                 String systemPrompt = String.format(
                         AiPromptConstants.DEBATE_ATTACK_PROMPT);
 
                 List<ChatMessage> messages = buildSpeechMessages(
-                        systemPrompt, book, session, request, personality,
+                        systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, opponentSpeech);
 
                 StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
@@ -501,8 +534,6 @@ public class DebateService {
 
         sseExecutor.submit(() -> {
             try {
-                Book book = bookService.getBookById(bookId);
-
                 // 根据质询角色选择不同的系统提示词
                 boolean isQuestioner = "QUESTIONER".equals(examRole);
                 String systemPrompt = isQuestioner
@@ -519,7 +550,7 @@ public class DebateService {
                 }
 
                 List<ChatMessage> messages = buildSpeechMessages(
-                        systemPrompt, book, session, request, personality,
+                        systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, extraContent);
 
                 // 交叉质询不需要对话记录中的角色设定冲突 — 用专门的 output prompt
@@ -577,15 +608,13 @@ public class DebateService {
 
         sseExecutor.submit(() -> {
             try {
-                Book book = bookService.getBookById(bookId);
-
                 String systemPrompt = AiPromptConstants.DEBATE_REBUTTAL_PROMPT;
 
                 String extraContent = "【对方一辩立论 — 请集中火力反驳以下论证】\n" + opponentOpening
                         + "\n\n【质询环节摘要】\n" + crossExamContext;
 
                 List<ChatMessage> messages = buildSpeechMessages(
-                        systemPrompt, book, session, request, personality,
+                        systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, extraContent);
 
                 StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
@@ -625,13 +654,12 @@ public class DebateService {
 
         sseExecutor.submit(() -> {
             try {
-                Book book = bookService.getBookById(bookId);
 
                 String systemPrompt = String.format(
                         AiPromptConstants.DEBATE_FREE_PROMPT);
 
                 List<ChatMessage> messages = buildSpeechMessages(
-                        systemPrompt, book, session, request, personality,
+                        systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, lastSpeech);
 
                 StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
@@ -671,8 +699,6 @@ public class DebateService {
 
         sseExecutor.submit(() -> {
             try {
-                Book book = bookService.getBookById(bookId);
-
                 // 构建全场辩论摘要
                 String debateSummary = buildDebateSummary(session);
 
@@ -680,7 +706,7 @@ public class DebateService {
                         AiPromptConstants.DEBATE_CLOSING_PROMPT);
 
                 List<ChatMessage> messages = buildSpeechMessages(
-                        systemPrompt, book, session, request, personality,
+                        systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, debateSummary);
 
                 StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
@@ -717,7 +743,7 @@ public class DebateService {
      * 构建发言消息列表
      */
     private List<ChatMessage> buildSpeechMessages(
-            String systemPrompt, Book book, DebateSession session,
+            String systemPrompt, DebateSession session,
             DebateSpeakRequest request, DebateRole personality,
             String side, String sideName, String positionLabel, String sideFull,
             String extraContent) {
@@ -850,7 +876,7 @@ public class DebateService {
 
                     String side = getSideFromPositionKey(positionKey);
                     scoringService.scoreSpeechAsync(userId, request.getSessionId(),
-                            personality.getName(), side, content,
+                            personality.getName(), positionKey, side, content,
                             request.getRoundNumber(), request.getRoundType());
                 }
 
@@ -1142,192 +1168,4 @@ public class DebateService {
                 : sb.toString();
     }
 
-    // ==================== 主持人发言 ====================
-
-    /**
-     * 主持人串场发言（SSE）
-     * 支持三种场景：INTRO（开场）、TRANSITION（阶段过渡）、WRAPUP（总结收尾）
-     */
-    public SseEmitter streamHostSpeech(Long userId, Long bookId, String sessionId,
-                                        String hostSpeechType, String fromPhase, String toPhase) {
-        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
-        DebateSession session = getSessionBySessionId(sessionId);
-        if (session == null) {
-            SseHelper.sendErrorAndComplete(emitter, "会话不存在: " + sessionId);
-            return emitter;
-        }
-
-        // 构建场景描述
-        String sceneLabel;
-        String sceneDesc;
-        switch (hostSpeechType != null ? hostSpeechType : "TRANSITION") {
-            case "INTRO" -> {
-                sceneLabel = "开场介绍";
-                sceneDesc = "辩论即将开始，你需要：\n1. 问候全场\n2. 介绍本场辩题和双方立场\n3. 介绍双方辩手阵容\n4. 宣布辩论开始";
-            }
-            case "WRAPUP" -> {
-                sceneLabel = "总结收尾";
-                sceneDesc = "辩论即将结束，你需要：\n1. 感谢双方辩手的精彩表现\n2. 对整场辩论做简短点评（不评判胜负）\n3. 宣布本场辩论结束";
-            }
-            default -> {
-                String fromLabel = fromPhase != null ? getPhaseLabel(fromPhase) : "";
-                String toLabel = toPhase != null ? getPhaseLabel(toPhase) : "下一环节";
-                sceneLabel = fromLabel + "→" + toLabel + "过渡";
-                sceneDesc = String.format("「%s」环节结束，「%s」环节即将开始，你需要：\n1. 简要总结上一环节的精彩看点\n2. 介绍下一环节的规则\n3. 请辩手准备", fromLabel, toLabel);
-            }
-        }
-
-        sseExecutor.submit(() -> {
-            try {
-                Book book = bookService.getBookById(bookId);
-
-                // 获取最近 3 条发言作为上下文
-                List<DebateMessage> recentMsgs = messageRepository.query()
-                        .where(DebateMessage::getSessionId, eq(sessionId))
-                        .orderByDesc(DebateMessage::getId)
-                        .list(3);
-                StringBuilder recentText = new StringBuilder();
-                for (int i = recentMsgs.size() - 1; i >= 0; i--) {
-                    DebateMessage m = recentMsgs.get(i);
-                    String s = switch (m.getSide()) {
-                        case "PRO" -> "[正方]";
-                        case "CON" -> "[反方]";
-                        default -> "[主持]";
-                    };
-                    recentText.append(s).append(m.getRoleName()).append("：").append(m.getContent()).append("\n");
-                }
-                if (recentText.isEmpty()) recentText.append("暂无");
-
-                String prompt = String.format(
-                        AiPromptConstants.DEBATE_HOST_SPEECH_PROMPT,
-                        session.getTopic(),
-                        book.getTitle() + "——" + (book.getAuthor() != null ? book.getAuthor() : ""),
-                        sceneLabel, hostSpeechType != null ? hostSpeechType : "TRANSITION",
-                        sceneDesc,
-                        recentText.toString());
-
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
-                if (streamingChatModel == null) {
-                    SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
-                    return;
-                }
-
-                List<ChatMessage> chatMessages = new ArrayList<>();
-                chatMessages.add(SystemMessage.from(prompt));
-
-                final boolean[] connectionClosed = {false};
-                StringBuilder fullResponse = new StringBuilder();
-
-                streamingChatModel.chat(chatMessages, new StreamingChatResponseHandler() {
-                    @Override
-                    public void onPartialThinking(PartialThinking partialThinking) {
-                    }
-
-                    @Override
-                    public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
-                        if (connectionClosed[0]) return;
-                        String text = partialResponse.text();
-                        if (text == null || text.isEmpty()) return;
-                        fullResponse.append(text);
-                        try {
-                            String json = objectMapper.writeValueAsString(
-                                    Map.of("roleKey", "HOST", "text", text));
-                            if (!SseHelper.safeSendEvent(emitter, "message", json)) {
-                                connectionClosed[0] = true;
-                            }
-                        } catch (Exception e) {
-                            connectionClosed[0] = true;
-                        }
-                    }
-
-                    @Override
-                    public void onCompleteResponse(ChatResponse completeResponse) {
-                        if (connectionClosed[0]) return;
-                        if (Thread.currentThread().isInterrupted()) return;
-
-                        String content = fullResponse.toString().trim();
-                        if (!content.isBlank()) {
-                            // 保存主持人发言
-                            DebateRole hostRole = DebateRole.HOST;
-                            String side = "NEUTRAL";
-                            try {
-                                List<DebateMessage> roundMessages = messageRepository
-                                        .findBySessionIdAndRoundNumberOrderByPhaseOrder(sessionId, session.getCurrentRound());
-                                int phaseOrder = roundMessages.size() + 1;
-
-                                DebateMessage record = DebateMessage.builder()
-                                        .userId(userId)
-                                        .sessionId(sessionId)
-                                        .bookId(bookId)
-                                        .roleKey(hostRole.getKey())
-                                        .roleName(hostRole.getName())
-                                        .positionKey("HOST")
-                                        .side(side)
-                                        .content(content)
-                                        .roundNumber(session.getCurrentRound())
-                                        .roundType(session.getCurrentPhase())
-                                        .phaseOrder(phaseOrder)
-                                        .build();
-                                messageRepository.save(record);
-                            } catch (Exception e) {
-                                log.warn("保存主持人发言失败: {}", e.getMessage());
-                            }
-                        }
-
-                        try {
-                            emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                            emitter.complete();
-                        } catch (Exception e) {
-                            log.warn("发送 SSE done 事件失败: {}", e.getMessage());
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable error) {
-                        log.error("主持人发言 SSE 流错误: {}", error.getMessage());
-                        String content = fullResponse.toString().trim();
-                        if (!content.isBlank()) {
-                            DebateRole hostRole = DebateRole.HOST;
-                            try {
-                                DebateMessage record = DebateMessage.builder()
-                                        .userId(userId)
-                                        .sessionId(sessionId)
-                                        .bookId(bookId)
-                                        .roleKey(hostRole.getKey())
-                                        .roleName(hostRole.getName())
-                                        .positionKey("HOST")
-                                        .side("NEUTRAL")
-                                        .content(content)
-                                        .roundNumber(session.getCurrentRound())
-                                        .roundType(session.getCurrentPhase())
-                                        .build();
-                                messageRepository.save(record);
-                            } catch (Exception e) {
-                                log.warn("保存主持人发言失败: {}", e.getMessage());
-                            }
-                        }
-                        SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(error));
-                    }
-                });
-
-            } catch (Exception e) {
-                log.error("主持人发言失败: {}", e.getMessage(), e);
-                SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
-            }
-        });
-
-        return emitter;
-    }
-
-    /** 获取阶段中文标签 */
-    private String getPhaseLabel(String phase) {
-        return switch (phase) {
-            case "OPENING" -> "开篇立论";
-            case "CROSS_EXAM" -> "交叉质询";
-            case "REBUTTAL" -> "驳论";
-            case "FREE" -> "自由辩论";
-            case "CLOSING" -> "总结陈词";
-            default -> phase;
-        };
-    }
 }

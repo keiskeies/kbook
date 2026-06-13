@@ -1,7 +1,7 @@
-import { useMemo } from 'react'
-import { BarChart3, RefreshCw } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { BarChart3, RefreshCw, ArrowUpDown } from 'lucide-react'
 import type { DebateScore } from '@/types/debate'
-import { DEBATE_ROLE_COLORS, DEBATE_SCORE_DIMENSIONS, DEBATE_ROLE_NAMES } from '@/types/debate'
+import { DEBATE_ROLE_COLORS, DEBATE_SCORE_DIMENSIONS, DEBATE_ROLE_NAMES, getPersonalityTitle } from '@/types/debate'
 
 interface ScorePanelProps {
   scores: DebateScore[]
@@ -10,20 +10,27 @@ interface ScorePanelProps {
   isMobile?: boolean
 }
 
+/** 默认角色顺序 */
+const POSITION_ORDER = ['PRO_1', 'PRO_2', 'PRO_3', 'PRO_4', 'CON_1', 'CON_2', 'CON_3', 'CON_4']
+
 /**
- * 7维度评分面板 — 以雷达图+柱状图展示辩论评分
+ * 7维度评分面板
  */
 export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: ScorePanelProps) {
-  // 按角色分组计算平均分
+  const [sortBy, setSortBy] = useState<'position' | 'score'>('position')
+
+  // 按位置键分组计算平均分，排除主持人
   const roleAverages = useMemo(() => {
     const grouped = new Map<string, DebateScore[]>()
     for (const s of scores) {
-      const arr = grouped.get(s.roleKey) || []
+      if (s.positionKey === 'HOST') continue
+      const key = s.positionKey || s.roleKey
+      const arr = grouped.get(key) || []
       arr.push(s)
-      grouped.set(s.roleKey, arr)
+      grouped.set(key, arr)
     }
 
-    return Array.from(grouped.entries()).map(([roleKey, roleScores]) => {
+    const list = Array.from(grouped.entries()).map(([key, roleScores]) => {
       const avg = (dim: keyof DebateScore) => {
         const vals = roleScores.map(s => s[dim]).filter((v): v is number => v !== null)
         return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
@@ -38,9 +45,24 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
 
       const overall = dims.reduce((s, d) => s + d.score, 0) / dims.length
 
-      return { roleKey, name: DEBATE_ROLE_NAMES[roleKey] || roleKey, dims, overall }
-    }).sort((a, b) => b.overall - a.overall)
-  }, [scores])
+      const positionName = DEBATE_ROLE_NAMES[key] || ''
+      const personalityName = getPersonalityTitle(roleScores[0]?.roleKey || '')
+      const displayName = positionName && personalityName
+        ? `${positionName}（${personalityName}）`
+        : positionName || personalityName || key
+
+      return { key, name: displayName, dims, overall }
+    })
+
+    // 排序
+    if (sortBy === 'position') {
+      list.sort((a, b) => POSITION_ORDER.indexOf(a.key) - POSITION_ORDER.indexOf(b.key))
+    } else {
+      list.sort((a, b) => b.overall - a.overall)
+    }
+
+    return list
+  }, [scores, sortBy])
 
   // 正反方对比
   const sideComparison = useMemo(() => {
@@ -67,7 +89,7 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
             评分面板
           </h3>
           {!isMobile && (
-            <button onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground mr-7">关闭</button>
+            <button onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground">关闭</button>
           )}
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -130,12 +152,23 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
 
         {/* 角色评分汇总 */}
         <section>
-          <h4 className="text-xs font-bold text-muted-foreground mb-2">角色评分汇总</h4>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs font-bold text-muted-foreground">角色评分汇总</h4>
+            <button
+              onClick={() => setSortBy(sortBy === 'position' ? 'score' : 'position')}
+              className={`flex items-center gap-0.5 text-[10px] p-1 rounded transition-colors ${
+                sortBy === 'score' ? 'bg-brand-100 text-brand-500' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <ArrowUpDown className="h-3 w-3" />
+              <span>{sortBy === 'position' ? '角色顺序' : '评分高低'}</span>
+            </button>
+          </div>
           <div className="space-y-3">
             {roleAverages.map(role => {
-              const color = DEBATE_ROLE_COLORS[role.roleKey] || '#888'
+              const color = DEBATE_ROLE_COLORS[role.key] || '#888'
               return (
-                <div key={role.roleKey} className="rounded-xl border border-border/20 p-3">
+                <div key={role.key} className="rounded-xl border border-border/20 p-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold" style={{ color }}>{role.name}</span>
                     <span className="text-xs font-bold">{role.overall.toFixed(1)}</span>

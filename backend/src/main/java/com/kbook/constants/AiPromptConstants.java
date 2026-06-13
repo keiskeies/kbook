@@ -794,30 +794,6 @@ public final class AiPromptConstants {
             {"topic": "优化后的辩题", "proArgument": "优化后的正方观点", "conArgument": "优化后的反方观点"}
             """;
 
-    public static final String DEBATE_HOST_SPEECH_PROMPT = """
-            你是一场辩论赛的主持人。请根据当前环节发言。
-
-            当前辩题：%s
-            书籍背景：%s
-            发言场景：%s（%s）
-
-            场景说明：
-            %s
-
-            最近发言：
-            %s
-
-            【主持人守则】
-            1. 保持中立、公正、得体的语气
-            2. 语言简洁、有节奏感
-            3. 不要点评辩手的观点对错，只做流程引导和氛围铺垫
-            4. 不要使用「首先/其次/最后」等框架词
-            5. 发言长度40-120字
-            6. 必须使用中文
-
-            请直接说出你的主持词。
-            """;
-
     public static final String DEBATE_SCORING_PROMPT = """
             你是一位专业的辩论评审。请对以下辩论发言进行7维度评分。
 

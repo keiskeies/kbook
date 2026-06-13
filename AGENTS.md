@@ -2,224 +2,140 @@
 
 AI-native reading platform. React 19 frontend + Spring Boot 3.4 backend.
 
-## Commands
+---
 
-### Frontend (`frontend/`)
-- `npm install` — install deps (uses npm, not pnpm despite lockfile presence)
-- `npm run dev` — Vite dev server on **port 15173**, proxies `/api` → `http://localhost:8181`
-- `npm run build` — runs `tsc -b && vite build` (TypeScript project references, outputs to `dist/`)
-- `npm run lint` — ESLint
-- Path alias: `@/` → `src/`
+## I. 项目速查（信息参考，被动查阅）
 
-### Backend (`backend/`)
-- `mvn spring-boot:run` — starts on **port 8181** (not 8080)
-- `mvn clean package -DskipTests` — build JAR to `target/kbook-server-1.0.0.jar`
-- Java 17 required
+### 命令
+| 位置 | 命令 | 说明 |
+|------|------|------|
+| `frontend/` | `npm run dev` | Vite dev server **port 15173**, proxy `/api` → `localhost:8181` |
+| `frontend/` | `npm run build` | `tsc -b && vite build` → `dist/` |
+| `backend/` | `mvn spring-boot:run` | starts on **port 8181** |
+| `backend/` | `mvn clean package -DskipTests` | build JAR |
+| `deploy/` | `docker compose up -d` | full stack, backend on 8080 |
 
-### Docker (`deploy/`)
-- `docker compose up -d` — MySQL, Redis, ES, Qdrant, backend (port 8080), Nginx
-- Docker backend runs on **port 8080**, dev runs on **8181** — do not confuse
-
-## Infrastructure (all required for backend to start)
+### 基础设施
 | Service | Dev Port | Docker Port |
 |---------|----------|-------------|
 | MySQL 8 | 3306 | 3306 |
 | Redis 7 | 6379 | 6379 |
-| Elasticsearch 8.12 | 9201 | 9200 |
+| ES 8.12 | 9201 | 9200 |
 | Qdrant v1.12 | 6334 | 6334 |
 
-**ES port mismatch**: dev default is `9201` (`application.yml`), Docker exposes `9200`. Set `ES_URIS` accordingly.
+### 后端关键配置
+- DB `kbook-dev`, user `root`, pw `123456`
+- Redis pw `123456`, db `4`
+- JPA `ddl-auto: update`, JWT 2h/7d
+- Admin: `admin@kbook` / `admin123456`
 
-## Backend env defaults (dev)
-- DB: `kbook-dev`, user `root`, password `123456`
-- Redis password: `123456`, database `4`
-- ES: `http://localhost:9201` (no auth)
-- Qdrant: `localhost:6334` (gRPC)
-- AI: Ollama at `http://localhost:11434`, model `gemma4:e4b`, embedding `bge-m3:latest`
-- Book paths default to `G:/图书/{epub,pdf1,txt1}` — change for your machine
-- Admin default: `admin@kbook` / `admin123456` (injected by `DataInitializer`)
+### 前端关键信息
+- Zustand stores: `auth`, `reader`, `progress`, `tts`, `ui`
+- Router: React Router 7, lazy pages, `AppLayout` + `BlankLayout`
+- Path alias: `@/` → `src/`
+- No test files despite `@playwright/test` in devDeps
 
-## Architecture notes
-- **API response envelope**: all responses wrapped in `Result<T>` → `{code, message, data}`. `code=0` = success. Frontend `request.ts` unwraps `data` on `code===0`.
-- **Business codes**: `1001` = user pending approval, `1002` = user banned. Frontend handles these specially (no toast).
-- **SSE endpoints**: AI chat (`/api/ai/chat`, `/api/books/{id}/chat`), admin scan (`/api/books/admin/scan`). Timeouts set to 1 hour across Vite proxy, Tomcat, and Nginx.
-- **Circular dependency**: `AiToolService → RecommendService → EmbeddingService → AiProviderConfigService → AiToolService`. Resolved with `@Lazy` and `ObjectProvider`. Do not remove.
-- **EmbeddingService lazy init**: breaks circular dep with `AiProviderConfigService`. Embedding model is lazily initialized.
-- **Two Qdrant collections**: `kbook_books` (metadata vectors for recommendation) and `kbook_content` (chunked book content for RAG). 1024-dim vectors, int8 scalar quantization.
-- **RAG chunking**: 800 chars per chunk, 200 char overlap. Configurable via `kbook.qdrant.chunk-size` / `chunk-overlap`.
-- **JPA ddl-auto**: `update` — schema auto-migrates on startup. No manual migrations.
-- **JWT**: access token 2h, refresh token 7d. Frontend auto-refreshes on 401 with request queuing.
+### 架构摘要
+- API 响应固定包装 `Result<T>` → `{code, message, data}`, `code=0` = success
+- 循环依赖: `AiToolService → RecommendService → EmbeddingService → AiProviderConfigService`, 用 `@Lazy` 解决
+- SSE 超时 1 小时（Vite proxy + Tomcat + Nginx 三处设置）
+- ChatModelFactory 8 个无参方法，provider 自动检测
 
-## Frontend specifics
-- State: Zustand stores (`auth`, `reader`, `progress`, `tts`, `ui`)
-- Router: React Router 7 with `createBrowserRouter`, lazy-loaded pages, two layouts (`AppLayout` with TabBar, `BlankLayout` for reader/auth/admin)
-- Route guards: `AuthGuard`, `AdminGuard`, `GuestGuard`
-- Three reader renderers: `EpubRenderer` (epubjs), `PdfRenderer` (pdfjs-dist), `TxtRenderer`
-- PWA enabled with `autoUpdate` registration
-- No test files exist despite `@playwright/test` in devDependencies
+---
 
-## Deployment
-- Production behind Nginx at `book.keiskei.top` (SSL via Let's Encrypt)
-- Nginx proxies to backend on `127.0.0.1:8080`
-- Frontend `dist/` served as static files by Nginx
-- `deploy/nginx/kbook.conf` also routes other domains on same server — only `book.keiskei.top` is KBook
+## II. 编码规范（AI 自然遵循，不强制检查）
 
-## ChatModelFactory — 8 no-arg methods
+以下规范我通常能自行遵守，你可以假定我默认会做到：
 
-All 8 methods return `ChatModel` or `StreamingChatModel`, zero parameters, provider auto-detected inside.
+### 后端
+- Controller 只管参数校验和路由，不含业务逻辑
+- Service 管业务，Repository 管 DB
+- Entity 不直接返回 API，必须经过 DTO/VO
+- 异常用 `BusinessException`，由 `@RestControllerAdvice` 全局处理
+- 多表修改加 `@Transactional(rollbackFor = Exception.class)`
 
-| # | Method | Source | Thinking | Streaming |
-|---|--------|--------|----------|-----------|
-| 1 | `buildChatModel()` | DB→yml | on | no |
-| 2 | `buildChatModelWithoutThinking()` | DB→yml | off | no |
-| 3 | `buildStreamingChatModel()` | DB→yml | on | yes |
-| 4 | `buildStreamingChatModelWithoutThinking()` | DB→yml | off | yes |
-| 5 | `buildChatModelFromYml()` | yml | on | no |
-| 6 | `buildChatModelWithoutThinkingFromYml()` | yml | off | no |
-| 7 | `buildStreamingChatModelFromYml()` | yml | on | yes |
-| 8 | `buildStreamingChatModelWithoutThinkingFromYml()` | yml | off | yes |
+### 前端
+- API 调用统一在 `src/api/` 下封装，不裸写 `fetch`/`axios`
+- TypeScript `strict: true`，不用 `any`
+- 样式用 Tailwind CSS
+- 组件 Props 用 `interface` 显式定义
 
-### Secondary methods
-- `buildVisionChatModel()` — Ollama only, temperature 0.3, 600s timeout, no thinking
-- `buildChatModelForTest(Long configId)` — loads from DB by ID
-- `buildOllamaEmbeddingModel(...)` — create from params
-- `buildDefaultEmbeddingModel()` — yml embedding config
+### 全栈
+- 后端改 DTO 时同步改前端 TS Interface
+- 前后端统一 camelCase
+- 不随意引入新依赖，优先用项目已有工具库
 
-### All models (except vision) wrapped with:
-- `RetryableChatModel` — exponential backoff 1s/2s/4s, ±25% jitter, max 30s, 3 retries on 429
-- `customHeaders` with UTF-8 charset (Ollama only)
-- OpenAI models get `DiagnosticChatListener`
+### LLM 使用原则
+- 涉及算法时优先判断 LLM 是否更适合
+- 复杂文本处理用 LLM 兜底
 
-## AiProviderConfig.provider — enum
-- `Provider` enum: `OLLAMA`, `OPENAI`
-- JPA `AttributeConverter`: case-insensitive reads
-- `@JsonCreator from(String)`: case-insensitive deserialization
-- All comparisons use `==` not `.equals()`
+---
 
-## Callers using yml-only methods
-- `BookParserService.generateSpeedRead()` → `buildChatModelWithoutThinkingFromYml()`
-- `BookChatService.followUpQuestions()` → `buildChatModelWithoutThinkingFromYml()`
+## III. 必须强制执行的规则（AI 容易跳过）
 
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+> ⚠️ 以下规则我**不会自动执行**——必须有你的显式提醒或系统的硬性拦截才能生效。每当你觉得我可能忽略了某条，直接引用编号提醒。
 
-This project is indexed by GitNexus as **kbook** (31656 symbols, 38986 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+### R1: GitNexus 强制使用
+**我默认用 `grep`/`Select-String` 翻代码，从不主动用 GitNexus。**
 
-> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+- **改任何函数/类/方法前**，先跑 `gitnexus_impact({target: "名称", direction: "upstream"})` 看调用方和风险
+- **改完后提交前**，跑 `gitnexus_detect_changes()` 确认影响范围
+- 搜索概念用 `gitnexus_query({query: "概念"})` 而不是 grep
+- 360° 看调用链用 `gitnexus_context({name: "符号名"})`
 
-## Always Do
+### R2: 数据流全链路追溯
+**我只改"看起来有问题"的那一层，不追源头。**
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})`.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+改任何涉及数据显示/存储/传递的问题前：
+1. 从后端 Entity 字段 → DTO/VO 映射 → Controller → API 响应
+2. 到前端 TypeScript interface → state/setState → 组件渲染
+3. **确认每步数据都在**再动手。中间缺一环就是根因。
 
-## Never Do
+**反面案例**: 人格标题不显示，连改 5 轮前端渲染，根因是 `startStreaming` 占位消息根本没设 `personalityTitle`。
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+### R3: 改共享函数/组件先列全引用点
+**改了签名或行为不查调用方。**
 
-## Resources
+- 先用 grep 找到**所有**引用点，列清单
+- 逐项确认兼容性后再改
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/kbook/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/kbook/clusters` | All functional areas |
-| `gitnexus://repo/kbook/processes` | All execution flows |
-| `gitnexus://repo/kbook/process/{name}` | Step-by-step execution trace |
+### R4: 修改后自检清单
+每次交差前：
+1. `npm run build` / `mvn compile` 零错误？
+2. 前后端联动 → 两端都编译了？
+3. `setXxx` 插入的数据 → 刷新还在吗？
+4. `useCallback` 递归 → 计数器用 `let` 了？
+5. PC/手机版 `md:` 断点都对吗？
 
-## CLI
+---
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+## IV. 反愚蠢规则（罚分卡 —— 每条对应实际 Bug）
 
-<!-- gitnexus:end -->
+> 这些规则来自对话中已发生的错误。每条有触发条件、强制规则、反面案例。
 
-# 全栈 Monorepo AI 编码规范 (Claude.md)
+### A1. 前端状态 ≠ 持久化
+**触发**: 通过 `setMessages` / `setState` 插入数据，不调后端 API。
+**规则**: 每次插入时问自己"刷新还在吗？"。不在 → 调后端或重建。
+**Bug**: 主持人消息全 `setMessages`，刷新消失 → 加 `insertHostMessages()` 重建。
 
-你是一个资深的 Spring Boot + React + TypeScript 全栈架构师。本项目采用 Monorepo 架构。
-在生成、修改或重构代码时，必须严格遵守以下全栈规范，确保前后端架构的一致性、类型安全和代码的可维护性。每次生成代码前，请先在内心回顾以下规范。
+### A2. 闭包陷阱
+**触发**: `setTimeout(fn)` 递归，`fn` 读 state/props。
+**规则**: 计数器用 `let` + `++`，禁止读闭包 state 的 `.length`。`isChainActiveRef` 检查放在所有回调最前面。
+**Bug**: 自由辩论 `currentFreeMsgs.length` 永远为 0 → 用 `let freeCount` 就地 +1。
 
-## 0. 工程边界与目录结构 (Workspace)
-- **严格物理隔离**：后端代码必须在 `/backend` 目录下，前端代码必须在 `/frontend` 目录下。严禁在根目录混合存放 `pom.xml`、`package.json` 或源码文件。
-- **跨栈修改原则**：当要求实现“完整功能”时，必须按以下顺序思考并输出：
-    1. 后端 Entity / Repository
-    2. 后端 DTO / Service / Controller
-    3. 前端 TS Interface / API 请求封装
-    4. 前端 React 组件 / Custom Hooks
-- **禁止越界**：后端代码严禁引入前端依赖，前端代码严禁直接读取后端数据库或配置。
+### A3. 预写 > LLM（确定性内容）
+**触发**: 内容是固定的、可枚举的（主持词、环节名、辩手名）。
+**规则**: 优先预写文本。只有需要实际总结/分析时才调 LLM。预写文本同时确保 A1 的重建逻辑。
+**Bug**: 主持人 INTRO/TRANSITION 被 LLM 编造辩手观点、叫错名字。
 
-## 1. 全栈 API 契约规范 (Contract First) ⚠️核心
-- **统一响应体解包**：
-    - 后端必须统一返回 `Result<T> { code: number, message: string, data: T }`。
-    - 前端必须在 Axios 拦截器中**统一解包**，直接返回 `data` 给业务组件。前端业务代码严禁频繁判断 `res.code === 200`。
-- **类型强同步**：修改后端 DTO/VO 时，**必须主动同步修改**前端的 TypeScript Interface。严禁前端使用 `any` 接收后端数据。
-- **命名风格统一**：强制全链路使用 **小驼峰命名法 (camelCase)**。后端 Jackson 必须配置全局策略映射为驼峰，严禁出现前后端字段命名风格不一致（如 `createTime` vs `create_time`）。
-- **日期时间格式**：后端必须通过全局 Jackson 配置，将时间统一序列化为 `yyyy-MM-dd HH:mm:ss` 或 毫秒时间戳。严禁返回带 `T` 和时区的 ISO-8601 原始字符串让前端手动 parse。
+### A4. UI 先读布局
+**触发**: "在 XX 上加一个按钮"。
+**规则**: 先读完整 JSX（含 `md:hidden` 等响应式标记），确定 PC/手机版分别渲染位置，再改。
+**Bug**: 奇葩说按钮加到手机 header，实际在底部栏。
 
-## 2. 后端开发规范 (Spring Boot)
-
-### 2.1 架构与分层 (Architecture)
-- **严格分层**：
-    - `Controller`：只负责参数校验（`@Validated`）、权限控制、接收请求和返回统一响应。严禁包含业务逻辑，严禁直接调用 `Repository`。
-    - `Service`：负责核心业务逻辑。严禁操作 `HttpServletRequest/Response`。
-    - `Repository`：只负责数据库交互。
-- **DTO/VO 模式**：严禁将 `@Entity` 直接作为 API 响应返回。必须定义专门的 `XxxRequest`、`XxxResponse`。使用 `MapStruct` 或 `BeanUtils` 进行对象转换。
-
-### 2.2 通用基类设计 (Base Classes)
-所有实体、Repository、Service 必须继承通用基类，严禁重复造轮子：
-- **BaseEntity**：必须包含 `@Id @GeneratedValue Long id`；必须使用 JPA Auditing 自动管理 `createTime` 和 `updateTime`；必须包含逻辑删除字段（如 `@SQLRestriction("is_deleted = false")`）。
-- **BaseRepository**：必须继承 `JpaRepository<T, Long>` 和 `JpaSpecificationExecutor<T>`。
-    - **动态查询规范**：严禁在 Repository 中编写大量 `findByXxxAndYyy` 方法。复杂动态查询必须使用 `Specification` 或 `QueryDSL` 在 Service 层构建。
-- **BaseService**：封装通用的分页查询、基础 CRUD 等方法，子类直接继承复用。
-
-### 2.3 Controller 与 RESTful 规范
-- **URL 命名规范**：
-    - 必须遵循 RESTful 风格。资源名称使用**复数名词**（如 `/api/v1/books`）。
-    - 操作通过 HTTP Method 区分（`GET` 查询，`POST` 创建，`PUT` 更新，`DELETE` 删除）。
-    - **严禁 URL 混乱**：同一个资源的 CRUD 接口必须放在同一个 Controller 类中。严禁出现 `/api/book/`、`/api/chat/book/`、`/api/book/chat_stream` 这种随意散落的接口。
-
-### 2.4 配置管理 (Configuration)
-- **严禁滥用 `@Value`**：严禁在代码中使用散落的 `@Value("${xxx}")` 注入配置。
-- **统一配置类**：必须使用 `@ConfigurationProperties` 创建强类型的配置类（如 `OssProperties`），按业务域分包管理。
-
-### 2.5 异常、事务与校验
-- **全局异常处理**：严禁在 Controller/Service 中写大段的 `try-catch` 并手动返回错误信息。业务异常必须抛出自定义的 `BusinessException`，由 `@RestControllerAdvice` 全局拦截并封装为 `Result` 返回。
-- **事务规范**：涉及多表修改必须加 `@Transactional(rollbackFor = Exception.class)`。事务方法必须是 `public`，严禁在事务内执行耗时的 RPC/HTTP 调用（大事务问题）。
-- **参数校验**：必须在 DTO 上使用 JSR-380 注解（`@NotBlank`, `@NotNull` 等），并在 Controller 参数前加上 `@Validated`。
-
-## 3. 前端开发规范 (React + TypeScript)
-
-### 3.1 网络请求与状态管理
-- **API 封装**：严禁在组件内直接使用 `fetch` 或裸写 `axios`。必须在 `/frontend/src/api/` 目录下按模块（如 `book.ts`）封装 API 请求，且与后端 Controller 一一对应。
-- **全局拦截**：必须配置全局拦截器处理 Token 注入、全局 Loading、统一错误提示（Toast）和 401 跳转。
-- **服务端状态**：推荐使用 **React Query (TanStack Query)** 或 **SWR** 管理服务端状态，替代传统的 `useEffect` + `useState` + `loading` 样板代码。
-
-### 3.2 组件与逻辑分离 (Hooks 驱动)
-- **严禁面条代码**：严禁在 React 组件内编写超过 50 行的复杂业务逻辑或嵌套的 `useEffect`。
-- **Custom Hooks**：数据请求、复杂表单校验、状态派生必须抽离为 Custom Hooks (如 `useFetchBooks`, `useBookForm`)。
-- **组件拆分**：如果生成的 React 组件超过 200 行，必须主动将其拆分为子组件。
-
-### 3.3 类型与样式
-- **TS 严格模式**：开启 `strict: true`。严禁使用 `any`。对于不确定的后端返回结构，使用 `unknown` 并进行类型守卫校验。组件 Props 必须使用 `interface` 显式定义。
-- **样式规范**：统一使用 Tailwind CSS 或 CSS Modules。严禁混用内联样式 (`style={{}}`) 和全局 CSS 文件。提取通用 UI 组件到 `/components/ui`。
-
-## 4. AI 行为准则与自我审查 (Self-Correction)
-1. **全栈联动检查**：在生成前端 API 调用代码前，先确认后端对应的 Controller 和 DTO 是否已经存在或一并生成。
-2. **依赖克制**：不要为了一个小功能随意引入新的 npm 包或 Maven 依赖，优先使用项目已有的工具库（如 lodash, dayjs, hutool）。
-3. **清理无用代码**：修改逻辑时，必须彻底删除旧的、废弃的代码和 import，不要留下注释掉的“死代码”。
-4. **安全底线**：前端代码中严禁硬编码任何后端密钥、Token 或敏感环境配置；后端代码严禁将密码、密钥明文打印到日志或返回给前端。
-5. **规范优先**：如果用户的要求与上述规范冲突，请优先遵循上述规范，并在回复中温和地提醒用户架构上的隐患。
-
-## 5. 项目代码设计准则
-1. **LLM逻辑算法优先**: 当涉及到算法逻辑时, 优先判断是否通过LLM实现更有优势, 而不是无脑堆死代码;
-2. **LLM逻辑判断兜底**: 当处理复杂内容时, 无法通过普通的文本处理, 请尽量使用LLM进行判断和修正;
+### A5. 辩论流程硬约束
+- `OPENING_ORDER` 不含 HOST，主持人是独立步骤
+- `CROSS_EXAM_ORDER` 只有 2 Q&A 对（4 轮）
+- 所有回调链检查 `isChainActiveRef.current`
+- 结束前必须调 `advanceDebateRound` 通知后端
+- 主持人消息全前端预写，刷新重建
