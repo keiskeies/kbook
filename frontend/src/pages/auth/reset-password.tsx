@@ -73,7 +73,7 @@ export default function ResetPasswordPage() {
   return (
     <div className="flex min-h-screen flex-col px-6 pt-safe-top">
       <div className="py-8">
-        <h1 className="mb-2 text-2xl font-bold">重置密码</h1>
+        <h1 className="mb-2 text-h3 font-bold">重置密码</h1>
         <p className="text-sm text-muted-foreground">通过邮箱验证码重置您的密码</p>
       </div>
 

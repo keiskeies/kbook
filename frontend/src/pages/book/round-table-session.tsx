@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+﻿import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Volume2, Square, Loader2, Play, Pause, BarChart3, Target, RefreshCw, FileText,
@@ -82,7 +82,7 @@ function RoleBar({
                 >
                   {role.name}
                 </span>
-                <span className="text-[10px] text-muted-foreground/60 leading-tight">
+                <span className="text-xs text-muted-foreground/60 leading-tight">
                   {count}次
                 </span>
               </div>
@@ -140,8 +140,8 @@ function MessageBubble({
 
       <div className="min-w-0 flex-1 pb-3">
         <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-[11px] font-bold" style={{ color }}>{msg.roleName}</span>
-          <span className="text-[9px] text-muted-foreground/40">
+          <span className="text-xs font-bold" style={{ color }}>{msg.roleName}</span>
+          <span className="text-xs text-muted-foreground/40">
             {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
           </span>
           {msg.streaming && (
@@ -163,7 +163,7 @@ function MessageBubble({
             style={{ backgroundColor: hexToRgba(color, 0.3) }}
           />
           <div
-            className="rounded-r-xl rounded-bl-xl px-4 py-3 text-[13px] leading-relaxed ml-3"
+            className="rounded-r-xl rounded-bl-xl px-4 py-3 text-detail leading-relaxed ml-3"
             style={{
               backgroundColor: hexToRgba(color, 0.04),
               border: `1px solid ${hexToRgba(color, 0.08)}`,
@@ -171,7 +171,7 @@ function MessageBubble({
             }}
           >
             {msg.content ? (
-              <MarkdownRenderer content={msg.content} className="!text-[13px]" />
+              <MarkdownRenderer content={msg.content} className="!text-detail" />
             ) : msg.streaming ? (
               <span className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -189,7 +189,7 @@ function MessageBubble({
         {!msg.streaming && msg.content && msg.content !== '（发言失败）' && (
           <button
             onClick={onToggleSpeak}
-            className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] transition-all duration-200 opacity-0 group-hover:opacity-100 ${
+            className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
               isSpeaking
                 ? 'text-primary bg-primary/10 opacity-100'
                 : 'text-muted-foreground/60 hover:text-muted-foreground'
@@ -232,7 +232,7 @@ function SpeakStatsPanel({
           发言统计
         </h3>
         {!isMobile && (
-          <button onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground mr-7">关闭</button>
+          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground mr-7">关闭</button>
         )}
       </div>
       <div className="px-4 py-3 shrink-0">
@@ -290,7 +290,7 @@ function ReportPanel({
               <FileText className="h-3 w-3" />
               生成解读报告
             </button>
-            <p className="text-[10px] text-muted-foreground/60 mt-2">预计 2-3 分钟，完成后站内信通知</p>
+            <p className="text-xs text-muted-foreground/60 mt-2">预计 2-3 分钟，完成后站内信通知</p>
           </div>
         )}
 
@@ -298,7 +298,7 @@ function ReportPanel({
           <div className="text-center py-6">
             <Loader2 className="h-6 w-6 animate-spin text-brand-500 mx-auto mb-2" />
             <p className="text-xs text-muted-foreground">AI 正在深度解读讨论内容...</p>
-            <p className="text-[10px] text-muted-foreground/60 mt-1">预计 2-3 分钟，完成后站内信通知</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">预计 2-3 分钟，完成后站内信通知</p>
           </div>
         )}
 
@@ -312,7 +312,7 @@ function ReportPanel({
                           [&_hr]:!my-4
                           [&_ul]:my-2 [&_ol]:my-2
                           [&_.table-scroll-wrapper]:-mx-4 [&_.table-scroll]:px-4">
-            <MarkdownRenderer content={report.content} className="!text-[14px] !leading-relaxed" />
+            <MarkdownRenderer content={report.content} className="!text-detail !leading-relaxed" />
           </div>
         )}
 
@@ -841,7 +841,7 @@ export default function RoundTableSessionPage() {
           <h1 className="text-sm font-bold text-foreground truncate">
             {bookTitle ? `《${bookTitle}》圆桌派讨论` : '圆桌派讨论'}
           </h1>
-          <p className="text-[10px] text-muted-foreground truncate">
+          <p className="text-xs text-muted-foreground truncate">
             {phase === 'loading' ? '加载中...' :
              phase === 'discussing' ? '讨论进行中' :
              phase === 'paused' ? '讨论已暂停' :
@@ -945,7 +945,7 @@ export default function RoundTableSessionPage() {
                     }
                     setTtsEnabled(!ttsEnabled)
                   }}
-                  className={`flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium transition-all duration-200 ${
+                  className={`flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium transition-all duration-200 ${
                     ttsEnabled
                       ? 'bg-brand-100 text-brand-500 border border-brand-200'
                       : 'bg-muted text-muted-foreground hover:text-foreground'
@@ -958,7 +958,7 @@ export default function RoundTableSessionPage() {
                 {phase === 'discussing' && (
                   <button
                     onClick={pauseDiscussion}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
                   >
                     <Pause className="h-3 w-3 shrink-0" />
                     <span className="hidden sm:inline">暂停</span>
@@ -968,7 +968,7 @@ export default function RoundTableSessionPage() {
                 {phase === 'paused' && messages.some(m => m.streaming === undefined) && (
                   <button
                     onClick={resumeDiscussion}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
                   >
                     <Play className="h-3 w-3 shrink-0" />
                     <span className="hidden sm:inline">继续</span>
@@ -978,7 +978,7 @@ export default function RoundTableSessionPage() {
                 {phase === 'error' && (
                   <button
                     onClick={loadSession}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
                   >
                     <RefreshCw className="h-3 w-3 shrink-0" />
                     <span className="hidden sm:inline">重试</span>
@@ -988,7 +988,7 @@ export default function RoundTableSessionPage() {
                 {phase === 'discussing' && (
                   <button
                     onClick={stopDiscussion}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
                   >
                     <Square className="h-3 w-3 shrink-0" />
                     <span className="hidden sm:inline">结束</span>
@@ -1003,7 +1003,7 @@ export default function RoundTableSessionPage() {
                 {messages.length > 0 && (
                   <button
                     onClick={() => setShowStats(!showStats)}
-                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
+                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs transition-colors ${
                       showStats ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground hover:text-foreground'
                     }`}
                   >
@@ -1015,7 +1015,7 @@ export default function RoundTableSessionPage() {
                 {messages.length > 0 && (
                   <button
                     onClick={() => setShowCoverage(!showCoverage)}
-                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
+                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs transition-colors ${
                       showCoverage ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
                     }`}
                   >
@@ -1027,7 +1027,7 @@ export default function RoundTableSessionPage() {
                 {messages.length > 0 && (
                   <button
                     onClick={handleToggleReport}
-                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
+                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs transition-colors ${
                       showReport ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
                     }`}
                   >

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+﻿import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Send, Plus, Trash2, MessageSquare, Loader2, Bot, User, RefreshCw, Copy, Check } from 'lucide-react'
 import { streamChat, createSession, getHistory, getSessions, deleteSession, getHotPrompts } from '@/api/ai'
@@ -339,7 +339,7 @@ export default function AIPage() {
                 <span className="min-w-0 flex-1 truncate text-xs">
                   {session.title || session.sessionId.slice(0, 8) + '...'}
                 </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
+                <span className="shrink-0 text-xs text-muted-foreground">
                   {formatTime(session.updatedAt)}
                 </span>
                 <button
@@ -366,7 +366,7 @@ export default function AIPage() {
           <MessageSquare className="h-4 w-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold">AI 阅读助手</h1>
+          <h1 className="text-h3 font-semibold">AI 阅读助手</h1>
           <p className="text-xs text-muted-foreground">推荐好书，解答疑惑</p>
         </div>
         <button
@@ -415,7 +415,7 @@ export default function AIPage() {
                     <span className="min-w-0 flex-1 truncate text-xs">
                       {session.title || session.sessionId.slice(0, 8) + '...'}
                     </span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                    <span className="shrink-0 text-xs text-muted-foreground">
                       {formatTime(session.updatedAt)}
                     </span>
                     <button
@@ -490,7 +490,7 @@ export default function AIPage() {
                         <Bot className="h-3 w-3" />
                       )}
                     </div>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {msg.role === 'user' ? '你' : 'AI'}
                     </span>
                   </div>
@@ -512,7 +512,7 @@ export default function AIPage() {
                               streaming={msg.streaming && !msg.content}
                             />
                           )}
-                          <MarkdownRenderer content={msg.content} bookMap={bookMap} className="text-sm text-justify" />
+                          <MarkdownRenderer content={msg.content} bookMap={bookMap} className="text-body text-justify" />
                         </>
                       )}
                       {msg.streaming && !msg.content && (

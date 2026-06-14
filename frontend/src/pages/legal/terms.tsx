@@ -13,7 +13,7 @@ export default function TermsPage() {
         <h1 className="text-base font-bold">用户协议</h1>
       </header>
 
-      <div className="mx-auto max-w-2xl px-5 py-6 text-sm leading-relaxed text-muted-foreground space-y-6">
+      <div className="mx-auto max-w-2xl px-5 py-6 text-body leading-relaxed text-muted-foreground space-y-6">
         <p className="text-xs text-muted-foreground/60">最后更新日期：2026年6月2日</p>
 
         <section>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+﻿import { useEffect, useState, useRef } from 'react'
 import { Settings, ChevronRight, LogOut, Lock, BookOpen, ShieldCheck, Mail, Library, BookMarked, UserCircle, Camera, Bell, Users, Palette, SlidersHorizontal, XCircle, Clock, BookHeart, Check, MessageCircle, RotateCcw, Trash2, Volume2, Sparkles } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
@@ -524,7 +524,7 @@ export default function ProfilePage() {
                     {userInfo?.nickname || '未登录'}
                   </h2>
                   {isAdmin && (
-                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-bold text-primary">
+                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold text-primary">
                       管理员
                     </span>
                   )}
@@ -550,15 +550,15 @@ export default function ProfilePage() {
               <div className="mt-4 md:mt-6 grid grid-cols-3 gap-3 md:gap-6 border-t border-primary/10 pt-4 md:pt-6">
                 <div className="text-center">
                   <p className="text-xl md:text-2xl font-bold text-primary">{stats.totalBooks}</p>
-                  <p className="text-[10px] md:text-xs text-muted-foreground font-medium">在读/读过</p>
+                  <p className="text-xs text-muted-foreground font-medium">在读/读过</p>
                 </div>
                 <div className="text-center">
                   <p className="text-xl md:text-2xl font-bold text-success">{stats.readingBooks}</p>
-                  <p className="text-[10px] md:text-xs text-muted-foreground font-medium">在读</p>
+                  <p className="text-xs text-muted-foreground font-medium">在读</p>
                 </div>
                 <div className="text-center">
                   <p className="text-xl md:text-2xl font-bold text-warning">{stats.completedBooks}</p>
-                  <p className="text-[10px] md:text-xs text-muted-foreground font-medium">已读完</p>
+                  <p className="text-xs text-muted-foreground font-medium">已读完</p>
                 </div>
               </div>
             )}
@@ -589,7 +589,7 @@ export default function ProfilePage() {
                     </div>
                     <div className="flex items-center gap-2">
                       {item.badge && (
-                        <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-bold text-warning dark:text-warning">
+                        <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-bold text-warning dark:text-warning">
                           {item.badge}
                         </span>
                       )}
@@ -729,7 +729,7 @@ export default function ProfilePage() {
               rows={3}
               className="w-full rounded-xl border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/50 transition-shadow resize-none"
             />
-            <p className="mt-1 text-[10px] text-muted-foreground text-right">{editBio.length}/200</p>
+            <p className="mt-1 text-xs text-muted-foreground text-right">{editBio.length}/200</p>
           </div>
 
           <div>
@@ -1057,7 +1057,7 @@ export default function ProfilePage() {
                   {includePrefs.map((pref) => (
                     <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-danger/10 dark:bg-danger/10 px-3 py-2">
                       <span className="text-danger text-xs">❤️</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getCategoryColor(pref.category)}`}>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${getCategoryColor(pref.category)}`}>
                         {getCategoryLabel(pref.category)}
                       </span>
                       <span className="flex-1 text-sm truncate">{pref.value}</span>
@@ -1086,7 +1086,7 @@ export default function ProfilePage() {
                 <div className="max-h-60 overflow-y-auto overscroll-y-contain space-y-1.5">
                   {excludePrefs.map((pref) => (
                     <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getCategoryColor(pref.category)}`}>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${getCategoryColor(pref.category)}`}>
                         {getCategoryLabel(pref.category)}
                       </span>
                       <span className="flex-1 text-sm truncate">{pref.value}</span>
@@ -1146,7 +1146,7 @@ export default function ProfilePage() {
                   }`}
                 >
                   <div className="font-medium">{s.label}</div>
-                  <div className={`text-[11px] mt-0.5 ${isActive ? 'opacity-70' : 'text-muted-foreground'}`}>{s.desc}</div>
+                  <div className={`text-xs mt-0.5 ${isActive ? 'opacity-70' : 'text-muted-foreground'}`}>{s.desc}</div>
                 </button>
               )
             })}

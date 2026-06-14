@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+﻿import { useEffect, useState, useCallback, useRef } from 'react'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { ArrowLeft, Trash2, RotateCcw, Star } from 'lucide-react'
@@ -20,7 +20,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   else if (r >= 2.5) colorClass = 'text-success dark:text-success'
   else colorClass = 'text-muted-foreground dark:text-muted-foreground'
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
       评分：{r}
     </span>
@@ -84,7 +84,7 @@ export default function BookTrashPage() {
           </button>
           <div className="flex items-center gap-2 flex-1">
             <Trash2 className="h-5 w-5 text-red-500" />
-            <h1 className="text-lg font-bold">垃圾桶</h1>
+            <h1 className="text-h3 font-bold">垃圾桶</h1>
             {books.length > 0 && (
               <span className="text-xs text-muted-foreground">共{books.length}本</span>
             )}
@@ -136,7 +136,7 @@ export default function BookTrashPage() {
                       <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                         <RatingBadgeCN rating={book.rating} />
                         {book.fileSize && (
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-xs text-muted-foreground">
                             {formatFileSize(book.fileSize)}
                           </span>
                         )}
@@ -147,7 +147,7 @@ export default function BookTrashPage() {
                           {tags.map((t) => (
                             <span
                               key={t}
-                              className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                              className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
                             >
                               {t}
                             </span>

@@ -88,7 +88,7 @@ export default function RegisterPage() {
           <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-3xl bg-white/20 shadow-2xl backdrop-blur-sm">
             <BookOpen className="h-10 w-10 text-white" strokeWidth={2.5} />
           </div>
-          <h2 className="text-3xl lg:text-4xl font-bold text-white mb-4">加入 KBook</h2>
+          <h2 className="text-h1 font-bold text-white mb-4">加入 KBook</h2>
           <p className="text-lg text-white/80 leading-relaxed">注册后完善画像，获取精准推荐</p>
           <p className="mt-3 text-sm text-white/60">AI 个性化推荐 · 智能问答 · 跨端阅读</p>
         </div>
@@ -102,7 +102,7 @@ export default function RegisterPage() {
             <div className="md:hidden flex h-14 w-14 items-center justify-center rounded-2xl bg-primary mb-4">
               <BookOpen className="h-7 w-7 text-primary-foreground" strokeWidth={2.5} />
             </div>
-            <h1 className="text-2xl font-bold">创建账号</h1>
+            <h1 className="text-h3 font-bold">创建账号</h1>
             <p className="text-sm text-muted-foreground mt-1">注册后完善画像，获取精准推荐</p>
           </div>
 

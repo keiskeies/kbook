@@ -53,6 +53,39 @@
     --ring: 119 24% 46%;
     --radius: 0.75rem;
 
+    /* === 字体排印 Typography === */
+    --text-h1: 48px;
+    --text-h1-mobile: 36px;
+    --text-h1-weight: 700;
+    --text-h1-line: 1.2;
+
+    --text-h2: 32px;
+    --text-h2-mobile: 26px;
+    --text-h2-weight: 700;
+    --text-h2-line: 1.3;
+
+    --text-h3: 24px;
+    --text-h3-mobile: 20px;
+    --text-h3-weight: 600;
+    --text-h3-line: 1.4;
+
+    --text-h4: 18px;
+    --text-h4-mobile: 16px;
+    --text-h4-weight: 600;
+    --text-h4-line: 1.5;
+
+    --text-body: 16px;
+    --text-body-weight: 400;
+    --text-body-line: 1.6;
+
+    --text-secondary: 14px;
+    --text-secondary-weight: 400;
+    --text-secondary-line: 1.5;
+
+    --text-tertiary: 12px;
+    --text-tertiary-weight: 400;
+    --text-tertiary-line: 1.4;
+
     /* === 阴影系统 Elevation === */
     --shadow-sm: 0 1px 2px rgba(26, 24, 20, 0.04), 0 1px 3px rgba(26, 24, 20, 0.02);
     --shadow-md: 0 4px 6px -1px rgba(26, 24, 20, 0.06), 0 2px 4px -2px rgba(26, 24, 20, 0.04);
@@ -236,6 +269,14 @@
 }
 .table-scroll-wrapper.scrolled-end::after {
   opacity: 0;
+}
+
+/* === 字体排印响应式 === */
+@media (max-width: 768px) {
+  .text-h1 { font-size: var(--text-h1-mobile); }
+  .text-h2 { font-size: var(--text-h2-mobile); }
+  .text-h3 { font-size: var(--text-h3-mobile); }
+  .text-h4 { font-size: var(--text-h4-mobile); }
 }
 
 /* === iOS Safari 输入框防自动缩放 === */

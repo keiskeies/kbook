@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useAuthStore } from '@/store/auth'
 import { sendBindEmailCode, bindEmail } from '@/api/admin'
 import { useCountdown } from '@/hooks/useCountdown'
@@ -72,7 +72,7 @@ export default function BindEmailPage() {
         <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-lg font-semibold">绑定邮箱</h1>
+        <h1 className="text-h3 font-semibold">绑定邮箱</h1>
       </header>
 
       <div className="mt-4 mb-6 rounded-2xl bg-primary/5 p-4">

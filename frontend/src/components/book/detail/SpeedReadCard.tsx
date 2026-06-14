@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { Clock, ChevronDown, ChevronUp, Target, Users, UserX, Lightbulb, Gauge } from 'lucide-react'
 import type { BookSpeedRead } from '@/api/book'
 
@@ -36,7 +36,7 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
           <div className="border-l-2 border-primary/30 pl-3 space-y-2">
             {data.corePoints.map((point, idx) => (
               <div key={idx} className="flex items-start gap-2">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                   {idx + 1}
                 </span>
                 <p className="text-sm text-muted-foreground leading-relaxed">{point}</p>
@@ -167,13 +167,13 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
           </div>
           <h3 className="text-sm font-bold">3分钟速读</h3>
           {data?.difficulty && (
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${getDifficultyBadge(data.difficulty)}`}>
+            <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${getDifficultyBadge(data.difficulty)}`}>
               {data.difficulty}
               {loading && data.currentSection === '难度' && <span className="animate-pulse">|</span>}
             </span>
           )}
           {loading && data?.currentSection === '难度' && !data?.difficulty && data?.currentItem && (
-            <span className="rounded-full border px-2 py-0.5 text-[10px] font-medium bg-primary/5 text-primary border-primary/20">
+            <span className="rounded-full border px-2 py-0.5 text-xs font-medium bg-primary/5 text-primary border-primary/20">
               {data.currentItem}<span className="animate-pulse">|</span>
             </span>
           )}
@@ -198,7 +198,7 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
                 {content}
                 {showCurrentItem && (
                   <div className="flex items-start gap-2">
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary animate-pulse">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary animate-pulse">
                       {(section.key === 'corePoints' ? (data?.corePoints?.length || 0) : section.key === 'suitableFor' ? (data?.suitableFor?.length || 0) : section.key === 'notSuitableFor' ? (data?.notSuitableFor?.length || 0) : (data?.takeaways?.length || 0)) + 1}
                     </span>
                     <p className="text-sm text-muted-foreground leading-relaxed">{data.currentItem}<span className="animate-pulse">|</span></p>

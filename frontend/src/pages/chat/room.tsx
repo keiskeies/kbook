@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
+﻿import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
 import { ArrowLeft, Send, Plus, Image, Paperclip, Mic, Smile, User, Loader2, ChevronDown, Keyboard, Delete, Video, RotateCcw } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
@@ -657,7 +657,7 @@ export default function ChatRoomPage() {
       <div className={`absolute top-0 right-0 w-3 h-3 overflow-hidden rounded-tr-lg`}>
         <div className={`absolute top-0 right-0 w-0 h-0 border-t-[12px] ${foldColor} border-l-[12px] border-l-transparent`} />
       </div>
-      <span className="text-[10px] font-bold text-white mt-1">{type}</span>
+      <span className="text-xs font-bold text-white mt-1">{type}</span>
     </div>
   )
 
@@ -871,7 +871,7 @@ export default function ChatRoomPage() {
                               : 'bg-card border border-border/50 rounded-bl-md'}`
                       }`}>
                       {msg.messageType === 'TEXT' && (
-                        <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
+                        <p className="text-body whitespace-pre-wrap break-words">{msg.content}</p>
                       )}
                       {msg.messageType === 'VOICE' && (
                         <button
@@ -896,7 +896,7 @@ export default function ChatRoomPage() {
                       )}
                       </div>
                     )}
-                    <span className="text-[10px] text-muted-foreground mt-0.5">
+                    <span className="text-xs text-muted-foreground mt-0.5">
                       {formatChatTime(msg.createdAt)}
                     </span>
                   </div>
@@ -1023,21 +1023,21 @@ export default function ChatRoomPage() {
                     className="flex flex-col items-center gap-1.5 px-3 py-2 hover:bg-muted rounded-lg"
                   >
                     <Image className="h-5 w-5" />
-                    <span className="text-[10px]">图片</span>
+                    <span className="text-xs">图片</span>
                   </button>
                   <button
                     onClick={() => { videoInputRef.current?.click(); setShowFileMenu(false) }}
                     className="flex flex-col items-center gap-1.5 px-3 py-2 hover:bg-muted rounded-lg"
                   >
                     <Video className="h-5 w-5" />
-                    <span className="text-[10px]">视频</span>
+                    <span className="text-xs">视频</span>
                   </button>
                   <button
                     onClick={() => { fileInputRef.current?.click(); setShowFileMenu(false) }}
                     className="flex flex-col items-center gap-1.5 px-3 py-2 hover:bg-muted rounded-lg"
                   >
                     <Paperclip className="h-5 w-5" />
-                    <span className="text-[10px]">文件</span>
+                    <span className="text-xs">文件</span>
                   </button>
                 </div>
               )}

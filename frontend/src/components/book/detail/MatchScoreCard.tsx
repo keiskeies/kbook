@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
 import { getMatchScoreDetail } from '@/api/book'
 import type { MatchScoreDetail, DimensionScore } from '@/api/book'
@@ -65,7 +65,7 @@ export function MatchScoreCard({ bookId, ms }: MatchScoreCardProps) {
               {detail ? `覆盖 ${detail.matchedDimensions} 个维度` : '基于你的阅读偏好'}
             </p>
             {overallPct >= 80 && (
-              <span className="inline-flex items-center gap-0.5 mt-1 rounded-full bg-orange-500/10 px-2 py-0.5 text-[10px] font-medium text-orange-600">
+              <span className="inline-flex items-center gap-0.5 mt-1 rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-600">
                 <Sparkles className="h-2.5 w-2.5" />
                 强烈推荐
               </span>

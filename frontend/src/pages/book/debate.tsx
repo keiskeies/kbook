@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+﻿import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Sparkles, MessageSquare, Swords, Trash2, Loader2, History, Check, X,
@@ -61,7 +61,7 @@ function SessionCard({ session, bookId, onDelete }: {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-bold truncate">{session.topic}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             {session.status === 'COMPLETED' ? '已完成' : '进行中'}
             {' · '}第{session.currentRound}轮
           </p>
@@ -118,10 +118,10 @@ function SlotSelector({
             >
               {DEBATE_PERSONALITY_ICONS[selectedKey] || '👤'}
             </div>
-            <span className="text-[10px] font-semibold leading-tight" style={{ color }}>
+            <span className="text-xs font-semibold leading-tight" style={{ color }}>
               {label}{slotLabels[slotIndex]}
             </span>
-            <span className="text-[9px] text-muted-foreground/60 leading-tight">
+            <span className="text-xs text-muted-foreground/60 leading-tight">
               {DEBATE_PERSONALITY_TITLES[selectedKey]}
             </span>
           </>
@@ -133,7 +133,7 @@ function SlotSelector({
             >
               <span style={{ color: hexToRgba(color, 0.4) }}>?</span>
             </div>
-            <span className="text-[10px] font-semibold" style={{ color: hexToRgba(color, 0.5) }}>
+            <span className="text-xs font-semibold" style={{ color: hexToRgba(color, 0.5) }}>
               {label}{slotLabels[slotIndex]}
             </span>
           </>
@@ -311,7 +311,7 @@ export default function DebatePage() {
       <div>
         <div className="flex items-center gap-2 mb-2">
           <h3 className="text-xs font-bold" style={{ color }}>{sideLabel}</h3>
-          <span className="text-[9px] text-muted-foreground/60">
+          <span className="text-xs text-muted-foreground/60">
             {keys.filter(Boolean).length}/4
           </span>
         </div>
@@ -340,7 +340,7 @@ export default function DebatePage() {
         </button>
         <div>
           <h1 className="text-sm font-bold">奇葩说</h1>
-          {book && <p className="text-[10px] text-muted-foreground">来自《{book.title}》</p>}
+          {book && <p className="text-xs text-muted-foreground">来自《{book.title}》</p>}
         </div>
       </header>
 
@@ -540,8 +540,8 @@ export default function DebatePage() {
                       {DEBATE_PERSONALITY_ICONS[p.key] || '👤'}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <span className="text-[11px] font-semibold leading-tight block" style={{ color }}>{p.label}</span>
-                      <span className="text-[9px] text-muted-foreground/60 leading-tight block mt-0.5">{p.desc}</span>
+                      <span className="text-xs font-semibold leading-tight block" style={{ color }}>{p.label}</span>
+                      <span className="text-xs text-muted-foreground/60 leading-tight block mt-0.5">{p.desc}</span>
                     </div>
                     {isActive && <Check className="h-3.5 w-3.5 shrink-0" style={{ color }} />}
                   </button>

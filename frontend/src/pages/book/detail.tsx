@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+﻿import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import {
@@ -621,7 +621,7 @@ export default function BookDetailPage() {
                 )}
               </div>
               <div className="flex items-center gap-1.5">
-                {book.author && <p className="text-sm text-muted-foreground">{book.author}</p>}
+                {book.author && <p className="text-body text-muted-foreground">{book.author}</p>}
                 {isAdmin && (
                   <button
                     onClick={() => setEditAuthorOpen(true)}
@@ -640,7 +640,7 @@ export default function BookDetailPage() {
               >
                 <RatingBadgeCN rating={book.rating} />
                 {book.rating <= 0 && <span className="text-xs text-muted-foreground">暂无评分</span>}
-                <span className="text-[10px] text-primary ml-1">{userRating > 0 ? '已评' : '评'}</span>
+                <span className="text-xs text-primary ml-1">{userRating > 0 ? '已评' : '评'}</span>
               </button>
               <MatchBadgeCN score={ms} />
               <span className="flex items-center gap-1"><Eye className="h-3 w-3" />{book.readCount} 阅读</span>
@@ -703,7 +703,7 @@ export default function BookDetailPage() {
                 {hoverStar || userRating || ''}{(hoverStar || userRating) ? ' 星' : ''}
               </span>
             </div>
-            <p className="mt-2 text-[10px] text-muted-foreground">点击星星评分（1-5 星）</p>
+            <p className="mt-2 text-xs text-muted-foreground">点击星星评分（1-5 星）</p>
           </div>
         )}
       </div>
@@ -730,7 +730,7 @@ export default function BookDetailPage() {
           {book.description ? (
             <>
               <p
-                className={`text-sm leading-relaxed text-muted-foreground text-justify ${!descExpanded ? 'line-clamp-3' : ''}`}
+                className={`text-body leading-relaxed text-muted-foreground text-justify ${!descExpanded ? 'line-clamp-3' : ''}`}
               >
                 {book.description}
               </p>
@@ -744,7 +744,7 @@ export default function BookDetailPage() {
               )}
             </>
           ) : (
-            <p className="text-sm text-muted-foreground/50 italic">暂无简介</p>
+            <p className="text-body text-muted-foreground/50 italic">暂无简介</p>
           )}
         </div>
       )}
@@ -784,7 +784,7 @@ export default function BookDetailPage() {
                 {/* 标题 + 作者 */}
                 <div className="text-center mb-4">
                   <div className="flex items-start justify-center gap-2">
-                    <h2 className="text-2xl font-bold leading-tight">{book.title}</h2>
+                    <h2 className="text-h2 font-bold leading-tight">{book.title}</h2>
                     {isAdmin && (
                       <button onClick={() => setEditTitleOpen(true)} className="mt-1 shrink-0 rounded-md p-1 text-muted-foreground/50 hover:text-primary hover:bg-primary/10 transition-colors">
                         <Pencil className="h-4 w-4" />
@@ -810,7 +810,7 @@ export default function BookDetailPage() {
                   >
                     <RatingBadgeCN rating={book.rating} />
                     {book.rating <= 0 && <span className="text-xs text-muted-foreground">暂无评分</span>}
-                    <span className="text-[10px] text-primary ml-1">{userRating > 0 ? '已评' : '评'}</span>
+                    <span className="text-xs text-primary ml-1">{userRating > 0 ? '已评' : '评'}</span>
                   </button>
                   <MatchBadgeCN score={ms} />
                   <span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />{book.readCount} 阅读</span>
@@ -857,7 +857,7 @@ export default function BookDetailPage() {
                       ))}
                       <span className="ml-2 text-sm font-semibold text-foreground">{hoverStar || userRating || ''}{(hoverStar || userRating) ? ' 星' : ''}</span>
                     </div>
-                    <p className="mt-2 text-[10px] text-muted-foreground">点击星星评分（1-5 星）</p>
+                    <p className="mt-2 text-xs text-muted-foreground">点击星星评分（1-5 星）</p>
                   </div>
                 )}
 
@@ -874,13 +874,13 @@ export default function BookDetailPage() {
                     </div>
                     {book.description ? (
                       <>
-                        <p className={`text-sm leading-relaxed text-muted-foreground text-justify ${!descExpanded ? 'line-clamp-6' : ''}`}>{book.description}</p>
+                        <p className={`text-body leading-relaxed text-muted-foreground text-justify ${!descExpanded ? 'line-clamp-6' : ''}`}>{book.description}</p>
                         {book.description.length > 120 && (
                           <button onClick={() => setDescExpanded(!descExpanded)} className="mt-1 text-xs font-medium text-primary">{descExpanded ? '收起' : '展开'}</button>
                         )}
                       </>
                     ) : (
-                      <p className="text-sm text-muted-foreground/50 italic">暂无简介</p>
+                      <p className="text-body text-muted-foreground/50 italic">暂无简介</p>
                     )}
                   </div>
                 )}
@@ -925,14 +925,14 @@ export default function BookDetailPage() {
           </button>
           <button
             onClick={() => navigate(`/book/${book.id}/round-table`)}
-            className="flex h-11 flex-1 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
+            className="flex h-11 flex-1 flex-col items-center justify-center rounded-2xl text-xs font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
           >
             <Users className="h-4 w-4 text-muted-foreground" />
             <span>圆桌派</span>
           </button>
           <button
             onClick={() => navigate(`/book/${book.id}/debate`)}
-            className="flex h-11 flex-1 flex-col items-center justify-center rounded-2xl text-[10px] font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
+            className="flex h-11 flex-1 flex-col items-center justify-center rounded-2xl text-xs font-medium transition-all active:scale-[0.97] leading-none gap-1 bg-muted text-foreground hover:bg-muted/80"
           >
             <MessageSquare className="h-4 w-4 text-muted-foreground" />
             <span>奇葩说</span>

@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+﻿import { useLocation, useNavigate } from 'react-router-dom'
 import { Home, Trophy, BookOpen, User } from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { cn } from '@/lib/utils'
@@ -127,7 +127,7 @@ export function TabBar() {
               </div>
               <span
                   className={cn(
-                    'whitespace-nowrap text-[10px] transition-colors duration-200',
+                    'whitespace-nowrap text-xs transition-colors duration-200',
                     active ? 'font-semibold text-primary' : 'text-muted-foreground'
                   )}
                 >

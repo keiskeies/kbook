@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+﻿import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuthStore } from '@/store/auth'
 import {
   getReviewStats,
@@ -255,7 +255,7 @@ export default function AdminReviewPage() {
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h1 className="text-lg font-semibold">用户审核</h1>
+          <h1 className="text-h3 font-semibold">用户审核</h1>
           <button
             onClick={() => setShowInviteModal(true)}
             className="ml-auto flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
@@ -475,7 +475,7 @@ export default function AdminReviewPage() {
           <div className="w-full max-w-sm rounded-2xl bg-background p-5 shadow-lg">
             {!inviteResult ? (
               <>
-                <h2 className="mb-4 text-lg font-semibold">邀请注册</h2>
+                <h2 className="mb-4 text-h3 font-semibold">邀请注册</h2>
                 <p className="mb-4 text-sm text-muted-foreground">
                   输入邮箱地址，向用户发送邀请链接。
                 </p>
@@ -506,7 +506,7 @@ export default function AdminReviewPage() {
             ) : (
               <>
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">邀请已发送</h2>
+                  <h2 className="text-h3 font-semibold">邀请已发送</h2>
                   <button onClick={closeInviteModal} className="text-muted-foreground">
                     <X className="h-5 w-5" />
                   </button>

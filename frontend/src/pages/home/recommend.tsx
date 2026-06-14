@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+﻿import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
@@ -26,7 +26,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   else if (r >= 2.5) colorClass = 'text-success dark:text-success'
   else colorClass = 'text-muted-foreground dark:text-muted-foreground'
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
       评分：{r}
     </span>
@@ -43,7 +43,7 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   else if (pct >= 40) colorClass = 'text-success dark:text-success'
   else colorClass = 'text-muted-foreground dark:text-muted-foreground'
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Sparkles className="h-2.5 w-2.5" />
       匹配度：{pct}%
     </span>
@@ -175,12 +175,12 @@ function SwipeableBookCard({
               <RatingBadgeCN rating={book.rating} />
               <MatchBadgeCN score={book.matchScore} />
               {book.readCount != null && book.readCount > 0 && (
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {fmtReadCount(book.readCount)}
                 </span>
               )}
               {fmtFileSize(book.fileSize) && (
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {fmtFileSize(book.fileSize)}
                 </span>
               )}
@@ -191,7 +191,7 @@ function SwipeableBookCard({
                 {tags.map((t) => (
                   <span
                     key={t}
-                    className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                    className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
                   >
                     <Tag className="h-2.5 w-2.5" />
                     {t}
@@ -205,7 +205,7 @@ function SwipeableBookCard({
         {book.description && (
           <div className="mt-2 border-t border-border/30 pt-2">
             <div
-              className={`text-[11px] text-muted-foreground/70 leading-relaxed ${
+              className={`text-xs text-muted-foreground/70 leading-relaxed ${
                 descExpanded ? '' : 'line-clamp-2'
               }`}
             >
@@ -217,7 +217,7 @@ function SwipeableBookCard({
                   e.stopPropagation()
                   setDescExpanded(!descExpanded)
                 }}
-                className="mt-1 text-[11px] font-medium text-primary"
+                className="mt-1 text-xs font-medium text-primary"
               >
                 {descExpanded ? '收起' : '展开'}
               </button>
@@ -417,7 +417,7 @@ export default function RecommendPage() {
           </button>
           <div className="flex items-center gap-2 flex-1">
             <Sparkles className="h-5 w-5 text-warning" />
-            <h1 className="text-lg font-bold">为你推荐</h1>
+            <h1 className="text-h3 font-bold">为你推荐</h1>
             {total > 0 && !generating && (
               <span className="text-xs text-muted-foreground">共{total}本</span>
             )}

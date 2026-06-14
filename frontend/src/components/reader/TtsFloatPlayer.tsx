@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from 'react'
+﻿import {useCallback, useEffect, useRef, useState} from 'react'
 import {ChevronLeft, ChevronRight, Loader2, Pause, Play, Square, Volume2,} from 'lucide-react'
 import {useTtsStore} from '@/store/tts'
 import {ttsService} from '@/utils/tts'
@@ -353,7 +353,7 @@ function TtsFloatPlayerInner({
               style={{ width: `${Math.round(progress * 100)}%` }}
             />
           </div>
-          <div className="mt-0.5 text-[10px] text-muted-foreground text-right">
+          <div className="mt-0.5 text-xs text-muted-foreground text-right">
             {segmentsLoading ? '加载中...' : `${segmentIndex + 1} / ${totalSegments}`}
           </div>
         </div>

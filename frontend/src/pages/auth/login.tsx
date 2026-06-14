@@ -135,7 +135,7 @@ export default function LoginPage() {
           <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-3xl bg-white/20 shadow-2xl backdrop-blur-sm">
             <BookOpen className="h-10 w-10 text-white" strokeWidth={2.5} />
           </div>
-          <h2 className="text-3xl lg:text-4xl font-bold text-white mb-4">KBook</h2>
+          <h2 className="text-h1 font-bold text-white mb-4">KBook</h2>
           <p className="text-lg text-white/80 leading-relaxed">AI 驱动的智能阅读平台</p>
           <p className="mt-3 text-sm text-white/60">个性化推荐 · AI 问答 · 沉浸式阅读</p>
         </div>
@@ -149,7 +149,7 @@ export default function LoginPage() {
             <div className="md:hidden mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/25">
               <BookOpen className="h-6 w-6 text-primary-foreground" strokeWidth={2.5} />
             </div>
-            <h1 className="mb-2 text-2xl font-bold">欢迎回来</h1>
+            <h1 className="mb-2 text-h3 font-bold">欢迎回来</h1>
             <p className="text-sm text-muted-foreground">登录 KBook，开启阅读之旅</p>
           </div>
 

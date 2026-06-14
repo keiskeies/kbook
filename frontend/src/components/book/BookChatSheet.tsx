@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+﻿import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, X, Volume2, Square, Plus, ChevronDown, ChevronUp } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions, getBookChatHistory } from '@/api/bookChat'
@@ -592,7 +592,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                           <Bot className="h-3 w-3" />
                         )}
                       </div>
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {msg.role === 'user' ? '你' : 'AI'}
                       </span>
                     </div>
@@ -614,7 +614,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                                 streaming={msg.streaming && !msg.content}
                               />
                             )}
-                            <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
+                            <MarkdownRenderer content={msg.content} className="text-body text-justify" />
                           </>
                         )}
                         {msg.streaming && !msg.content && (
@@ -701,7 +701,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                       )}
                       {msg.role === 'assistant' && !msg.streaming && msg.followUpQuestions && msg.followUpQuestions.length > 0 && (
                         <div className="mt-2 text-left">
-                          <p className="mb-1.5 text-[11px] text-muted-foreground">深入探索</p>
+                          <p className="mb-1.5 text-xs text-muted-foreground">深入探索</p>
                           <div className="flex flex-wrap justify-start gap-1.5">
                             {msg.followUpQuestions.map((q, qi) => (
                               <button
@@ -772,7 +772,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                         }`}
                       >
                         <div>{s.label}</div>
-                        <div className="text-[10px] opacity-60 mt-0.5">{s.desc}</div>
+                        <div className="text-xs opacity-60 mt-0.5">{s.desc}</div>
                       </button>
                     ))}
                   </div>

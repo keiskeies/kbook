@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+﻿import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { ArrowLeft, Save, Trash2, RefreshCw, Zap, Eye, EyeOff, ExternalLink, ChevronDown, ChevronUp, Globe, MapPin, Plus, Star, StarOff, Pencil, X } from 'lucide-react'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
@@ -226,7 +226,7 @@ export default function AiConfigPage() {
         <button onClick={() => goBack()} className="rounded-full p-1.5 active:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-lg font-bold">AI 配置管理</h1>
+        <h1 className="text-h3 font-bold">AI 配置管理</h1>
       </header>
 
       <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-4">
@@ -289,12 +289,12 @@ export default function AiConfigPage() {
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium text-sm truncate">{c.name}</span>
                           {c.isDefault && (
-                            <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                            <span className="rounded bg-primary/20 px-1.5 py-0.5 text-xs font-medium text-primary">
                               激活
                             </span>
                           )}
                           {!c.enabled && (
-                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
                               已禁用
                             </span>
                           )}
@@ -409,15 +409,15 @@ export default function AiConfigPage() {
                                 <div className="flex items-center gap-1.5">
                                   <span className="text-sm font-medium">{preset.name}</span>
                                   {preset.region === 'CN' ? (
-                                    <span className="rounded bg-info/10 px-1 py-0.5 text-[10px] font-medium text-info dark:bg-info/10 dark:text-info">国内</span>
+                                    <span className="rounded bg-info/10 px-1 py-0.5 text-xs font-medium text-info dark:bg-info/10 dark:text-info">国内</span>
                                   ) : (
-                                    <span className="rounded bg-purple-100 px-1 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">国际</span>
+                                    <span className="rounded bg-purple-100 px-1 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">国际</span>
                                   )}
                                 </div>
                                 <p className="mt-0.5 text-xs text-muted-foreground">{preset.description}</p>
                                 <div className="mt-1.5 flex flex-wrap gap-1">
                                   {preset.models.slice(0, 3).map((m) => (
-                                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${m.free ? 'bg-success/10 text-success dark:bg-success/10 dark:text-success' : 'bg-muted text-muted-foreground'}`}>
+                                    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${m.free ? 'bg-success/10 text-success dark:bg-success/10 dark:text-success' : 'bg-muted text-muted-foreground'}`}>
                                       {m.label}{m.free && ' (免费)'}
                                     </span>
                                   ))}

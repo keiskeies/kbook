@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+﻿import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -585,7 +585,7 @@ export default function AdminBooksPage() {
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h1 className="text-lg font-semibold">图书管理</h1>
+          <h1 className="text-h3 font-semibold">图书管理</h1>
         </div>
       </header>
 
@@ -623,7 +623,7 @@ export default function AdminBooksPage() {
                   disabled={scanning}
                   className="h-8 w-28 rounded-lg border border-border bg-background px-2.5 text-xs outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
                 />
-                <span className="text-[10px] text-muted-foreground">断点续扫：跳过 ID 小于此值的已有图书</span>
+                <span className="text-xs text-muted-foreground">断点续扫：跳过 ID 小于此值的已有图书</span>
               </div>
 
               {/* 进度条 */}
@@ -1097,7 +1097,7 @@ export default function AdminBooksPage() {
                       className={msg.role === 'user' ? 'flex justify-end' : ''}
                     >
                       <div
-                        className={`${msg.role === 'user' ? 'max-w-[85%] rounded-2xl bg-purple-500 text-white px-3.5 py-2.5' : 'w-full rounded-xl border border-border/50 bg-muted/50 px-3.5 py-2.5'} text-sm leading-relaxed`}
+                        className={`${msg.role === 'user' ? 'max-w-[85%] rounded-2xl bg-purple-500 text-white px-3.5 py-2.5' : 'w-full rounded-xl border border-border/50 bg-muted/50 px-3.5 py-2.5'} text-body leading-relaxed`}
                       >
                         {msg.role === 'user' ? (
                           <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -1109,7 +1109,7 @@ export default function AdminBooksPage() {
                                 streaming={msg.streaming && !msg.content}
                               />
                             )}
-                            <MarkdownRenderer content={msg.content} className="text-sm text-justify" />
+                            <MarkdownRenderer content={msg.content} className="text-body text-justify" />
                           </>
                         )}
                         {msg.streaming && !msg.content && (

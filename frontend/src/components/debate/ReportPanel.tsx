@@ -1,4 +1,4 @@
-import { FileText, Loader2, RefreshCw, Trophy } from 'lucide-react'
+﻿import { FileText, Loader2, RefreshCw, Trophy } from 'lucide-react'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import type { DebateReport } from '@/types/debate'
 import { DEBATE_ROLE_COLORS, DEBATE_ROLE_NAMES, DEBATE_PERSONALITY_NAMES, DEBATE_PERSONALITY_COLORS } from '@/types/debate'
@@ -23,7 +23,7 @@ export default function ReportPanel({ report, isGenerating, onTrigger, onClose, 
           辩论报告
         </h3>
         {!isMobile && (
-          <button onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground">关闭</button>
+          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">关闭</button>
         )}
       </div>
 
@@ -38,7 +38,7 @@ export default function ReportPanel({ report, isGenerating, onTrigger, onClose, 
               <FileText className="h-3 w-3" />
               生成辩论报告
             </button>
-            <p className="text-[10px] text-muted-foreground/60 mt-2">预计 2-3 分钟</p>
+            <p className="text-xs text-muted-foreground/60 mt-2">预计 2-3 分钟</p>
           </div>
         )}
 
@@ -46,7 +46,7 @@ export default function ReportPanel({ report, isGenerating, onTrigger, onClose, 
           <div className="text-center py-6">
             <Loader2 className="h-6 w-6 animate-spin text-brand-500 mx-auto mb-2" />
             <p className="text-xs text-muted-foreground">AI 正在分析辩论内容...</p>
-            <p className="text-[10px] text-muted-foreground/60 mt-1">预计 2-3 分钟</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">预计 2-3 分钟</p>
           </div>
         )}
 
@@ -75,7 +75,7 @@ export default function ReportPanel({ report, isGenerating, onTrigger, onClose, 
                   </div>
                   <div>
                     <span className="text-sm font-semibold" style={{ color }}>{displayName}</span>
-                    {subtitle && <span className="text-[10px] text-muted-foreground ml-1.5">{subtitle}</span>}
+                    {subtitle && <span className="text-xs text-muted-foreground ml-1.5">{subtitle}</span>}
                   </div>
                 </div>
               </div>
@@ -90,7 +90,7 @@ export default function ReportPanel({ report, isGenerating, onTrigger, onClose, 
                           [&_hr]:!my-4
                           [&_ul]:my-2 [&_ol]:my-2
                           [&_.table-scroll-wrapper]:-mx-4 [&_.table-scroll]:px-4">
-            <MarkdownRenderer content={report.content} className="!text-[14px] !leading-relaxed" />
+            <MarkdownRenderer content={report.content} className="!text-detail !leading-relaxed" />
           </div>
           </div>
         )}

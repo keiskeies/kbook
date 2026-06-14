@@ -11,7 +11,6 @@ import com.kbook.repository.BookRepository;
 import com.kbook.repository.RoundTableCoverageRepository;
 import com.kbook.repository.RoundTableMessageRepository;
 import com.kbook.repository.RoundTableSessionRepository;
-import com.kbook.service.embedding.EmbeddingService;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -48,7 +47,6 @@ public class RoundTableCoverageService {
     private final RoundTableSessionRepository sessionRepository;
     private final BookRepository bookRepository;
     private final ChatModelManager chatModelManager;
-    private final EmbeddingService embeddingService;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
@@ -336,9 +334,8 @@ public class RoundTableCoverageService {
             log.warn("读取内容块缓存失败: bookId={} - {}", book.getId(), e.getMessage());
         }
 
-        // 构建
-        List<BookChunk> allChunks = fetchAllBookChunks(book.getId());
-        List<ContentBlock> blocks = buildContentBlocks(book, allChunks);
+        // 构建（基于图书已有摘要信息，不 scroll Qdrant）
+        List<ContentBlock> blocks = buildContentBlocks(book);
 
         // 缓存
         if (!blocks.isEmpty()) {
@@ -355,29 +352,27 @@ public class RoundTableCoverageService {
     }
 
     /**
-     * 构建内容块 — 三层回退策略
+     * 构建内容块 — 三层回退策略（基于图书已有摘要信息，无需 Qdrant scroll）
      */
-    private List<ContentBlock> buildContentBlocks(Book book, List<BookChunk> allChunks) {
-        // Tier 1: TOC-based
-        List<ContentBlock> tocBlocks = buildBlocksFromToc(book, allChunks);
+    private List<ContentBlock> buildContentBlocks(Book book) {
+        // Tier 1: TOC-based（使用 book.toc + book.chapterSummary）
+        List<ContentBlock> tocBlocks = buildBlocksFromToc(book);
         if (tocBlocks.size() >= 3) return tocBlocks;
 
-        // Tier 2: LLM-outline
-        if (!allChunks.isEmpty()) {
-            List<ContentBlock> llmBlocks = buildBlocksFromLlmOutline(book, allChunks);
-            if (llmBlocks.size() >= 3) return llmBlocks;
-        }
+        // Tier 2: LLM-outline（使用 book.compressedSummary + description 替代 chunk 采样）
+        List<ContentBlock> llmBlocks = buildBlocksFromLlmOutline(book);
+        if (llmBlocks.size() >= 3) return llmBlocks;
 
-        // Tier 3: Dense chunking
-        return buildBlocksFromDenseChunking(allChunks);
+        // Tier 3: 从图书描述/精炼摘要兜底
+        return buildBlocksFromBookSummary(book);
     }
 
     /**
-     * Tier 1: 从 TOC 构建内容块
+     * Tier 1: 从 TOC 构建内容块（基于 book.toc + book.chapterSummary，无需 Qdrant scroll）
      * <p>
      * 过滤掉封面、目录、前言、后记等非正文章节，保留有实质内容的章节。
      */
-    private List<ContentBlock> buildBlocksFromToc(Book book, List<BookChunk> allChunks) {
+    private List<ContentBlock> buildBlocksFromToc(Book book) {
         String toc = book.getToc();
         if (toc == null || toc.isBlank()) return new ArrayList<>();
 
@@ -401,32 +396,11 @@ public class RoundTableCoverageService {
 
         Map<String, String> chapterSummaryMap = parseChapterSummary(book.getChapterSummary());
 
-        // 将 RAG chunks 按章节匹配
-        Map<String, List<BookChunk>> chapterChunks = new LinkedHashMap<>();
-        for (String title : chapterTitles) {
-            chapterChunks.put(title, new ArrayList<>());
-        }
-
-        if (!allChunks.isEmpty()) {
-            String matchedChapter = null;
-            for (BookChunk chunk : allChunks) {
-                String matched = matchChunkToChapter(chunk.text(), chapterTitles, matchedChapter);
-                if (matched != null) matchedChapter = matched;
-                if (matchedChapter != null && chapterChunks.containsKey(matchedChapter)) {
-                    chapterChunks.get(matchedChapter).add(chunk);
-                } else if (matchedChapter == null && !chapterTitles.isEmpty()) {
-                    chapterChunks.get(chapterTitles.get(0)).add(chunk);
-                }
-            }
-        }
-
         List<ContentBlock> blocks = new ArrayList<>();
         for (String title : chapterTitles) {
-            List<BookChunk> relatedChunks = chapterChunks.getOrDefault(title, new ArrayList<>());
             String summary = chapterSummaryMap.getOrDefault(title, "");
-            String representativeText = relatedChunks.isEmpty()
-                    ? (summary.isEmpty() ? title : summary)
-                    : relatedChunks.get(0).text();
+            // 用章节摘要作为代表文本（替代 Qdrant chunk 文本）
+            String representativeText = summary.isEmpty() ? title : summary;
             if (representativeText.length() > 300) {
                 representativeText = representativeText.substring(0, 300);
             }
@@ -437,7 +411,7 @@ public class RoundTableCoverageService {
                     .title(title)
                     .summary(summary.length() > 200 ? summary.substring(0, 200) : summary)
                     .representativeText(representativeText)
-                    .chunkCount(relatedChunks.size())
+                    .chunkCount(0)
                     .keywords(keywords)
                     .source("toc")
                     .build());
@@ -524,35 +498,32 @@ public class RoundTableCoverageService {
     }
 
     /**
-     * Tier 2: 从 LLM 大纲构建内容块
+     * Tier 2: 从 LLM 大纲构建内容块（使用 book.compressedSummary/description/chapterSummary 替代 Qdrant chunk 采样）
      */
-    private List<ContentBlock> buildBlocksFromLlmOutline(Book book, List<BookChunk> allChunks) {
-        if (allChunks.isEmpty()) return new ArrayList<>();
-
-        List<BookChunk> sampledChunks;
-        if (allChunks.size() <= 50) {
-            sampledChunks = new ArrayList<>(allChunks);
-        } else {
-            sampledChunks = new ArrayList<>();
-            int step = allChunks.size() / 50;
-            for (int i = 0; i < allChunks.size(); i += step) {
-                sampledChunks.add(allChunks.get(i));
-            }
-        }
-
-        StringBuilder chunkIndex = new StringBuilder();
-        for (int i = 0; i < sampledChunks.size(); i++) {
-            String preview = CommonUtils.truncateText(sampledChunks.get(i).text(), 100);
-            chunkIndex.append(i + 1).append(". ").append(preview).append("\n");
-        }
-
-        String bookInfo = "书名：《" + book.getTitle() + "》\n作者：" + (book.getAuthor() != null ? book.getAuthor() : "未知");
+    private List<ContentBlock> buildBlocksFromLlmOutline(Book book) {
+        // 构建图书摘要信息（替代 chunk 采样）
+        StringBuilder contentInfo = new StringBuilder();
+        contentInfo.append("书名：《").append(book.getTitle()).append("》\n");
+        if (book.getAuthor() != null) contentInfo.append("作者：").append(book.getAuthor()).append("\n");
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            bookInfo += "\n简介：" + CommonUtils.truncateText(book.getDescription(), 300);
+            contentInfo.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 300)).append("\n");
         }
+        if (book.getCompressedSummary() != null && !book.getCompressedSummary().isBlank()) {
+            contentInfo.append("精炼摘要：").append(book.getCompressedSummary()).append("\n");
+        }
+        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            contentInfo.append("章节摘要：").append(CommonUtils.truncateText(book.getChapterSummary(), 1000)).append("\n");
+        }
+        if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+            String tags = book.getConceptTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            contentInfo.append("核心概念：").append(tags).append("\n");
+        }
+        if (contentInfo.isEmpty()) return new ArrayList<>();
+
+        int targetBlocks = Math.min(MAX_CONTENT_BLOCKS, 30);
 
         String prompt = """
-                你是一个书籍内容分析专家。请根据以下图书内容和抽样片段，生成该书的内容大纲。
+                你是一个书籍内容分析专家。请根据以下图书信息，生成该书的内容大纲。
                 
                 要求：
                 1. 将全书内容划分为 %d-%d 个主题块
@@ -563,18 +534,15 @@ public class RoundTableCoverageService {
                 【图书信息】
                 %s
                 
-                【内容抽样片段】
-                %s
-                
                 输出格式：
                 [
                   {"title": "标题1", "summary": "一句话摘要"},
                   {"title": "标题2", "summary": "一句话摘要"}
                 ]
                 """.formatted(
-                Math.max(5, Math.min(MAX_CONTENT_BLOCKS / 2, sampledChunks.size() / 5)),
-                Math.min(MAX_CONTENT_BLOCKS, sampledChunks.size() / 3),
-                bookInfo, chunkIndex.toString());
+                Math.max(5, targetBlocks / 2),
+                targetBlocks,
+                contentInfo.toString());
 
         String result = chatModelManager.callAi(
                 "圆桌派覆盖度评估",
@@ -592,9 +560,7 @@ public class RoundTableCoverageService {
                     String summary = node.has("summary") ? node.get("summary").asText() : "";
 
                     Set<String> keywords = extractKeyTerms(title + " " + summary);
-                    List<BookChunk> relatedChunks = findRelatedChunks(keywords, allChunks);
-                    String representativeText = relatedChunks.isEmpty()
-                            ? summary : relatedChunks.get(0).text();
+                    String representativeText = summary.isEmpty() ? title : summary;
                     if (representativeText.length() > 300) {
                         representativeText = representativeText.substring(0, 300);
                     }
@@ -603,7 +569,7 @@ public class RoundTableCoverageService {
                             .title(title.length() > 50 ? title.substring(0, 50) : title)
                             .summary(summary.length() > 200 ? summary.substring(0, 200) : summary)
                             .representativeText(representativeText)
-                            .chunkCount(relatedChunks.size())
+                            .chunkCount(0)
                             .keywords(keywords)
                             .source("llm_outline")
                             .build());
@@ -617,35 +583,49 @@ public class RoundTableCoverageService {
     }
 
     /**
-     * Tier 3: 密集分块（兜底）— 用关键词组合作为标题，而非"内容区块 N"
+     * Tier 3: 从图书描述/精炼摘要兜底构建内容块（无需 Qdrant scroll）
      */
-    private List<ContentBlock> buildBlocksFromDenseChunking(List<BookChunk> allChunks) {
-        if (allChunks.isEmpty()) return new ArrayList<>();
+    private List<ContentBlock> buildBlocksFromBookSummary(Book book) {
+        StringBuilder allText = new StringBuilder();
+        if (book.getDescription() != null && !book.getDescription().isBlank()) {
+            allText.append(book.getDescription()).append("\n");
+        }
+        if (book.getCompressedSummary() != null && !book.getCompressedSummary().isBlank()) {
+            allText.append(book.getCompressedSummary()).append("\n");
+        }
+        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            allText.append(book.getChapterSummary());
+        }
+        if (allText.isEmpty()) return new ArrayList<>();
 
-        int chunksPerBlock = Math.max(1, (int) Math.ceil((double) allChunks.size() / MAX_CONTENT_BLOCKS));
+        // 按句子/段落分块
+        String[] sentences = allText.toString().split("[。！？\\n]+");
+        List<String> validSentences = Arrays.stream(sentences)
+                .map(String::trim)
+                .filter(s -> s.length() >= 10)
+                .toList();
+
+        if (validSentences.isEmpty()) return new ArrayList<>();
+
+        int groupSize = Math.max(1, validSentences.size() / MAX_CONTENT_BLOCKS);
         List<ContentBlock> blocks = new ArrayList<>();
 
-        for (int i = 0; i < allChunks.size(); i += chunksPerBlock) {
-            int end = Math.min(i + chunksPerBlock, allChunks.size());
-            StringBuilder combined = new StringBuilder();
-            for (int j = i; j < end; j++) {
-                combined.append(allChunks.get(j).text()).append(" ");
-            }
-            String text = combined.toString();
-            String preview = text.length() > 300 ? text.substring(0, 300) : text;
+        for (int i = 0; i < validSentences.size(); i += groupSize) {
+            int end = Math.min(i + groupSize, validSentences.size());
+            String combined = String.join("。", validSentences.subList(i, end));
+            String preview = combined.length() > 300 ? combined.substring(0, 300) : combined;
             Set<String> keywords = extractKeyTerms(preview);
 
-            // 用前 3 个关键词组合作为标题，比"内容区块 N"有信息量
             String title = keywords.stream().limit(3).collect(Collectors.joining("·"));
-            if (title.isBlank()) title = "主题区块 " + (blocks.size() + 1);
+            if (title.isBlank()) title = "主题 " + (blocks.size() + 1);
 
             blocks.add(ContentBlock.builder()
                     .title(title)
                     .summary(preview.length() > 150 ? preview.substring(0, 150) : preview)
                     .representativeText(preview)
-                    .chunkCount(end - i)
+                    .chunkCount(0)
                     .keywords(keywords)
-                    .source("dense_chunking")
+                    .source("book_summary")
                     .build());
         }
 
@@ -961,48 +941,6 @@ public class RoundTableCoverageService {
         return map;
     }
 
-    private String matchChunkToChapter(String chunkText, List<String> chapterTitles, String lastMatched) {
-        if (chunkText == null || chunkText.isBlank()) return null;
-        for (String title : chapterTitles) {
-            String cleanTitle = title.replaceAll("^第[一二三四五六七八九十百千]+章\\s*", "")
-                    .replaceAll("^\\d+[.、]\\s*", "").trim();
-            if (cleanTitle.length() < 2) continue;
-            String[] keywords = cleanTitle.split("[，,。.、：:]");
-            String primary = keywords[0].trim();
-            if (primary.length() >= 2 && chunkText.contains(primary)) {
-                return title;
-            }
-        }
-        return null;
-    }
-
-    private List<BookChunk> findRelatedChunks(Set<String> keywords, List<BookChunk> allChunks) {
-        if (keywords.isEmpty() || allChunks.isEmpty()) return new ArrayList<>();
-        List<BookChunk> related = new ArrayList<>();
-        for (BookChunk chunk : allChunks) {
-            String text = chunk.text();
-            long matchCount = keywords.stream().filter(text::contains).count();
-            if (matchCount >= 2) related.add(chunk);
-        }
-        if (related.isEmpty()) {
-            allChunks.stream()
-                    .filter(c -> keywords.stream().anyMatch(c.text()::contains))
-                    .limit(5)
-                    .forEach(related::add);
-        }
-        return related;
-    }
-
-    /**
-     * 从 EmbeddingService gRPC scroll 获取所有内容分块
-     */
-    private List<BookChunk> fetchAllBookChunks(Long bookId) {
-        return embeddingService.scrollAllContentChunks(bookId).stream()
-                .map(c -> new BookChunk(c.text(), c.pointId()))
-                .toList();
-    }
-
-
     private List<String> parseJsonArray(String json) {
         if (json == null || json.isBlank()) return new ArrayList<>();
         try {
@@ -1054,9 +992,6 @@ public class RoundTableCoverageService {
         private double keywordOverlap;
         private String judgeMethod;
         private String evidence;
-    }
-
-    public record BookChunk(String text, long pointId) {
     }
 
     public record ConceptCoverageResult(List<String> covered, List<String> missed) {

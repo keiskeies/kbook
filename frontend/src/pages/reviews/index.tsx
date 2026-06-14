@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+﻿import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
@@ -87,7 +87,7 @@ export default function ReviewsPage() {
                     >
                       {comment.userNickname || '用户'}
                     </span>
-                    <p className="text-[10px] text-muted-foreground">{formatRelativeTime(comment.createdAt)}</p>
+                    <p className="text-xs text-muted-foreground">{formatRelativeTime(comment.createdAt)}</p>
                   </div>
                 </div>
 
@@ -102,7 +102,7 @@ export default function ReviewsPage() {
                     <span className="text-xs font-medium text-primary truncate">{comment.bookTitle || '查看书籍'}</span>
                   </button>
 
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-justify">{comment.content}</p>
+                  <p className="text-body leading-relaxed whitespace-pre-wrap text-justify">{comment.content}</p>
 
                   {/* 互动数据 */}
                   <div className="mt-3 flex items-center gap-5 text-xs text-muted-foreground">

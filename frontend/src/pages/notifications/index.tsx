@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+﻿import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
@@ -117,7 +117,7 @@ export default function NotificationsPage() {
                       <span className="font-semibold">{n.triggerUserNickname || '系统通知'}</span>
                       <span className="text-muted-foreground"> {config.label}</span>
                     </p>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">{formatRelativeTime(n.createdAt)}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{formatRelativeTime(n.createdAt)}</p>
                   </div>
                   {!n.isRead && <div className="mt-2 h-2 w-2 rounded-full bg-primary" />}
                 </button>

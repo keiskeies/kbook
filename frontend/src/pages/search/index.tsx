@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+﻿import { useState, useCallback, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
@@ -26,7 +26,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   }
 
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
       评分：{r}
     </span>
@@ -53,7 +53,7 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   }
 
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Sparkles className="h-2.5 w-2.5" />
       匹配度：{pct}%
     </span>
@@ -160,7 +160,7 @@ function BookDescription({ description }: { description: string }) {
   return (
     <div className="mt-2 border-t border-border/30 pt-2">
       <p
-        className={`text-[11px] text-muted-foreground/70 leading-relaxed transition-all duration-200 ${
+        className={`text-xs text-muted-foreground/70 leading-relaxed transition-all duration-200 ${
           expanded ? '' : 'line-clamp-2'
         }`}
       >
@@ -172,7 +172,7 @@ function BookDescription({ description }: { description: string }) {
             e.stopPropagation()
             setExpanded(!expanded)
           }}
-          className="mt-1 flex items-center gap-0.5 text-[10px] text-primary/80 hover:text-primary font-medium"
+          className="mt-1 flex items-center gap-0.5 text-xs text-primary/80 hover:text-primary font-medium"
         >
           {expanded ? (
             <>
@@ -477,11 +477,11 @@ export default function SearchPage() {
                           <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                             <RatingBadgeCN rating={book.rating} />
                             <MatchBadgeCN score={ms} />
-                            <span className="text-[11px] text-muted-foreground">
+                            <span className="text-xs text-muted-foreground">
                               {fmtReadCount(book.readCount)}
                             </span>
                             {fmtFileSize(book.fileSize) && (
-                              <span className="text-[11px] text-muted-foreground">
+                              <span className="text-xs text-muted-foreground">
                                 {fmtFileSize(book.fileSize)}
                               </span>
                             )}
@@ -493,7 +493,7 @@ export default function SearchPage() {
                               {tags.map((t) => (
                                 <span
                                   key={t}
-                                  className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary flex-shrink-0"
+                                  className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary flex-shrink-0"
                                 >
                                   <Tag className="h-2.5 w-2.5" />
                                   {t}

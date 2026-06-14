@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+﻿import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, BookOpen, ChevronRight, Clock, Star, Sparkles,
@@ -62,7 +62,7 @@ function HeroSection({ onSearchClick }: {
     <div>
       <div className="lg:hidden mb-2">
         <p className="text-xs text-muted-foreground font-medium">{greeting}</p>
-        <h2 className="text-lg font-bold mt-0.5">
+        <h2 className="text-h3 font-bold mt-0.5">
           {nickname || '你好'}，今天想探索什么？
         </h2>
       </div>
@@ -190,7 +190,7 @@ function ContinueReadingCarousel({ books, onReadClick }: {
                       </div>
                       <span className="text-xs font-bold text-white/90">{Math.round(book.progress * 100)}%</span>
                     </div>
-                    <div className="mt-1 flex items-center gap-2 text-[10px] text-white/60">
+                    <div className="mt-1 flex items-center gap-2 text-xs text-white/60">
                       <Clock className="h-2.5 w-2.5" />
                       <span>{formatRelativeTime(book.lastReadAt)}</span>
                       <span>·</span>
@@ -218,7 +218,7 @@ function RatingBadge({ rating }: { rating: number | undefined | null }) {
   else if (r >= 3.0) { colorClass = 'text-success'; bgClass = 'bg-success/10' }
   else { colorClass = 'text-gray-400'; bgClass = 'bg-gray-200/50' }
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass} ${bgClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass} ${bgClass}`}>
       <Star className="h-2.5 w-2.5" />
       {r}
     </span>
@@ -233,7 +233,7 @@ function MatchBadge({ score }: { score: number | undefined | null }) {
   else if (pct >= 40) { colorClass = 'text-info'; bgClass = 'bg-info/10' }
   else { colorClass = 'text-gray-400'; bgClass = 'bg-gray-200/50' }
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass} ${bgClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass} ${bgClass}`}>
       <Sparkles className="h-2.5 w-2.5" />
       {pct}%
     </span>
@@ -289,7 +289,7 @@ function VerticalBookList({ books, onBookClick, matchScores }: {
                   {tags.length > 0 && (
                     <div className="mt-1.5 flex items-center gap-1 flex-wrap">
                       {tags.slice(0, 3).map((tag) => (
-                        <span key={tag} className="inline-flex items-center gap-0.5 rounded-md bg-brand-100 px-1.5 py-0.5 text-[10px] font-medium text-brand-500">
+                        <span key={tag} className="inline-flex items-center gap-0.5 rounded-md bg-brand-100 px-1.5 py-0.5 text-xs font-medium text-brand-500">
                           <Tag className="h-2.5 w-2.5" />
                           {tag}
                         </span>
@@ -300,7 +300,7 @@ function VerticalBookList({ books, onBookClick, matchScores }: {
                 <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                   <RatingBadge rating={book.rating} />
                   <MatchBadge score={ms} />
-                  <span className="text-[11px] text-muted-foreground">{fmtReadCount(book.readCount)}</span>
+                  <span className="text-xs text-muted-foreground">{fmtReadCount(book.readCount)}</span>
                 </div>
               </div>
             </div>
@@ -311,13 +311,13 @@ function VerticalBookList({ books, onBookClick, matchScores }: {
                 className="w-full border-t border-border/30 px-3 pb-2.5 pt-1.5 text-left"
               >
                 <p
-                  className={`text-[11px] text-foreground/70 leading-snug transition-all duration-200 ${
+                  className={`text-xs text-foreground/70 leading-snug transition-all duration-200 ${
                     descExpanded ? '' : 'line-clamp-2'
                   }`}
                 >
                   {desc}
                 </p>
-                <span className="mt-1 block text-[10px] text-brand-400 hover:text-brand-500 transition-colors">
+                <span className="mt-1 block text-xs text-brand-400 hover:text-brand-500 transition-colors">
                   {descExpanded ? '收起' : '展开'}
                 </span>
               </button>
@@ -487,7 +487,7 @@ export default function HomePage() {
                     <Target className="h-4 w-4 text-brand-500" />
                   </div>
                   为你推荐
-                  <span className="text-[10px] font-normal text-muted-foreground ml-1">基于你的画像</span>
+                  <span className="text-xs font-normal text-muted-foreground ml-1">基于你的画像</span>
                 </h2>
                 <button onClick={() => navigate('/recommend')} className="flex items-center text-xs text-primary font-medium hover:underline">
                   查看更多 <ChevronRight className="h-3 w-3" />
@@ -558,7 +558,7 @@ export default function HomePage() {
                   >
                     <Tag className="h-3.5 w-3.5 text-primary" />
                     <span className="text-xs font-medium">{cat.name}</span>
-                    <span className="text-[10px] text-muted-foreground">{cat.count}</span>
+                    <span className="text-xs text-muted-foreground">{cat.count}</span>
                   </button>
                 ))}
               </div>
@@ -618,7 +618,7 @@ export default function HomePage() {
                 >
                   <Tag className="h-3.5 w-3.5 text-primary" />
                   <span className="text-xs font-medium">{cat.name}</span>
-                  <span className="text-[10px] text-muted-foreground">{cat.count}</span>
+                  <span className="text-xs text-muted-foreground">{cat.count}</span>
                 </button>
               ))}
             </div>

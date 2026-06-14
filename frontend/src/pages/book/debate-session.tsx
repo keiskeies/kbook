@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+﻿import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Volume2, Loader2, BarChart3, FileText, Play, Pause,
@@ -265,7 +265,7 @@ function RoleBar({ speakingKey, allRoleKeys, personalityTitles }: {
                   {DEBATE_ROLE_NAMES[key] || key}
                 </span>
                 {getTitle(key) && (
-                  <span className="text-[10px] text-muted-foreground/80 leading-tight">{getTitle(key)}</span>
+                  <span className="text-xs text-muted-foreground/80 leading-tight">{getTitle(key)}</span>
                 )}
               </div>
               {isActive && (
@@ -368,7 +368,7 @@ function RoleBar({ speakingKey, allRoleKeys, personalityTitles }: {
                   {DEBATE_ROLE_NAMES[key] || key}
                 </span>
                 {getTitle(key) && (
-                  <span className="text-[10px] text-muted-foreground/80 leading-tight">{getTitle(key)}</span>
+                  <span className="text-xs text-muted-foreground/80 leading-tight">{getTitle(key)}</span>
                 )}
               </div>
               {isActive && (
@@ -1196,7 +1196,7 @@ export default function DebateSessionPage() {
           <h1 className="text-sm font-bold text-foreground truncate">
             {bookTitle ? `《${bookTitle}》奇葩说辩论` : '奇葩说辩论'}
           </h1>
-          <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1.5">
+          <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
             {sessionStatus === 'COMPLETED' ? (
               <>
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-500" />
@@ -1228,7 +1228,7 @@ export default function DebateSessionPage() {
                     sessionStatus === 'COMPLETED' ? 'bg-brand-500' :
                     currentPhase === r ? 'bg-brand-500' : 'bg-muted'
                   }`} />
-                  <span className="text-[9px] sm:text-[10px]">{ROUND_LABELS[r]}</span>
+                  <span className="text-xs">{ROUND_LABELS[r]}</span>
                 </div>
                 {i < ROUND_SEQUENCE.length - 1 && (
                   <div className="h-px w-1.5 sm:w-4 bg-border/30" />
@@ -1242,7 +1242,7 @@ export default function DebateSessionPage() {
               <div className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
                 sessionStatus === 'COMPLETED' ? 'bg-brand-500' : 'bg-muted'
               }`} />
-              <span className="text-[9px] sm:text-[10px]">结束</span>
+              <span className="text-xs">结束</span>
             </div>
           </div>
 
@@ -1268,7 +1268,7 @@ export default function DebateSessionPage() {
                   <div className="flex-1 min-h-0 flex overflow-hidden">
                     {/* 正方区（左）— 更宽，2份 */}
                     <div onScroll={handleScroll} className="flex-[2] min-w-0 border-r border-border/10 bg-blue-50/20 dark:bg-blue-950/10 p-3 space-y-3 overflow-y-auto">
-                      <div className="text-[11px] font-bold text-blue-500 uppercase tracking-wider">正方</div>
+                      <div className="text-xs font-bold text-blue-500 uppercase tracking-wider">正方</div>
                       {messages.filter(m => m.side === 'PRO').map(m => (
                         <div key={m.id} className="rounded-xl bg-blue-500/5 border border-blue-200/30 p-3">
                           <div className="flex items-center gap-1.5 mb-1">
@@ -1276,18 +1276,18 @@ export default function DebateSessionPage() {
                               {m.roleName}
                             </span>
                             {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-[10px] text-muted-foreground">
+                              <span className="text-xs text-muted-foreground">
                                 {m.personalityTitle}
                               </span>
                             )}
                           </div>
                           {m.streaming && !m.content ? (
-                            <span className="flex items-center gap-1.5 text-[11px] text-blue-400">
+                            <span className="flex items-center gap-1.5 text-xs text-blue-400">
                               <Loader2 className="h-3 w-3 animate-spin" />
                               麦克风传递中...
                             </span>
                           ) : (
-                            <MarkdownRenderer content={m.content} className="!text-[13px] !leading-relaxed" />
+                            <MarkdownRenderer content={m.content} className="!text-detail !leading-relaxed" />
                           )}
                           {m.streaming && m.content && (
                             <span className="inline-flex items-center ml-1">
@@ -1308,12 +1308,12 @@ export default function DebateSessionPage() {
                             </span>
                           </div>
                           {m.streaming && !m.content ? (
-                            <span className="flex items-center justify-center gap-1.5 text-[11px] text-brand-500">
+                            <span className="flex items-center justify-center gap-1.5 text-xs text-brand-500">
                               <Loader2 className="h-3 w-3 animate-spin" />
                               麦克风传递中...
                             </span>
                           ) : (
-                            <MarkdownRenderer content={m.content} className="!text-[13px] !leading-relaxed" />
+                            <MarkdownRenderer content={m.content} className="!text-detail !leading-relaxed" />
                           )}
                           {m.streaming && m.content && (
                             <span className="inline-flex items-center ml-1">
@@ -1326,12 +1326,12 @@ export default function DebateSessionPage() {
 
                     {/* 反方区（右）— 更宽，2份 */}
                     <div onScroll={handleScroll} className="flex-[2] min-w-0 border-l border-border/10 bg-red-50/20 dark:bg-red-950/10 p-3 space-y-3 overflow-y-auto">
-                      <div className="text-[11px] font-bold text-red-500 uppercase tracking-wider text-right">反方</div>
+                      <div className="text-xs font-bold text-red-500 uppercase tracking-wider text-right">反方</div>
                       {messages.filter(m => m.side === 'CON').map(m => (
                         <div key={m.id} className="rounded-xl bg-red-500/5 border border-red-200/30 p-3">
                           <div className="flex items-center justify-end gap-1.5 mb-1">
                             {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-[10px] text-muted-foreground">
+                              <span className="text-xs text-muted-foreground">
                                 {m.personalityTitle}
                               </span>
                             )}
@@ -1340,12 +1340,12 @@ export default function DebateSessionPage() {
                             </span>
                           </div>
                           {m.streaming && !m.content ? (
-                            <span className="flex items-center gap-1.5 text-[11px] text-red-400">
+                            <span className="flex items-center gap-1.5 text-xs text-red-400">
                               <Loader2 className="h-3 w-3 animate-spin" />
                               麦克风传递中...
                             </span>
                           ) : (
-                            <MarkdownRenderer content={m.content} className="!text-[13px] !leading-relaxed" />
+                            <MarkdownRenderer content={m.content} className="!text-detail !leading-relaxed" />
                           )}
                           {m.streaming && m.content && (
                             <span className="inline-flex items-center ml-1">
@@ -1378,7 +1378,7 @@ export default function DebateSessionPage() {
                               {m.roleName}
                             </span>
                             {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-[10px] text-muted-foreground">
+                              <span className="text-xs text-muted-foreground">
                                 {m.personalityTitle}
                               </span>
                             )}
@@ -1391,12 +1391,12 @@ export default function DebateSessionPage() {
                             )}
                           </div>
                           {m.streaming && !m.content ? (
-                            <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                               <Loader2 className="h-3 w-3 animate-spin" />
                               麦克风传递中...
                             </span>
                           ) : (
-                            <MarkdownRenderer content={m.content} className="!text-[13px] !leading-relaxed" />
+                            <MarkdownRenderer content={m.content} className="!text-detail !leading-relaxed" />
                           )}
                           {m.streaming && m.content && (
                             <span className="inline-flex items-center ml-1">
@@ -1433,7 +1433,7 @@ export default function DebateSessionPage() {
                       // 自动朗读最后一条非流式消息
                     }
                   }}
-                  className={`flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium transition-all duration-200 ${
+                  className={`flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium transition-all duration-200 ${
                     ttsEnabled
                       ? 'bg-brand-100 text-brand-500 border border-brand-200'
                       : 'bg-muted text-muted-foreground hover:text-foreground'
@@ -1446,7 +1446,7 @@ export default function DebateSessionPage() {
                 {phase !== 'completed' && (speakingKey || isChainActiveRef.current) && (
                   <button
                     onClick={pauseDiscussion}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-medium bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
                   >
                     <Pause className="h-3 w-3 shrink-0" />
                     <span className="hidden sm:inline">暂停</span>
@@ -1457,7 +1457,7 @@ export default function DebateSessionPage() {
                 {isStarted && sessionStatus !== 'COMPLETED' && !speakingKey && !isChainActiveRef.current && (
                   <button
                     onClick={handleContinue}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
                   >
                     <Play className="h-3 w-3 shrink-0" />
                     <span className="hidden sm:inline">继续</span>
@@ -1480,7 +1480,7 @@ export default function DebateSessionPage() {
                         }
                         setShowScorePanel(true)
                       }}
-                      className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
+                      className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs transition-colors ${
                         showScorePanel ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
                       }`}
                     >
@@ -1497,7 +1497,7 @@ export default function DebateSessionPage() {
                             getDebateReport(sessionId).then(setReport).catch(() => {})
                           }
                         }}
-                        className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-[11px] sm:text-xs transition-colors ${
+                        className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs transition-colors ${
                           showReportPanel ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
                         }`}
                       >

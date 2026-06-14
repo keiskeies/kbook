@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+﻿import { useState, useEffect, useCallback, useRef } from 'react'
 import { ArrowLeft, Save, Trash2, Plus, Star, StarOff, Pencil, X, Volume2, Cpu, Mic, Zap } from 'lucide-react'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
@@ -195,7 +195,7 @@ export default function TtsConfigPage() {
         <button onClick={() => goBack()} className="rounded-full p-1.5 active:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-lg font-bold">TTS 配置管理</h1>
+        <h1 className="text-h3 font-bold">TTS 配置管理</h1>
       </header>
 
       <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-4 space-y-4">
@@ -253,10 +253,10 @@ export default function TtsConfigPage() {
                           <div className="flex items-center gap-1.5">
                             <span className="font-medium text-sm truncate">{c.name}</span>
                             {c.isDefault && (
-                              <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">激活</span>
+                              <span className="rounded bg-primary/20 px-1.5 py-0.5 text-xs font-medium text-primary">激活</span>
                             )}
                             {!c.enabled && (
-                              <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">已禁用</span>
+                              <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">已禁用</span>
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
@@ -338,7 +338,7 @@ export default function TtsConfigPage() {
                         {opt.value === 'XIAOMI' ? <Cpu className="h-4 w-4" /> : opt.value === 'GPT_SOVITS' ? <Volume2 className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                         <div className="text-left">
                           <div>{opt.label}</div>
-                          <div className="text-[10px] opacity-60">{opt.type === 'LLM' ? '大模型 TTS' : opt.type === 'CLONE' ? '语音克隆 TTS' : '传统 TTS'}</div>
+                          <div className="text-xs opacity-60">{opt.type === 'LLM' ? '大模型 TTS' : opt.type === 'CLONE' ? '语音克隆 TTS' : '传统 TTS'}</div>
                         </div>
                       </button>
                     ))}
@@ -515,7 +515,7 @@ export default function TtsConfigPage() {
                               <Volume2 className="h-4 w-4" />
                               <div className="text-left">
                                 <div>{v.name}</div>
-                                <div className="text-[10px] opacity-60">{v.lang.toUpperCase()}</div>
+                                <div className="text-xs opacity-60">{v.lang.toUpperCase()}</div>
                               </div>
                             </button>
                           ))}

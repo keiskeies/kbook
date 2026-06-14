@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Star, Sparkles, Tag, ChevronDown, ChevronUp } from 'lucide-react'
 import { getBook } from '@/api/book'
@@ -27,7 +27,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   }
 
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
       评分：{r}
     </span>
@@ -53,7 +53,7 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   }
 
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Sparkles className="h-2.5 w-2.5" />
       匹配度：{pct}%
     </span>
@@ -67,7 +67,7 @@ function BookDescription({ description }: { description: string }) {
   return (
     <div className="border-t border-border/30 px-3 pb-2.5 pt-1.5">
       <p
-        className={`text-[11px] text-muted-foreground leading-snug transition-all duration-200 ${
+        className={`text-xs text-muted-foreground leading-snug transition-all duration-200 ${
           expanded ? '' : 'line-clamp-2'
         }`}
       >
@@ -79,7 +79,7 @@ function BookDescription({ description }: { description: string }) {
             e.stopPropagation()
             setExpanded(!expanded)
           }}
-          className="mt-1 inline-flex items-center gap-0.5 text-[10px] text-brand-400 hover:text-brand-500 transition-colors"
+          className="mt-1 inline-flex items-center gap-0.5 text-xs text-brand-400 hover:text-brand-500 transition-colors"
         >
           {expanded ? (
             <>
@@ -211,7 +211,7 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
                 {tags.slice(0, 3).map((t) => (
                   <span
                     key={t}
-                    className="inline-flex items-center gap-0.5 rounded-md bg-brand-100 px-1.5 py-0.5 text-[10px] font-medium text-brand-500"
+                    className="inline-flex items-center gap-0.5 rounded-md bg-brand-100 px-1.5 py-0.5 text-xs font-medium text-brand-500"
                   >
                     <Tag className="h-2.5 w-2.5" />
                     {t}
@@ -224,7 +224,7 @@ export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
           <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
             <RatingBadgeCN rating={displayRating} />
             <MatchBadgeCN score={matchScore} />
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {fmtReadCount(displayReadCount)}
             </span>
           </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+﻿import { useEffect, useState, useCallback, useRef } from 'react'
 import { ArrowLeft, Search, MessageCircle, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
@@ -114,7 +114,7 @@ export default function ChatListPage() {
                       {conv.lastMessage || '暂无消息'}
                     </p>
                     {conv.unreadCount > 0 && (
-                      <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground px-1.5">
+                      <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground px-1.5">
                         {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
                       </span>
                     )}

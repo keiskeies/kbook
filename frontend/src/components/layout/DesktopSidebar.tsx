@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+﻿import { useLocation, useNavigate } from 'react-router-dom'
 import { Home, Trophy, BookOpen, User, BookOpenCheck, Sun, Moon } from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { cn } from '@/lib/utils'
@@ -56,7 +56,7 @@ export function DesktopSidebar() {
         {!effectiveCollapsed && (
           <div className="overflow-hidden whitespace-nowrap">
             <h1 className="text-lg font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">KBook</h1>
-            <p className="text-[10px] text-sidebar-foreground/50 -mt-0.5">智能阅读平台</p>
+            <p className="text-xs text-sidebar-foreground/50 -mt-0.5">智能阅读平台</p>
           </div>
         )}
       </div>
@@ -127,7 +127,7 @@ export function DesktopSidebar() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium truncate">{userInfo?.nickname || '未登录'}</p>
-                <p className="text-[10px] text-sidebar-foreground/40 truncate">{userInfo?.email || ''}</p>
+                <p className="text-xs text-sidebar-foreground/40 truncate">{userInfo?.email || ''}</p>
               </div>
               {mounted && (
                 <button

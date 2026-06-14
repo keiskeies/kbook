@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useAuthStore } from '@/store/auth'
 import { changePassword } from '@/api/auth'
 import { toast } from 'sonner'
@@ -54,7 +54,7 @@ export default function ChangePasswordPage() {
         <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-lg font-semibold">修改密码</h1>
+        <h1 className="text-h3 font-semibold">修改密码</h1>
       </header>
 
       <div className="mt-4 space-y-4">

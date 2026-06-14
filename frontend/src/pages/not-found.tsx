@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+﻿import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { BookOpen, ArrowLeft, Home } from 'lucide-react'
 
@@ -12,7 +12,7 @@ export default function NotFoundPage() {
         <BookOpen className="h-10 w-10 text-primary/40" />
       </div>
       <h1 className="mt-6 text-6xl font-bold text-primary/20">404</h1>
-      <h2 className="mt-2 text-lg font-semibold">页面不存在</h2>
+      <h2 className="mt-2 text-h3 font-semibold">页面不存在</h2>
       <p className="mt-2 text-sm text-muted-foreground text-center">
         你访问的页面可能已被移除或暂时不可用
       </p>

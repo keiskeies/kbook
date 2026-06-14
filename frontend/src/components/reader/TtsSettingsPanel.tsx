@@ -1,4 +1,4 @@
-import { useTtsStore } from '@/store/tts'
+﻿import { useTtsStore } from '@/store/tts'
 import type { TtsVoice } from '@/store/tts'
 import { Volume2, Gauge, Cpu } from 'lucide-react'
 
@@ -50,7 +50,7 @@ export default function TtsSettingsPanel() {
             {providerLabels[backendConfig.provider] || backendConfig.provider}
             {backendConfig.voice && <span> · {backendConfig.voice}</span>}
           </p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             {backendMode ? '正在使用后台 TTS' : '后台 TTS 已配置但未启用'}
           </p>
         </div>

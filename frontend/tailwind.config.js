@@ -4,6 +4,15 @@ module.exports = {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      fontSize: {
+        'h1': ['var(--text-h1)', { lineHeight: 'var(--text-h1-line)', fontWeight: 'var(--text-h1-weight)' }],
+        'h2': ['var(--text-h2)', { lineHeight: 'var(--text-h2-line)', fontWeight: 'var(--text-h2-weight)' }],
+        'h3': ['var(--text-h3)', { lineHeight: 'var(--text-h3-line)', fontWeight: 'var(--text-h3-weight)' }],
+        'h4': ['var(--text-h4)', { lineHeight: 'var(--text-h4-line)', fontWeight: 'var(--text-h4-weight)' }],
+        'body': ['var(--text-body)', { lineHeight: 'var(--text-body-line)', fontWeight: 'var(--text-body-weight)' }],
+        'detail': ['var(--text-secondary)', { lineHeight: 'var(--text-secondary-line)', fontWeight: 'var(--text-secondary-weight)' }],
+        'caption': ['var(--text-tertiary)', { lineHeight: 'var(--text-tertiary-line)', fontWeight: 'var(--text-tertiary-weight)' }],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

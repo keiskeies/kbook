@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { Minus, Plus, Sun, Moon, RotateCcw } from 'lucide-react'
 import { useReaderStore } from '@/store/reader'
 import { useTtsStore } from '@/store/tts'
@@ -123,7 +123,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
             }`}
           >
             {iconFn(opt)}
-            <span className="whitespace-nowrap text-[10px] leading-tight font-medium">{opt.label}</span>
+            <span className="whitespace-nowrap text-xs leading-tight font-medium">{opt.label}</span>
           </button>
         )
       })}
@@ -189,7 +189,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
                         style={{ backgroundColor: theme.bg }}
                       >
                         <span className="text-sm font-medium" style={{ color: theme.fg }}>Aa</span>
-                        <span className="text-[10px] leading-tight" style={{ color: theme.fg }}>{theme.name}</span>
+                        <span className="text-xs leading-tight" style={{ color: theme.fg }}>{theme.name}</span>
                       </button>
                     ))}
                   </div>
@@ -248,7 +248,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
                   >
                     <Minus className="h-4 w-4" />
                   </button>
-                  <span className="w-12 text-center text-sm font-semibold tabular-nums">{settings.fontSize}<span className="text-[10px] font-normal text-muted-foreground ml-0.5">px</span></span>
+                  <span className="w-12 text-center text-sm font-semibold tabular-nums">{settings.fontSize}<span className="text-xs font-normal text-muted-foreground ml-0.5">px</span></span>
                   <button
                     onClick={() => handleFontSizeChange(FONT_SIZE_STEP)}
                     disabled={settings.fontSize >= FONT_SIZE_MAX}

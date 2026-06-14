@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Flame, Award, Sparkles, Tag, Clock, Star, ChevronDown, ChevronUp, TrendingUp, Loader2 } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
@@ -31,7 +31,7 @@ function BookDescription({ description }: { description: string }) {
   return (
     <div className="mt-2 border-t border-border/30 pt-2">
       <p
-        className={`text-[11px] text-muted-foreground/70 leading-relaxed transition-all duration-200 ${
+        className={`text-xs text-muted-foreground/70 leading-relaxed transition-all duration-200 ${
           expanded ? '' : 'line-clamp-2'
         }`}
       >
@@ -43,7 +43,7 @@ function BookDescription({ description }: { description: string }) {
             e.stopPropagation()
             setExpanded(!expanded)
           }}
-          className="mt-1 flex items-center gap-0.5 text-[10px] text-primary/80 hover:text-primary font-medium"
+          className="mt-1 flex items-center gap-0.5 text-xs text-primary/80 hover:text-primary font-medium"
         >
           {expanded ? (
             <>
@@ -76,7 +76,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   else colorClass = 'text-muted-foreground dark:text-muted-foreground'
 
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
       评分：{r}
     </span>
@@ -96,7 +96,7 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   else colorClass = 'text-muted-foreground dark:text-muted-foreground'
 
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Sparkles className="h-2.5 w-2.5" />
       匹配度：{pct}%
     </span>
@@ -197,7 +197,7 @@ function RankColumn({ type, label, icon, navigate }: {
                   onClick={() => navigate(`/book/${book.id}`)}
                 >
                   <div className="flex gap-2.5">
-                    <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg text-[10px] font-bold shadow-sm ${
+                    <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold shadow-sm ${
                       index === 0 ? 'bg-warning text-white' :
                       index === 1 ? 'bg-muted text-muted-foreground' :
                       index === 2 ? 'bg-warning/70 text-white' :
@@ -225,14 +225,14 @@ function RankColumn({ type, label, icon, navigate }: {
                           <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                             <RatingBadgeCN rating={book.rating} />
                             <MatchBadgeCN score={ms} />
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-xs text-muted-foreground">
                               {fmtReadCount(book.readCount)}
                             </span>
                           </div>
                           {tags.length > 0 && (
                             <div className="mt-1 flex items-center gap-1 flex-wrap">
                               {tags.slice(0, 2).map((tag) => (
-                                <span key={tag} className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary">
+                                <span key={tag} className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1 py-0.5 text-xs font-medium text-primary">
                                   <Tag className="h-2 w-2" />
                                   {tag}
                                 </span>
@@ -442,14 +442,14 @@ export default function RankPage() {
                           <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                             <RatingBadgeCN rating={book.rating} />
                             <MatchBadgeCN score={ms} />
-                            <span className="text-[11px] text-muted-foreground">
+                            <span className="text-xs text-muted-foreground">
                               {fmtReadCount(book.readCount)}
                             </span>
                           </div>
                           {tags.length > 0 && (
                             <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                               {tags.slice(0, 3).map((tag) => (
-                                <span key={tag} className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                <span key={tag} className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
                                   <Tag className="h-2.5 w-2.5" />
                                   {tag}
                                 </span>

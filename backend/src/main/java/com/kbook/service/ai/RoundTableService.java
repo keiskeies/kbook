@@ -1,5 +1,6 @@
 package com.kbook.service.ai;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
@@ -546,23 +547,39 @@ public class RoundTableService {
      * @param userId    用户ID
      * @param sessionId 会话ID
      * @return 选中的角色 key
-     */
+      */
     @LogAction("纯LLM判断下一发言人")
     public String getNextSpeakerOnlyLLM(Long userId, String sessionId) {
-        // 1. 加载会话
+        // 1. 加载会话 + 书籍信息
         RoundTableSession session = sessionRepository.query()
                 .where(RoundTableSession::getSessionId, eq(sessionId))
                 .list(1)
                 .stream().findFirst()
                 .orElseThrow(() -> new BusinessException("会话不存在"));
 
-        // 2. 构建角色信息（不依赖消息列表，可先构建）
-        String rolesInfo = buildRolesInfoForLLMSpeakerSelection(session);
+        Book book = null;
+        if (session.getBookId() != null) {
+            try {
+                book = bookService.getBookById(session.getBookId());
+            } catch (Exception e) {
+                log.warn("加载书籍信息失败, bookId={}: {}", session.getBookId(), e.getMessage());
+            }
+        }
 
-        // 3. 加载历史消息并同步压缩（一次 DB 查询）
-        int currentOverhead = AiPromptConstants.ROUND_TABLE_NEXT_SPEAKER_LLM_ONLY_PROMPT.length()
-                + rolesInfo.length()
-                + 1000; // fairnessConstraints 预估 + LLM 回复预留
+        // 2. 构建消息列表（顺序即 KV-cache 友好顺序：不变消息在前，可变消息在后）
+        List<ChatMessage> messages = new ArrayList<>();
+
+        // [消息1 - SystemMessage] 角色定义 + 选择规则（全局不变）
+        messages.add(SystemMessage.from(AiPromptConstants.ROUND_TABLE_NEXT_SPEAKER_SYSTEM));
+
+        // [消息2 - UserMessage] 书籍背景 + 角色人设（会话内不变，缓存命中）
+        String bookAndRoles = buildBookAndRolesMessage(session, book);
+        messages.add(UserMessage.from(bookAndRoles));
+
+        // 3. 加载历史消息并同步压缩
+        int currentOverhead = AiPromptConstants.ROUND_TABLE_NEXT_SPEAKER_SYSTEM.length()
+                + bookAndRoles.length()
+                + 2000; // 约束 + 历史 + 输出格式 + LLM 回复预留
         List<RoundTableMessage> allMessages;
         try {
             allMessages = loadAndCompressHistory(userId, sessionId, currentOverhead);
@@ -581,30 +598,27 @@ public class RoundTableService {
         String[] roleKeys = session.getRoleKeys().split(",");
         Map<String, Long> speakCounts = allMessages.stream()
                 .collect(Collectors.groupingBy(RoundTableMessage::getRoleKey, Collectors.counting()));
-
-        // 5. 构建公平性约束说明
-        String fairnessConstraints = buildFairnessConstraints(roleKeys, speakCounts, allMessages);
-
-        // 6. 构建加权对话历史（压缩后，使用 compressedContent）
-        String weightedHistory = buildWeightedHistoryForLLM(allMessages);
-
-        // 7. 构建提示词并调用 LLM
-        String prompt = String.format(
-                AiPromptConstants.ROUND_TABLE_NEXT_SPEAKER_LLM_ONLY_PROMPT,
-                rolesInfo, weightedHistory, fairnessConstraints);
         String lastSpeaker = allMessages.get(allMessages.size() - 1).getRoleKey();
 
+        // [消息3 - UserMessage] 讨论历史（每次只追加一条新发言，前缀可大量复用 KV-cache）
+        String weightedHistory = buildWeightedHistoryForLLM(allMessages);
+        messages.add(UserMessage.from(weightedHistory));
+
+        // [消息4 - UserMessage] 公平性约束 + 输出格式（每轮完全变化，放最后不破坏前缀缓存）
+        String fairnessConstraints = buildFairnessConstraints(roleKeys, speakCounts, allMessages);
+        messages.add(UserMessage.from(fairnessConstraints
+                + "\n\n只返回JSON：{\"nextSpeaker\": \"角色KEY\"}"));
+
+        // 5. 调用 LLM
         try {
             String response = chatModelManager.callAi(
                     "圆桌派纯LLM发言人选择",
                     String.format("sessionId=%s", sessionId),
-                    prompt);
+                    messages);
             response = CommonUtils.stripCodeFence(response).trim();
 
-            // 解析返回的角色 key
             String selectedKey = parseLlmSpeakerResponse(response, roleKeys);
 
-            // 硬约束：禁止连续发言
             if (!allMessages.isEmpty() && selectedKey.equals(lastSpeaker)) {
                 throw new BusinessException("连续发言者禁止");
             }
@@ -615,7 +629,6 @@ public class RoundTableService {
             return selectedKey;
         } catch (Exception e) {
             log.warn("纯LLM发言人选择失败，回退到简单模式: {}", e.getMessage());
-            // 简单回退：从发言最少且不是上一轮发言者的角色中选择
             return Arrays.stream(roleKeys)
                     .map(String::trim)
                     .filter(k -> !k.equals(lastSpeaker))
@@ -625,44 +638,94 @@ public class RoundTableService {
     }
 
     /**
+     * 构建「书籍背景 + 角色人设」消息块（会话内不变，放在 SystemMessage 之后作为第二条缓存消息）
+     */
+    private String buildBookAndRolesMessage(RoundTableSession session, Book book) {
+        StringBuilder sb = new StringBuilder();
+
+        // 讨论背景
+        sb.append("【讨论背景】\n");
+        if (book != null) {
+            sb.append("书籍：《").append(book.getTitle()).append("》\n");
+        }
+        sb.append("主题：").append(session.getTitle()).append("\n\n");
+
+        // 角色人设
+        sb.append("【当前在场角色及其人设】\n");
+        sb.append("重点关注「社交直觉与张力」中的天然警惕/天然共鸣/接话直觉，");
+        sb.append("这些决定了谁在面对某类发言时会本能地想接话或反驳。\n\n");
+        sb.append(buildRolesInfoForLLMSpeakerSelection(session));
+
+        return sb.toString();
+    }
+
+    /**
      * 构建角色信息文本（用于纯 LLM 发言人选择）
-     * 包含角色性格参数、专业领域、说话风格，让 LLM 理解每个角色的特点
+     * <p>
+     * 以 session.roleKeys（后端已自动补全 HOST + 默认角色）为准遍历，
+     * 从 roleConfigs JSON 中匹配各角色的 session 专属参数（domainRelevance 等），
+     * 未在 roleConfigs 中找到的角色使用 RoundTableRole 枚举默认值。
+     * <p>
+     * 包含角色完整人设描述（从 RoundTableRole 枚举读取），
+     * 让 LLM 理解每个角色的身份、社交倾向、与谁冲突/共鸣，
+     * 从而能根据【社交直觉与张力】中的「天然警惕」「天然共鸣」「接话直觉」
+     * 来判断谁最适合接当前发言。
      */
     private String buildRolesInfoForLLMSpeakerSelection(RoundTableSession session) {
         StringBuilder sb = new StringBuilder();
+
+        // 以 roleKeys 为准遍历（roleKeys 已含后端自动补全的 HOST + 默认角色）
+        String[] roleKeys = session.getRoleKeys() != null
+                ? session.getRoleKeys().split(",")
+                : new String[0];
+        if (roleKeys.length == 0) return "";
+
+        // 解析 roleConfigs JSON，建立 key → JsonNode 映射
+        Map<String, JsonNode> configMap = new java.util.LinkedHashMap<>();
         try {
-            if (session.getRoleConfigs() != null) {
+            if (session.getRoleConfigs() != null && !session.getRoleConfigs().isBlank()) {
                 var configs = objectMapper.readTree(session.getRoleConfigs());
                 if (configs.isArray()) {
                     for (var config : configs) {
                         String key = config.has("key") ? config.get("key").asText() : "";
-                        String name = config.has("name") ? config.get("name").asText() : "";
-                        String title = config.has("title") ? config.get("title").asText() : "";
-                        int challenge = config.has("challenge") ? config.get("challenge").asInt() : 3;
-                        int empathy = config.has("empathy") ? config.get("empathy").asInt() : 3;
-                        int opinionated = config.has("opinionated") ? config.get("opinionated").asInt() : 3;
-                        int verbosity = config.has("verbosity") ? config.get("verbosity").asInt() : 3;
-                        int humor = config.has("humor") ? config.get("humor").asInt() : 3;
-                        int domainRelevance = config.has("domainRelevance") ? config.get("domainRelevance").asInt() : 0;
-                        String languageStyle = config.has("languageStyle") ? config.get("languageStyle").asText() : "";
-
-                        sb.append("- ").append(key).append("(").append(name).append(", ").append(title).append(")");
-                        sb.append("：挑战=").append(challenge);
-                        sb.append(" 共情=").append(empathy);
-                        sb.append(" 主见=").append(opinionated);
-                        sb.append(" 话量=").append(verbosity);
-                        sb.append(" 幽默=").append(humor);
-                        sb.append(" 专业相关度=").append(domainRelevance);
-                        if (!languageStyle.isBlank()) {
-                            sb.append(" 语言风格=").append(languageStyle);
+                        if (!key.isBlank()) {
+                            configMap.put(key.trim(), config);
                         }
-                        sb.append("\n");
                     }
                 }
             }
         } catch (Exception e) {
-            log.warn("解析角色配置失败: {}", e.getMessage());
+            log.warn("解析 roleConfigs 失败: {}", e.getMessage());
         }
+
+        for (String key : roleKeys) {
+            key = key.trim();
+            if (key.isBlank()) continue;
+
+            RoundTableRole role = RoundTableRole.fromKey(key);
+            if (role == null) {
+                log.warn("未知角色 key: {}, 跳过", key);
+                continue;
+            }
+
+            JsonNode config = configMap.get(key);
+            String name = (config != null && config.has("name")) ? config.get("name").asText() : role.getName();
+            String title = (config != null && config.has("title")) ? config.get("title").asText() : role.getTitle();
+            int domainRelevance = (config != null && config.has("domainRelevance")) ? config.get("domainRelevance").asInt() : 0;
+            String languageStyle = (config != null && config.has("languageStyle")) ? config.get("languageStyle").asText() : "";
+
+            sb.append("### ").append(key).append("（").append(name).append("，").append(title).append("）\n");
+            // 完整角色人设：身份视角 + 语言指纹 + 社交直觉与张力（天然警惕/天然共鸣/接话直觉） + 输出铁律
+            // 注意：社交直觉与张力 是 LLM 判断"谁适合接话"的核心依据
+            sb.append(role.getPrompt()).append("\n");
+            // 本次讨论专属参数
+            sb.append("【本次讨论专属】专业相关度=").append(domainRelevance);
+            if (!languageStyle.isBlank()) {
+                sb.append(" 语言风格=").append(languageStyle);
+            }
+            sb.append("\n\n");
+        }
+
         return sb.toString();
     }
 
@@ -673,6 +736,8 @@ public class RoundTableService {
      * - 最近1条：标记为「当前焦点」，权重最高
      * - 最近2-3条：标记为「近期讨论」，权重次高
      * - 更早的：标记为「背景讨论」，权重较低
+     * <p>
+     * 直接使用 compressedContent（消息保存时已同步写入），不做二次截断。
      */
     private String buildWeightedHistoryForLLM(List<RoundTableMessage> allMessages) {
         if (allMessages.isEmpty()) {
@@ -684,12 +749,9 @@ public class RoundTableService {
 
         for (int i = 0; i < total; i++) {
             RoundTableMessage msg = allMessages.get(i);
-            // 优先使用压缩后的摘要内容，避免原始长文本导致上下文溢出
-            String content = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
-                    ? msg.getCompressedContent()
-                    : msg.getContent();
-            if (content != null && content.length() > 150) {
-                content = content.substring(0, 150) + "...";
+            String content = msg.getCompressedContent();
+            if (content == null || content.isBlank()) {
+                content = msg.getContent();
             }
 
             // 根据位置标记权重
@@ -783,7 +845,8 @@ public class RoundTableService {
     }
 
     /**
-     * 解析 LLM 返回的发言人选择结果
+     * 解析 LLM 返回的发言人选择结果。
+     * 如果无法解析出有效的在场角色 key，抛出异常让外层回退到简单模式。
      */
     private String parseLlmSpeakerResponse(String response, String[] validRoleKeys) {
         Set<String> validKeys = Arrays.stream(validRoleKeys).map(String::trim).collect(Collectors.toSet());
@@ -794,8 +857,13 @@ public class RoundTableService {
             if (jsonNode.has("nextSpeaker")) {
                 String key = jsonNode.get("nextSpeaker").asText().trim();
                 if (validKeys.contains(key)) return key;
+                // JSON 解析成功但 key 不合法 → 直接抛，不进入子串匹配
+                throw new BusinessException("LLM返回了不在场角色: " + key);
             }
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception ignored) {
+            // JSON 解析失败，进入子串匹配兜底
         }
 
         // 尝试直接匹配角色 key
@@ -806,11 +874,8 @@ public class RoundTableService {
             }
         }
 
-        // 兜底：返回第一个非 HOST 角色
-        for (String key : validKeys) {
-            if (!"HOST".equals(key)) return key;
-        }
-        return "HOST";
+        // LLM 返回了数据但不在在场角色中 → 抛异常，让外层回退简单模式
+        throw new BusinessException("LLM返回的角色不在在场角色列表中: " + response);
     }
 
     // ==================== 单角色发言（SSE + DB 持久化） ====================

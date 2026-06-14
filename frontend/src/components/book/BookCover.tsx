@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 
 /** 预定义渐变色，基于书名 hash 选取 */
 const GRADIENTS = [
@@ -66,18 +66,18 @@ export default function BookCover({
 
   // 格式标签字号映射
   const tagSizeMap: Record<string, string> = {
-    xs: 'text-[6px] px-0.5 py-px',
-    sm: 'text-[8px] px-1 py-0.5',
-    md: 'text-[8px] px-1 py-0.5',
-    lg: 'text-[10px] px-1.5 py-0.5',
-    xl: 'text-[10px] px-1.5 py-0.5',
+    xs: 'text-xs px-0.5 py-px',
+    sm: 'text-xs px-1 py-0.5',
+    md: 'text-xs px-1 py-0.5',
+    lg: 'text-xs px-1.5 py-0.5',
+    xl: 'text-xs px-1.5 py-0.5',
   }
 
   // 书名字号映射
   const titleSizeMap: Record<string, string> = {
-    xs: 'text-[6px] leading-tight',
-    sm: 'text-[8px] leading-tight',
-    md: 'text-[9px] leading-tight',
+    xs: 'text-xs leading-tight',
+    sm: 'text-xs leading-tight',
+    md: 'text-xs leading-tight',
     lg: 'text-xs leading-snug',
     xl: 'text-sm leading-snug',
   }
@@ -85,10 +85,10 @@ export default function BookCover({
   // 作者字号映射
   const authorSizeMap: Record<string, string> = {
     xs: '',
-    sm: 'text-[6px]',
-    md: 'text-[7px]',
-    lg: 'text-[10px]',
-    xl: 'text-[11px]',
+    sm: 'text-xs',
+    md: 'text-xs',
+    lg: 'text-xs',
+    xl: 'text-xs',
   }
 
   const showFormat = showFormatTag && format && (format === 'PDF' || format === 'TXT')

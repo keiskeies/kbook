@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import { useAuthStore } from '@/store/auth'
 import { updateMood } from '@/api/auth'
 import { toast } from 'sonner'
@@ -84,8 +84,8 @@ export default function MoodQuickSwitch() {
       {/* 顶栏：标题 + 关闭 */}
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-semibold text-foreground">今天想读什么？</span>
-          <span className="hidden sm:inline text-[10px] text-muted-foreground/60">切换后推荐实时刷新</span>
+          <span className="text-detail font-semibold text-foreground">今天想读什么？</span>
+          <span className="hidden sm:inline text-xs text-muted-foreground/60">切换后推荐实时刷新</span>
         </div>
         <button
           onClick={() => setVisible(false)}
@@ -118,7 +118,7 @@ export default function MoodQuickSwitch() {
                 className={`h-4 w-4 transition-transform duration-200 ${active ? 'scale-110' : ''}`}
                 strokeWidth={active ? 2.5 : 1.8}
               />
-              <span className="text-[11px] font-medium leading-none">{item.label}</span>
+              <span className="text-xs font-medium leading-none">{item.label}</span>
             </button>
           )
         })}
@@ -129,7 +129,7 @@ export default function MoodQuickSwitch() {
 
       {/* 情绪行 */}
       <div className="flex items-center gap-2">
-        <span className="text-[11px] text-muted-foreground/60 font-medium shrink-0">此刻</span>
+        <span className="text-xs text-muted-foreground/60 font-medium shrink-0">此刻</span>
         <div className="flex items-center gap-1">
           {MOODS.map((item) => {
             const active = item.key === mood
@@ -150,7 +150,7 @@ export default function MoodQuickSwitch() {
             )
           })}
         </div>
-        <span className="ml-1 text-[11px] text-muted-foreground/70 font-medium">
+        <span className="ml-1 text-xs text-muted-foreground/70 font-medium">
           {MOODS.find((m) => m.key === mood)?.label}
         </span>
       </div>

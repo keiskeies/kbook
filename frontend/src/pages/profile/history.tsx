@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+﻿import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
@@ -39,7 +39,7 @@ function DescriptionBlock({ description }: { description: string }) {
           {expanded ? description : short}
         </p>
         {needToggle && (
-          <button className="flex items-center gap-0.5 mt-1 text-[10px] text-primary hover:underline">
+          <button className="flex items-center gap-0.5 mt-1 text-xs text-primary hover:underline">
             {expanded ? <><ChevronUp className="h-3 w-3" />收起</> : <><ChevronDown className="h-3 w-3" />展开</>}
           </button>
         )}
@@ -60,7 +60,7 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   else colorClass = 'text-muted-foreground dark:text-muted-foreground'
 
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Star className="h-2.5 w-2.5" />
       评分：{r}
     </span>
@@ -78,7 +78,7 @@ function MatchBadgeCN({ score }: { score: number | undefined | null }) {
   else colorClass = 'text-muted-foreground dark:text-muted-foreground'
 
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
       <Sparkles className="h-2.5 w-2.5" />
       匹配度：{pct}%
     </span>
@@ -275,12 +275,12 @@ export default function ReadingHistoryPage() {
                   </div>
 
                   <div className="flex flex-shrink-0 flex-col items-end gap-1">
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Clock className="h-2.5 w-2.5" />
                       {formatRelativeTime(item.updatedAt)}
                     </span>
                     {item.format && (
-                      <span className="rounded-md bg-primary/8 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                      <span className="rounded-md bg-primary/8 px-1.5 py-0.5 text-xs font-medium text-primary">
                         {item.format}
                       </span>
                     )}

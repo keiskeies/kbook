@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Users, RefreshCw, History, Trash2, BookOpen, Sparkles,
@@ -47,12 +47,12 @@ function RoleCard({
       style={{ '--role-color': color } as React.CSSProperties}
     >
       {isSelected && !isHost && (
-        <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--role-color)] text-[10px] text-white shadow-sm">
+        <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--role-color)] text-xs text-white shadow-sm">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
         </span>
       )}
       {isHost && (
-        <span className="absolute -top-1.5 -right-1.5 rounded-full bg-primary px-2 py-0.5 text-[9px] font-bold text-primary-foreground shadow-sm">
+        <span className="absolute -top-1.5 -right-1.5 rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground shadow-sm">
           必选
         </span>
       )}
@@ -69,7 +69,7 @@ function RoleCard({
 
       <div className="text-center">
         <span className="block text-xs font-bold" style={{ color }}>{role.name}</span>
-        <span className="block text-[10px] text-muted-foreground mt-0.5">{ROLE_TITLES[role.key]}</span>
+        <span className="block text-xs text-muted-foreground mt-0.5">{ROLE_TITLES[role.key]}</span>
       </div>
 
       {traits.length > 0 && (
@@ -77,7 +77,7 @@ function RoleCard({
           {traits.slice(0, 3).map(t => (
             <span
               key={t}
-              className="rounded-full px-1.5 py-0.5 text-[8px] font-medium"
+              className="rounded-full px-1.5 py-0.5 text-xs font-medium"
               style={{
                 backgroundColor: hexToRgba(color, 0.08),
                 color: hexToRgba(color, 0.85),
@@ -116,19 +116,19 @@ function SessionCard({
             {roleKeysArr.slice(0, 5).map(key => (
               <span
                 key={key}
-                className="flex h-4 w-4 items-center justify-center rounded-full text-[8px] border border-background"
+                className="flex h-4 w-4 items-center justify-center rounded-full text-xs border border-background"
                 style={{ backgroundColor: hexToRgba(ROLE_COLORS[key] || '#6B655C', 0.15) }}
               >
                 {ROLE_ICONS[key] || '👤'}
               </span>
             ))}
             {roleKeysArr.length > 5 && (
-              <span className="flex h-4 w-4 items-center justify-center rounded-full text-[7px] bg-muted text-muted-foreground border border-background">
+              <span className="flex h-4 w-4 items-center justify-center rounded-full text-xs bg-muted text-muted-foreground border border-background">
                 +{roleKeysArr.length - 5}
               </span>
             )}
           </div>
-          <span className="text-[10px] text-muted-foreground">{dateStr}</span>
+          <span className="text-xs text-muted-foreground">{dateStr}</span>
         </div>
       </button>
       <button
@@ -255,7 +255,7 @@ export default function RoundTablePage() {
         </button>
         <div className="min-w-0 flex-1">
           <h1 className="text-sm font-bold text-foreground">圆桌派</h1>
-          <p className="text-[10px] text-muted-foreground truncate">
+          <p className="text-xs text-muted-foreground truncate">
             选择嘉宾，开启讨论
           </p>
         </div>
@@ -283,7 +283,7 @@ export default function RoundTablePage() {
             )}
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold truncate">{bookInfo.title}</p>
-              <p className="text-[11px] text-muted-foreground">{bookInfo.author}</p>
+              <p className="text-xs text-muted-foreground">{bookInfo.author}</p>
             </div>
             <Sparkles className="h-4 w-4 text-brand-400 shrink-0" />
           </div>
