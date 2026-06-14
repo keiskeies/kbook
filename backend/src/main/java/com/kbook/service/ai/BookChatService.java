@@ -212,7 +212,7 @@ public class BookChatService {
         }
 
         try {
-            emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍内容..."));
+            emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍基本信息..."));
         } catch (Exception ignored) {
         }
 
@@ -227,7 +227,7 @@ public class BookChatService {
                 if (!Boolean.TRUE.equals(book.getContentEmbedded())) {
                     log.info("图书未生成内容向量，尝试按需生成: bookId={}", bookId);
                     try {
-                        emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍内容，请稍候..."));
+                        emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍完整内容，请稍候..."));
                     } catch (Exception ignored) {
                     }
 
@@ -263,7 +263,7 @@ public class BookChatService {
                 if (book.getCompressedSummary() == null || book.getCompressedSummary().isBlank()) {
                     if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
                         try {
-                            emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍内容，请稍候..."));
+                            emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍完整内容，请稍候..."));
                         } catch (Exception ignored) {
                         }
                         String compressed = chatModelManager.generateCompressedSummary(book);
@@ -275,6 +275,7 @@ public class BookChatService {
                     }
                 }
 
+                emitter.send(SseEmitter.event().name("thinking").data("正在扩展查询语义，请稍候..."));
                 int ragTopK = Optional.ofNullable(aiProviderConfigService.getActiveRagTopK())
                         .orElse(qdrantProperties.getRagTopK());
                 int ragMaxChars = getRagMaxChars();

@@ -108,6 +108,18 @@ public class ChatModelManager {
         return callAi(logName, logDetail, chatModelFactory::buildToolChatModel, messages);
     }
 
+    /**
+     * 不带思考模式的公共 AI 调用入口（用于标签生成、元数据推断等无需复杂推理的场景）。
+     *
+     * @param logName   日志标识
+     * @param logDetail 日志详情
+     * @param messages  完整的 ChatMessage 列表
+     * @return AI 响应文本
+     */
+    public String callAiWithoutThinking(String logName, String logDetail, List<ChatMessage> messages) {
+        return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinking, messages);
+    }
+
     // ================================================================
     // 业务方法
     // ================================================================
@@ -524,17 +536,6 @@ public class ChatModelManager {
         return chatModelFactory.buildStreamingChatModelWithoutThinking();
     }
 
-    /**
-     * 获取非流式聊天模型实例（不带思考模式）。
-     *
-     * <p>该方法返回一个标准的 ChatModel 实例，用于同步对话场景。与带思考模式的模型不同，
-     * 此模型不会进行深度推理和思考过程，适用于快速响应的一般对话任务。</p>
-     *
-     * @return ChatModel 实例，未配置时返回 null
-     */
-    public ChatModel getChatModelWithoutThinking() {
-        return chatModelFactory.buildChatModelWithoutThinking();
-    }
 
 
     /**
@@ -783,6 +784,164 @@ public class ChatModelManager {
                 .filter(line -> line.length() > 2)
                 .distinct()
                 .limit(20)
-                .collect(Collectors.toList());
+.collect(Collectors.toList());
     }
+
+    // ================================================================
+    // 辩论域 AI 调用（封装 SystemMessage + UserMessage 拼装 → callAi）
+    // ================================================================
+
+    /**
+     * 从书籍信息生成辩论话题列表。
+     *
+     * @param bookInfo 书籍元数据文本（书名、作者、标签、简介等）
+     * @return AI 原始响应文本（JSON 数组），由调用方解析
+     */
+    public String callAiForDebateTopics(String bookInfo) {
+        return callAi("辩论辩题生成", "bookInfo", List.of(
+                SystemMessage.from(AiPromptConstants.DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT),
+                UserMessage.from("书籍信息：" + bookInfo)));
+    }
+
+    /**
+     * 优化用户自定义辩论话题。
+     */
+    public String callAiForDebateTopicOptimization(long bookId, String topic, String bookInfo, String proArg, String conArg) {
+        String userPrompt = String.format("""
+                书籍信息：
+                %s
+
+                用户的原始输入：
+                辩题：%s
+                正方观点：%s
+                反方观点：%s""", bookInfo, topic, proArg, conArg);
+
+        return callAi("辩论辩题优化", String.format("bookId=%d, topic=%s", bookId, topic), List.of(
+                SystemMessage.from(AiPromptConstants.DEBATE_OPTIMIZE_TOPIC_SYSTEM_PROMPT),
+                UserMessage.from(userPrompt)));
+    }
+
+    /**
+     * 自由辩论环节选择下一个发言人。
+     */
+    public String callAiForFreeDebaterSelection(String sessionId, String topic, String rolesInfo,
+                                                 String lastSpeaker, String lastSide, String countInfo) {
+        String userPrompt = String.format("""
+                当前辩题：%s
+
+                参与辩手：
+                %s
+
+                上一位发言者：%s（%s方）
+
+                发言次数统计：
+                %s""", topic, rolesInfo, lastSpeaker, lastSide, countInfo);
+
+        return callAi("辩论自由辩论发言人选择", "sessionId=" + sessionId, List.of(
+                SystemMessage.from(AiPromptConstants.DEBATE_NEXT_SPEAKER_FREE_SYSTEM_PROMPT),
+                UserMessage.from(userPrompt)));
+    }
+
+    /**
+     * 对单次辩论发言进行 7 维度评分。
+     *
+     * @return AI 原始响应文本（JSON 对象），由调用方解析
+     */
+    public String callAiForDebateScoring(String sessionId, String roleKey, int roundNumber,
+                                          String topic, String side, String roundTypeLabel, String content) {
+        String userPrompt = String.format("""
+                辩题：%s
+                发言者：%s（%s方）
+                当前轮次：%s
+                发言内容：%s""", topic, roleKey, side, roundTypeLabel, content);
+
+        return callAi("辩论评分", String.format("sessionId=%s, roleKey=%s, round=%d", sessionId, roleKey, roundNumber), List.of(
+                SystemMessage.from(AiPromptConstants.DEBATE_SCORING_SYSTEM_PROMPT),
+                UserMessage.from(userPrompt)));
+    }
+
+    // ================================================================
+    // 圆桌派域 AI 调用
+    // ================================================================
+
+    /**
+     * 从书籍信息选择最适合的讨论嘉宾。
+     *
+     * @return AI 原始响应文本（JSON 数组），由调用方解析
+     */
+    public String callAiForRoleSelection(long bookId, String bookTitle, String bookInfo) {
+        return callAi("圆桌派角色推荐", String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
+                SystemMessage.from(AiPromptConstants.ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT),
+                UserMessage.from("书籍信息：\n" + bookInfo)));
+    }
+
+    /**
+     * 回退模式：纯关键词硬匹配角色推荐。
+     *
+     * @return AI 原始响应文本（逗号分隔的角色 key 列表）
+     */
+    public String callAiForRoleSelectionFallback(long bookId, String bookTitle, String bookInfo, String roleList) {
+        return callAi("圆桌派角色推荐(回退)", String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
+                SystemMessage.from("根据提供的书籍信息，从角色列表中选出最适合参与讨论的4-6个角色（不含HOST）。只输出角色key，用逗号分隔，不要输出任何解释。"),
+                UserMessage.from("角色列表：" + roleList + "\n\n书籍信息：\n" + bookInfo)));
+    }
+
+    /**
+     * 为特定角色生成向量检索查询文本。
+     */
+    public String callAiForRoleSearchQuery(String roleKey, String bookTitle, String roleName,
+                                            String roleTitle, String roleKeywords, String recentDiscussion) {
+        String systemPrompt = """
+                你是一个检索查询生成器。请根据提供的信息，生成一段用于在书中检索相关段落的查询文本。
+
+                要求：
+                1. 查询应该从该角色的专业视角出发，结合角色关注的关键词
+                2. 查询要紧扣当前讨论话题，让检索结果能帮助该角色发表有深度的观点
+                3. 只输出查询文本本身，不要输出任何解释或前缀
+                4. 查询长度控制在30-80字
+                """;
+
+        String userPrompt = String.format("""
+                【图书】%s
+                【角色】%s（%s）
+                【角色关注领域】%s
+                【最近讨论】
+                %s""", bookTitle, roleName, roleTitle, roleKeywords, recentDiscussion);
+
+        return callAi("圆桌派角色检索查询", "role=" + roleKey, List.of(
+                SystemMessage.from(systemPrompt),
+                UserMessage.from(userPrompt)));
+    }
+
+    // ================================================================
+    // 覆盖度域 AI 调用
+    // ================================================================
+
+    /**
+     * 从图书摘要生成 LLM 内容大纲（主题块）。
+     *
+     * @return AI 原始响应文本（JSON 数组），由调用方解析
+     */
+    public String callAiForLlmOutline(String contentInfo, int minBlocks, int maxBlocks) {
+        String systemPrompt = String.format("""
+                你是一个书籍内容分析专家。请根据提供的图书信息，生成该书的内容大纲。
+
+                要求：
+                1. 将全书内容划分为 %d-%d 个主题块
+                2. 每个块要有「标题」和「一句话摘要」
+                3. 标题要能反映该块的内容主题
+                4. 输出格式为 JSON 数组，不要任何其他内容
+
+                输出格式：
+                [
+                  {"title": "标题1", "summary": "一句话摘要"},
+                  {"title": "标题2", "summary": "一句话摘要"}
+                ]
+                """, minBlocks, maxBlocks);
+
+        return callAi("圆桌派覆盖度评估", "LLM大纲生成", List.of(
+                SystemMessage.from(systemPrompt),
+                UserMessage.from("图书信息：\n" + contentInfo)));
+    }
+
 }

@@ -3,7 +3,6 @@ package com.kbook.service.ai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.DebateScoreVO;
 import com.kbook.entity.debate.DebateScore;
 import com.kbook.entity.debate.DebateSession;
@@ -87,24 +86,11 @@ public class DebateScoringService {
                     .list(1).stream().findFirst().orElse(null);
             String topic = session != null ? session.getTopic() : "未知辩题";
 
-            // 动态内容作为 UserMessage，评分规则作为 SystemMessage
-            String userPrompt = String.format("""
-                    辩题：%s
-                    发言者：%s（%s方）
-                    当前轮次：%s
-                    发言内容：%s""",
-                    topic, roleKey, side,
+            String result = chatModelManager.callAiForDebateScoring(
+                    sessionId, roleKey, roundNumber,
+                    topic, side,
                     getRoundTypeLabel(roundType),
                     content);
-
-            List<ChatMessage> chatMessages = List.of(
-                    SystemMessage.from(AiPromptConstants.DEBATE_SCORING_SYSTEM_PROMPT),
-                    UserMessage.from(userPrompt));
-
-            String result = chatModelManager.callAi(
-                    "辩论评分",
-                    String.format("sessionId=%s, roleKey=%s, round=%d", sessionId, roleKey, roundNumber),
-                    chatMessages);
 
             if (result == null || result.isBlank()) {
                 return null;

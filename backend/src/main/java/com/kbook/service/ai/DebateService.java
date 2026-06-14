@@ -124,14 +124,7 @@ public class DebateService {
         List<DebateTopicVO> topics;
         try {
             String bookInfo = buildBookInfoForTopic(book);
-            List<ChatMessage> chatMessages = List.of(
-                    SystemMessage.from(AiPromptConstants.DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT),
-                    UserMessage.from("书籍信息：" + bookInfo));
-
-            String result = chatModelManager.callAi(
-                    "辩论辩题生成",
-                    String.format("bookId=%d, title=%s", bookId, book.getTitle()),
-                    chatMessages);
+            String result = chatModelManager.callAiForDebateTopics(bookInfo);
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
@@ -210,28 +203,12 @@ public class DebateService {
         }
 
         String bookInfo = buildBookInfoForTopic(book);
-        String userPrompt = String.format("""
-                书籍信息：
-                %s
-
-                用户的原始输入：
-                辩题：%s
-                正方观点：%s
-                反方观点：%s""",
-                bookInfo,
-                topic != null ? topic : "",
-                proArg != null ? proArg : "",
-                conArg != null ? conArg : "");
 
         try {
-            List<ChatMessage> chatMessages = List.of(
-                    SystemMessage.from(AiPromptConstants.DEBATE_OPTIMIZE_TOPIC_SYSTEM_PROMPT),
-                    UserMessage.from(userPrompt));
-
-            String result = chatModelManager.callAi(
-                    "辩论辩题优化",
-                    String.format("bookId=%d, topic=%s", bookId, topic != null ? topic : ""),
-                    chatMessages);
+            String result = chatModelManager.callAiForDebateTopicOptimization(
+                    bookId, topic, bookInfo,
+                    proArg != null ? proArg : "",
+                    conArg != null ? conArg : "");
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
@@ -991,30 +968,11 @@ public class DebateService {
             }
         }
 
-        String userPrompt = String.format("""
-                当前辩题：%s
-
-                参与辩手：
-                %s
-
-                上一位发言者：%s（%s方）
-
-                发言次数统计：
-                %s""",
-                session.getTopic(),
-                rolesInfo.toString(),
-                lastSpeaker, lastSide,
-                countInfo.toString());
-
         try {
-            List<ChatMessage> chatMessages = List.of(
-                    SystemMessage.from(AiPromptConstants.DEBATE_NEXT_SPEAKER_FREE_SYSTEM_PROMPT),
-                    UserMessage.from(userPrompt));
-
-            String result = chatModelManager.callAi(
-                    "辩论自由辩论发言人选择",
-                    String.format("sessionId=%s", sessionId),
-                    chatMessages);
+            String result = chatModelManager.callAiForFreeDebaterSelection(
+                    sessionId, session.getTopic(),
+                    rolesInfo.toString(), lastSpeaker, lastSide,
+                    countInfo.toString());
 
             if (result != null && !result.isBlank()) {
                 result = result.trim();

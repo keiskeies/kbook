@@ -1700,9 +1700,8 @@ public class BookParserService {
      * 一次 LLM 调用同时生成标签、评分、8维度相关度得分
      */
     private CombinedAiResult callAiCombined(String content) {
-        String rawResult = chatModelManager.callAi(AI_OP_COMBINED,
+        String rawResult = chatModelManager.callAiWithoutThinking(AI_OP_COMBINED,
                 String.format("输入: %s", content.replaceAll("\\n", " ").substring(0, Math.min(100, content.length()))),
-                chatModelManager::getChatModelWithoutThinking,
                 Lists.newArrayList(
                         SystemMessage.from(AiPromptConstants.COMBINED_PROMPT_SYSTEM_PROMPT),
                         UserMessage.from(content)

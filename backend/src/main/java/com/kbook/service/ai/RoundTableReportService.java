@@ -1,8 +1,8 @@
 package com.kbook.service.ai;
 
 import com.kbook.common.exception.BusinessException;
-import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.RedisLock;
+import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableMessage;
 import com.kbook.entity.RoundTableReport;
@@ -12,7 +12,9 @@ import com.kbook.repository.RoundTableMessageRepository;
 import com.kbook.repository.RoundTableReportRepository;
 import com.kbook.repository.RoundTableSessionRepository;
 import com.kbook.service.notification.NotificationService;
-import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -52,7 +54,7 @@ public class RoundTableReportService {
     private final RoundTableSessionRepository sessionRepository;
     private final RoundTableMessageRepository messageRepository;
     private final BookRepository bookRepository;
-    private final ChatModelFactory chatModelFactory;
+    private final ChatModelManager chatModelManager;
     private final NotificationService notificationService;
     private final ExecutorService sseExecutor;
 
@@ -61,14 +63,14 @@ public class RoundTableReportService {
             RoundTableSessionRepository sessionRepository,
             RoundTableMessageRepository messageRepository,
             BookRepository bookRepository,
-            ChatModelFactory chatModelFactory,
+            ChatModelManager chatModelManager,
             NotificationService notificationService,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.reportRepository = reportRepository;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.bookRepository = bookRepository;
-        this.chatModelFactory = chatModelFactory;
+        this.chatModelManager = chatModelManager;
         this.notificationService = notificationService;
         this.sseExecutor = sseExecutor;
     }
@@ -295,46 +297,7 @@ public class RoundTableReportService {
         String bookInfo = buildBookInfo(book);
         String roleInfo = buildRoleInfo(messages);
 
-        return callLlm(String.format("""
-                你是一位深谙中文谈话节目精髓的评论家，擅长从圆桌派这类多角色讨论中提炼精华。
-                请对以下圆桌派讨论进行全面解读。
-
-                要求：
-                1. 按 7 个方面逐一详细解读，每个部分用「## 标题」格式分隔
-                2. 引用具体发言作为例证，越详细越好
-                3. 输出 Markdown 格式，不要 JSON
-
-                Markdown 格式必须遵守：
-                - 每个小节之间空一行，小节内部段落简短（2-3句为宜），段间空行
-                - 核心观点、人名、书名、关键术语 用 **加粗** 突出
-                - 枚举要点时使用 - 无序列表（每项一行）
-                - 精彩原文引用使用 > 块引用格式，并注明角色和轮次：
-                  > 张三（第2轮）："这里引用原文……"
-                - 有对比信息时使用 | 表格 |（如角色对比、观点对比）
-                - 每个维度结尾用 --- 分隔线收尾
-
-                解读框架：
-                ## 壹、这期聊了什么
-                概括核心主题和讨论切入点。
-
-                ## 贰、精彩看点
-                最值得回味的段落：金句、名场面，为什么精彩。
-
-                ## 叁、角色表现
-                每个角色的发挥如何，有没有高光时刻或意外表现。
-
-                ## 肆、观点碰撞
-                谁和谁在哪儿杠上了，分歧本质是什么，哪方更有道理。
-
-                ## 伍、新知收获
-                刷新认知的观点、冷知识或新视角。
-
-                ## 陆、意犹未尽
-                哪些地方讨论得太浅，希望接着聊什么。
-
-                ## 柒、整体评价
-                这期好看吗，适合什么类型的读者收听。
-
+        String userMessage = String.format("""
                 以下是本次讨论的数据：
 
                 【图书信息】
@@ -344,15 +307,15 @@ public class RoundTableReportService {
                 %s
 
                 【讨论全文】
-                %s
-                """, bookInfo, roleInfo, fullDiscussion));
-    }
+                %s""", bookInfo, roleInfo, fullDiscussion);
 
-    // ==================== LLM 调用 ====================
+        List<ChatMessage> chatMessages = List.of(
+                SystemMessage.from(AiPromptConstants.ROUND_TABLE_REPORT_SYSTEM_PROMPT),
+                UserMessage.from(userMessage));
 
-    private String callLlm(String prompt) {
-        ChatModel model = chatModelFactory.buildToolChatModel();
-        return model != null ? model.chat(prompt) : null;
+        return chatModelManager.callAi("圆桌派解读报告",
+                String.format("sessionId=%s", session.getSessionId()),
+                chatMessages);
     }
 
     // ==================== 辅助方法 ====================
