@@ -2,6 +2,9 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.config.ai.AiConfig;
+import com.kbook.config.ai.AiConfigProvider;
+import com.kbook.config.ai.AiConfigSummary;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
 import com.kbook.service.ai.AiProviderConfigService;
@@ -15,56 +18,40 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * AI 供应商配置管理 — 管理员接口
- * <p>
- * 提供对话 AI 配置的 CRUD 操作。
- * 支持多配置管理，可切换默认（激活）配置。
- * 配置变更后自动清除缓存，下次对话请求将使用新配置构建模型。
+ * AI 配置管理控制器 — 供应商 CRUD + 系统配置文件管理
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/admin/ai-config")
 @PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
-@Tag(name = "AI配置")
-public class AiProviderConfigController {
+@Tag(name = "AI配置管理")
+public class AdminAiConfigController {
 
     private final AiProviderConfigRepository configRepository;
     private final AiProviderConfigService providerConfigService;
     private final ChatModelFactory chatModelFactory;
+    private final AiConfigProvider configProvider;
 
-    /**
-     * 获取所有 AI 配置
-     */
+    // ==================== AI 供应商配置 CRUD ====================
+
     @GetMapping
     public Result<List<AiProviderConfig>> listAll() {
         return Result.ok(configRepository.findAll());
     }
 
-    /**
-     * 按用途获取所有配置列表（含默认标记）
-     */
     @GetMapping("/purpose/{purpose}")
     public Result<List<AiProviderConfig>> getByPurpose(@PathVariable String purpose) {
         return Result.ok(providerConfigService.getConfigsByPurpose(purpose));
     }
 
-    /**
-     * 按用途获取默认（激活）配置
-     */
     @GetMapping("/{purpose}/default")
     public Result<AiProviderConfig> getDefaultByPurpose(@PathVariable String purpose) {
         return Result.ok(providerConfigService.getChatConfig());
     }
 
-    /**
-     * 创建 AI 配置
-     * <p>
-     * 新配置默认 isDefault=false，需手动切换激活。
-     */
     @PostMapping
     public Result<AiProviderConfig> create(@RequestBody AiProviderConfig config) {
-        // 参数校验
         if (config.getName() == null || config.getName().isBlank()) {
             return Result.fail("配置名称不能为空");
         }
@@ -73,7 +60,6 @@ public class AiProviderConfigController {
             return Result.fail("缺少必要参数：purpose, provider, baseUrl, modelName");
         }
 
-        // 新配置默认不设为默认
         if (config.getIsDefault() == null) {
             config.setIsDefault(false);
         }
@@ -85,9 +71,6 @@ public class AiProviderConfigController {
         return Result.ok(saved);
     }
 
-    /**
-     * 更新 AI 配置
-     */
     @PutMapping("/{id}")
     public Result<AiProviderConfig> update(@PathVariable Long id, @RequestBody AiProviderConfig config) {
         AiProviderConfig existing = configRepository.findById(id).orElse(null);
@@ -95,7 +78,6 @@ public class AiProviderConfigController {
             return Result.fail("配置不存在");
         }
 
-        // 更新字段
         if (config.getName() != null) existing.setName(config.getName());
         if (config.getProvider() != null) existing.setProvider(config.getProvider());
         if (config.getBaseUrl() != null) existing.setBaseUrl(config.getBaseUrl());
@@ -108,7 +90,6 @@ public class AiProviderConfigController {
         if (config.getMaxTokens() != null) existing.setMaxTokens(config.getMaxTokens());
         if (config.getEnabled() != null) existing.setEnabled(config.getEnabled());
 
-        // 如果请求中设置了 isDefault=true，切换默认
         if (Boolean.TRUE.equals(config.getIsDefault()) && !existing.getIsDefault()) {
             configRepository.clearDefaultForPurpose(existing.getPurpose(), id);
             existing.setIsDefault(true);
@@ -118,15 +99,11 @@ public class AiProviderConfigController {
         log.info("AI 配置已更新: id={}, name={}, purpose={}, provider={}, model={}, enabled={}, isDefault={}",
                 saved.getId(), saved.getName(), saved.getPurpose(), saved.getProvider(), saved.getModelName(), saved.getEnabled(), saved.getIsDefault());
 
-        // 清除对话缓存
         providerConfigService.invalidateChatCache();
 
         return Result.ok(saved);
     }
 
-    /**
-     * 删除 AI 配置
-     */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         configRepository.deleteById(id);
@@ -135,11 +112,6 @@ public class AiProviderConfigController {
         return Result.ok();
     }
 
-    /**
-     * 切换默认（激活）配置
-     * <p>
-     * 将指定配置设为该 purpose 的默认配置，同 purpose 的其他配置自动取消默认。
-     */
     @PostMapping("/{id}/switch-default")
     public Result<AiProviderConfig> switchDefault(@PathVariable Long id) {
         try {
@@ -150,11 +122,6 @@ public class AiProviderConfigController {
         }
     }
 
-    /**
-     * 测试 AI 配置连接
-     * <p>
-     * 尝试用该配置发送一条简单消息，验证连接是否正常
-     */
     @PostMapping("/{id}/test")
     public Result<String> testConnection(@PathVariable Long id) {
         AiProviderConfig config = configRepository.findById(id).orElse(null);
@@ -170,5 +137,24 @@ public class AiProviderConfigController {
             log.warn("AI 配置测试失败: id={}, error={}", id, e.getMessage());
             return Result.fail("连接测试失败: " + e.getMessage());
         }
+    }
+
+    // ==================== AI 系统配置文件管理 ====================
+
+    @GetMapping("/file")
+    public Result<AiConfig> getFullConfig() {
+        return Result.ok(configProvider.getConfig());
+    }
+
+    @GetMapping("/file/summary")
+    public Result<AiConfigSummary> getSummary() {
+        return Result.ok(configProvider.buildSummary());
+    }
+
+    @PostMapping("/file/reload")
+    public Result<Void> reload() {
+        configProvider.reload();
+        log.info("管理员触发了 AI 配置热加载");
+        return Result.ok();
     }
 }

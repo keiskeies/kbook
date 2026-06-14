@@ -1,11 +1,11 @@
 package com.kbook.controller;
 import com.kbook.service.rank.RankService;
 import com.kbook.service.user.UserService;
-import com.kbook.service.book.BookSearchService;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
-
+import com.kbook.service.rank.RankService;
 import com.kbook.service.recommend.RecommendService;
+import com.kbook.service.user.UserService;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
@@ -17,7 +17,6 @@ import com.kbook.entity.User;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.book.BookSpeedReadVO;
 import com.kbook.dto.book.CreateBookRequest;
-import com.kbook.dto.user.UpdateTagsRequest;
 import com.kbook.dto.recommend.RateRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -48,7 +47,6 @@ import java.util.List;
 public class BookController {
 
     private final BookService bookService;
-    private final BookSearchService bookSearchService;
     private final RankService rankService;
     private final RecommendService recommendService;
     private final BookParserService bookParserService;
@@ -189,15 +187,6 @@ public class BookController {
     }
 
     /**
-     * 更新格式标签（管理员）
-     */
-    @Operation(summary = "更新格式标签")
-    @PutMapping("/{id}/tags")
-    public Result<Book> updateFormatTags(@PathVariable Long id, @RequestBody UpdateTagsRequest req) {
-        return Result.ok(bookService.updateFormatTags(id, req.getTags()));
-    }
-
-    /**
      * 用户评分
      */
     @Operation(summary = "评分")
@@ -218,15 +207,6 @@ public class BookController {
         recommendService.recordReadAction(userId, id, "RATE", 2, String.valueOf(rating));
 
         return Result.ok(updated);
-    }
-
-    /**
-     * 重建 ES 索引（管理员）
-     */
-    @Operation(summary = "重建ES索引")
-    @PostMapping("/reindex")
-    public Result<Long> rebuildIndex() {
-        return Result.ok(bookSearchService.rebuildIndex());
     }
 
     @Operation(summary = "流式获取速读摘要")

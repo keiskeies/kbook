@@ -96,22 +96,22 @@ export function createBook(data: {
 
 /** 更新格式标签（管理员） */
 export function updateFormatTags(id: number, tags: string[]) {
-  return request.put<Book>(`/books/${id}/tags`, { tags })
+  return request.put<Book>(`/admin/books/${id}/tags`, { tags })
 }
 
 /** 更新图书书名（管理员） */
 export function updateBookTitle(id: number, title: string) {
-  return request.put<Book>(`/books/admin/${id}/title`, { title })
+  return request.put<Book>(`/admin/books/${id}/title`, { title })
 }
 
 /** 更新图书作者（管理员） */
 export function updateBookAuthor(id: number, author: string | null) {
-  return request.put<Book>(`/books/admin/${id}/author`, { author })
+  return request.put<Book>(`/admin/books/${id}/author`, { author })
 }
 
 /** 更新图书简介（管理员） */
 export function updateBookDescription(id: number, description: string | null) {
-  return request.put<Book>(`/books/admin/${id}/description`, { description })
+  return request.put<Book>(`/admin/books/${id}/description`, { description })
 }
 
 /** 扫描图书（管理员）— SSE 流式返回进度 */
@@ -122,7 +122,7 @@ export function scanBooksStream(
   skipBeforeId?: number,
 ): AbortController {
   return createSseConnection<ScanProgress, ScanResult>(
-    '/books/admin/scan',
+    '/admin/books/scan',
     { onProgress, onDone, onError },
     { params: { skipBeforeId } },
   )
@@ -140,12 +140,12 @@ export function getScanStatus() {
     failed: number
     errors: ScanError[]
     currentFile: string
-  }>('/books/admin/scan/status')
+  }>('/admin/books/scan/status')
 }
 
 /** 重置扫描状态 */
 export function resetScanStatus() {
-  return request.post('/books/admin/scan/reset')
+  return request.post('/admin/books/scan/reset')
 }
 
 /** 上传图书（管理员） */
@@ -153,7 +153,7 @@ export function uploadBook(file: File, title?: string) {
   const formData = new FormData()
   formData.append('file', file)
   if (title) formData.append('title', title)
-  return request.post<Book>('/books/admin/upload', formData, {
+  return request.post<Book>('/admin/books/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
   })
@@ -168,7 +168,7 @@ export function uploadBookWithProgress(
   const formData = new FormData()
   formData.append('file', file)
   if (title) formData.append('title', title)
-  return (request as any).post('/books/admin/upload', formData, {
+  return (request as any).post('/admin/books/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 300000,
     onUploadProgress: (e: any) => {
@@ -190,7 +190,7 @@ export function rateBook(id: number, rating: number) {
 export function updateBookCover(id: number, file: File) {
   const formData = new FormData()
   formData.append('cover', file)
-  return request.post<Book>(`/books/admin/${id}/cover`, formData, {
+  return request.post<Book>(`/admin/books/${id}/cover`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 60000,
   })
@@ -381,12 +381,12 @@ export interface BookSpeedRead {
 
 /** 按作者删除所有书籍（全链路：DB+缓存+RAG+ES+封面） */
 export function deleteBooksByAuthor(author: string) {
-  return request.delete<{ deletedCount: number; author: string }>('/books/admin/delete-by-author', { params: { author } })
+  return request.delete<{ deletedCount: number; author: string }>('/admin/books/delete-by-author', { params: { author } })
 }
 
 /** 合并同名书籍（以EPUB为主，其他格式数据迁移后删除） */
 export function mergeBooksByTitle(title: string) {
-  return request.post<{ message: string; title: string }>('/books/admin/merge-by-title', null, { params: { title } })
+  return request.post<{ message: string; title: string }>('/admin/books/merge-by-title', null, { params: { title } })
 }
 
 // ==================== 内容向量管理 ====================
@@ -401,12 +401,12 @@ export interface EmbeddingStats {
 
 /** 获取内容向量统计 */
 export function getEmbeddingStats() {
-  return request.get<EmbeddingStats>('/books/admin/embeddings/stats')
+  return request.get<EmbeddingStats>('/admin/books/embeddings/stats')
 }
 
 /** 清空内容向量库（kbook_content） */
 export function clearContentVectors() {
-  return request.post<{ deletedCount: number; message: string }>('/books/admin/vector/clear-content')
+  return request.post<{ deletedCount: number; message: string }>('/admin/books/vector/clear-content')
 }
 
 /** ES 索引重建进度 */
@@ -428,7 +428,7 @@ export function rebuildEsIndexStream(
   onError: (error: Error) => void,
 ): AbortController {
   return createSseConnection<EsReindexProgress, EsReindexResult>(
-    '/books/admin/es/reindex',
+    '/admin/books/es/reindex',
     { onProgress, onDone, onError },
   )
 }

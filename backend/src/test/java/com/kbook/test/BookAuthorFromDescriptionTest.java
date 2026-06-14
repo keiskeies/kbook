@@ -46,7 +46,7 @@ import java.util.regex.Pattern;
  */
 @Slf4j
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookAuthorFromDescriptionTest {
 
     @Autowired

@@ -13,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -21,6 +20,11 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
+/**
+ * 语音合成控制器 — 公开 TTS 接口（语音合成、流式合成、配置查询）
+ * <p>
+ * 管理员 TTS 配置 CRUD 请见 {@link AdminTtsConfigController}
+ */
 @Slf4j
 @RestController
 @Tag(name = "语音合成")
@@ -114,66 +118,5 @@ public class TtsConfigController {
     @GetMapping("/api/tts/gpt-sovits/voices")
     public Result<List<GptSovitsProperties.VoicePreset>> listGptSovitsVoices() {
         return Result.ok(gptSovitsProperties.getVoices());
-    }
-
-    @Operation(summary = "获取所有TTS配置")
-    @GetMapping("/api/admin/tts-config")
-    @PreAuthorize("hasRole('ADMIN')")
-    public Result<List<TtsConfig>> listAll() {
-        return Result.ok(ttsConfigService.listAll());
-    }
-
-    @Operation(summary = "获取当前TTS配置(管理端)")
-    @GetMapping("/api/admin/tts-config/active")
-    @PreAuthorize("hasRole('ADMIN')")
-    public Result<TtsConfig> getActiveConfigAdmin() {
-        TtsConfig config = ttsConfigService.getActiveConfig();
-        if (config == null) {
-            return Result.fail("未配置 TTS");
-        }
-        return Result.ok(config);
-    }
-
-    @Operation(summary = "创建TTS配置")
-    @PostMapping("/api/admin/tts-config")
-    @PreAuthorize("hasRole('ADMIN')")
-    public Result<TtsConfig> create(@RequestBody TtsConfig config) {
-        if (config.getName() == null || config.getName().isBlank()) {
-            return Result.fail("配置名称不能为空");
-        }
-        if (config.getTtsType() == null || config.getProvider() == null) {
-            return Result.fail("缺少必要参数：ttsType, provider");
-        }
-        return Result.ok(ttsConfigService.create(config));
-    }
-
-    @Operation(summary = "更新TTS配置")
-    @PutMapping("/api/admin/tts-config/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public Result<TtsConfig> update(@PathVariable Long id, @RequestBody TtsConfig config) {
-        try {
-            return Result.ok(ttsConfigService.update(id, config));
-        } catch (RuntimeException e) {
-            return Result.fail(e.getMessage());
-        }
-    }
-
-    @Operation(summary = "删除TTS配置")
-    @DeleteMapping("/api/admin/tts-config/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public Result<Void> delete(@PathVariable Long id) {
-        ttsConfigService.delete(id);
-        return Result.ok();
-    }
-
-    @Operation(summary = "切换默认TTS配置")
-    @PostMapping("/api/admin/tts-config/{id}/switch-default")
-    @PreAuthorize("hasRole('ADMIN')")
-    public Result<TtsConfig> switchDefault(@PathVariable Long id) {
-        try {
-            return Result.ok(ttsConfigService.switchDefault(id));
-        } catch (RuntimeException e) {
-            return Result.fail(e.getMessage());
-        }
     }
 }

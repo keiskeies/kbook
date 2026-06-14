@@ -24,7 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class NovelFilterTool {
 
     @Autowired

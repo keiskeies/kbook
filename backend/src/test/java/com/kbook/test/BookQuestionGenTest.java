@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookQuestionGenTest {
 
     @Autowired

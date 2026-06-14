@@ -13,7 +13,7 @@ import {
   sendInvitation,
   type AdminUser,
   type ReviewStats,
-} from '@/api/admin'
+} from '@/api/adminUser'
 import { ArrowLeft, Check, X, Unlock, RefreshCw, CheckCircle2, Mail, Copy, CheckCheck, Ban, Search } from 'lucide-react'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'

@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 测试图书扫描服务的各项功能
  */
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookScanServiceTest {
 
     @Autowired

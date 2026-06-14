@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookTagRefineTest {
 
     private static final String VALID_TAGS =

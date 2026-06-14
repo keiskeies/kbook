@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class EpubDirSyncTool {
 
     private static final String EPUB_TEMP_DIR = "G:\\图书\\epubTemp";

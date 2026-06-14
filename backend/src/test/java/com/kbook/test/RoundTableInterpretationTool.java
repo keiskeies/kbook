@@ -29,7 +29,7 @@ import static com.kbook.common.util.QueryBuilder.eq;
  * 使用方式：修改下方 SESSION_ID，运行本测试即可。
  */
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class RoundTableInterpretationTool {
 
     private static final Logger log = LoggerFactory.getLogger(RoundTableInterpretationTool.class);

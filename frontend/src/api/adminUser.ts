@@ -22,7 +22,7 @@ export interface ReviewStats {
 
 /** 审核统计 */
 export function getReviewStats() {
-  return request.get<ReviewStats>('/admin/stats')
+  return request.get<ReviewStats>('/admin/users/stats')
 }
 
 /** 待审核用户列表 */
@@ -74,16 +74,6 @@ export function banUser(userId: number) {
   return request.post(`/admin/users/${userId}/ban`)
 }
 
-/** 管理员发送绑定邮箱验证码 */
-export function sendBindEmailCode(email: string) {
-  return request.post('/admin/bind-email/send-code', { email })
-}
-
-/** 管理员绑定邮箱 */
-export function bindEmail(email: string, code: string) {
-  return request.post('/admin/bind-email', { email, code })
-}
-
 /** 发送邀请邮件 */
 export interface InviteResult {
   email: string
@@ -91,7 +81,5 @@ export interface InviteResult {
 }
 
 export function sendInvitation(email: string, bookId?: number) {
-  return request.post<InviteResult>('/admin/invite', { email, bookId })
+  return request.post<InviteResult>('/admin/users/invite', { email, bookId })
 }
-
-

@@ -1,6 +1,6 @@
 ﻿import { useState } from 'react'
 import { useAuthStore } from '@/store/auth'
-import { sendBindEmailCode, bindEmail } from '@/api/admin'
+import { sendBindEmailCode, bindEmail } from '@/api/adminAccount'
 import { useCountdown } from '@/hooks/useCountdown'
 import { ArrowLeft, Mail } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'

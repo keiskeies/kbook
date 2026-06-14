@@ -59,7 +59,7 @@ import static com.kbook.common.util.QueryBuilder.eq;
  * 使用方式：修改下方 SESSION_ID 为实际会话ID，运行本测试即可。
  */
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class RoundTableCoverageTest {
 
     private static final Logger log = LoggerFactory.getLogger(RoundTableCoverageTest.class);

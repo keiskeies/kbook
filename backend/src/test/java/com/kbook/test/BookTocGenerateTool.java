@@ -44,7 +44,7 @@ import java.util.zip.ZipInputStream;
  * </ol>
  */
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookTocGenerateTool {
 
     @Autowired

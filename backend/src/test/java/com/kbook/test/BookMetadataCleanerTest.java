@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Slf4j
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookMetadataCleanerTest {
 
     @Autowired

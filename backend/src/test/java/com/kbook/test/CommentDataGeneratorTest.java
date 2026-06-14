@@ -31,7 +31,7 @@ import java.util.concurrent.*;
  * 为所有用户对书籍生成符合用户画像的AI评论
  */
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 //@Transactional // 测试完成后回滚，如需持久化请注释掉此注解
 public class CommentDataGeneratorTest {
 

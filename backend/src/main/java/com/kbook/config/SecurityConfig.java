@@ -82,54 +82,17 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/refresh").permitAll()
                         .requestMatchers("/api/auth/reset-password").permitAll()
                         .requestMatchers("/api/captcha/**").permitAll()
-                        .requestMatchers("/api/public/**").permitAll()
+                        // 头像图片（浏览器 <img> 直连，无法带 auth header）
                         .requestMatchers("/api/user/avatar/**").permitAll()
-                        .requestMatchers("/ws/**").permitAll()
+                        // 图书封面图片（浏览器 <img> 直连）
+                        .requestMatchers(HttpMethod.GET, "/api/books/cover/**").permitAll()
+                        // WebSocket STOMP 握手（认证在协议层进行）
                         .requestMatchers("/api/ws/**").permitAll()
                         
                         // ===== 管理员接口（需 ADMIN 角色）=====
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/books/admin/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/books/reindex").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/books/*/tags").hasRole("ADMIN")
                         
-                        // ===== 图书相关接口 =====
-                        .requestMatchers(HttpMethod.GET, "/api/books/*/file").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/books/*/text-info").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/books/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/book-files/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/books").authenticated()
-                        .requestMatchers(HttpMethod.PUT, "/api/books/**").authenticated()
-                        .requestMatchers(HttpMethod.DELETE, "/api/books/**").authenticated()
-                        
-                        // ===== 评论相关接口 =====
-                        .requestMatchers(HttpMethod.GET, "/api/comments/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/comments").authenticated()
-                        .requestMatchers(HttpMethod.DELETE, "/api/comments/**").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/comments/*/like").authenticated()
-                        .requestMatchers(HttpMethod.DELETE, "/api/comments/*/like").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/comments/*/favorite").authenticated()
-                        .requestMatchers(HttpMethod.DELETE, "/api/comments/*/favorite").authenticated()
-                        
-                        // ===== 用户相关接口（公开浏览 + 认证操作）=====
-                        .requestMatchers(HttpMethod.GET, "/api/user/*/profile").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/user/*/books").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/user/*/comments").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/user/*/followings").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/user/*/followers").permitAll()
-                        .requestMatchers("/api/user/**").authenticated()
-                        
-                        // ===== 需认证的接口 =====
-                        .requestMatchers("/api/auth/change-password").authenticated()
-                        .requestMatchers("/api/auth/logout").authenticated()
-                        .requestMatchers("/api/bookshelf/**").authenticated()
-                        .requestMatchers("/api/progress/**").authenticated()
-                        .requestMatchers("/api/ai/**").authenticated()
-                        .requestMatchers("/api/recommend/**").authenticated()
-                        .requestMatchers("/api/chat/**").authenticated()
-                        .requestMatchers("/api/home/**").authenticated()
-                        .requestMatchers("/api/tts/**").authenticated()
-                        
+                        // 其余所有接口需登录认证
                         .anyRequest().authenticated()
                 )
                 // JWT 过滤器

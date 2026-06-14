@@ -18,7 +18,7 @@ import java.util.Random;
  * 用于生成各种属性组合的用户数据
  */
 @SpringBootTest
-@ActiveProfiles("test") // 使用test配置文件（性能优化）
+@ActiveProfiles("dev") // 使用test配置文件（性能优化）
 //@Transactional // 测试完成后回滚，如需持久化请注释掉此注解
 public class UserDataGeneratorTest {
 

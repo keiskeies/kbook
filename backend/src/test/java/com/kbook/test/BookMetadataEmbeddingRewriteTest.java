@@ -13,7 +13,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.util.List;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookMetadataEmbeddingRewriteTest {
 
     @Autowired

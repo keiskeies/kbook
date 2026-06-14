@@ -25,7 +25,7 @@ import java.util.stream.StreamSupport;
 
 @Slf4j
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookInfoServiceTest {
 
     @Autowired

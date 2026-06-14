@@ -7,7 +7,7 @@ const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
 /** 创建管理员 AI 会话 */
 export async function createAdminSession(): Promise<AiCreateSessionResponse> {
   const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
-  const res = await fetch(`${baseUrl}/admin/ai/sessions`, {
+  const res = await fetch(`${baseUrl}/admin/books/ai/sessions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -21,7 +21,7 @@ export async function createAdminSession(): Promise<AiCreateSessionResponse> {
 /** 管理员非流式对话 */
 export async function adminChat(data: AiChatRequest): Promise<AiChatResponse> {
   const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
-  const res = await fetch(`${baseUrl}/admin/ai/chat`, {
+  const res = await fetch(`${baseUrl}/admin/books/ai/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -36,7 +36,7 @@ export async function adminChat(data: AiChatRequest): Promise<AiChatResponse> {
 /** 获取管理员对话历史 */
 export async function getAdminHistory(sessionId: string): Promise<AiConversation[]> {
   const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
-  const res = await fetch(`${baseUrl}/admin/ai/history?sessionId=${encodeURIComponent(sessionId)}`, {
+  const res = await fetch(`${baseUrl}/admin/books/ai/history?sessionId=${encodeURIComponent(sessionId)}`, {
     headers: { 'Authorization': token ? `Bearer ${token}` : '' },
   })
   const json = await res.json()
@@ -46,7 +46,7 @@ export async function getAdminHistory(sessionId: string): Promise<AiConversation
 /** 获取管理员会话列表 */
 export async function getAdminSessions(): Promise<string[]> {
   const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
-  const res = await fetch(`${baseUrl}/admin/ai/sessions`, {
+  const res = await fetch(`${baseUrl}/admin/books/ai/sessions`, {
     headers: { 'Authorization': token ? `Bearer ${token}` : '' },
   })
   const json = await res.json()
@@ -56,7 +56,7 @@ export async function getAdminSessions(): Promise<string[]> {
 /** 删除管理员会话 */
 export async function deleteAdminSession(sessionId: string): Promise<void> {
   const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
-  await fetch(`${baseUrl}/admin/ai/sessions/${sessionId}`, {
+  await fetch(`${baseUrl}/admin/books/ai/sessions/${sessionId}`, {
     method: 'DELETE',
     headers: { 'Authorization': token ? `Bearer ${token}` : '' },
   })
@@ -75,7 +75,7 @@ export function streamAdminChat(
   onThinkingContent?: (chunk: string) => void,
 ): AbortController {
   return createSsePostConnection(
-    '/admin/ai/chat/stream',
+    '/admin/books/ai/chat/stream',
     data,
     { onChunk, onDone, onError, onThinking, onThinkingContent },
   )

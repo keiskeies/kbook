@@ -3,8 +3,12 @@ package com.kbook.controller;
 import com.kbook.common.api.Result;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.dto.book.BookProjection;
+import com.kbook.dto.user.UpdateTagsRequest;
+import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiSession;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
+import com.kbook.service.ai.BookAdminChatService;
 import com.kbook.service.book.BookScanService;
 import com.kbook.service.book.BookSearchService;
 import com.kbook.service.book.BookService;
@@ -31,15 +35,15 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * 管理员图书管理控制器 — 扫描、上传、封面
+ * 管理员图书管理控制器 — 扫描、上传、图书 CRUD、AI 对话
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/books/admin")
+@RequestMapping("/api/admin/books")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 @Tag(name = "图书管理")
-public class BookAdminController {
+public class AdminBookController extends BaseController {
 
     private final BookScanService bookScanService;
     private final BookService bookService;
@@ -47,29 +51,22 @@ public class BookAdminController {
     private final EmbeddingService embeddingService;
     private final BookSearchService bookSearchService;
     private final BookStorageProperties storageProps;
+    private final BookAdminChatService adminChatService;
 
-    /**
-     * 刷新图书 — SSE 流式扫描，实时推送进度
-     * @param skipBeforeId 跳过 ID 小于此值的已有图书（断点续扫，默认不跳过）
-     */
+    // ==================== 扫描图书 ====================
+
     @Operation(summary = "扫描图书")
     @GetMapping(value = "/scan", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter scanBooks(@RequestParam(value = "skipBeforeId", required = false) Long skipBeforeId) {
         return bookScanService.scanAllWithProgress(skipBeforeId);
     }
 
-    /**
-     * 查询扫描状态及进度
-     */
     @Operation(summary = "获取扫描状态")
     @GetMapping("/scan/status")
     public Result<Map<String, Object>> scanStatus() {
         return Result.ok(bookScanService.getScanProgress());
     }
 
-    /**
-     * 重置扫描状态（异常恢复用）
-     */
     @Operation(summary = "重置扫描状态")
     @PostMapping("/scan/reset")
     public Result<Void> resetScanStatus() {
@@ -77,10 +74,8 @@ public class BookAdminController {
         return Result.ok(null);
     }
 
-    /**
-     * 上传图书文件 — 管理员手动上传
-     * 完整流程与扫描一致：解析 → 入库/更新 → 封面 → AI标签/评分/相关度 → ES索引 → 向量库
-     */
+    // ==================== 上传图书 ====================
+
     @Operation(summary = "上传图书")
     @PostMapping("/upload")
     public Result<Book> uploadBook(
@@ -124,14 +119,11 @@ public class BookAdminController {
         }
     }
 
-    /**
-     * 获取封面图片
-     */
+    // ==================== 封面 ====================
+
 //    @Operation(summary = "获取封面图片")
     @GetMapping(value = "/cover/{filename:.+}", produces = MediaType.IMAGE_JPEG_VALUE)
     public ResponseEntity<Resource> getCover(@PathVariable String filename) {
-        // 注意：此接口映射在 /api/books/admin/cover，但前端使用 /api/books/cover
-        // 在 BookController 中添加了转发
         Path coverDir = Paths.get(storageProps.getCoverPath());
         Path imagePath = CommonUtils.safeResolvePath(coverDir, filename);
 
@@ -142,30 +134,6 @@ public class BookAdminController {
         return CommonUtils.buildImageResponse(imagePath, filename);
     }
 
-    /**
-     * 删除指定作者的所有书籍（全链路：JPA + ES + Qdrant + Redis + 封面）
-     */
-    @Operation(summary = "按作者删除图书")
-    @DeleteMapping("/delete-by-author")
-    public Result<Map<String, Object>> deleteBooksByAuthor(@RequestParam String author) {
-        int count = bookService.deleteBooksByAuthor(author);
-        return Result.ok(Map.of("deletedCount", count, "author", author));
-    }
-
-    /**
-     * 合并同名书籍（以 EPUB 为主，其他格式的关联数据迁移后删除）
-     */
-    @Operation(summary = "合并同名图书")
-    @PostMapping("/merge-by-title")
-    public Result<Map<String, Object>> mergeBooksByTitle(@RequestParam String title) {
-        String result = bookService.mergeBooksByTitle(title);
-        return Result.ok(Map.of("message", result, "title", title));
-    }
-
-    /**
-     * 更新图书封面（管理员）
-     * 上传新封面图片，自动压缩至最大宽度 300px
-     */
     @Operation(summary = "更新图书封面")
     @PostMapping("/{id}/cover")
     public Result<Book> updateBookCover(
@@ -189,9 +157,8 @@ public class BookAdminController {
         }
     }
 
-    /**
-     * 更新图书书名（管理员）
-     */
+    // ==================== 图书 CRUD ====================
+
     @Operation(summary = "更新图书书名")
     @PutMapping("/{id}/title")
     public Result<BookProjection> updateBookTitle(@PathVariable Long id, @RequestBody Map<String, String> body) {
@@ -203,9 +170,6 @@ public class BookAdminController {
         return Result.ok(bookService.getBookProjectionById(id));
     }
 
-    /**
-     * 更新图书作者（管理员）
-     */
     @Operation(summary = "更新图书作者")
     @PutMapping("/{id}/author")
     public Result<BookProjection> updateBookAuthor(@PathVariable Long id, @RequestBody Map<String, String> body) {
@@ -214,9 +178,6 @@ public class BookAdminController {
         return Result.ok(bookService.getBookProjectionById(id));
     }
 
-    /**
-     * 更新图书简介（管理员）
-     */
     @Operation(summary = "更新图书简介")
     @PutMapping("/{id}/description")
     public Result<BookProjection> updateBookDescription(@PathVariable Long id, @RequestBody Map<String, String> body) {
@@ -225,12 +186,28 @@ public class BookAdminController {
         return Result.ok(bookService.getBookProjectionById(id));
     }
 
+    @Operation(summary = "更新格式标签")
+    @PutMapping("/{id}/tags")
+    public Result<Book> updateFormatTags(@PathVariable Long id, @RequestBody UpdateTagsRequest req) {
+        return Result.ok(bookService.updateFormatTags(id, req.getTags()));
+    }
+
+    @Operation(summary = "按作者删除图书")
+    @DeleteMapping("/delete-by-author")
+    public Result<Map<String, Object>> deleteBooksByAuthor(@RequestParam String author) {
+        int count = bookService.deleteBooksByAuthor(author);
+        return Result.ok(Map.of("deletedCount", count, "author", author));
+    }
+
+    @Operation(summary = "合并同名图书")
+    @PostMapping("/merge-by-title")
+    public Result<Map<String, Object>> mergeBooksByTitle(@RequestParam String title) {
+        String result = bookService.mergeBooksByTitle(title);
+        return Result.ok(Map.of("message", result, "title", title));
+    }
 
     // ==================== 内容向量管理 ====================
 
-    /**
-     * 获取内容向量统计信息
-     */
     @Operation(summary = "获取向量统计")
     @GetMapping("/embeddings/stats")
     public Result<Map<String, Object>> embeddingStats() {
@@ -247,9 +224,6 @@ public class BookAdminController {
         ));
     }
 
-    /**
-     * 清空内容向量库（kbook_content 集合）
-     */
     @Operation(summary = "清空内容向量库")
     @PostMapping("/vector/clear-content")
     public Result<Map<String, Object>> clearContentVectors() {
@@ -262,13 +236,16 @@ public class BookAdminController {
 
     // ==================== ES 索引管理 ====================
 
-    /**
-     * 全量重建 ES 索引 — SSE 流式推送进度
-     */
-    @Operation(summary = "重建ES索引")
+    @Operation(summary = "重建ES索引(非流式)")
+    @PostMapping("/reindex")
+    public Result<Long> rebuildIndex() {
+        return Result.ok(bookSearchService.rebuildIndex());
+    }
+
+    @Operation(summary = "重建ES索引(流式)")
     @GetMapping(value = "/es/reindex", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter rebuildEsIndex() {
-        SseEmitter emitter = new SseEmitter(600_000L); // 10分钟超时
+        SseEmitter emitter = new SseEmitter(600_000L);
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -305,4 +282,72 @@ public class BookAdminController {
         return emitter;
     }
 
+    // ==================== AI 管理员对话 ====================
+
+    @Operation(summary = "创建AI管理员会话")
+    @PostMapping("/ai/sessions")
+    public Result<Map<String, String>> createSession() {
+        Long userId = extractUserId();
+        String sessionId = adminChatService.createSession(userId);
+        return Result.ok(Map.of("sessionId", sessionId));
+    }
+
+    @Operation(summary = "AI管理员流式对话")
+    @PostMapping(value = "/ai/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamChat(@RequestBody Map<String, String> body) {
+        Long userId = extractUserId();
+        String sessionId = body.get("sessionId");
+        String message = body.get("message");
+
+        if (sessionId == null || sessionId.isBlank()) {
+            sessionId = adminChatService.createSession(userId);
+        }
+        if (message == null || message.isBlank()) {
+            SseEmitter emitter = new SseEmitter();
+            emitter.completeWithError(new IllegalArgumentException("消息不能为空"));
+            return emitter;
+        }
+
+        return adminChatService.streamChat(userId, sessionId, message);
+    }
+
+    @Operation(summary = "AI管理员非流式对话")
+    @PostMapping("/ai/chat")
+    public Result<Map<String, String>> chat(@RequestBody Map<String, String> body) {
+        Long userId = extractUserId();
+        String sessionId = body.get("sessionId");
+        String message = body.get("message");
+
+        if (sessionId == null || sessionId.isBlank()) {
+            sessionId = adminChatService.createSession(userId);
+        }
+        if (message == null || message.isBlank()) {
+            return Result.fail("消息不能为空");
+        }
+
+        String response = adminChatService.chat(userId, sessionId, message);
+        return Result.ok(Map.of("sessionId", sessionId, "response", response));
+    }
+
+    @Operation(summary = "获取AI管理员对话历史")
+    @GetMapping("/ai/history")
+    public Result<List<AiConversation>> getHistory(@RequestParam String sessionId) {
+        Long userId = extractUserId();
+        return Result.ok(adminChatService.getHistory(userId, sessionId));
+    }
+
+    @Operation(summary = "获取AI管理员会话列表")
+    @GetMapping("/ai/sessions")
+    public Result<List<AiSession>> getSessions() {
+        Long userId = extractUserId();
+        return Result.ok(adminChatService.getSessions(userId));
+    }
+
+    @Operation(summary = "删除AI管理员会话")
+    @DeleteMapping("/ai/sessions/{sessionId}")
+    public Result<Void> deleteSession(@PathVariable String sessionId) {
+        Long userId = extractUserId();
+        adminChatService.deleteSession(userId, sessionId);
+        return Result.ok();
+    }
 }

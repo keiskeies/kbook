@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Set;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookDeleteTool {
 
     private static final Logger log = LoggerFactory.getLogger(BookDeleteTool.class);

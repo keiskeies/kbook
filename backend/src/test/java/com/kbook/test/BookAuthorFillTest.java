@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - fillAllMissingAuthors(): 调用 LLM 处理，dryRun=true 只预览不保存，dryRun=false 保存到数据库
  */
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("dev")
 public class BookAuthorFillTest {
 
     @Autowired

@@ -725,7 +725,7 @@ public class BookService {
     private void deleteCoverFile(String coverUrl) {
         if (coverUrl == null || coverUrl.isBlank()) return;
         try {
-            // 封面URL格式：/api/books/admin/cover/filename.jpg 或 /api/books/cover/filename.jpg
+            // 封面URL格式：/api/admin/books/cover/filename.jpg 或 /api/books/cover/filename.jpg
             String filename = coverUrl.substring(coverUrl.lastIndexOf('/') + 1);
             Path imagePath = Paths.get(storageProps.getCoverPath()).resolve(filename);
             if (Files.exists(imagePath)) {
