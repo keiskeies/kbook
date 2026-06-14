@@ -11,15 +11,9 @@ import type { RoundTableRole, RoundTableSession } from '@/types/roundTable'
 import type { Book } from '@/types/book'
 import {
   ROLE_COLORS, ROLE_TITLES, ROLE_ICONS, describePersonality,
+  hexToRgba,
 } from '@/types/roundTable'
 import { toast } from 'sonner'
-
-function hexToRgba(hex: string, alpha: number) {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
 
 function RoleCard({
   role,

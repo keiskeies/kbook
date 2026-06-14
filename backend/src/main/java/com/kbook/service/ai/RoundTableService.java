@@ -7,6 +7,7 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
+import com.kbook.config.annotation.RedisLock;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.SpeakRequest;
@@ -497,6 +498,23 @@ public class RoundTableService {
     }
 
     /**
+     * 验证会话归属当前用户，不属于则抛出 BusinessException
+     *
+     * @param userId    用户ID
+     * @param sessionId 会话ID
+     */
+    public void verifySessionOwnership(Long userId, String sessionId) {
+        RoundTableSession session = sessionRepository.query()
+                .where(RoundTableSession::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst()
+                .orElseThrow(() -> new BusinessException("会话不存在"));
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException("无权访问该会话");
+        }
+    }
+
+    /**
      * 获取圆桌派会话历史消息
      *
      * @param userId    用户ID
@@ -520,11 +538,11 @@ public class RoundTableService {
     @LogAction("删除圆桌派会话")
     @Transactional(rollbackFor = Exception.class)
     public void deleteSession(Long userId, String sessionId) {
-        // 删除该会话的所有消息
-        messageRepository.deleteAll(messageRepository.query()
+        // 批量删除该会话的所有消息（避免全量加载后逐条删除）
+        messageRepository.delete()
                 .where(RoundTableMessage::getUserId, eq(userId))
                 .and(RoundTableMessage::getSessionId, eq(sessionId))
-                .list());
+                .execute();
 
         // 删除会话
         sessionRepository.query()
@@ -549,6 +567,7 @@ public class RoundTableService {
      * @return 选中的角色 key
       */
     @LogAction("纯LLM判断下一发言人")
+    @RedisLock(key = "'rt:speaker:' + #sessionId", leaseTime = 30)
     public String getNextSpeakerOnlyLLM(Long userId, String sessionId) {
         // 1. 加载会话 + 书籍信息
         RoundTableSession session = sessionRepository.query()
@@ -1065,23 +1084,24 @@ public class RoundTableService {
                                     } catch (Exception e) {
                                         log.warn("压缩圆桌派历史失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
                                     }
-
-                                    // 异步更新覆盖度（非 HOST 发言后也更新，确保 HOST 下次发言时数据最新）
-                                    if (role != RoundTableRole.HOST) {
-                                        try {
-                                            coverageService.updateCoverage(request.getSessionId(), false);
-                                        } catch (Exception e) {
-                                            log.warn("覆盖度更新失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
-                                        }
-                                    }
                                 }
 
-                                // 消息保存完成后，再发送 done 事件
+                                // 先发送 done 事件，让前端立即可以请求下一轮
                                 try {
                                     emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                                     emitter.complete();
                                 } catch (Exception e) {
                                     log.warn("发送 SSE done 事件失败: {}", e.getMessage());
+                                }
+
+                                // 异步更新覆盖度（非 HOST 发言后也更新，确保 HOST 下次发言时数据最新）
+                                // 放在 done 之后，避免阻塞 SSE 完成
+                                if (role != RoundTableRole.HOST && !content.isBlank()) {
+                                    try {
+                                        coverageService.updateCoverage(request.getSessionId(), false);
+                                    } catch (Exception e) {
+                                        log.warn("覆盖度更新失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
+                                    }
                                 }
 
                                 int apiInputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null

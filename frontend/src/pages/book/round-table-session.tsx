@@ -14,6 +14,7 @@ import { getBook } from '@/api/book'
 import type { RoundTableRole, RoundTableMessage, RoundTableReport } from '@/types/roundTable'
 import {
   ROLE_COLORS, ROLE_NAMES, ROLE_ICONS, ROLE_TTS_CONFIG,
+  hexToRgba,
 } from '@/types/roundTable'
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -28,13 +29,6 @@ interface DisplayMessage {
   content: string
   timestamp: number
   streaming?: boolean
-}
-
-function hexToRgba(hex: string, alpha: number) {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
 function RoleBar({
@@ -357,6 +351,7 @@ export default function RoundTableSessionPage() {
 
   const activeRolesRef = useRef<RoundTableRole[]>([])
   const messagesRef = useRef<DisplayMessage[]>([])
+  const speakingKeyRef = useRef<string | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -416,6 +411,9 @@ export default function RoundTableSessionPage() {
     }
   }, [sessionId])
 
+  const loadReportRef = useRef<typeof loadReport>(loadReport)
+  useEffect(() => { loadReportRef.current = loadReport }, [loadReport])
+
   // 报告生成中的轮询（最多 5 分钟，超时自动停止）
   useEffect(() => {
     if (!reportPolling || !sessionId) return
@@ -427,17 +425,17 @@ export default function RoundTableSessionPage() {
         setReportPolling(false)
         reportPollingStartRef.current = 0
         // 刷新一下状态，后端可能已标记为 FAILED
-        await loadReport()
+        await loadReportRef.current()
         return
       }
-      const data = await loadReport()
+      const data = await loadReportRef.current()
       if (data && (data.status === 'COMPLETED' || data.status === 'FAILED')) {
         setReportPolling(false)
         reportPollingStartRef.current = 0
       }
     }, 10000)
     return () => clearInterval(interval)
-  }, [reportPolling, sessionId, loadReport])
+  }, [reportPolling, sessionId])
 
   // URL 参数 ?report=1 自动展开报告
   useEffect(() => {
@@ -465,8 +463,13 @@ export default function RoundTableSessionPage() {
   const loadSession = useCallback(async () => {
     setPhase('loading')
     try {
-      const res = await getRoundTableMessages(sessionId!)
-      const data = (res as { data?: RoundTableMessage[] })?.data ?? res as RoundTableMessage[]
+      const [messagesRes, rolesRes, bookRes] = await Promise.all([
+        getRoundTableMessages(sessionId!),
+        getRoundTableRoles(bookIdNum!),
+        getBook(bookIdNum!),
+      ])
+
+      const data = (messagesRes as { data?: RoundTableMessage[] })?.data ?? messagesRes as RoundTableMessage[]
       if (Array.isArray(data)) {
         const displayMessages: DisplayMessage[] = data.map(msg => ({
           id: String(msg.id),
@@ -478,22 +481,17 @@ export default function RoundTableSessionPage() {
         }))
         setMessages(displayMessages)
         messagesRef.current = displayMessages
-        const roleCount = activeRolesRef.current.length
-        setCurrentRound(roleCount > 0 ? Math.floor(displayMessages.length / roleCount) + 1 : 1)
       }
 
-      const rolesRes = await getRoundTableRoles(bookIdNum!)
       const rolesData = (rolesRes as { data?: RoundTableRole[] })?.data ?? rolesRes as RoundTableRole[]
       if (Array.isArray(rolesData) && rolesData.length > 0) {
         activeRolesRef.current = rolesData.filter(r => r.selected)
-        // 角色加载后重新计算轮数（此时消息已在 messagesRef 中）
         const roleCount = activeRolesRef.current.length
         if (roleCount > 0) {
           setCurrentRound(Math.floor(messagesRef.current.length / roleCount) + 1)
         }
       }
 
-      const bookRes = await getBook(bookIdNum!)
       const bookData = (bookRes as { data?: { title?: string } })?.data ?? bookRes as { title?: string }
       if (bookData?.title) {
         setBookTitle(bookData.title)
@@ -628,11 +626,11 @@ export default function RoundTableSessionPage() {
     try { window.speechSynthesis?.cancel() } catch {}
     ttsEnabledSpeakerRef.current = null
     ttsLastReadIndexRef.current = -1
-    ttsEnabledRef.current = false
+ttsEnabledRef.current = false
     ttsQueueRef.current = []
     ttsSpeakingRef.current = false
+    speakingKeyRef.current = null
     setTtsEnabled(false)
-    setPhase('paused')
     setSpeakingKey(null)
   }, [])
 
@@ -643,7 +641,7 @@ export default function RoundTableSessionPage() {
 
   const grabMicAndSpeak = useCallback(async (lastSpeakerKey: string | undefined) => {
     if (!discussionLoopRef.current) return
-    if (speakingKey !== null) return
+    if (speakingKeyRef.current !== null) return
 
     try {
       const nextSpeakerRes = await getNextSpeaker(sessionId!)
@@ -668,6 +666,7 @@ export default function RoundTableSessionPage() {
       setTimeout(() => setGrabbingAnimation(null), 800)
 
       setSpeakingKey(nextSpeaker)
+      speakingKeyRef.current = nextSpeaker
       const msgId = `msg-${Date.now()}`
       currentMsgIdRef.current = msgId
       currentContentRef.current = ''
@@ -706,6 +705,7 @@ export default function RoundTableSessionPage() {
           return updated
         })
         setSpeakingKey(null)
+        speakingKeyRef.current = null
 
         if (ttsEnabledRef.current) {
           enqueueTtsRef.current(currentContentRef.current, nextSpeaker, messagesRef.current.length)
@@ -729,10 +729,12 @@ export default function RoundTableSessionPage() {
           return updated
         })
         setSpeakingKey(null)
+        speakingKeyRef.current = null
         if (discussionLoopRef.current) setTimeout(() => grabMicAndSpeak(lastSpeakerKey), 2000)
       })
     } catch {
       setSpeakingKey(null)
+      speakingKeyRef.current = null
       if (discussionLoopRef.current) setTimeout(() => grabMicAndSpeak(lastSpeakerKey), 2000)
     }
   }, [bookIdNum, sessionId])
