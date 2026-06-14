@@ -68,3 +68,8 @@ export function switchDefaultConfig(id: number) {
 export function testAiConfig(id: number) {
   return request.post<string>(`/admin/ai-config/${id}/test`)
 }
+
+/** 热加载 ai-config.json 配置文件（管理员在编辑 deploy/ai-config.json 后调用） */
+export function reloadAiConfig() {
+  return request.post('/admin/ai-config-file/reload')
+}

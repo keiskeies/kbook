@@ -75,6 +75,7 @@ export interface DebateReport {
   content: string | null
   summaryJson: string | null
   bestDebater?: string
+  bestDebaterPosition?: string
   status: 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED'
   errorMessage: string | null
   createdAt: string

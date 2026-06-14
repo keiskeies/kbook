@@ -14,6 +14,7 @@ import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.QdrantProperties;
+import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.AiConversation;
@@ -81,6 +82,7 @@ public class BookChatService {
     private final RagHitStatisticsService ragHitStatisticsService;
     private final BookQuestionGenService questionGenService;
     private final UserService userService;
+    private final AiConfigProvider aiConfigProvider;
     private final ExecutorService sseExecutor;
 
     public BookChatService(
@@ -97,6 +99,7 @@ public class BookChatService {
             RagHitStatisticsService ragHitStatisticsService,
             BookQuestionGenService questionGenService,
             UserService userService,
+            AiConfigProvider aiConfigProvider,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -111,6 +114,7 @@ public class BookChatService {
         this.ragHitStatisticsService = ragHitStatisticsService;
         this.questionGenService = questionGenService;
         this.userService = userService;
+        this.aiConfigProvider = aiConfigProvider;
         this.sseExecutor = sseExecutor;
     }
 
@@ -940,13 +944,20 @@ public class BookChatService {
     }
 
     /**
-     * 根据对话风格标识返回对应的系统提示词常量
+     * 根据对话风格标识返回对应的系统提示词
+     * 优先从 ai-config.json 外部配置加载，找不到时回退到代码常量
      * 支持 CASUAL（轻松）、CONCISE（简洁）、WITTY（幽默）、DEEP（深入）四种风格
      *
      * @param style 对话风格标识
      * @return 对应的系统提示词文本
      */
     private String getSystemPromptForStyle(String style) {
+        // 优先从外部配置加载
+        String configPrompt = aiConfigProvider.getChatStylePrompt(style);
+        if (!configPrompt.isEmpty()) {
+            return configPrompt;
+        }
+        // 回退到代码常量
         if (style != null) {
             return switch (style.toUpperCase()) {
                 case "CASUAL" -> AiPromptConstants.BOOK_CHAT_STYLE_CASUAL;

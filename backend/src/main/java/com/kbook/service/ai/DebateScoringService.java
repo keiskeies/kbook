@@ -6,8 +6,10 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.DebateScoreVO;
 import com.kbook.entity.debate.DebateScore;
+import com.kbook.entity.debate.DebateSession;
 import com.kbook.repository.debate.DebateMessageRepository;
 import com.kbook.repository.debate.DebateScoreRepository;
+import com.kbook.repository.debate.DebateSessionRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,8 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import static com.kbook.common.util.QueryBuilder.eq;
 
 /**
  * 奇葩说辩论评分服务 — 对单次发言进行7维度评分
@@ -30,15 +34,18 @@ public class DebateScoringService {
     private final ChatModelManager chatModelManager;
     private final DebateScoreRepository scoreRepository;
     private final DebateMessageRepository messageRepository;
+    private final DebateSessionRepository sessionRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DebateScoringService(
             ChatModelManager chatModelManager,
             DebateScoreRepository scoreRepository,
-            DebateMessageRepository messageRepository) {
+            DebateMessageRepository messageRepository,
+            DebateSessionRepository sessionRepository) {
         this.chatModelManager = chatModelManager;
         this.scoreRepository = scoreRepository;
         this.messageRepository = messageRepository;
+        this.sessionRepository = sessionRepository;
     }
 
     /**
@@ -70,16 +77,13 @@ public class DebateScoringService {
         Long messageId = messages.get(messages.size() - 1).getId();
 
         try {
-            String prompt = String.format(
-                    AiPromptConstants.DEBATE_SCORING_PROMPT,
-                    "", // 辩题会在创建时动态填充
-                    roleKey, side,
-                    getRoundTypeLabel(roundType),
-                    content);
+            // 从 DebateSession 获取辩题，而非从消息中取
+            DebateSession session = sessionRepository.query()
+                    .where(DebateSession::getSessionId, eq(sessionId))
+                    .list(1).stream().findFirst().orElse(null);
+            String topic = session != null ? session.getTopic() : "未知辩题";
 
-            // 获取会话辩题（从 message 中获取）
-            String topic = messages.get(0).getContent();
-            prompt = String.format(
+            String prompt = String.format(
                     AiPromptConstants.DEBATE_SCORING_PROMPT,
                     topic, roleKey, side,
                     getRoundTypeLabel(roundType),
@@ -171,6 +175,8 @@ public class DebateScoringService {
     private String getRoundTypeLabel(String roundType) {
         return switch (roundType) {
             case "OPENING" -> "开篇立论";
+            case "CROSS_EXAM" -> "交叉质询";
+            case "REBUTTAL" -> "驳论";
             case "ATTACK" -> "奇袭攻辩";
             case "FREE" -> "自由辩论";
             case "CLOSING" -> "总结陈词";

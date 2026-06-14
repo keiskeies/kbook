@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.ai.AiConfig;
+import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.debate.DebateMessageVO;
@@ -73,6 +75,7 @@ public class DebateService {
     private final DebateScoringService scoringService;
     private final StringRedisTemplate stringRedisTemplate;
     private final ReadingProgressService readingProgressService;
+    private final AiConfigProvider aiConfigProvider;
     private final ExecutorService sseExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -91,6 +94,7 @@ public class DebateService {
             DebateScoringService scoringService,
             StringRedisTemplate stringRedisTemplate,
             ReadingProgressService readingProgressService,
+            AiConfigProvider aiConfigProvider,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.bookService = bookService;
         this.chatModelManager = chatModelManager;
@@ -99,6 +103,7 @@ public class DebateService {
         this.scoringService = scoringService;
         this.stringRedisTemplate = stringRedisTemplate;
         this.readingProgressService = readingProgressService;
+        this.aiConfigProvider = aiConfigProvider;
         this.sseExecutor = sseExecutor;
     }
 
@@ -782,13 +787,19 @@ public class DebateService {
 
         // 4. 角色设定（每个角色不同 — KV 缓存在此处分叉）
         boolean isHost = "HOST".equals(request.getRoleKey());
+
+        // 优先从外部配置获取性格标题和提示词，配置不存在则回退到枚举
+        AiConfig.DebatePersonality configPersonality = aiConfigProvider.getDebatePersonality(personality.getKey());
+        String personalityTitle = configPersonality != null ? configPersonality.getTitle() : personality.getTitle();
+        String personalityPrompt = configPersonality != null ? configPersonality.getPrompt() : personality.getPrompt();
+
         String roleSetting = String.format(
                 AiPromptConstants.DEBATE_ROLE_SETTING,
                 isHost ? "" : sideName,
                 isHost ? "主持人" : positionLabel,
-                personality.getTitle(),
+                personalityTitle,
                 sideFull,
-                personality.getPrompt());
+                personalityPrompt);
         messages.add(UserMessage.from(roleSetting));
 
         // 5. 输出要求 + 发言指令（每个角色相同，按轮次类型区分）
@@ -876,7 +887,7 @@ public class DebateService {
 
                     String side = getSideFromPositionKey(positionKey);
                     scoringService.scoreSpeechAsync(userId, request.getSessionId(),
-                            personality.getName(), positionKey, side, content,
+                            positionKey, positionKey, side, content,
                             request.getRoundNumber(), request.getRoundType());
                 }
 

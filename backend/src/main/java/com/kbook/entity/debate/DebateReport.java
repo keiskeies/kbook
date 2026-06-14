@@ -57,9 +57,13 @@ public class DebateReport extends BaseEntity {
     @Column(name = "summary_json", columnDefinition = "TEXT")
     private String summaryJson;
 
-    /** 最佳辩手 roleKey */
+    /** 最佳辩手 personalityKey（如 SHARP、LOGICAL） */
     @Column(name = "best_debater", length = 30)
     private String bestDebater;
+
+    /** 最佳辩手 positionKey（如 PRO_3、CON_2） */
+    @Column(name = "best_debater_position", length = 10)
+    private String bestDebaterPosition;
 
     /** 报告状态：PENDING / GENERATING / COMPLETED / FAILED */
     @Column(length = 20)

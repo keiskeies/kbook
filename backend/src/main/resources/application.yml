@@ -23,6 +23,8 @@ server:
 # 数据源 - MySQL + HikariCP
 # ========================
 spring:
+  profiles:
+    active: dev
   config:
     import: classpath:tts-voices.yml
   servlet:
@@ -151,6 +153,12 @@ kbook:
   admin:
     email: ${KBOOK_ADMIN_EMAIL:admin@kbook.com}
     password: ${KBOOK_ADMIN_PASSWORD:admin123456}
+  # AI 外部配置文件路径
+  # - 本地开发默认读取项目根目录 deploy/ai-config.json（单文件维护）
+  # - Docker 通过 AI_CONFIG_PATH 环境变量覆盖
+  # - 以上都失败时自动回退 classpath:config/ai-config.json
+  ai-config:
+    path: ${AI_CONFIG_PATH:file:../deploy/ai-config.json}
   # 图书文件存储路径
   book-paths:
     epub: ${BOOK_PATH_EPUB:G:/图书/epub}

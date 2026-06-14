@@ -24,6 +24,7 @@ public class DebateReportVO {
     private String content;
     private String summaryJson;
     private String bestDebater;
+    private String bestDebaterPosition;
     private String status;
     private String errorMessage;
     private LocalDateTime createdAt;
@@ -41,6 +42,7 @@ public class DebateReportVO {
                 .content(entity.getContent())
                 .summaryJson(entity.getSummaryJson())
                 .bestDebater(entity.getBestDebater())
+                .bestDebaterPosition(entity.getBestDebaterPosition())
                 .status(entity.getStatus())
                 .errorMessage(entity.getErrorMessage())
                 .createdAt(entity.getCreatedAt())

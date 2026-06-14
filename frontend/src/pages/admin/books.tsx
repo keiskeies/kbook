@@ -984,14 +984,14 @@ export default function AdminBooksPage() {
       {showChat && (
         <div className="fixed inset-0 z-50 flex items-end md:items-stretch md:justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowChat(false)} />
-          <div className="relative flex w-full flex-col overflow-hidden bg-background h-[80vh] md:h-full md:w-[420px] md:max-w-[420px] rounded-t-2xl md:rounded-none border-t md:border-l md:border-t-0 shadow-xl">
+          <div className="relative flex w-full flex-col overflow-hidden bg-background h-[85vh] md:h-full md:w-[420px] md:max-w-[420px] rounded-t-2xl md:rounded-none border-t md:border-l md:border-t-0 shadow-xl">
             {/* 标题栏 */}
             <div className="flex items-center gap-3 border-b px-4 py-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 text-white">
                 <Bot className="h-5 w-5" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-semibold">AI 图书管理员</h3>
+                <h3 className="text-base font-bold">AI 图书管理员</h3>
                 <p className="text-xs text-muted-foreground">小管随时为你服务</p>
               </div>
               {chatSessionId && (

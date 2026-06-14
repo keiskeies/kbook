@@ -863,7 +863,7 @@ ttsEnabledRef.current = false
           )}
           {showStats && isMobile && (
             <Sheet open={showStats} onOpenChange={(v) => !v && setShowStats(false)}>
-              <SheetContent side="bottom" className="rounded-t-2xl p-0">
+              <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[85vh] [&>button]:hidden">
                 <SpeakStatsPanel
                   roles={roles}
                   messages={messages}
@@ -1085,7 +1085,7 @@ ttsEnabledRef.current = false
 
         {showReport && isMobile && (
           <Sheet open={showReport} onOpenChange={(v) => !v && setShowReport(false)}>
-            <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[80vh]">
+            <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[85vh] [&>button]:hidden">
               <ReportPanel
                 report={report}
                 isGenerating={reportPolling || report?.status === 'GENERATING'}

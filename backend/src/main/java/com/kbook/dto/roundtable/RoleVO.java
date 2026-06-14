@@ -1,5 +1,6 @@
 package com.kbook.dto.roundtable;
 
+import com.kbook.config.ai.AiConfig;
 import com.kbook.enums.RoundTableRole;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -58,7 +59,7 @@ public class RoleVO {
     private boolean selected;
 
     /**
-     * 从角色枚举构建视图对象
+     * 从角色枚举构建视图对象（颜色/参数使用枚举默认值）
      *
      * @param role 角色枚举
      * @return 角色视图对象
@@ -77,6 +78,30 @@ public class RoleVO {
                 .empathy(role.getEmpathy())
                 .humor(role.getHumor())
                 .domainRelevance(0) // 运行时由 LLM 动态赋值
+                .languageStyle("")
+                .build();
+    }
+
+    /**
+     * 从外部配置构建视图对象（颜色/参数优先使用配置值）
+     *
+     * @param configRole 外部配置中的角色数据
+     * @return 角色视图对象
+     */
+    public static RoleVO fromConfig(AiConfig.RoundTableRole configRole) {
+        return RoleVO.builder()
+                .key(configRole.getKey())
+                .name(configRole.getName())
+                .title(configRole.getTitle())
+                .color(configRole.getColor())
+                .roleGroup(configRole.getGroup())
+                .grabWeight(configRole.getParams().getGrabWeight())
+                .verbosity(configRole.getParams().getVerbosity())
+                .opinionated(configRole.getParams().getOpinionated())
+                .challenge(configRole.getParams().getChallenge())
+                .empathy(configRole.getParams().getEmpathy())
+                .humor(configRole.getParams().getHumor())
+                .domainRelevance(0)
                 .languageStyle("")
                 .build();
     }

@@ -333,7 +333,7 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
   // 手机: 底部抽屉
   return (
     <Sheet open={open} onOpenChange={onClose}>
-      <SheetContent side="bottom" className="rounded-t-2xl p-0">
+      <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[85vh] [&>button]:hidden">
         {content}
       </SheetContent>
     </Sheet>

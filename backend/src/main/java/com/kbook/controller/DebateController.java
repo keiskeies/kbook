@@ -141,10 +141,16 @@ public class DebateController extends BaseController {
     @PostMapping(value = "/books/{bookId}/speak/attack", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter speakAttack(
             @PathVariable Long bookId,
-            @Valid @RequestBody DebateSpeakRequest request,
-            @RequestBody(required = false) Map<String, String> extra) {
+            @RequestBody Map<String, Object> body) {
         Long userId = extractUserId();
-        String opponentSpeech = extra != null ? extra.get("opponentSpeech") : null;
+        DebateSpeakRequest request = DebateSpeakRequest.builder()
+                .roleKey((String) body.get("roleKey"))
+                .sessionId((String) body.get("sessionId"))
+                .roundType((String) body.getOrDefault("roundType", "ATTACK"))
+                .roundNumber(body.get("roundNumber") instanceof Integer
+                        ? (Integer) body.get("roundNumber") : 2)
+                .build();
+        String opponentSpeech = (String) body.get("opponentSpeech");
         return debateService.streamAttackSpeech(userId, bookId, request, opponentSpeech);
     }
 
@@ -193,10 +199,16 @@ public class DebateController extends BaseController {
     @PostMapping(value = "/books/{bookId}/speak/free", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter speakFree(
             @PathVariable Long bookId,
-            @Valid @RequestBody DebateSpeakRequest request,
-            @RequestBody(required = false) Map<String, String> extra) {
+            @RequestBody Map<String, Object> body) {
         Long userId = extractUserId();
-        String lastSpeech = extra != null ? extra.get("lastSpeech") : null;
+        DebateSpeakRequest request = DebateSpeakRequest.builder()
+                .roleKey((String) body.get("roleKey"))
+                .sessionId((String) body.get("sessionId"))
+                .roundType((String) body.getOrDefault("roundType", "FREE"))
+                .roundNumber(body.get("roundNumber") instanceof Integer
+                        ? (Integer) body.get("roundNumber") : 4)
+                .build();
+        String lastSpeech = (String) body.get("lastSpeech");
         return debateService.streamFreeSpeech(userId, bookId, request, lastSpeech);
     }
 

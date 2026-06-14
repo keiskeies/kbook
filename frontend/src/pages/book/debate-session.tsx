@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Volume2, Loader2, BarChart3, FileText, Play, Pause,
+  ArrowLeft, Volume2, Square, Loader2, BarChart3, FileText, Play, Pause,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import ScorePanel from '@/components/debate/ScorePanel'
@@ -47,6 +47,26 @@ function hexToRgba(hex: string, alpha: number) {
   const g = parseInt(hex.slice(3, 5), 16)
   const c = parseInt(hex.slice(5, 7), 16)
   return `rgba(${r}, ${g}, ${c}, ${alpha})`
+}
+
+/** 将长文本分块，TTS 逐块朗读 */
+function splitLongText(text: string, maxLen = 180): string[] {
+  const chunks: string[] = []
+  let i = 0
+  while (i < text.length) {
+    let end = Math.min(i + maxLen, text.length)
+    if (end < text.length) {
+      const nextPeriod = text.indexOf('。', i + Math.floor(maxLen * 0.6))
+      if (nextPeriod > 0 && nextPeriod < end + 20) end = nextPeriod + 1
+      else {
+        const nextNewline = text.indexOf('\n', i + Math.floor(maxLen * 0.6))
+        if (nextNewline > 0 && nextNewline < end + 10) end = nextNewline + 1
+      }
+    }
+    chunks.push(text.slice(i, end).trim())
+    i = end
+  }
+  return chunks.filter(Boolean)
 }
 
 const ROUND_SEQUENCE = ['OPENING', 'CROSS_EXAM', 'REBUTTAL', 'FREE', 'CLOSING'] as const
@@ -404,7 +424,7 @@ export default function DebateSessionPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([])
   const [speakingKey, setSpeakingKey] = useState<string | null>(null)
   const [ttsEnabled, setTtsEnabled] = useState(false)
-  const [, setSpeakingMsgId] = useState<string | null>(null)
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null)
   const [currentRound, setCurrentRound] = useState(1)
   const [currentPhase, setCurrentPhase] = useState<'OPENING' | 'CROSS_EXAM' | 'REBUTTAL' | 'FREE' | 'CLOSING'>('OPENING')
   const [scores, setScores] = useState<DebateScore[]>([])
@@ -432,9 +452,14 @@ export default function DebateSessionPage() {
   /** 用户手动滚动离开底部时暂停自动滚动 */
   const userScrolledAwayRef = useRef(false)
   const lastScrollTopRef = useRef(0)
+  /** 最近一次流式发言的完整内容 — 解决闭包陷阱：回调链中 messages 是旧快照 */
+  const lastStreamedContentRef = useRef('')
 
-  // TTS ref
-  const ttsRef = useRef<SpeechSynthesisUtterance | null>(null)
+  // TTS refs
+  const ttsQueueRef = useRef<{ text: string; roleKey: string; msgIndex: number }[]>([])
+  const ttsSpeakingRef = useRef(false)
+  const roleVoiceMapRef = useRef<Map<string, SpeechSynthesisVoice>>(new Map())
+  const zhVoicesRef = useRef<SpeechSynthesisVoice[]>([])
 
   // 发言次数统计
   const speakCounts = messages.reduce<Record<string, number>>((acc, m) => {
@@ -593,26 +618,138 @@ export default function DebateSessionPage() {
       })
   }, [sessionId])
 
-  // ==================== TTS ====================
+  // ==================== TTS 队列 + 角色音色 ====================
 
-  const speakTts = useCallback((text: string, roleKey: string) => {
-    if (!window.speechSynthesis) return
-    window.speechSynthesis.cancel()
+  const processTtsQueue = useCallback(() => {
+    const synth = window.speechSynthesis
+    if (!synth) return
+    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
 
-    const config = DEBATE_TTS_CONFIG[roleKey] || { rate: 1, pitch: 1 }
+    try { synth.resume() } catch {}
+    try { if (synth.speaking) synth.cancel() } catch {}
+    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
+
+    const { text, roleKey } = ttsQueueRef.current.shift()!
+    ttsSpeakingRef.current = true
+
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'zh-CN'
+    const config = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+    utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
     utterance.rate = config.rate
-    utterance.pitch = config.pitch
-    utterance.onend = () => setSpeakingMsgId(null)
-    ttsRef.current = utterance
-    window.speechSynthesis.speak(utterance)
+    utterance.lang = 'zh-CN'
+    utterance.volume = 1.0
+
+    // 为不同角色分配不同语音
+    let zhVoices = zhVoicesRef.current
+    if (zhVoices.length === 0 && window.speechSynthesis) {
+      try {
+        const allVoices = window.speechSynthesis.getVoices()
+        zhVoices = allVoices.filter(v => {
+          const lang = (v.lang || '').toLowerCase()
+          return lang.startsWith('zh') || lang.startsWith('cmn')
+        })
+        if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
+      } catch {}
+    }
+    if (zhVoices.length > 0) {
+      let voice = roleVoiceMapRef.current.get(roleKey)
+      if (!voice) {
+        let hash = 0
+        for (let i = 0; i < roleKey.length; i++) hash = ((hash << 5) - hash + roleKey.charCodeAt(i)) | 0
+        voice = zhVoices[Math.abs(hash) % zhVoices.length]
+        roleVoiceMapRef.current.set(roleKey, voice)
+      }
+      const stillValid = zhVoices.some(v => v.name === voice!.name && v.lang === voice!.lang)
+      if (stillValid) {
+        utterance.voice = voice
+        utterance.lang = voice.lang
+      }
+    }
+
+    utterance.onend = () => {
+      ttsSpeakingRef.current = false
+      processTtsQueue()
+    }
+    utterance.onerror = () => {
+      ttsSpeakingRef.current = false
+      processTtsQueue()
+    }
+
+    try { synth.speak(utterance) } catch { ttsSpeakingRef.current = false }
   }, [])
+
+  const enqueueTts = useCallback((text: string, roleKey: string, msgIndex: number) => {
+    const cleanText = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
+      .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
+    if (!cleanText) return
+    const chunks = splitLongText(cleanText)
+    chunks.forEach(chunk => {
+      ttsQueueRef.current.push({ text: chunk, roleKey, msgIndex })
+    })
+    processTtsQueue()
+  }, [processTtsQueue])
 
   const stopTts = useCallback(() => {
-    window.speechSynthesis.cancel()
+    try { window.speechSynthesis?.cancel() } catch {}
     setSpeakingMsgId(null)
+    ttsQueueRef.current = []
+    ttsSpeakingRef.current = false
   }, [])
+
+  const handleToggleSpeak = useCallback((msgId: string, content: string, roleKey: string) => {
+    const synth = window.speechSynthesis
+    if (!synth) return
+    if (speakingMsgId === msgId) { synth.cancel(); setSpeakingMsgId(null); return }
+    synth.cancel()
+    setSpeakingMsgId(msgId)
+    const cleanText = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
+      .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
+    if (!cleanText) return
+    const chunks = splitLongText(cleanText)
+    const config = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+
+    // 为角色选择不同的语音
+    let zhVoices = zhVoicesRef.current
+    if (zhVoices.length === 0) {
+      try {
+        const allVoices = synth.getVoices()
+        zhVoices = allVoices.filter(v => {
+          const lang = (v.lang || '').toLowerCase()
+          return lang.startsWith('zh') || lang.startsWith('cmn')
+        })
+        if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
+      } catch {}
+    }
+    let roleVoice: SpeechSynthesisVoice | null = null
+    if (zhVoices.length > 0) {
+      roleVoice = roleVoiceMapRef.current.get(roleKey) ?? null
+      if (!roleVoice) {
+        let hash = 0
+        for (let i = 0; i < roleKey.length; i++) hash = ((hash << 5) - hash + roleKey.charCodeAt(i)) | 0
+        roleVoice = zhVoices[Math.abs(hash) % zhVoices.length]
+        roleVoiceMapRef.current.set(roleKey, roleVoice)
+      }
+    }
+
+    const speakChunk = (idx: number) => {
+      if (idx >= chunks.length) { setSpeakingMsgId(null); return }
+      const utterance = new SpeechSynthesisUtterance(chunks[idx])
+      utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
+      utterance.rate = config.rate
+      utterance.lang = 'zh-CN'
+      if (roleVoice) utterance.voice = roleVoice
+      utterance.onend = () => speakChunk(idx + 1)
+      utterance.onerror = () => setSpeakingMsgId(null)
+      try { synth.speak(utterance) } catch { setSpeakingMsgId(null) }
+    }
+
+    try { synth.resume() } catch {}
+    speakChunk(0)
+  }, [speakingMsgId])
 
   // personalityMap 的 ref 版本，供 startStreaming 使用（避免依赖顺序问题）
   const personalityMapRef = useRef<Record<string, string>>({})
@@ -666,7 +803,7 @@ export default function DebateSessionPage() {
 
         if (ttsEnabled) {
           setSpeakingMsgId(roleKey + Date.now())
-          speakTts(currentContentRef.current.trim(), roleKey)
+          enqueueTts(currentContentRef.current.trim(), roleKey, -1)
         }
 
         // 刷新评分
@@ -677,6 +814,8 @@ export default function DebateSessionPage() {
         // 无内容，移除占位
         setMessages(prev => prev.filter(m => m.id !== msgId))
       }
+      // 保存最近一次发言内容到 ref，供后续回调链读取（解决闭包陷阱）
+      lastStreamedContentRef.current = currentContentRef.current.trim()
       currentMsgIdRef.current = null
       currentContentRef.current = ''
       // 页面已退出/链已停止，不再触发回调链
@@ -698,7 +837,7 @@ export default function DebateSessionPage() {
       toast.error('发音失败')
       onDone()
     })
-  }, [ttsEnabled, sessionId, speakTts])
+  }, [ttsEnabled, sessionId, enqueueTts])
 
   // ==================== 辩论流程控制 ====================
 
@@ -740,10 +879,10 @@ export default function DebateSessionPage() {
       if (!sessionId) { resolve(); return }
       // 预写过渡串场词——不靠 LLM，杜绝编造
       const toLabel = ROUND_LABELS[toPhase] || toPhase
-      const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
-                          toPhase === 'REBUTTAL' ? '正方二辩' :
-                          toPhase === 'FREE' ? (Math.random() > 0.5 ? '正方' : '反方') :
-                          toPhase === 'CLOSING' ? '反方四辩' : '双方辩手'
+const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
+                           toPhase === 'REBUTTAL' ? '正方二辩' :
+                           toPhase === 'FREE' ? '正方' :
+                           toPhase === 'CLOSING' ? '反方四辩' : '双方辩手'
       setMessages(prev => [...prev, {
         id: `host-trans-${toPhase}`,
         roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
@@ -795,14 +934,18 @@ export default function DebateSessionPage() {
       const defenderOpening = turn.defenderKey.startsWith('PRO')
         ? pro1Msg?.content || '' : con1Msg?.content || ''
 
-      // 如果是被质询方，从 messages 或当前流式内容中获取质询问题
+      // 如果是被质询方，优先从 ref 获取最近流式内容（解决闭包陷阱），回退到 messages
       let questionContent = ''
       if (turn.examRole === 'ANSWERER') {
-        const prevMsgs = messages.filter(
-          m => m.roundType === 'CROSS_EXAM' && m.roundNumber === currentRoundRef.current
-        )
-        if (prevMsgs.length > 0 && prevMsgs[prevMsgs.length - 1].content.trim()) {
-          questionContent = prevMsgs[prevMsgs.length - 1].content
+        if (lastStreamedContentRef.current) {
+          questionContent = lastStreamedContentRef.current
+        } else {
+          const prevMsgs = messages.filter(
+            m => m.roundType === 'CROSS_EXAM' && m.roundNumber === currentRoundRef.current
+          )
+          if (prevMsgs.length > 0 && prevMsgs[prevMsgs.length - 1].content.trim()) {
+            questionContent = prevMsgs[prevMsgs.length - 1].content
+          }
         }
       }
 
@@ -874,7 +1017,8 @@ export default function DebateSessionPage() {
     const freeMsgs = messages.filter(
       m => m.roundType === 'FREE' && m.roundNumber === currentRoundRef.current
     )
-    let lastContext = freeMsgs.length > 0 ? freeMsgs[freeMsgs.length - 1].content : ''
+    // 优先从 ref 获取最近流式内容（解决闭包陷阱），回退到 messages
+    let lastContext = lastStreamedContentRef.current || (freeMsgs.length > 0 ? freeMsgs[freeMsgs.length - 1].content : '')
     let freeCount = freeMsgs.length
 
     // 自由辩论有最大发言次数限制
@@ -887,7 +1031,11 @@ export default function DebateSessionPage() {
       let firstSpeaker: string
       try {
         const res = await getNextDebateSpeaker(sessionId)
-        firstSpeaker = (res as any)?.data ?? res as string
+        firstSpeaker = typeof res === 'string' ? res : (res as { data?: string })?.data ?? res as string
+        // 标准赛制：自由辩论正方先发言 — 如果 LLM 返回反方，强制使用正方
+        if (firstSpeaker && !firstSpeaker.startsWith('PRO')) {
+          firstSpeaker = 'PRO_1'
+        }
       } catch { firstSpeaker = '' }
       if (!firstSpeaker) {
         handleAdvanceRoundRef.current()
@@ -905,10 +1053,12 @@ export default function DebateSessionPage() {
           () => streamDebateFreeSpeech(bookIdNum, currentSpeaker, sessionId, currentRoundRef.current, lastContext),
           currentSpeaker,
           () => {
+            // 从 ref 更新上下文，确保下一位辩手能看到上一位的发言内容
+            lastContext = lastStreamedContentRef.current || lastContext
             freeCount++
             getNextDebateSpeaker(sessionId)
               .then(nextRaw => {
-                const next = (nextRaw as any)?.data ?? nextRaw as string
+                const next = typeof nextRaw === 'string' ? nextRaw : (nextRaw as { data?: string })?.data ?? nextRaw as string
                 if (next && freeCount < MAX_FREE_EXCHANGES && isChainActiveRef.current) {
                   currentSpeaker = next
                   setTimeout(speakFree, 500)
@@ -1270,7 +1420,7 @@ export default function DebateSessionPage() {
                     <div onScroll={handleScroll} className="flex-[2] min-w-0 border-r border-border/10 bg-blue-50/20 dark:bg-blue-950/10 p-3 space-y-3 overflow-y-auto">
                       <div className="text-xs font-bold text-blue-500 uppercase tracking-wider">正方</div>
                       {messages.filter(m => m.side === 'PRO').map(m => (
-                        <div key={m.id} className="rounded-xl bg-blue-500/5 border border-blue-200/30 p-3">
+                        <div key={m.id} className="rounded-xl bg-blue-500/5 border border-blue-200/30 p-3 group">
                           <div className="flex items-center gap-1.5 mb-1">
                             <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
                               {m.roleName}
@@ -1294,6 +1444,18 @@ export default function DebateSessionPage() {
                               <span className="h-3 w-[2px] bg-blue-400 animate-pulse rounded-full" />
                             </span>
                           )}
+                          {!m.streaming && m.content && (
+                            <button
+                              onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
+                              className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
+                                speakingMsgId === m.id
+                                  ? 'text-primary bg-primary/10 opacity-100'
+                                  : 'text-muted-foreground/60 hover:text-muted-foreground'
+                              }`}
+                            >
+                              {speakingMsgId === m.id ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1301,7 +1463,7 @@ export default function DebateSessionPage() {
                     {/* 中心区（主持人）— 更窄，固定宽度 */}
                     <div onScroll={handleScroll} className="w-72 shrink-0 p-3 space-y-3 overflow-y-auto">
                       {messages.filter(m => m.side === 'NEUTRAL').map(m => (
-                        <div key={m.id} className="rounded-xl bg-brand-50/50 dark:bg-brand-600/10 border border-brand-200/20 dark:border-brand-600/30 p-3 max-w-[230px] mx-auto">
+                        <div key={m.id} className="rounded-xl bg-brand-50/50 dark:bg-brand-600/10 border border-brand-200/20 dark:border-brand-600/30 p-3 max-w-[230px] mx-auto group">
                           <div className="flex items-center justify-center gap-1.5 mb-1">
                             <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
                               🎙️ {m.roleName}
@@ -1320,6 +1482,18 @@ export default function DebateSessionPage() {
                               <span className="h-3 w-[2px] bg-brand-400 animate-pulse rounded-full" />
                             </span>
                           )}
+                          {!m.streaming && m.content && (
+                            <button
+                              onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
+                              className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
+                                speakingMsgId === m.id
+                                  ? 'text-primary bg-primary/10 opacity-100'
+                                  : 'text-muted-foreground/60 hover:text-muted-foreground'
+                              }`}
+                            >
+                              {speakingMsgId === m.id ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1328,7 +1502,7 @@ export default function DebateSessionPage() {
                     <div onScroll={handleScroll} className="flex-[2] min-w-0 border-l border-border/10 bg-red-50/20 dark:bg-red-950/10 p-3 space-y-3 overflow-y-auto">
                       <div className="text-xs font-bold text-red-500 uppercase tracking-wider text-right">反方</div>
                       {messages.filter(m => m.side === 'CON').map(m => (
-                        <div key={m.id} className="rounded-xl bg-red-500/5 border border-red-200/30 p-3">
+                        <div key={m.id} className="rounded-xl bg-red-500/5 border border-red-200/30 p-3 group">
                           <div className="flex items-center justify-end gap-1.5 mb-1">
                             {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
                               <span className="text-xs text-muted-foreground">
@@ -1352,6 +1526,18 @@ export default function DebateSessionPage() {
                               <span className="h-3 w-[2px] bg-red-400 animate-pulse rounded-full" />
                             </span>
                           )}
+                          {!m.streaming && m.content && (
+                            <button
+                              onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
+                              className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
+                                speakingMsgId === m.id
+                                  ? 'text-primary bg-primary/10 opacity-100'
+                                  : 'text-muted-foreground/60 hover:text-muted-foreground'
+                              }`}
+                            >
+                              {speakingMsgId === m.id ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1370,7 +1556,7 @@ export default function DebateSessionPage() {
                         'bg-brand-50/50 dark:bg-brand-600/20 border-brand-200/20 dark:border-brand-600/30'
 
                       return (
-                        <div key={m.id} className={`rounded-xl border p-3 ${bgColor}`}
+                        <div key={m.id} className={`rounded-xl border p-3 ${bgColor} group`}
                           style={isPro ? { borderLeft: `3px solid ${color}` } : isCon ? { borderRight: `3px solid ${color}` } : {}}
                         >
                           <div className={`flex items-center gap-1.5 mb-1 ${isCon ? 'flex-row-reverse' : ''}`}>
@@ -1402,6 +1588,18 @@ export default function DebateSessionPage() {
                             <span className="inline-flex items-center ml-1">
                               <span className="h-3 w-[2px] bg-foreground/30 animate-pulse rounded-full" />
                             </span>
+                          )}
+                          {!m.streaming && m.content && (
+                            <button
+                              onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
+                              className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
+                                speakingMsgId === m.id
+                                  ? 'text-primary bg-primary/10 opacity-100'
+                                  : 'text-muted-foreground/60 hover:text-muted-foreground'
+                              }`}
+                            >
+                              {speakingMsgId === m.id ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
+                            </button>
                           )}
                         </div>
                       )
@@ -1545,14 +1743,14 @@ export default function DebateSessionPage() {
       {/* 移动端评分/报告面板 — 底部 Sheet */}
       {isMobile && showScorePanel && (
         <Sheet open={showScorePanel} onOpenChange={(v) => !v && setShowScorePanel(false)}>
-          <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[80vh]">
+          <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[85vh] [&>button]:hidden">
             <ScorePanel scores={scores} onClose={() => setShowScorePanel(false)} onRefresh={() => sessionId ? getDebateScores(sessionId).then(setScores) : null} isMobile={isMobile} />
           </SheetContent>
         </Sheet>
       )}
       {isMobile && showReportPanel && (
         <Sheet open={showReportPanel} onOpenChange={(v) => !v && setShowReportPanel(false)}>
-          <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[80vh]">
+          <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[85vh] [&>button]:hidden">
             <ReportPanel
               report={report}
               isGenerating={reportGenerating}

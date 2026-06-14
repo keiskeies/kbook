@@ -1,0 +1,37 @@
+# ============================================================
+# KBook .dockerignore
+# 构建上下文 = deploy/，排除不需要的文件
+# ============================================================
+
+# 排除所有源文件（已预构建到 package/）
+frontend/
+backend/
+
+# 排除数据目录（运行时挂载，不需要进入镜像）
+data/
+
+# 排除其他部署方式（互斥）
+k8s/
+standalone/
+docs/
+
+# 排除 git
+.git/
+.gitignore
+.gitattributes
+
+# 排除 IDE / OS 垃圾
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 主机端工具/配置（不需要进镜像）
+../package/package.sh
+../package/package.bat
+.env
+.env.example
+*.md

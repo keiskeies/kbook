@@ -1,7 +1,8 @@
-﻿import { FileText, Loader2, RefreshCw, Trophy } from 'lucide-react'
+import { FileText, Loader2, RefreshCw, Trophy } from 'lucide-react'
+import MobileSheetHeader from '@/components/common/MobileSheetHeader'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import type { DebateReport } from '@/types/debate'
-import { DEBATE_ROLE_COLORS, DEBATE_ROLE_NAMES, DEBATE_PERSONALITY_NAMES, DEBATE_PERSONALITY_COLORS } from '@/types/debate'
+import { DEBATE_PERSONALITY_NAMES, DEBATE_PERSONALITY_COLORS, DEBATE_PERSONALITY_TITLES, DEBATE_PERSONALITY_ICONS, DEBATE_ROLE_NAMES } from '@/types/debate'
 
 interface ReportPanelProps {
   report: DebateReport | null
@@ -17,15 +18,11 @@ interface ReportPanelProps {
 export default function ReportPanel({ report, isGenerating, onTrigger, onClose, isMobile }: ReportPanelProps) {
   return (
     <div className="flex flex-col min-h-0 h-full">
-      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/20">
-        <h3 className="text-xs font-bold flex items-center gap-1.5">
-          <FileText className="h-3.5 w-3.5 text-brand-500" />
-          辩论报告
-        </h3>
-        {!isMobile && (
-          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">关闭</button>
-        )}
-      </div>
+      <MobileSheetHeader
+        icon={<FileText className="h-5 w-5 text-brand-500" />}
+        title="辩论报告"
+        onClose={isMobile ? onClose : undefined}
+      />
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3">
         {!report && !isGenerating && (
@@ -54,12 +51,12 @@ export default function ReportPanel({ report, isGenerating, onTrigger, onClose, 
           <div>
             {report.bestDebater && (() => {
               const key = report.bestDebater
-              const posName = DEBATE_ROLE_NAMES[key] || ''
-              const persName = DEBATE_PERSONALITY_NAMES[key] || ''
-              const color = DEBATE_ROLE_COLORS[key] || DEBATE_PERSONALITY_COLORS[key] || '#D4A843'
-              const displayName = posName || persName || key
-              const subtitle = posName && persName ? persName : ''
-              const initial = posName ? posName.replace(/[方\d辩]/g, '') : key.charAt(0)
+              const posKey = report.bestDebaterPosition
+              const posName = posKey ? (DEBATE_ROLE_NAMES[posKey] || '') : ''
+              const persTitle = DEBATE_PERSONALITY_TITLES[key] || ''
+              const persIcon = DEBATE_PERSONALITY_ICONS[key] || '👤'
+              const color = DEBATE_PERSONALITY_COLORS[key] || '#D4A843'
+              const displayName = posName || DEBATE_PERSONALITY_NAMES[key] || key
               return (
               <div className="mb-4 rounded-xl border border-amber-200 dark:border-amber-800 bg-gradient-to-br from-amber-50 to-brand-50 dark:from-amber-950/30 dark:to-brand-950/20 p-4">
                 <div className="flex items-center gap-2 mb-1">
@@ -71,11 +68,11 @@ export default function ReportPanel({ report, isGenerating, onTrigger, onClose, 
                     className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold text-white"
                     style={{ backgroundColor: color }}
                   >
-                    {initial}
+                    {persIcon}
                   </div>
-                  <div>
+                  <div className="flex items-baseline gap-1.5">
                     <span className="text-sm font-semibold" style={{ color }}>{displayName}</span>
-                    {subtitle && <span className="text-xs text-muted-foreground ml-1.5">{subtitle}</span>}
+                    {persTitle && <span className="text-xs text-muted-foreground">{persTitle}</span>}
                   </div>
                 </div>
               </div>

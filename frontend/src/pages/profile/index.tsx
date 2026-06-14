@@ -18,7 +18,8 @@ import { useChatStore } from '@/store/chat'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import FooterVersion from '@/components/common/FooterVersion'
 import AvatarCropModal from '@/components/common/AvatarCropModal'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import MobileSheetHeader from '@/components/common/MobileSheetHeader'
 import { useIsMobile } from '@/hooks/use-mobile'
 
 const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
@@ -671,11 +672,14 @@ export default function ProfilePage() {
         <FooterVersion />
 
       <Sheet open={showProfileModal} onOpenChange={setShowProfileModal}>
-        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
-          <SheetHeader className="p-0 shrink-0 pb-4">
-            <SheetTitle className="text-base font-bold">编辑个人信息</SheetTitle>
-            <SheetDescription className="sr-only">编辑你的昵称、头像、简介和心情</SheetDescription>
-          </SheetHeader>
+        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 [&>button]:hidden ${isMobile ? 'max-h-[85vh] rounded-t-2xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
+        <SheetTitle className="sr-only">编辑个人信息</SheetTitle>
+        <SheetDescription className="sr-only">编辑你的昵称、头像、简介和心情</SheetDescription>
+        <MobileSheetHeader
+          icon={<UserCircle className="h-5 w-5 text-primary" />}
+          title="编辑个人信息"
+          onClose={() => setShowProfileModal(false)}
+        />
 
           <div className="flex-1 overflow-y-auto overscroll-y-contain space-y-4 -mx-5 px-5">
 
@@ -771,11 +775,15 @@ export default function ProfilePage() {
       </Sheet>
 
       <Sheet open={showTraitsModal} onOpenChange={setShowTraitsModal}>
-        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
-          <SheetHeader className="p-0 shrink-0 pb-4">
-            <SheetTitle className="text-base font-bold">编辑我的画像</SheetTitle>
-            <SheetDescription className="text-xs text-muted-foreground">完善画像可获得更精准的图书推荐</SheetDescription>
-          </SheetHeader>
+        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 [&>button]:hidden ${isMobile ? 'max-h-[85vh] rounded-t-2xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
+        <SheetTitle className="sr-only">编辑我的画像</SheetTitle>
+        <SheetDescription className="sr-only">完善画像可获得更精准的图书推荐</SheetDescription>
+        <MobileSheetHeader
+          icon={<UserCircle className="h-5 w-5 text-primary" />}
+          title="编辑我的画像"
+          description="完善画像可获得更精准的图书推荐"
+          onClose={() => setShowTraitsModal(false)}
+        />
 
           <div className="flex-1 overflow-y-auto overscroll-y-contain space-y-4 -mx-5 px-5">
 
@@ -986,13 +994,15 @@ export default function ProfilePage() {
       </Sheet>
 
       <Sheet open={showPreferenceModal} onOpenChange={setShowPreferenceModal}>
-        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 ${isMobile ? 'max-h-[85vh] rounded-t-3xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
-          <SheetHeader className="p-0 shrink-0 pb-4">
-            <SheetTitle className="text-lg font-bold">阅读偏好</SheetTitle>
-            <SheetDescription className="text-xs text-muted-foreground">
-              设置你的阅读偏好，让推荐更懂你。喜欢的类型会优先推荐，不想看的会自动排除。
-            </SheetDescription>
-          </SheetHeader>
+        <SheetContent side={sheetSide} className={`flex flex-col gap-0 p-5 [&>button]:hidden ${isMobile ? 'max-h-[85vh] rounded-t-2xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
+        <SheetTitle className="sr-only">阅读偏好</SheetTitle>
+        <SheetDescription className="sr-only">设置你的阅读偏好，让推荐更懂你</SheetDescription>
+        <MobileSheetHeader
+          icon={<SlidersHorizontal className="h-5 w-5 text-primary" />}
+          title="阅读偏好"
+          description="设置你的阅读偏好，让推荐更懂你"
+          onClose={() => setShowPreferenceModal(false)}
+        />
 
           <div className="shrink-0 space-y-3">
             <div className="flex rounded-lg bg-muted p-1">
@@ -1119,11 +1129,15 @@ export default function ProfilePage() {
       />
 
       <Sheet open={showStylePicker} onOpenChange={setShowStylePicker}>
-        <SheetContent side={sheetSide} className={`p-5 ${isMobile ? 'rounded-t-3xl max-h-[50vh]' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
-          <SheetHeader className="p-0 pb-3">
-            <SheetTitle className="text-base font-bold">AI 对话风格</SheetTitle>
-            <SheetDescription className="text-xs text-muted-foreground">选择 AI 图书问答的语气风格</SheetDescription>
-          </SheetHeader>
+        <SheetContent side={sheetSide} className={`p-5 [&>button]:hidden ${isMobile ? 'max-h-[85vh] rounded-t-2xl' : 'h-full sm:max-w-xl rounded-l-2xl'}`}>
+        <SheetTitle className="sr-only">AI 对话风格</SheetTitle>
+        <SheetDescription className="sr-only">选择 AI 图书问答的语气风格</SheetDescription>
+        <MobileSheetHeader
+          icon={<Sparkles className="h-5 w-5 text-primary" />}
+          title="AI 对话风格"
+          description="选择 AI 图书问答的语气风格"
+          onClose={() => setShowStylePicker(false)}
+        />
           <div className="grid grid-cols-2 gap-2">
             {BOOK_CHAT_STYLES.map(s => {
               const isActive = currentStyle === s.value

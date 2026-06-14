@@ -1,0 +1,258 @@
+# ============================================================
+# KBook 应用服务 — Backend + Frontend (Nginx)
+# 后端 Deployment（含 ConfigMap 挂载 ai-config.json）
+# 前端 Nginx Deployment（静态文件 + API 反向代理）
+# ============================================================
+
+---
+# ---------- Backend ----------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: kbook
+  labels:
+    app: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: kbook-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8181
+          env:
+            # 基础设施连接
+            - name: MYSQL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: MYSQL_HOST
+            - name: MYSQL_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: MYSQL_PORT
+            - name: MYSQL_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: MYSQL_DB
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: kbook-secrets
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kbook-secrets
+                  key: MYSQL_PASSWORD
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: REDIS_PORT
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kbook-secrets
+                  key: REDIS_PASSWORD
+            - name: ES_URIS
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: ES_URIS
+            - name: QDRANT_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: QDRANT_HOST
+            - name: QDRANT_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: QDRANT_PORT
+            - name: SPRING_PROFILES_ACTIVE
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: SPRING_PROFILES_ACTIVE
+            # AI 配置路径
+            - name: KBOOK_AI_CONFIG_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: kbook-config
+                  key: KBOOK_AI_CONFIG_PATH
+            # JWT
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kbook-secrets
+                  key: JWT_SECRET
+            # AI Provider
+            - name: AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kbook-secrets
+                  key: AI_API_KEY
+            # 管理员
+            - name: KBOOK_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: kbook-secrets
+                  key: KBOOK_ADMIN_EMAIL
+            - name: KBOOK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kbook-secrets
+                  key: KBOOK_ADMIN_PASSWORD
+          volumeMounts:
+            - name: ai-config
+              mountPath: /app/config
+              readOnly: true
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8181
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8181
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+      volumes:
+        - name: ai-config
+          configMap:
+            name: kbook-ai-config
+            items:
+              - key: ai-config.json
+                path: ai-config.json
+        - name: data
+          persistentVolumeClaim:
+            claimName: kbook-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: kbook
+spec:
+  ports:
+    - port: 8181
+      targetPort: 8181
+  selector:
+    app: backend
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kbook-data-pvc
+  namespace: kbook
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# ---------- Frontend (Nginx) ----------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: kbook
+  labels:
+    app: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+            - name: frontend-static
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "250m"
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: kbook-nginx-config
+        - name: frontend-static
+          persistentVolumeClaim:
+            claimName: frontend-static-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: kbook
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: frontend
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: frontend-static-pvc
+  namespace: kbook
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: "500Mi"

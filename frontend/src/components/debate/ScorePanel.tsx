@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from 'react'
 import { BarChart3, RefreshCw, ArrowUpDown } from 'lucide-react'
+import MobileSheetHeader from '@/components/common/MobileSheetHeader'
 import type { DebateScore } from '@/types/debate'
 import { DEBATE_ROLE_COLORS, DEBATE_SCORE_DIMENSIONS, DEBATE_ROLE_NAMES, getPersonalityTitle } from '@/types/debate'
 
@@ -83,15 +84,11 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
   if (scores.length === 0) {
     return (
       <div className="flex flex-col min-h-0">
-        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/20">
-          <h3 className="text-xs font-bold flex items-center gap-1.5">
-            <BarChart3 className="h-3.5 w-3.5 text-brand-500" />
-            评分面板
-          </h3>
-          {!isMobile && (
-            <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">关闭</button>
-          )}
-        </div>
+<MobileSheetHeader
+        icon={<BarChart3 className="h-5 w-5 text-brand-500" />}
+        title="评分面板"
+        onClose={isMobile ? onClose : undefined}
+      />
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-muted-foreground">发言后将自动生成评分</p>
         </div>
@@ -101,21 +98,20 @@ export default function ScorePanel({ scores, onClose, onRefresh, isMobile }: Sco
 
   return (
     <div className="flex flex-col min-h-0 h-full">
-      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/20">
-        <h3 className="text-xs font-bold flex items-center gap-1.5">
-          <BarChart3 className="h-3.5 w-3.5 text-brand-500" />
-          评分面板
-        </h3>
-        <div className="flex items-center gap-1">
+      <MobileSheetHeader
+        icon={<BarChart3 className="h-5 w-5 text-brand-500" />}
+        title="评分面板"
+        actions={
           <button
             onClick={() => onRefresh?.()}
-            className="text-xs text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted transition-colors flex items-center gap-0.5"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="刷新"
           >
-            <RefreshCw className="h-3 w-3" />
-            <span className="hidden sm:inline">刷新</span>
+            <RefreshCw className="h-4 w-4" />
           </button>
-        </div>
-      </div>
+        }
+        onClose={isMobile ? onClose : undefined}
+      />
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 space-y-5">
         {/* 正反方对比 */}

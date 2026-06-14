@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.ai.AiConfig;
+import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
@@ -68,6 +70,7 @@ public class RoundTableService {
     private final StringRedisTemplate stringRedisTemplate;
     private final RoundTableCoverageService coverageService;
     private final ReadingProgressService readingProgressService;
+    private final AiConfigProvider aiConfigProvider;
     private final ExecutorService sseExecutor;
 
     public RoundTableService(
@@ -81,6 +84,7 @@ public class RoundTableService {
             StringRedisTemplate stringRedisTemplate,
             RoundTableCoverageService coverageService,
             ReadingProgressService readingProgressService,
+            AiConfigProvider aiConfigProvider,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -92,6 +96,7 @@ public class RoundTableService {
         this.stringRedisTemplate = stringRedisTemplate;
         this.coverageService = coverageService;
         this.readingProgressService = readingProgressService;
+        this.aiConfigProvider = aiConfigProvider;
         this.sseExecutor = sseExecutor;
     }
 
@@ -381,39 +386,47 @@ public class RoundTableService {
 
 
     /**
-     * 获取默认角色列表 — 返回12个角色，前5个标记为selected
+     * 获取默认角色列表 — 优先从外部配置读取，回退到枚举默认
      */
     private List<RoleVO> getDefaultRoles() {
-        List<RoundTableRole> allRoles = Arrays.asList(RoundTableRole.values());
         List<RoleVO> result = new ArrayList<>();
         Set<String> addedKeys = new HashSet<>();
 
-        // 默认选中的角色
-        List<RoundTableRole> defaultSelected = List.of(
-                RoundTableRole.HOST,
-                RoundTableRole.PHILOSOPHER,
-                RoundTableRole.PSYCHOLOGIST,
-                RoundTableRole.SOCIOLOGIST,
-                RoundTableRole.EDUCATOR
-        );
-        for (RoundTableRole role : defaultSelected) {
-            RoleVO vo = RoleVO.from(role);
-            vo.setSelected(true);
-            result.add(vo);
-            addedKeys.add(role.getKey());
+        // 从外部配置获取默认选中角色 key 列表
+        List<String> defaultSelectedKeys = aiConfigProvider.getRoundTableDefaultSelectedKeys();
+        int maxRoles = aiConfigProvider.getRoundTableMaxRoles();
+
+        for (String key : defaultSelectedKeys) {
+            AiConfig.RoundTableRole configRole = aiConfigProvider.getRoundTableRole(key);
+            if (configRole != null) {
+                RoleVO vo = RoleVO.fromConfig(configRole);
+                vo.setSelected(true);
+                result.add(vo);
+                addedKeys.add(key);
+            } else {
+                // 配置中找不到则回退到枚举
+                RoundTableRole enumRole = RoundTableRole.fromKey(key);
+                if (enumRole != null) {
+                    RoleVO vo = RoleVO.from(enumRole);
+                    vo.setSelected(true);
+                    result.add(vo);
+                    addedKeys.add(key);
+                }
+            }
         }
 
-        // 补充到12人
-        List<RoundTableRole> remainingRoles = allRoles.stream()
+        // 补充剩余角色到上限
+        List<RoundTableRole> remainingRoles = Arrays.stream(RoundTableRole.values())
                 .filter(r -> !addedKeys.contains(r.getKey()))
                 .collect(Collectors.toList());
         Collections.shuffle(remainingRoles);
         for (RoundTableRole role : remainingRoles) {
-            if (result.size() >= 20) break;
-            RoleVO vo = RoleVO.from(role);
+            if (result.size() >= maxRoles) break;
+            // 优先从配置取颜色等数据
+            AiConfig.RoundTableRole configRole = aiConfigProvider.getRoundTableRole(role.getKey());
+            RoleVO vo = configRole != null ? RoleVO.fromConfig(configRole) : RoleVO.from(role);
             vo.setSelected(false);
             result.add(vo);
-            addedKeys.add(role.getKey());
         }
 
         return result;
@@ -1160,6 +1173,9 @@ public class RoundTableService {
      * 此部分每个角色不同，KV 缓存在此处分叉
      */
     private String buildRoleSettingPrompt(RoundTableRole role, int domainRelevance, String languageStyle) {
+        // 优先从外部配置获取角色数据（提示词、金句）
+        AiConfig.RoundTableRole configRole = aiConfigProvider.getRoundTableRole(role.getKey());
+
         if (role == RoundTableRole.HOST) {
             String hostStyle = (languageStyle != null && !languageStyle.isBlank()) ? languageStyle : "沉稳大方，善于引导和总结";
             return String.format(AiPromptConstants.ROUND_TABLE_ROLE_SETTING_HOST,
@@ -1170,9 +1186,14 @@ public class RoundTableService {
                     role.getVerbosity(), describeVerbosity(role.getVerbosity()));
         } else {
             String charStyle = (languageStyle != null && !languageStyle.isBlank()) ? languageStyle : "自然流畅，符合你的专业身份";
-            String catchphrase = role.getCatchphrase() != null ? role.getCatchphrase() : "用你自己的方式表达，保持自然";
+
+            // 优先从配置获取提示词和金句，配置不存在则回退到枚举
+            String rolePrompt = (configRole != null) ? configRole.getPrompt() : role.getPrompt();
+            String catchphrase = (configRole != null) ? configRole.getCatchphrase() :
+                    (role.getCatchphrase() != null ? role.getCatchphrase() : "用你自己的方式表达，保持自然");
+
             return String.format(AiPromptConstants.ROUND_TABLE_ROLE_SETTING_GUEST,
-                    role.getPrompt(),
+                    rolePrompt,
                     catchphrase,
                     charStyle,
                     role.getChallenge(), describeChallenge(role.getChallenge()),

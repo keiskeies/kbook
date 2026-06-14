@@ -1,6 +1,7 @@
 ﻿import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, X, Volume2, Square, Plus, ChevronDown, ChevronUp } from 'lucide-react'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, Volume2, Square, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import MobileSheetHeader from '@/components/common/MobileSheetHeader'
 import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions, getBookChatHistory } from '@/api/bookChat'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
@@ -456,18 +457,14 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
             : 'h-[85vh] rounded-t-2xl border-t'
         }`}
       >
-        <SheetHeader className="shrink-0 border-b px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-              <BlinkingBot className="h-5 w-5 text-primary" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <SheetTitle className="text-base truncate">{chatTitle || 'AI 书籍问答'}</SheetTitle>
-              <SheetDescription className="truncate text-xs">
-                基于原著内容回答关于《{book.title}》的问题
-              </SheetDescription>
-            </div>
-            <div className="flex items-center gap-0.5">
+        <SheetTitle className="sr-only">{chatTitle || 'AI 书籍问答'}</SheetTitle>
+        <SheetDescription className="sr-only">基于原著内容回答关于《{book.title}》的问题</SheetDescription>
+        <MobileSheetHeader
+          icon={<BlinkingBot className="h-5 w-5 text-primary" />}
+          title={chatTitle || 'AI 书籍问答'}
+          description={`基于原著内容回答关于《${book.title}》的问题`}
+          actions={
+            <>
               {hasMessages && (
                 <button
                   onClick={handleNewChat}
@@ -491,16 +488,10 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
               >
                 <History className="h-4 w-4" />
               </button>
-              <button
-                onClick={handleClose}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-                title="关闭"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </SheetHeader>
+            </>
+          }
+          onClose={handleClose}
+        />
 
         {showHistory ? (
           <div className="flex-1 overflow-y-auto overscroll-y-contain">

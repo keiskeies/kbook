@@ -137,7 +137,7 @@ export default function SettingsPanel({ isSystemDark }: { isSystemDark?: boolean
       <SheetContent
         side={isMobile ? 'bottom' : 'right'}
         className={isMobile
-          ? 'h-[75vh] rounded-t-2xl border-t p-0'
+          ? 'h-[85vh] rounded-t-2xl border-t p-0 [&>button]:hidden'
           : 'w-[576px] sm:max-w-[576px] p-0'
         }
       >

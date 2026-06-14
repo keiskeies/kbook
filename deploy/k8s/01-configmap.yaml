@@ -1,0 +1,31 @@
+# KBook 基础设施 ConfigMap — 非敏感配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kbook-config
+  namespace: kbook
+data:
+  # MySQL
+  MYSQL_HOST: "mysql"
+  MYSQL_PORT: "3306"
+  MYSQL_DB: "kbook"
+  # Redis
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "4"
+  # Elasticsearch
+  ES_URIS: "http://elasticsearch:9200"
+  # Qdrant
+  QDRANT_HOST: "qdrant"
+  QDRANT_PORT: "6334"
+  # AI 配置路径（挂载 ConfigMap 后的路径）
+  KBOOK_AI_CONFIG_PATH: "/app/config/ai-config.json"
+  # JPA
+  SPRING_PROFILES_ACTIVE: "prod"
+  # JWT
+  JWT_ACCESS_EXPIRATION: "7200000"
+  JWT_REFRESH_EXPIRATION: "604800000"
+# ---
+# AI 配置文件（kbook-ai-config）需要通过以下命令创建：
+#   kubectl create configmap kbook-ai-config --from-file=ai-config.json=../ai-config.json -n kbook
+# 注意：ai-config.json 位于 deploy/ai-config.json

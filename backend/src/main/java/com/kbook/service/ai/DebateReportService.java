@@ -154,13 +154,14 @@ public class DebateReportService {
             report.setStatus("COMPLETED");
 
             // 计算最佳辩手：7维度平均分最高的辩手
-            String bestDebater = computeBestDebater(session.getSessionId());
-            report.setBestDebater(bestDebater);
+            var bestDebater = computeBestDebater(session.getSessionId());
+            report.setBestDebater(bestDebater.roleKey());
+            report.setBestDebaterPosition(bestDebater.positionKey());
 
             reportRepository.save(report);
 
-            log.info("辩论报告生成完成: sessionId={}, length={}, bestDebater={}",
-                    session.getSessionId(), result.length(), bestDebater);
+            log.info("辩论报告生成完成: sessionId={}, length={}, bestDebater={}, position={}",
+                    session.getSessionId(), result.length(), bestDebater.roleKey(), bestDebater.positionKey());
 
         } catch (Exception e) {
             log.error("辩论报告生成异常: {}", e.getMessage());
@@ -191,6 +192,8 @@ public class DebateReportService {
             };
             String roundLabel = switch (msg.getRoundType()) {
                 case "OPENING" -> "【开篇立论】";
+                case "CROSS_EXAM" -> "【交叉质询】";
+                case "REBUTTAL" -> "【驳论】";
                 case "ATTACK" -> "【奇袭攻辩】";
                 case "FREE" -> "【自由辩论】";
                 case "CLOSING" -> "【总结陈词】";
@@ -226,12 +229,12 @@ public class DebateReportService {
     /**
      * 计算最佳辩手：所有非主持人辩手中7维度平均分最高者
      */
-    private String computeBestDebater(String sessionId) {
+    private BestDebaterResult computeBestDebater(String sessionId) {
         try {
             var scores = scoreRepository.findBySessionId(sessionId);
-            if (scores == null || scores.isEmpty()) return null;
+            if (scores == null || scores.isEmpty()) return new BestDebaterResult(null, null);
 
-            // 按 positionKey（通过 messageId 关联）分组，计算每人平均分
+            // 按 roleKey 分组，计算每人平均分
             var best = scores.stream()
                     .filter(s -> s.getAverageScore() != null)
                     .collect(Collectors.groupingBy(
@@ -243,10 +246,22 @@ public class DebateReportService {
                     .max(Map.Entry.comparingByValue())
                     .orElse(null);
 
-            return best != null ? best.getKey() : null;
+            if (best == null) return new BestDebaterResult(null, null);
+
+            String roleKey = best.getKey();
+            String positionKey = scores.stream()
+                    .filter(s -> roleKey.equals(s.getRoleKey()))
+                    .map(s -> s.getPositionKey())
+                    .filter(p -> p != null)
+                    .findFirst()
+                    .orElse(null);
+
+            return new BestDebaterResult(roleKey, positionKey);
         } catch (Exception e) {
             log.warn("计算最佳辩手失败: {}", e.getMessage());
-            return null;
+            return new BestDebaterResult(null, null);
         }
     }
+
+    private record BestDebaterResult(String roleKey, String positionKey) {}
 }
