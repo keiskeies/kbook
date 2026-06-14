@@ -16,9 +16,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- * AI 配置管理控制器 — 供应商 CRUD + 系统配置文件管理
+ * AI 配置管理控制器 — 对话模型 + 嵌入模型 CRUD
  */
 @Slf4j
 @RestController
@@ -45,9 +46,19 @@ public class AdminAiConfigController {
         return Result.ok(providerConfigService.getConfigsByPurpose(purpose));
     }
 
-    @GetMapping("/{purpose}/default")
-    public Result<AiProviderConfig> getDefaultByPurpose(@PathVariable String purpose) {
-        return Result.ok(providerConfigService.getChatConfig());
+    @GetMapping("/{purpose}/active")
+    public Result<AiProviderConfig> getActiveByPurpose(@PathVariable String purpose) {
+        AiProviderConfig config = providerConfigService.getFirstEnabledByPurpose(purpose);
+        return Result.ok(config);
+    }
+
+    @GetMapping("/{purpose}/active/{role}")
+    public Result<AiProviderConfig> getActiveByPurposeAndRole(
+            @PathVariable String purpose, @PathVariable String role) {
+        if ("CHAT".equalsIgnoreCase(purpose)) {
+            return Result.ok(providerConfigService.getChatConfigByRole(role));
+        }
+        return Result.ok(providerConfigService.getFirstEnabledByPurpose(purpose));
     }
 
     @PostMapping
@@ -60,13 +71,10 @@ public class AdminAiConfigController {
             return Result.fail("缺少必要参数：purpose, provider, baseUrl, modelName");
         }
 
-        if (config.getIsDefault() == null) {
-            config.setIsDefault(false);
-        }
-
-        AiProviderConfig saved = configRepository.save(config);
-        log.info("AI 配置已创建: id={}, name={}, purpose={}, provider={}, model={}, enabled={}",
-                saved.getId(), saved.getName(), saved.getPurpose(), saved.getProvider(), saved.getModelName(), saved.getEnabled());
+        AiProviderConfig saved = providerConfigService.saveConfig(config);
+        log.info("AI 配置已创建: id={}, name={}, purpose={}, roles={}, provider={}, model={}",
+                saved.getId(), saved.getName(), saved.getPurpose(), saved.getRoles(),
+                saved.getProvider(), saved.getModelName());
 
         return Result.ok(saved);
     }
@@ -89,37 +97,73 @@ public class AdminAiConfigController {
         if (config.getRagTopK() != null) existing.setRagTopK(config.getRagTopK());
         if (config.getMaxTokens() != null) existing.setMaxTokens(config.getMaxTokens());
         if (config.getEnabled() != null) existing.setEnabled(config.getEnabled());
+        if (config.getRoles() != null) existing.setRoles(config.getRoles());
+        if (config.getEmbeddingDimension() != null) existing.setEmbeddingDimension(config.getEmbeddingDimension());
 
-        if (Boolean.TRUE.equals(config.getIsDefault()) && !existing.getIsDefault()) {
-            configRepository.clearDefaultForPurpose(existing.getPurpose(), id);
-            existing.setIsDefault(true);
-        }
-
-        AiProviderConfig saved = configRepository.save(existing);
-        log.info("AI 配置已更新: id={}, name={}, purpose={}, provider={}, model={}, enabled={}, isDefault={}",
-                saved.getId(), saved.getName(), saved.getPurpose(), saved.getProvider(), saved.getModelName(), saved.getEnabled(), saved.getIsDefault());
-
-        providerConfigService.invalidateChatCache();
+        AiProviderConfig saved = providerConfigService.saveConfig(existing);
+        log.info("AI 配置已更新: id={}, name={}, purpose={}, roles={}, provider={}, model={}",
+                saved.getId(), saved.getName(), saved.getPurpose(), saved.getRoles(),
+                saved.getProvider(), saved.getModelName());
 
         return Result.ok(saved);
     }
 
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        configRepository.deleteById(id);
-        providerConfigService.invalidateChatCache();
+        providerConfigService.deleteConfig(id);
         log.info("AI 配置已删除: id={}", id);
         return Result.ok();
     }
 
-    @PostMapping("/{id}/switch-default")
-    public Result<AiProviderConfig> switchDefault(@PathVariable Long id) {
-        try {
-            AiProviderConfig saved = providerConfigService.switchDefault(id);
-            return Result.ok(saved);
-        } catch (RuntimeException e) {
-            return Result.fail(e.getMessage());
+    @PostMapping("/{id}/set-role/{role}")
+    public Result<AiProviderConfig> setRole(@PathVariable Long id, @PathVariable String role) {
+        AiProviderConfig config = configRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("配置不存在: " + id));
+
+        if (!"CHAT".equalsIgnoreCase(config.getPurpose())) {
+            return Result.fail("仅 CHAT 用途支持角色设置");
         }
+        if (!List.of("QA", "TOOL").contains(role.toUpperCase())) {
+            return Result.fail("角色必须是 QA 或 TOOL");
+        }
+
+        String upperRole = role.toUpperCase();
+        String currentRoles = config.getRoles();
+        if (currentRoles != null && currentRoles.contains(upperRole)) {
+            // 移除该角色（仅从当前配置中移除）
+            config.setRoles(currentRoles
+                    .replace(upperRole, "")
+                    .replace(",,", ",")
+                    .replaceAll("^,|,$", "")
+                    .trim());
+        } else {
+            // 添加该角色 — 先从所有其他 CHAT 配置中移除该角色，保证唯一
+            List<AiProviderConfig> others = configRepository
+                    .findAllByPurposeAndRolesContaining("CHAT", "%" + upperRole + "%")
+                    .stream()
+                    .filter(c -> !c.getId().equals(id))
+                    .collect(Collectors.toList());
+            for (AiProviderConfig other : others) {
+                String otherRoles = other.getRoles();
+                if (otherRoles != null) {
+                    other.setRoles(otherRoles
+                            .replace(upperRole, "")
+                            .replace(",,", ",")
+                            .replaceAll("^,|,$", "")
+                            .trim());
+                    configRepository.save(other);
+                }
+            }
+
+            String newRoles = (currentRoles != null && !currentRoles.isBlank())
+                    ? currentRoles + "," + upperRole
+                    : upperRole;
+            config.setRoles(newRoles);
+        }
+
+        AiProviderConfig saved = providerConfigService.saveConfig(config);
+        log.info("已切换配置角色: id={}, name={}, roles={}", id, config.getName(), saved.getRoles());
+        return Result.ok(saved);
     }
 
     @PostMapping("/{id}/test")

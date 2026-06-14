@@ -522,8 +522,8 @@ public class RoundTableCoverageService {
 
         int targetBlocks = Math.min(MAX_CONTENT_BLOCKS, 30);
 
-        String prompt = """
-                你是一个书籍内容分析专家。请根据以下图书信息，生成该书的内容大纲。
+        String systemPrompt = """
+                你是一个书籍内容分析专家。请根据提供的图书信息，生成该书的内容大纲。
                 
                 要求：
                 1. 将全书内容划分为 %d-%d 个主题块
@@ -531,23 +531,23 @@ public class RoundTableCoverageService {
                 3. 标题要能反映该块的内容主题
                 4. 输出格式为 JSON 数组，不要任何其他内容
                 
-                【图书信息】
-                %s
-                
                 输出格式：
                 [
                   {"title": "标题1", "summary": "一句话摘要"},
                   {"title": "标题2", "summary": "一句话摘要"}
                 ]
-                """.formatted(
-                Math.max(5, targetBlocks / 2),
-                targetBlocks,
-                contentInfo.toString());
+                """.formatted(Math.max(5, targetBlocks / 2), targetBlocks);
+
+        String userPrompt = "图书信息：\n" + contentInfo.toString().trim();
+
+        List<ChatMessage> chatMessages = List.of(
+                SystemMessage.from(systemPrompt),
+                UserMessage.from(userPrompt));
 
         String result = chatModelManager.callAi(
                 "圆桌派覆盖度评估",
-                "LLM综合评估",
-                prompt);
+                "LLM大纲生成",
+                chatMessages);
         if (result == null) return new ArrayList<>();
 
         result = CommonUtils.stripCodeFence(result);

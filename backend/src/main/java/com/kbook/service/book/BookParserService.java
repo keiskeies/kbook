@@ -1702,7 +1702,7 @@ public class BookParserService {
     private CombinedAiResult callAiCombined(String content) {
         String rawResult = chatModelManager.callAi(AI_OP_COMBINED,
                 String.format("输入: %s", content.replaceAll("\\n", " ").substring(0, Math.min(100, content.length()))),
-                chatModelFactory::buildChatModelWithoutThinking,
+                chatModelManager::getChatModelWithoutThinking,
                 Lists.newArrayList(
                         SystemMessage.from(AiPromptConstants.COMBINED_PROMPT_SYSTEM_PROMPT),
                         UserMessage.from(content)

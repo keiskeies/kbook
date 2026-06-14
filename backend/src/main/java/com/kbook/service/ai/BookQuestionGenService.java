@@ -103,7 +103,7 @@ public class BookQuestionGenService {
             );
 
             // 获取 ChatModel 实例
-            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            ChatModel chatModel = chatModelFactory.buildToolChatModel();
 
             // 使用 Future 实现超时控制，防止 AI 调用阻塞线程
             long startTime = System.currentTimeMillis();

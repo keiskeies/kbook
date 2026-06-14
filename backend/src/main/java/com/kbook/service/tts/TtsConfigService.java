@@ -42,7 +42,7 @@ public class TtsConfigService {
     public List<TtsConfig> listAll() {
         return ttsConfigRepository.query()
                 .orderByDesc(TtsConfig::getIsDefault)
-                .orderByDesc(TtsConfig::getUpdatedAt)
+                .orderByDesc(TtsConfig::getCreatedAt)
                 .list();
     }
 

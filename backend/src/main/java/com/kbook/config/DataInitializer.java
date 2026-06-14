@@ -1,6 +1,8 @@
 package com.kbook.config;
 
+import com.kbook.entity.AiProviderConfig;
 import com.kbook.entity.User;
+import com.kbook.repository.AiProviderConfigRepository;
 import com.kbook.repository.UserRepository;
 import com.kbook.service.recommend.RecommendCoefficientService;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,8 @@ import static com.kbook.common.util.QueryBuilder.*;
  * <p>
  * 首次启动时自动创建管理员账号，管理员登录后强制引导绑定邮箱
  * 绑定邮箱后开启密码重置功能
+ * <p>
+ * 同时负责首次启动时迁移 YML AI 配置到数据库
  */
 @Slf4j
 @Component
@@ -35,6 +39,8 @@ public class DataInitializer implements CommandLineRunner {
     private final PasswordEncoder passwordEncoder;
     /** 推荐系数服务 */
     private final RecommendCoefficientService coefficientService;
+    /** AI 配置仓库 */
+    private final AiProviderConfigRepository aiConfigRepository;
 
     /** 管理员邮箱 */
     @Value("${kbook.admin.email:admin@kbook.com}")
@@ -55,6 +61,75 @@ public class DataInitializer implements CommandLineRunner {
     public void run(String... args) {
         initAdmin();
         initRecommendCoefficients();
+        initAiConfigs();
+    }
+
+    /**
+     * 初始化 AI 配置 — 首次启动时从 YML 默认值迁移到数据库
+     * <p>
+     * 如果数据库中没有任何 AI 配置记录，则创建默认配置。
+     * 注意：这些只是占位配置，管理员需在管理后台修改为实际值。
+     */
+    private void initAiConfigs() {
+        if (aiConfigRepository.count() > 0) {
+            log.info("AI 配置已存在数据库，跳过 YML 迁移");
+            return;
+        }
+
+        log.warn("============================================================");
+        log.warn("  未检测到数据库 AI 配置，正在创建默认占位配置");
+        log.warn("  请务必在管理后台修改以下配置的实际值：");
+        log.warn("    - 对话模型(QA): 用于图书问答、AI助理等大型问答");
+        log.warn("    - 对话模型(TOOL): 用于元数据推断、内容压缩等后台任务");
+        log.warn("    - 嵌入模型: 用于向量生成（如 bge-m3、qwen3-embedding）");
+        log.warn("============================================================");
+
+        // 1. CHAT-QA 模型（大型问答）
+        AiProviderConfig qaConfig = AiProviderConfig.builder()
+                .name("默认 Ollama (QA)")
+                .purpose("CHAT")
+                .roles("QA")
+                .provider(AiProviderConfig.Provider.OLLAMA)
+                .baseUrl("http://localhost:11434")
+                .modelName("gemma4:12b")
+                .temperature(0.7)
+                .timeout(600)
+                .enabled(true)
+                .ragTopK(5)
+                .maxTokens(32768)
+                .build();
+        aiConfigRepository.save(qaConfig);
+        log.info("已创建默认 CHAT-QA 配置: model={}", qaConfig.getModelName());
+
+        // 2. CHAT-TOOL 模型（小型工具）
+        AiProviderConfig toolConfig = AiProviderConfig.builder()
+                .name("默认 Ollama (TOOL)")
+                .purpose("CHAT")
+                .roles("TOOL")
+                .provider(AiProviderConfig.Provider.OLLAMA)
+                .baseUrl("http://localhost:11434")
+                .modelName("gemma4:12b")
+                .temperature(0.3)
+                .timeout(300)
+                .enabled(true)
+                .toolsEnabled(false)
+                .build();
+        aiConfigRepository.save(toolConfig);
+        log.info("已创建默认 CHAT-TOOL 配置: model={}", toolConfig.getModelName());
+
+        // 3. EMBEDDING 模型
+        AiProviderConfig embeddingConfig = AiProviderConfig.builder()
+                .name("默认 Ollama (Embedding)")
+                .purpose("EMBEDDING")
+                .provider(AiProviderConfig.Provider.OLLAMA)
+                .baseUrl("http://localhost:11434")
+                .modelName("bge-m3:latest")
+                .timeout(300)
+                .enabled(true)
+                .embeddingDimension(1024)
+                .build();
+        aiConfigRepository.save(embeddingConfig);
+        log.info("已创建默认 EMBEDDING 配置: model={}, dim={}", embeddingConfig.getModelName(), embeddingConfig.getEmbeddingDimension());
     }
 
     /**

@@ -179,7 +179,7 @@ public class NovelFilterTool {
             sample = text.length() > SAMPLE_CHARS ? text.substring(0, SAMPLE_CHARS) : text;
         }
 
-        ChatModel model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+        ChatModel model = chatModelFactory.buildToolChatModel();
         ChatResponse response = model.chat(List.of(
                 SystemMessage.from(SYSTEM_PROMPT),
                 UserMessage.from("以下是文件内容，请判断是否为小说：\n\n" + sample)

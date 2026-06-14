@@ -18,6 +18,7 @@ export interface AiProviderConfig {
   id?: number
   name: string
   purpose: string
+  roles?: string       // "QA,TOOL" comma-separated
   provider: string
   baseUrl: string
   modelName: string
@@ -26,9 +27,9 @@ export interface AiProviderConfig {
   timeout?: number
   toolsEnabled?: boolean | null
   enabled?: boolean
-  isDefault?: boolean
   ragTopK?: number
   maxTokens?: number
+  embeddingDimension?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -45,15 +46,19 @@ export function listAiConfigsByPurpose(purpose: string) {
   return request.get<AiProviderConfig[]>(`/admin/ai-config/purpose/${purpose}`)
 }
 
-export function getDefaultAiConfig(purpose: string) {
-  return request.get<AiProviderConfig>(`/admin/ai-config/${purpose}/default`)
+export function getActiveByPurpose(purpose: string) {
+  return request.get<AiProviderConfig>(`/admin/ai-config/${purpose}/active`)
 }
 
-export function createAiConfig(data: AiProviderConfig) {
+export function getActiveByPurposeAndRole(purpose: string, role: string) {
+  return request.get<AiProviderConfig>(`/admin/ai-config/${purpose}/active/${role}`)
+}
+
+export function createAiConfig(data: Partial<AiProviderConfig>) {
   return request.post<AiProviderConfig>('/admin/ai-config', data)
 }
 
-export function updateAiConfig(id: number, data: AiProviderConfig) {
+export function updateAiConfig(id: number, data: Partial<AiProviderConfig>) {
   return request.put<AiProviderConfig>(`/admin/ai-config/${id}`, data)
 }
 
@@ -61,8 +66,9 @@ export function deleteAiConfig(id: number) {
   return request.delete(`/admin/ai-config/${id}`)
 }
 
-export function switchDefaultConfig(id: number) {
-  return request.post<AiProviderConfig>(`/admin/ai-config/${id}/switch-default`)
+/** 切换指定配置的角色 (QA / TOOL) — 有该角色则移除，无则添加 */
+export function setConfigRole(id: number, role: string) {
+  return request.post<AiProviderConfig>(`/admin/ai-config/${id}/set-role/${role}`)
 }
 
 export function testAiConfig(id: number) {

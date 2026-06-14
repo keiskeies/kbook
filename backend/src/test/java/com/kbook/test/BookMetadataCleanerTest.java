@@ -204,7 +204,7 @@ public class BookMetadataCleanerTest {
         String prompt = buildCleaningPrompt(book);
 
         // 调用 AI
-        ChatModel model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+        ChatModel model = chatModelFactory.buildToolChatModel();
         if (model == null) {
             log.warn("AI 模型未配置，跳过: 《{}》", book.getTitle());
             return false;
@@ -324,7 +324,7 @@ public class BookMetadataCleanerTest {
             String prompt = buildCleaningPrompt(book);
             log.info("\n提示词:\n{}", prompt);
 
-            ChatModel model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            ChatModel model = chatModelFactory.buildToolChatModel();
             if (model == null) {
                 log.error("AI 模型未配置");
                 return;

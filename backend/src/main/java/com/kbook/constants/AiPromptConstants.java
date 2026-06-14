@@ -308,12 +308,17 @@ public final class AiPromptConstants {
 
     // ==================== 圆桌派角色推荐提示词 ====================
 
-    /** 圆桌派 LLM 角色推荐提示词 — 根据书籍信息让 LLM 选择最适合的讨论嘉宾，同时生成语言风格 */
-    public static final String ROUND_TABLE_ROLE_SELECTION_PROMPT = """
-            你是一个圆桌派讨论的导演。根据以下书籍信息，从可选角色列表中选择4-6位最适合讨论这本书的嘉宾（不含主持人，主持人默认参加）。
+    /** 圆桌派角色选择系统提示词（SystemMessage — 选角规则 + 角色列表）
+     * 动态内容（书籍信息）作为 UserMessage 单独传入
+     */
+    public static final String ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT = """
+            你是一个圆桌派讨论的导演。根据提供的书籍信息，从可选角色列表中选择4-6位最适合讨论这本书的嘉宾（不含主持人，主持人默认参加）。
 
-            【书籍信息】
-            %s
+            【选角原则】
+            - 优先选择与书籍主题高度相关的角色（如女性文学选FEMINIST，科幻选ECOLOGIST+ENGINEER，外国文学选TRANSLATOR）
+            - 确保视角多样性：不要选太多同组角色（如3个商业视角）
+            - 至少包含1位"挑战型"角色（challenge≥4）和1位"共情型"角色（empathy≥4）
+            - COMEDIAN适合几乎所有书，但不必每次都选
 
             【可选角色列表】
             核心思辨组：
@@ -368,16 +373,10 @@ public final class AiPromptConstants {
             39. FEMINIST(女性主义者) - 关注性别权力、身体政治和隐形劳动
             40. ECOLOGIST(生态学家) - 关注人与自然、生态伦理和末日叙事
 
-            【选角原则】
-            - 优先选择与书籍主题高度相关的角色（如女性文学选FEMINIST，科幻选ECOLOGIST+ENGINEER，外国文学选TRANSLATOR）
-            - 确保视角多样性：不要选太多同组角色（如3个商业视角）
-            - 至少包含1位"挑战型"角色（challenge≥4）和1位"共情型"角色（empathy≥4）
-            - COMEDIAN适合几乎所有书，但不必每次都选
-
             请返回JSON数组，每个元素包含：
             - key: 角色英文标识
             - domainRelevance: 1-10，该角色对这本书的专业相关度
-            - languageStyle: 一句话描述该角色在这本书讨论中应使用的语言风格（如"严谨学术，引用史料时有板有眼"或"活泼跳跃，喜欢用比喻和反问"）
+            - languageStyle: 一句话描述该角色在这本书讨论中应使用的语言风格
 
             示例：[{"key":"PSYCHOLOGIST","domainRelevance":9,"languageStyle":"温和专业，善用案例，偶尔用'从心理学的角度看'引入观点"},{"key":"PHILOSOPHER","domainRelevance":7,"languageStyle":"深邃缓慢，喜欢用反问句，经常引用哲学家名言"}]
             只返回JSON，不要其他内容。
@@ -515,14 +514,11 @@ public final class AiPromptConstants {
     // ==================== 奇葩说辩论提示词 ====================
 
     /**
-     * 辩题生成提示词 — 从书籍内容提取争议辩题
-     * 输入：书籍元数据 + 摘要
-     * 输出：JSON数组 [{topic, proArgument, conArgument}]
+     * 辩题生成系统提示词（SystemMessage — 规则 + 输出格式）
+     * 动态内容（书籍信息）作为 UserMessage 单独传入
      */
-    public static final String DEBATE_TOPIC_GENERATION_PROMPT = """
-            你是一位辩题策划师。请从下面这本书的内容中，提炼出3-12个具有辩论价值的争议性话题。
-
-            书籍信息：%s
+    public static final String DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT = """
+            你是一位辩题策划师。请从提供的书籍内容中，提炼出3-12个具有辩论价值的争议性话题。
 
             要求：
             1. 每个辩题必须是正反双方都能展开充分论证的开放性话题
@@ -730,22 +726,11 @@ public final class AiPromptConstants {
             """;
 
     /**
-     * 自由辩论发言人选择提示词 — LLM决定谁抢到话筒
-     * 输入：当前会话状态 + 辩手信息 + 发言统计
-     * 输出：应该发言的角色key
+     * 自由辩论发言人选择系统提示词（SystemMessage — 选择规则）
+     * 动态内容（辩题、辩手、上一位发言者、发言统计）作为 UserMessage 单独传入
      */
-    public static final String DEBATE_NEXT_SPEAKER_FREE_PROMPT = """
+    public static final String DEBATE_NEXT_SPEAKER_FREE_SYSTEM_PROMPT = """
             你是一场辩论赛的自由辩论环节主持人。请决定下一位谁发言。
-
-            当前辩题：%s
-
-            参与辩手：
-            %s
-
-            上一位发言者：%s（%s方）
-
-            发言次数统计：
-            %s
 
             选择规则：
             1. 优先选择发言次数少的辩手
@@ -758,43 +743,51 @@ public final class AiPromptConstants {
             """;
 
     /**
-     * 7维度评分提示词 — 对单次发言进行评分
-     * 输入：辩题 + 发言内容 + 角色信息 + 轮次
-     * 输出：JSON格式的7维分数
+     * 辩论报告生成系统提示词（SystemMessage — 报告模板规则）
+     * 动态内容（辩论全过程）作为 UserMessage 单独传入
      */
+    public static final String DEBATE_REPORT_SYSTEM_PROMPT = """
+            你是一位专业的辩论评审。请为提供的辩论实录撰写一份完整的评审报告。
+
+            请撰写一份包含以下章节的报告（使用Markdown格式）：
+            1. 辩论概要 — 辩题、正反方阵容、参与角色
+            2. 各轮次精彩回顾 — 每轮提取1-2个关键发言
+            3. 评分汇总 — 各角色7维度平均分，用表格展示
+            4. 正方表现分析 — 整体表现、亮点、不足
+            5. 反方表现分析 — 整体表现、亮点、不足
+            6. 观点亮点与逻辑漏洞总结
+            7. 评审结语 — 对整体辩论质量的评价
+
+            请用中文撰写报告，语言专业但富有洞察力。
+            """;
     /**
      * 辩题优化提示词 — 根据书籍内容优化用户自定义辩题
      * <p>
      * 输入：书籍信息 + 用户输入的辩题 + 正方观点 + 反方观点
      * 输出：JSON格式的优化后辩题
      */
-    public static final String DEBATE_OPTIMIZE_TOPIC_PROMPT = """
-            你是一位辩题策划师。用户想基于下面这本书的内容创建一个辩论话题，但需要你帮助优化。
-            
-            书籍信息：
-            %s
-            
-            用户的原始输入：
-            辩题：%s
-            正方观点：%s
-            反方观点：%s
-            
+    /**
+     * 辩题优化系统提示词（SystemMessage — 规则 + 输出格式）
+     * 动态内容（书籍信息、用户输入）作为 UserMessage 单独传入
+     */
+    public static final String DEBATE_OPTIMIZE_TOPIC_SYSTEM_PROMPT = """
+            你是一位辩题策划师。用户想基于一本书的内容创建一个辩论话题，需要你帮助优化。
+
             请完成以下任务：
             1. 保留用户输入的核心意图，但将辩题改写得更精炼、更有辩论价值（与书籍内容紧密相关）
             2. 优化正方观点，使其更充分、更有说服力（结合书籍内容）
             3. 优化反方观点，使其更充分、更有说服力（结合书籍内容）
-            
+
             只返回以下JSON格式，不要包含其他内容：
             {"topic": "优化后的辩题", "proArgument": "优化后的正方观点", "conArgument": "优化后的反方观点"}
             """;
 
-    public static final String DEBATE_SCORING_PROMPT = """
-            你是一位专业的辩论评审。请对以下辩论发言进行7维度评分。
-
-            辩题：%s
-            发言者：%s（%s方）
-            当前轮次：%s
-            发言内容：%s
+    /**
+     * 辩论评分系统提示词（SystemMessage — 评分规则 + 输出格式）
+     * 动态内容（辩题、发言者等）作为 UserMessage 单独传入
+     */
+    public static final String DEBATE_SCORING_SYSTEM_PROMPT = """
+            你是一位专业的辩论评审。请对辩论发言进行7维度评分。
 
             评分维度（每项1-10分，0.5分精度）：
             1. 逻辑性（logicScore）：论证是否严密，逻辑链是否完整

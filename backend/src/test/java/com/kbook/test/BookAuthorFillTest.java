@@ -198,7 +198,7 @@ public class BookAuthorFillTest {
         String originalTitle = book.getTitle();
         String originalAuthor = book.getAuthor();
 
-        ChatModel model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+        ChatModel model = chatModelFactory.buildToolChatModel();
         ChatResponse response = model.chat(List.of(
                 SystemMessage.from(SYSTEM_PROMPT),
                 UserMessage.from(buildPrompt(book))

@@ -14,10 +14,13 @@ import lombok.NoArgsConstructor;
  * AI 供应商配置实体 — 支持管理员在后台动态配置不同用途的 AI 模型
  * <p>
  * purpose 字段区分不同用途：
- * - CHAT: 对话类（AI图书问答、AI阅读助手、AI图书管理员），未配置时回退到 yml 默认模型
- * - TAG: 标签/评分/相关度生成（保留扩展用，当前仍用 yml 配置）
- * - EMBEDDING: 向量模型（保留扩展用）
- * - VISION: OCR 视觉模型（保留扩展用）
+ * - CHAT: 对话模型（AI图书问答、AI助理、圆桌派、奇葩说等），通过 roles 字段细分为 QA 和 TOOL 角色
+ * - EMBEDDING: 嵌入模型（用于向量生成），需配置 embeddingDimension
+ * - VISION: OCR 视觉模型
+ * <p>
+ * roles 字段（仅 CHAT 用途）：逗号分隔的角色枚举值
+ * - QA: 大型问答（图书问答、AI助理、圆桌派、奇葩说）
+ * - TOOL: 小型工具（元数据推断、内容压缩、查询扩展等后台任务）
  * <p>
  * provider 字段区分供应商类型：
  * - OLLAMA: 本地/远程 Ollama 服务
@@ -31,7 +34,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Entity
 @Table(name = "ai_provider_config", indexes = {
-        @Index(name = "idx_purpose_enabled", columnList = "purpose, enabled")
+        @Index(name = "idx_purpose_enabled", columnList = "purpose, enabled"),
+        @Index(name = "idx_purpose_roles", columnList = "purpose, roles")
 })
 public class AiProviderConfig extends BaseEntity {
 
@@ -44,7 +48,7 @@ public class AiProviderConfig extends BaseEntity {
     @Column(nullable = false, length = 100)
     private String name;
 
-    /** 配置用途：CHAT=对话, TAG=标签评分, EMBEDDING=向量, VISION=OCR */
+    /** 配置用途：CHAT=对话, EMBEDDING=向量, VISION=OCR */
     @Column(nullable = false, length = 20)
     private String purpose;
 
@@ -79,9 +83,12 @@ public class AiProviderConfig extends BaseEntity {
     @Builder.Default
     private Boolean enabled = true;
 
-    /** 是否为当前 purpose 的默认/激活配置（同 purpose 下仅一条可为 true） */
-    @Builder.Default
-    private Boolean isDefault = false;
+    /** 对话模型角色：QA=大型问答, TOOL=小型工具。逗号分隔可多选（如 "QA,TOOL"）。仅 CHAT 用途有效 */
+    @Column(length = 50)
+    private String roles;
+
+    /** 嵌入模型向量维度（如 1024）。仅 EMBEDDING 用途有效 */
+    private Integer embeddingDimension;
 
     /** RAG 检索返回的最大片段数（top-k），为空则使用全局默认值 */
     private Integer ragTopK;
@@ -91,7 +98,12 @@ public class AiProviderConfig extends BaseEntity {
 
     /** 配置用途枚举 */
     public enum Purpose {
-        CHAT, TAG, EMBEDDING, VISION
+        CHAT, EMBEDDING, VISION
+    }
+
+    /** 对话模型角色枚举（仅 CHAT 用途） */
+    public enum Role {
+        QA, TOOL
     }
 
     /** 供应商类型枚举 */

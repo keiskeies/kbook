@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
 
 /**
@@ -52,13 +53,14 @@ public class LangChain4jConfig {
     /**
      * 创建默认 AiAssistant Bean（兜底实例）
      * <p>
-     * 使用 yml 默认配置构建，带滑动窗口记忆和工具调用能力。
+     * 从数据库 CHAT-QA 配置构建，带滑动窗口记忆和工具调用能力。
      * 实际对话通过 AiProviderConfigService 获取动态配置的 Assistant。
      *
      * @return AiAssistant 实例
      */
     @Bean
     @Primary
+    @Lazy
     public AiAssistant aiAssistant() {
         log.info("初始化默认 AI Assistant (Ollama)...");
         AiToolService realToolService = toolServiceProvider.getObject();

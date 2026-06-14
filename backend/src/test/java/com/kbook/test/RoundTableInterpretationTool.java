@@ -142,7 +142,7 @@ public class RoundTableInterpretationTool {
 
     private String callLlm(String prompt) {
         try {
-            ChatModel model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            ChatModel model = chatModelFactory.buildToolChatModel();
             return model != null ? model.chat(prompt) : null;
         } catch (Exception e) {
             log.warn("LLM 调用失败: {}", e.getMessage());

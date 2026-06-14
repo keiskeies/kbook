@@ -114,7 +114,7 @@ public class BookTocGenerateTool {
      */
     @Test
     public void generateTocForBooks() {
-        ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+        ChatModel chatModel = chatModelFactory.buildToolChatModel();
         if (chatModel == null) {
             System.err.println("AI 模型不可用，跳过测试");
             return;

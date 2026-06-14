@@ -1,7 +1,6 @@
 package com.kbook.service.ai;
 
 import com.kbook.common.exception.BusinessException;
-import com.kbook.config.ChatModelFactory;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.DebateReportVO;
 import com.kbook.entity.Book;
@@ -13,7 +12,9 @@ import com.kbook.repository.debate.DebateMessageRepository;
 import com.kbook.repository.debate.DebateReportRepository;
 import com.kbook.repository.debate.DebateScoreRepository;
 import com.kbook.repository.debate.DebateSessionRepository;
-import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -45,7 +46,6 @@ public class DebateReportService {
     private final DebateMessageRepository messageRepository;
     private final DebateScoreRepository scoreRepository;
     private final BookRepository bookRepository;
-    private final ChatModelFactory chatModelFactory;
     private final ChatModelManager chatModelManager;
     private final ExecutorService sseExecutor;
 
@@ -55,7 +55,6 @@ public class DebateReportService {
             DebateMessageRepository messageRepository,
             DebateScoreRepository scoreRepository,
             BookRepository bookRepository,
-            ChatModelFactory chatModelFactory,
             ChatModelManager chatModelManager,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.reportRepository = reportRepository;
@@ -63,7 +62,6 @@ public class DebateReportService {
         this.messageRepository = messageRepository;
         this.scoreRepository = scoreRepository;
         this.bookRepository = bookRepository;
-        this.chatModelFactory = chatModelFactory;
         this.chatModelManager = chatModelManager;
         this.sseExecutor = sseExecutor;
     }
@@ -133,18 +131,17 @@ public class DebateReportService {
             // 获取全部消息
             List<DebateMessage> allMessages = messageRepository.findBySessionIdOrderById(session.getSessionId());
 
-            // 构建报告 prompt
-            String reportPrompt = buildReportPrompt(session, book, allMessages);
+            // 构建报告用户消息（动态内容）
+            String reportUserMessage = buildReportUserMessage(session, book, allMessages);
 
-            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinking();
-            if (chatModel == null) {
-                throw new BusinessException("AI 模型未配置");
-            }
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(AiPromptConstants.DEBATE_REPORT_SYSTEM_PROMPT),
+                    UserMessage.from(reportUserMessage));
 
             String result = chatModelManager.callAi(
                     "辩论报告生成",
                     String.format("sessionId=%s", session.getSessionId()),
-                    reportPrompt);
+                    chatMessages);
 
             if (result == null || result.isBlank()) {
                 throw new BusinessException("报告生成失败");
@@ -170,11 +167,10 @@ public class DebateReportService {
     }
 
     /**
-     * 构建报告生成提示词
+     * 构建报告用户消息（动态内容：辩论全过程）
      */
-    private String buildReportPrompt(DebateSession session, Book book, List<DebateMessage> messages) {
+    private String buildReportUserMessage(DebateSession session, Book book, List<DebateMessage> messages) {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是一位专业的辩论评审。请为以下辩论撰写一份完整的评审报告。\n\n");
         sb.append("## 辩论基本信息\n");
         sb.append("辩题：").append(session.getTopic()).append("\n");
         if (book != null) {
@@ -203,16 +199,6 @@ public class DebateReportService {
                     .append("（第").append(msg.getRoundNumber()).append("轮）：\n")
                     .append(msg.getContent()).append("\n\n");
         }
-
-        sb.append("请撰写一份包含以下章节的报告（使用Markdown格式）：\n");
-        sb.append("1. 辩论概要 — 辩题、正反方阵容、参与角色\n");
-        sb.append("2. 各轮次精彩回顾 — 每轮提取1-2个关键发言\n");
-        sb.append("3. 评分汇总 — 各角色7维度平均分，用表格展示\n");
-        sb.append("4. 正方表现分析 — 整体表现、亮点、不足\n");
-        sb.append("5. 反方表现分析 — 整体表现、亮点、不足\n");
-        sb.append("6. 观点亮点与逻辑漏洞总结\n");
-        sb.append("7. 评审结语 — 对整体辩论质量的评价\n\n");
-        sb.append("请用中文撰写报告，语言专业但富有洞察力。");
 
         return sb.toString();
     }

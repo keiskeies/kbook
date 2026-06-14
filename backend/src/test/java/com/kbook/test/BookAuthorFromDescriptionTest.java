@@ -261,7 +261,7 @@ public class BookAuthorFromDescriptionTest {
         try {
             // 测试摘要提取
             log.info("\n--- 测试摘要提取 ---");
-            ChatModel textModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            ChatModel textModel = chatModelFactory.buildToolChatModel();
             String prompt = buildPrompt(book);
             log.info("提示词:\n{}", prompt);
 
@@ -350,7 +350,7 @@ public class BookAuthorFromDescriptionTest {
         String originalAuthor = book.getAuthor();
 
         // 第一步：从摘要/简介中提取
-        ChatModel textModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+        ChatModel textModel = chatModelFactory.buildToolChatModel();
         if (textModel == null) {
             log.warn("AI 模型未配置，跳过: 《{}》", book.getTitle());
             return false;

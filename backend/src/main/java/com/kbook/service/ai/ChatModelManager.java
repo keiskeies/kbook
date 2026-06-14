@@ -95,49 +95,6 @@ public class ChatModelManager {
         return text;
     }
 
-    /**
-     * 简化版 AI 调用，仅传入用户提示词。
-     *
-     * @param logName       日志标识
-     * @param logDetail     日志详情
-     * @param modelSupplier 模型供应器
-     * @param userPrompt    用户提示词
-     * @return AI 响应文本
-     */
-    public String callAi(String logName, String logDetail,
-                         Supplier<ChatModel> modelSupplier, String userPrompt) {
-        return callAi(logName, logDetail, modelSupplier, List.of(UserMessage.from(userPrompt)));
-    }
-
-    // ================================================================
-    // 公共 AI 调用入口
-    // ================================================================
-
-    /**
-     * 公共 AI 调用入口，使用默认的不带思考的 ChatModel。
-     *
-     * @param logName    日志标识
-     * @param logDetail  日志详情
-     * @param userPrompt 用户提示词
-     * @return AI 响应文本
-     */
-    public String callAi(String logName, String logDetail, String userPrompt) {
-        return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinkingFromYml, userPrompt);
-    }
-
-    /**
-     * 带系统提示词的公共 AI 调用入口。
-     *
-     * @param logName      日志标识
-     * @param logDetail    日志详情
-     * @param systemPrompt 系统提示词，定义 AI 的角色和行为约束
-     * @param userPrompt   用户提示词
-     * @return AI 响应文本
-     */
-    public String callAi(String logName, String logDetail, String systemPrompt, String userPrompt) {
-        return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinkingFromYml,
-                List.of(SystemMessage.from(systemPrompt), UserMessage.from(userPrompt)));
-    }
 
     /**
      * 带完整消息列表的公共 AI 调用入口（消息已由调用方组装）。
@@ -148,7 +105,7 @@ public class ChatModelManager {
      * @return AI 响应文本
      */
     public String callAi(String logName, String logDetail, List<ChatMessage> messages) {
-        return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinkingFromYml, messages);
+        return callAi(logName, logDetail, chatModelFactory::buildToolChatModel, messages);
     }
 
     // ================================================================
@@ -168,10 +125,12 @@ public class ChatModelManager {
         // 如果内容为空或已足够短，直接返回原内容
         if (original == null || original.length() <= 200) return original;
         try {
-            // 调用 AI 进行内容压缩，提示词明确要求保留核心观点
+            // 调用 AI 进行内容压缩，系统提示词与动态内容分离以复用 KV Cache
             return callAi("历史压缩", String.format("%d→? chars", original.length()),
-                    chatModelFactory::buildChatModelWithoutThinkingFromYml,
-                    String.format("将以下内容压缩到200字以内，保留核心观点和信息：\n\n%s", original));
+                    chatModelFactory::buildToolChatModel,
+                    List.of(
+                            SystemMessage.from("将以下内容压缩到200字以内，保留核心观点和信息。"),
+                            UserMessage.from(original)));
         } catch (Exception e) {
             // 压缩失败不影响主流程，返回 null 由调用方处理
             log.warn("调用 AI 压缩内容失败: {}", e.getMessage());
@@ -198,7 +157,7 @@ public class ChatModelManager {
 
             // 调用 AI 推断元数据，使用专用的系统提示词
             String result = callAi("元数据推断", "TXT/PDF 元数据推断",
-                    chatModelFactory::buildChatModelWithoutThinkingFromYml,
+                    chatModelFactory::buildToolChatModel,
                     List.of(SystemMessage.from(AiPromptConstants.BOOK_INFO_EXTRACT_SYSTEM_PROMPT),
                             UserMessage.from(prompt)));
             // 移除 AI 响应中的代码围栏
@@ -278,7 +237,7 @@ public class ChatModelManager {
 
             String aiText = callAi("生成深入追问问题",
                     String.format("title=%s", title),
-                    chatModelFactory::buildChatModelWithoutThinkingFromYml, messages);
+                    chatModelFactory::buildToolChatModel, messages);
             if (aiText != null) {
                 return parseQuestions(aiText).stream().limit(3).collect(Collectors.toList());
             }
@@ -321,7 +280,7 @@ public class ChatModelManager {
                     你是一个向量检索查询生成器。将用户问题拆解为多个短小的检索关键词短语，每行一个。
 
                     【拆解步骤】
-                    1. 提取问题中的核心名词（2-4个）
+                    1. 提取问题中的核心名词
                     2. 找出这些名词在书中可能对应的章节/主题
                     3. 用"名词+名词"或"名词+动词"组合成5-15字的短语
                     4. 从3个角度生成：核心概念、相关主题、上下位概念
@@ -360,7 +319,7 @@ public class ChatModelManager {
 
             String aiText = callAi("RAG查询扩展",
                     String.format("原始: %s", question),
-                    chatModelFactory::buildChatModelWithoutThinkingFromYml, messages);
+                    chatModelFactory::buildToolChatModel, messages);
             if (aiText != null) {
                 for (String line : aiText.split("\n")) {
                     line = line.trim();
@@ -391,8 +350,8 @@ public class ChatModelManager {
      */
     public List<String> expandVectorSearchQuery(String query) {
         try {
-            // 构建提示词，指导 AI 从多维度推断用户需求并生成关键词
-            String prompt = String.format("""
+            // 系统提示词（固定，可复用 KV Cache）
+            String systemPrompt = """
                     你是一个图书搜索查询扩展器。用户输入了口语化的搜索词，你的任务是推断用户真正的阅读需求，从多个维度生成检索关键词。
                     
                     关键原则：不要改写或解释用户的原话，而是思考——一个有这种需求的人，真正需要读什么书？从哪些不同方向能找到能满足他的书？
@@ -403,13 +362,17 @@ public class ChatModelManager {
                     3. 各关键词覆盖不同维度，有本质差异，避免同义重复
                     4. 关键词应是书籍标签、分类或简介中可能出现的短语
                     5. 只输出关键词，不要序号、引号或任何额外文字
-                    
-                    用户查询：%s
-                    """, query);
+                    """;
+
+            // 动态内容（用户查询）作为 UserMessage
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(systemPrompt),
+                    UserMessage.from(query));
 
             // 调用 AI 生成扩展关键词
             String result = callAi("向量查询扩展",
-                    String.format("q=%s", query.substring(0, Math.min(20, query.length()))), prompt);
+                    String.format("q=%s", query.substring(0, Math.min(20, query.length()))),
+                    chatModelFactory::buildToolChatModel, chatMessages);
             if (result != null) {
                 // 解析 AI 响应，按行分割并过滤无效内容
                 List<String> expanded = Arrays.stream(result.split("\n"))
@@ -466,8 +429,8 @@ public class ChatModelManager {
                 input.append("\n【章节原文摘录】\n").append(book.getChapterSummary()).append("\n");
             }
 
-            String prompt = String.format("""
-                    你是一位专业的图书编辑。请根据以下图书信息，生成一份精炼的结构化摘要。
+            String systemPrompt = """
+                    你是一位专业的图书编辑。请根据提供的图书信息，生成一份精炼的结构化摘要。
                     
                     要求：
                     1. 精炼高于简短：不设字数上限，但每个字都要有价值，不废话
@@ -485,15 +448,16 @@ public class ChatModelManager {
                     【独特贡献】本书在该领域中的独特贡献或与同类书的差异（如有）
                     
                     【适合读者】适合什么样的读者阅读
-                    
-                    ———
-                    
-                    %s
-                    """, input.toString());
+                    """;
+
+            // 动态内容（图书信息）作为 UserMessage
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(systemPrompt),
+                    UserMessage.from(input.toString()));
 
             String result = callAi("图书摘要精炼",
                     String.format("book=%s, inputLen=%d", book.getTitle(), input.length()),
-                    prompt);
+                    chatMessages);
 
             if (result != null && !result.isBlank()) {
                 log.info("图书摘要精炼成功: bookId={}, title={}, resultLen={}",
@@ -556,9 +520,22 @@ public class ChatModelManager {
      *
      * @return StreamingChatModel 实例，未配置时返回 null
      */
-    public StreamingChatModel getStreamingChatModel() {
-        return chatModelFactory.buildStreamingChatModelWithoutThinkingFromYml();
+    public StreamingChatModel getStreamingChatModelWithoutThinking() {
+        return chatModelFactory.buildStreamingChatModelWithoutThinking();
     }
+
+    /**
+     * 获取非流式聊天模型实例（不带思考模式）。
+     *
+     * <p>该方法返回一个标准的 ChatModel 实例，用于同步对话场景。与带思考模式的模型不同，
+     * 此模型不会进行深度推理和思考过程，适用于快速响应的一般对话任务。</p>
+     *
+     * @return ChatModel 实例，未配置时返回 null
+     */
+    public ChatModel getChatModelWithoutThinking() {
+        return chatModelFactory.buildChatModelWithoutThinking();
+    }
+
 
     /**
      * 流式生成 3 分钟速读摘要，通过 SSE 实时推送内容。
@@ -572,7 +549,7 @@ public class ChatModelManager {
     public void streamSpeedRead(Book book, User user, SseEmitter emitter) {
         try {
             // 获取流式模型实例
-            StreamingChatModel model = chatModelFactory.buildStreamingChatModelWithoutThinkingFromYml();
+            StreamingChatModel model = chatModelFactory.buildStreamingToolChatModel();
             if (model == null) {
                 SseHelper.sendErrorAndComplete(emitter, "AI 模型未配置，无法生成速读摘要");
                 return;

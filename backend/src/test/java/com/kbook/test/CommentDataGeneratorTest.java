@@ -187,7 +187,7 @@ public class CommentDataGeneratorTest {
     private ChatModel initChatModel() {
         System.out.println("正在从配置加载AI模型...");
         // 使用 AiProviderConfigService 获取当前活跃的AI配置
-        ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+        ChatModel chatModel = chatModelFactory.buildToolChatModel();
 
         if (chatModel == null) {
             throw new IllegalStateException("未找到可用的AI模型配置，请先在管理后台配置AI模型或检查application.yml中的langchain4j配置");

@@ -130,15 +130,7 @@ services:
       QDRANT_PORT: 6334
       # ---- JWT（⚠️ 生产环境必改） ----
       JWT_SECRET: ${JWT_SECRET}
-      # ---- AI 大模型 ----
-      AI_PROVIDER: ${AI_PROVIDER:-ollama}
-      AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:11434}
-      AI_MODEL: ${AI_MODEL:-gemma4:12b}
-      AI_API_KEY: ${AI_API_KEY:-}
-      AI_EMBEDDING_PROVIDER: ${AI_EMBEDDING_PROVIDER:-ollama}
-      AI_EMBEDDING_BASE_URL: ${AI_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}
-      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-bge-m3:latest}
-      AI_EMBEDDING_API_KEY: ${AI_EMBEDDING_API_KEY:-}
+      # ---- AI 视觉模型（OCR 用，留空则使用对话模型） ----
       AI_VISION_MODEL: ${AI_VISION_MODEL:-}
       AI_VISION_TIMEOUT: ${AI_VISION_TIMEOUT:-600s}
       # ---- AI 配置 ----

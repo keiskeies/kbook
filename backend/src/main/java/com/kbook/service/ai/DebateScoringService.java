@@ -14,6 +14,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -72,9 +76,9 @@ public class DebateScoringService {
     private DebateScore doScore(Long userId, String sessionId, String roleKey, String positionKey,
                                   String side, String content, int roundNumber, String roundType) {
         // 获取最后一条消息的 ID
-        var messages = messageRepository.findBySessionIdAndRoundNumberOrderByPhaseOrder(sessionId, roundNumber);
-        if (messages.isEmpty()) return null;
-        Long messageId = messages.get(messages.size() - 1).getId();
+        var debateMessages = messageRepository.findBySessionIdAndRoundNumberOrderByPhaseOrder(sessionId, roundNumber);
+        if (debateMessages.isEmpty()) return null;
+        Long messageId = debateMessages.get(debateMessages.size() - 1).getId();
 
         try {
             // 从 DebateSession 获取辩题，而非从消息中取
@@ -83,16 +87,24 @@ public class DebateScoringService {
                     .list(1).stream().findFirst().orElse(null);
             String topic = session != null ? session.getTopic() : "未知辩题";
 
-            String prompt = String.format(
-                    AiPromptConstants.DEBATE_SCORING_PROMPT,
+            // 动态内容作为 UserMessage，评分规则作为 SystemMessage
+            String userPrompt = String.format("""
+                    辩题：%s
+                    发言者：%s（%s方）
+                    当前轮次：%s
+                    发言内容：%s""",
                     topic, roleKey, side,
                     getRoundTypeLabel(roundType),
                     content);
 
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(AiPromptConstants.DEBATE_SCORING_SYSTEM_PROMPT),
+                    UserMessage.from(userPrompt));
+
             String result = chatModelManager.callAi(
                     "辩论评分",
                     String.format("sessionId=%s, roleKey=%s, round=%d", sessionId, roleKey, roundNumber),
-                    prompt);
+                    chatMessages);
 
             if (result == null || result.isBlank()) {
                 return null;

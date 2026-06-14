@@ -1412,7 +1412,7 @@ public class RoundTableCoverageTest {
      */
     private String callLlm(String prompt) {
         try {
-            ChatModel chatModel = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+            ChatModel chatModel = chatModelFactory.buildToolChatModel();
             if (chatModel == null) {
                 log.warn("AI 模型不可用");
                 return null;

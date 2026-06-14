@@ -1,6 +1,6 @@
 package com.kbook.service.ai;
 
-
+import com.kbook.config.ChatModelFactory;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
@@ -9,212 +9,178 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
 import lombok.extern.slf4j.Slf4j;
-import com.kbook.config.ChatModelFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.TimeUnit;
 
 /**
- * AI 配置服务 — 支持从数据库动态读取对话 AI 配置，未配置时回退到 yml 默认模型
+ * AI 配置服务 — 全部从数据库读取，不再回退 yml
  * <p>
- * 配置优先级：
- * 1. 数据库 ai_provider_config 表中 purpose=CHAT 且 enabled=true 的记录
- * 2. application.yml 中的 langchain4j.chat-model 配置
+ * CHAT 用途分两个角色：
+ * - QA: 大型问答（图书问答、AI助理、圆桌派、奇葩说）
+ * - TOOL: 小型工具（元数据推断、内容压缩、查询扩展等）
  * <p>
- * ChatModel 的构建委托给 ChatModelFactory。
- * AiToolService 使用 ObjectProvider 延迟获取（@Lazy 代理会导致 @Tool 注解不可见）。
+ * 配置缓存存放在 Redis，键格式：
+ * - kbook:ai:config:{purpose}:{id} — 单条配置
+ * - kbook:ai:config:active:{purpose}:{role} — 某用途角色当前启用的配置
  */
 @Slf4j
 @Service
 public class AiProviderConfigService {
+
+    private static final String REDIS_KEY_PREFIX = "kbook:ai:config:";
+    private static final long REDIS_TTL_HOURS = 2;
 
     private final AiChatMemory chatMemoryStore;
     private final ObjectProvider<AiToolService> toolServiceProvider;
     private final ChatModelFactory chatModelFactory;
     private final AiProviderConfigRepository configRepository;
     private final ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider;
+    private final StringRedisTemplate redisTemplate;
 
-    /**
-     * 对话 AI 配置的缓存版本号，每次配置变更时递增
-     */
-    private final AtomicLong chatConfigVersion = new AtomicLong(0);
-
-    /**
-     * 按版本号缓存的 AiAssistant 实例
-     */
-    private volatile AiAssistant cachedChatAssistant;
-    private volatile long cachedChatAssistantVersion = -1;
-
-
-    /**
-     * 构造函数，通过 Spring 依赖注入所需的 Bean。
-     *
-     * @param chatMemoryStore             对话记忆存储，用于管理会话历史
-     * @param toolServiceProvider         AI 工具服务提供器，延迟获取以避免循环依赖
-     * @param chatModelFactory            聊天模型工厂，负责创建 ChatModel 实例
-     * @param configRepository            AI 配置仓库，用于数据库查询
-     * @param bookAdminChatServiceProvider 管理员聊天服务提供器，延迟获取
-     */
     public AiProviderConfigService(
             AiChatMemory chatMemoryStore,
             ObjectProvider<AiToolService> toolServiceProvider,
             ChatModelFactory chatModelFactory,
             AiProviderConfigRepository configRepository,
-            ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider
-    ) {
+            ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider,
+            StringRedisTemplate redisTemplate) {
         this.chatMemoryStore = chatMemoryStore;
         this.toolServiceProvider = toolServiceProvider;
         this.chatModelFactory = chatModelFactory;
         this.configRepository = configRepository;
         this.bookAdminChatServiceProvider = bookAdminChatServiceProvider;
+        this.redisTemplate = redisTemplate;
     }
 
-    // ==================== 对话 AI 配置 ====================
+    // ==================== 查询 ====================
 
     /**
-     * 获取对话用途的默认数据库配置（CHAT purpose, isDefault=true, enabled=true），
-     * 如果不存在或未启用则返回 null
+     * 获取 CHAT 用途中 roles 包含指定角色的启用配置
      */
-    public AiProviderConfig getChatConfig() {
-        return configRepository.findByPurposeAndIsDefaultTrueAndEnabledTrue(AiProviderConfig.Purpose.CHAT.name())
+    public AiProviderConfig getChatConfigByRole(String role) {
+        return configRepository.findByPurposeAndEnabledAndRolesContaining(
+                        AiProviderConfig.Purpose.CHAT.name(), "%" + role + "%")
                 .orElse(null);
     }
 
     /**
-     * 获取当前激活对话配置的 RAG TopK 值
-     * 如果配置中未指定，则返回 null，调用方应回退到全局默认值
+     * 获取指定用途的所有配置（按更新时间降序）
+     */
+    public List<AiProviderConfig> getConfigsByPurpose(String purpose) {
+        return configRepository.findByPurposeOrderByCreatedAtDesc(purpose);
+    }
+
+    /**
+     * 获取指定用途的所有启用配置（按更新时间降序）
+     */
+    public List<AiProviderConfig> getEnabledConfigsByPurpose(String purpose) {
+        return configRepository.findByPurposeAndEnabledTrueOrderByCreatedAtDesc(purpose);
+    }
+
+    /**
+     * 获取指定用途的首个启用配置
+     */
+    public AiProviderConfig getFirstEnabledByPurpose(String purpose) {
+        return configRepository.findFirstByPurposeAndEnabledTrueOrderByUpdatedAtDesc(purpose).orElse(null);
+    }
+
+    /**
+     * 获取当前 QA 配置的 RAG TopK 值
      */
     public Integer getActiveRagTopK() {
-        AiProviderConfig config = getChatConfig();
+        AiProviderConfig config = getChatConfigByRole("QA");
         return config != null ? config.getRagTopK() : null;
     }
 
     /**
-     * 获取当前激活对话配置的上下文长度（token 数），未配置返回 null
+     * 获取当前 QA 配置的上下文长度
      */
     public Integer getActiveMaxTokens() {
-        AiProviderConfig config = getChatConfig();
+        AiProviderConfig config = getChatConfigByRole("QA");
         return config != null ? config.getMaxTokens() : null;
     }
 
-    /**
-     * 获取指定用途的所有配置列表
-     */
-    public List<AiProviderConfig> getConfigsByPurpose(String purpose) {
-        return configRepository.findByPurposeOrderByIsDefaultDescUpdatedAtDesc(purpose);
-    }
+    // ==================== 缓存管理 ====================
 
     /**
-     * 切换指定配置为默认（激活）状态
-     * <p>
-     * 将同 purpose 的其他配置的 isDefault 设为 false，
-     * 将目标配置的 isDefault 设为 true。
+     * 刷新配置到 Redis 缓存
      */
-    @Transactional
-    public AiProviderConfig switchDefault(Long configId) {
-        // 查找目标配置，不存在则抛出异常
-        AiProviderConfig config = configRepository.findById(configId)
-                .orElseThrow(() -> new RuntimeException("配置不存在: " + configId));
-
-        // 清除同 purpose 其他配置的默认标记
-        configRepository.clearDefaultForPurpose(config.getPurpose(), configId);
-
-        // 设置目标配置为默认
-        config.setIsDefault(true);
-        AiProviderConfig saved = configRepository.save(config);
-
-        // 使对话缓存失效，下次请求将使用新配置
-        invalidateChatCache();
-
-        log.info("已切换默认配置: id={}, name={}, purpose={}", configId, config.getName(), config.getPurpose());
-        return saved;
-    }
-
-
-    /**
-     * 获取对话 AiAssistant（带版本缓存）
-     * <p>
-     * 当管理员更新对话配置后，调用 invalidateChatCache() 使缓存失效，
-     * 下次获取时将重新构建 Assistant。
-     */
-    public AiAssistant getChatAssistant() {
-        // 获取当前配置版本号
-        long currentVersion = chatConfigVersion.get();
-        // 如果缓存有效，直接返回
-        if (cachedChatAssistant != null && cachedChatAssistantVersion == currentVersion) {
-            return cachedChatAssistant;
-        }
-
-        // 双重检查锁，确保线程安全
-        synchronized (this) {
-            // 双重检查
-            if (cachedChatAssistant != null && cachedChatAssistantVersion == currentVersion) {
-                return cachedChatAssistant;
-            }
-            // 缓存失效，重新构建 Assistant
-            cachedChatAssistant = buildChatAssistant();
-            cachedChatAssistantVersion = currentVersion;
-            return cachedChatAssistant;
+    public void cacheConfig(AiProviderConfig config) {
+        if (config == null || config.getId() == null) return;
+        String key = REDIS_KEY_PREFIX + config.getPurpose() + ":" + config.getId();
+        try {
+            redisTemplate.opsForValue().set(key, String.valueOf(config.getId()),
+                    REDIS_TTL_HOURS, TimeUnit.HOURS);
+        } catch (Exception e) {
+            log.warn("Redis 缓存写入失败: {}", e.getMessage());
         }
     }
 
     /**
-     * 使对话缓存失效（配置变更时调用）
+     * 从 Redis 删除缓存的配置
      */
-    public void invalidateChatCache() {
-        chatConfigVersion.addAndGet(1L);
-        cachedChatAssistant = null;
-        // 同时清除 BookAdminChatService 的独立缓存
+    public void evictConfigCache(Long configId, String purpose) {
+        String key = REDIS_KEY_PREFIX + purpose + ":" + configId;
+        try {
+            redisTemplate.delete(key);
+        } catch (Exception e) {
+            log.warn("Redis 缓存删除失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 使所有 AI 模型缓存失效（配置变更时调用）
+     */
+    public void invalidateAllCache() {
+        // Redis 缓存通过 TTL 自动过期，这里通知各个 Assistant 重建
+        invalidateChatAssistantCache();
         bookAdminChatServiceProvider.ifAvailable(BookAdminChatService::clearCache);
-        log.info("对话 AI 缓存已失效，下次请求将重新构建 Assistant");
+        log.info("AI 配置缓存已全部失效");
     }
 
     /**
-     * 清除所有缓存（兼容旧代码）
+     * 使对话 Assistant 缓存失效
+     */
+    public void invalidateChatAssistantCache() {
+        // 不再需要内存版本缓存，每次从 DB 读取最新配置
+        // ChatModelFactory 每次调用都查 DB
+        log.debug("对话 Assistant 缓存已标记失效");
+    }
+
+    /**
+     * 清理当前 Assistant 缓存（错误恢复时调用，使下一个请求重新创建 Assistant）
      */
     public void clearAssistantCache() {
-        invalidateChatCache();
-        log.debug("已清除所有 AI Assistant 缓存");
+        invalidateChatAssistantCache();
     }
 
-
-    // ==================== 内部方法 ====================
+    // ==================== 对话 AI ====================
 
     /**
-     * 构建对话用途的 AiAssistant（使用数据库配置或 yml 回退）
+     * 获取 QA 角色的 AiAssistant
      */
-    private AiAssistant buildChatAssistant() {
-        // 获取数据库配置，如果不存在则使用 yml 默认配置
-        AiProviderConfig config = getChatConfig();
-        String modelName = config != null ? config.getModelName() : chatModelFactory.getModelName();
-        // 判断模型是否支持工具调用
+    public AiAssistant getChatAssistant() {
+        return buildChatAssistant("QA");
+    }
+
+    /**
+     * 构建指定角色的 AiAssistant
+     */
+    private AiAssistant buildChatAssistant(String role) {
+        AiProviderConfig config = getChatConfigByRole(role);
+        if (config == null) {
+            throw new IllegalStateException("未找到可用" + role + "对话配置");
+        }
+
         boolean toolsSupported = chatModelFactory.isToolsSupported(config);
 
-        log.info("构建对话 AI Assistant: source={}, model={}, toolsEnabled={}, baseUrl={}",
-                config != null ? "DB(config)" : "yml(default)", modelName, toolsSupported,
-                config != null ? config.getBaseUrl() : chatModelFactory.getDefaultBaseUrl());
-        if (config != null) {
-            log.info("  DB 配置详情: id={}, purpose={}, provider={}, enabled={}, toolsEnabled(explicit)={}",
-                    config.getId(), config.getPurpose(), config.getProvider(),
-                    config.getEnabled(), config.getToolsEnabled());
-        }
-        // 诊断：从 AiAssistant 接口反射读取 @SystemMessage 的实际值
-        try {
-            var sm = AiAssistant.class.getAnnotation(SystemMessage.class);
-            if (sm != null) {
-                String[] lines = sm.value();
-                String firstLine = lines.length > 0 ? lines[0] : "(空)";
-                log.info("  @SystemMessage 已读取: 总{}行, 首行={}", lines.length,
-                        firstLine.length() > 80 ? firstLine.substring(0, 80) + "..." : firstLine);
-            } else {
-                log.error("  ❌ AiAssistant 接口上未找到 @SystemMessage 注解！");
-            }
-        } catch (Exception e) {
-            log.error("  读取 @SystemMessage 失败: {}", e.getMessage());
-        }
+        log.info("构建对话 AI Assistant: role={}, model={}, toolsEnabled={}, baseUrl={}",
+                role, config.getModelName(), toolsSupported, config.getBaseUrl());
 
         ChatModel chatModel = chatModelFactory.buildChatModel();
         StreamingChatModel streamingModel = chatModelFactory.buildStreamingChatModel();
@@ -232,10 +198,28 @@ public class AiProviderConfigService {
             Object toolObj = toolServiceProvider.getObject();
             builder.tools(toolObj);
             log.info("  已注册 AI 工具: class={}", toolObj.getClass().getName());
-        } else {
-            log.warn("  对话模型 {} 不支持 Tool Calling，AI 助理将以纯对话模式运行（无法调用搜索/推荐等工具）", modelName);
         }
 
         return builder.build();
+    }
+
+    // ==================== 内部 ====================
+
+    @Transactional
+    public AiProviderConfig saveConfig(AiProviderConfig config) {
+        AiProviderConfig saved = configRepository.save(config);
+        cacheConfig(saved);
+        invalidateAllCache();
+        return saved;
+    }
+
+    @Transactional
+    public void deleteConfig(Long id) {
+        AiProviderConfig config = configRepository.findById(id).orElse(null);
+        if (config != null) {
+            evictConfigCache(id, config.getPurpose());
+            configRepository.deleteById(id);
+            invalidateAllCache();
+        }
     }
 }

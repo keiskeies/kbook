@@ -2,10 +2,8 @@ package com.kbook.repository;
 
 import com.kbook.common.repository.BaseRepository;
 import com.kbook.entity.AiProviderConfig;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -16,28 +14,29 @@ import java.util.Optional;
 public interface AiProviderConfigRepository extends BaseRepository<AiProviderConfig, Long> {
 
     /**
-     * 查找指定用途的默认（激活）配置
+     * 查找指定用途中启用且 roles 包含指定角色的配置（取第一条）
      */
-    Optional<AiProviderConfig> findByPurposeAndIsDefaultTrueAndEnabledTrue(String purpose);
+    @Query("SELECT c FROM AiProviderConfig c WHERE c.purpose = :purpose AND c.enabled = true AND c.roles LIKE %:role% ORDER BY c.updatedAt DESC")
+    Optional<AiProviderConfig> findByPurposeAndEnabledAndRolesContaining(@Param("purpose") String purpose, @Param("role") String role);
 
     /**
-     * 查找指定用途的所有配置，按 isDefault 降序、updatedAt 降序
+     * 查找指定用途中 roles 包含指定角色的所有配置（用于唯一性校验）
      */
-    List<AiProviderConfig> findByPurposeOrderByIsDefaultDescUpdatedAtDesc(String purpose);
+    @Query("SELECT c FROM AiProviderConfig c WHERE c.purpose = :purpose AND c.roles LIKE %:role%")
+    List<AiProviderConfig> findAllByPurposeAndRolesContaining(@Param("purpose") String purpose, @Param("role") String role);
 
     /**
-     * 将指定用途的其他配置的 isDefault 设为 false
+     * 查找指定用途中首个启用的配置
      */
-    @Modifying
-    @Transactional
-    @Query("UPDATE AiProviderConfig c SET c.isDefault = false WHERE c.purpose = :purpose AND c.id <> :excludeId")
-    void clearDefaultForPurpose(@Param("purpose") String purpose, @Param("excludeId") Long excludeId);
+    Optional<AiProviderConfig> findFirstByPurposeAndEnabledTrueOrderByUpdatedAtDesc(String purpose);
 
     /**
-     * 将指定用途的所有配置的 isDefault 设为 false
+     * 查找指定用途的所有配置，按 createdAt 降序（最新创建在前，顺序稳定）
      */
-    @Modifying
-    @Transactional
-    @Query("UPDATE AiProviderConfig c SET c.isDefault = false WHERE c.purpose = :purpose")
-    void clearAllDefaultsForPurpose(@Param("purpose") String purpose);
+    List<AiProviderConfig> findByPurposeOrderByCreatedAtDesc(String purpose);
+
+    /**
+     * 查找指定用途中所有启用的配置
+     */
+    List<AiProviderConfig> findByPurposeAndEnabledTrueOrderByCreatedAtDesc(String purpose);
 }

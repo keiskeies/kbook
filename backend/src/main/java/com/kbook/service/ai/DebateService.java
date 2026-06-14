@@ -8,12 +8,7 @@ import com.kbook.common.util.SseHelper;
 import com.kbook.config.ai.AiConfig;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.constants.AiPromptConstants;
-import com.kbook.dto.book.BookProjection;
-import com.kbook.dto.debate.DebateMessageVO;
-import com.kbook.dto.debate.DebateRoleVO;
-import com.kbook.dto.debate.DebateSessionVO;
-import com.kbook.dto.debate.DebateSpeakRequest;
-import com.kbook.dto.debate.DebateTopicVO;
+import com.kbook.dto.debate.*;
 import com.kbook.entity.Book;
 import com.kbook.entity.debate.DebateMessage;
 import com.kbook.entity.debate.DebateSession;
@@ -26,12 +21,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.PartialResponse;
-import dev.langchain4j.model.chat.response.PartialResponseContext;
-import dev.langchain4j.model.chat.response.PartialThinking;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
-import dev.langchain4j.model.chat.response.StreamingHandle;
+import dev.langchain4j.model.chat.response.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -39,12 +29,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.kbook.common.util.QueryBuilder.eq;
 import static com.kbook.common.util.QueryBuilder.ne;
@@ -84,7 +72,6 @@ public class DebateService {
     private static final long DEBATE_TOPICS_TTL_SECONDS = 86400; // 24h
     private static final long SSE_TIMEOUT = 3600_000L;
     private static final int SUMMARY_MAX_LENGTH = 3000;
-    private static final int MAX_ROUND = 5;
 
     public DebateService(
             BookService bookService,
@@ -137,12 +124,14 @@ public class DebateService {
         List<DebateTopicVO> topics;
         try {
             String bookInfo = buildBookInfoForTopic(book);
-            String prompt = String.format(AiPromptConstants.DEBATE_TOPIC_GENERATION_PROMPT, bookInfo);
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(AiPromptConstants.DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT),
+                    UserMessage.from("书籍信息：" + bookInfo));
 
             String result = chatModelManager.callAi(
                     "辩论辩题生成",
                     String.format("bookId=%d, title=%s", bookId, book.getTitle()),
-                    prompt);
+                    chatMessages);
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
@@ -221,15 +210,28 @@ public class DebateService {
         }
 
         String bookInfo = buildBookInfoForTopic(book);
-        String prompt = String.format(AiPromptConstants.DEBATE_OPTIMIZE_TOPIC_PROMPT,
-                bookInfo, topic != null ? topic : "",
-                proArg != null ? proArg : "", conArg != null ? conArg : "");
+        String userPrompt = String.format("""
+                书籍信息：
+                %s
+
+                用户的原始输入：
+                辩题：%s
+                正方观点：%s
+                反方观点：%s""",
+                bookInfo,
+                topic != null ? topic : "",
+                proArg != null ? proArg : "",
+                conArg != null ? conArg : "");
 
         try {
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(AiPromptConstants.DEBATE_OPTIMIZE_TOPIC_SYSTEM_PROMPT),
+                    UserMessage.from(userPrompt));
+
             String result = chatModelManager.callAi(
                     "辩论辩题优化",
                     String.format("bookId=%d, topic=%s", bookId, topic != null ? topic : ""),
-                    prompt);
+                    chatMessages);
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
@@ -353,7 +355,7 @@ public class DebateService {
     }
 
     public List<DebateRoleVO> getRoles() {
-        return List.of(DebateRole.values()).stream()
+        return Stream.of(DebateRole.values())
                 .map(DebateRoleVO::from)
                 .collect(Collectors.toList());
     }
@@ -446,14 +448,14 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, null);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
                 }
 
                 streamResponse(emitter, streamingChatModel, messages, userId, bookId, session,
-                        personality, positionKey, request, null);
+                        personality, positionKey, request);
             } catch (Exception e) {
                 log.error("开篇立论发言失败: {}", e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
@@ -492,14 +494,14 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, opponentSpeech);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
                 }
 
                 streamResponse(emitter, streamingChatModel, messages, userId, bookId, session,
-                        personality, positionKey, request, opponentSpeech);
+                        personality, positionKey, request);
             } catch (Exception e) {
                 log.error("奇袭攻辩发言失败: {}", e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
@@ -570,14 +572,14 @@ public class DebateService {
                 messages.remove(messages.size() - 1);
                 messages.add(UserMessage.from(examOutput + "\n\n" + examInstruction));
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
                 }
 
                 streamResponse(emitter, streamingChatModel, messages, userId, bookId, session,
-                        personality, positionKey, request, extraContent);
+                        personality, positionKey, request);
             } catch (Exception e) {
                 log.error("交叉质询发言失败: {}", e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
@@ -622,14 +624,14 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, extraContent);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
                 }
 
                 streamResponse(emitter, streamingChatModel, messages, userId, bookId, session,
-                        personality, positionKey, request, extraContent);
+                        personality, positionKey, request);
             } catch (Exception e) {
                 log.error("驳论发言失败: {}", e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
@@ -667,14 +669,14 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, lastSpeech);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
                 }
 
                 streamResponse(emitter, streamingChatModel, messages, userId, bookId, session,
-                        personality, positionKey, request, lastSpeech);
+                        personality, positionKey, request);
             } catch (Exception e) {
                 log.error("自由辩论发言失败: {}", e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
@@ -714,14 +716,14 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, debateSummary);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
                 }
 
                 streamResponse(emitter, streamingChatModel, messages, userId, bookId, session,
-                        personality, positionKey, request, debateSummary);
+                        personality, positionKey, request);
             } catch (Exception e) {
                 log.error("总结陈词发言失败: {}", e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
@@ -816,7 +818,6 @@ public class DebateService {
 
     private String getOutputPrompt(String roundType) {
         return switch (roundType) {
-            case "OPENING" -> AiPromptConstants.DEBATE_OPENING_OUTPUT;
             case "CROSS_EXAM" -> AiPromptConstants.DEBATE_CROSS_EXAM_QUESTIONER_OUTPUT; // fallback
             case "REBUTTAL" -> AiPromptConstants.DEBATE_REBUTTAL_OUTPUT;
             case "FREE" -> AiPromptConstants.DEBATE_FREE_OUTPUT;
@@ -832,7 +833,7 @@ public class DebateService {
             SseEmitter emitter, StreamingChatModel streamingChatModel,
             List<ChatMessage> messages, Long userId, Long bookId,
             DebateSession session, DebateRole personality, String positionKey,
-            DebateSpeakRequest request, String extraContent) {
+            DebateSpeakRequest request) {
 
         final boolean[] connectionClosed = {false};
         StringBuilder fullResponse = new StringBuilder();
@@ -990,18 +991,30 @@ public class DebateService {
             }
         }
 
-        String prompt = String.format(
-                AiPromptConstants.DEBATE_NEXT_SPEAKER_FREE_PROMPT,
+        String userPrompt = String.format("""
+                当前辩题：%s
+
+                参与辩手：
+                %s
+
+                上一位发言者：%s（%s方）
+
+                发言次数统计：
+                %s""",
                 session.getTopic(),
                 rolesInfo.toString(),
                 lastSpeaker, lastSide,
                 countInfo.toString());
 
         try {
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(AiPromptConstants.DEBATE_NEXT_SPEAKER_FREE_SYSTEM_PROMPT),
+                    UserMessage.from(userPrompt));
+
             String result = chatModelManager.callAi(
                     "辩论自由辩论发言人选择",
                     String.format("sessionId=%s", sessionId),
-                    prompt);
+                    chatMessages);
 
             if (result != null && !result.isBlank()) {
                 result = result.trim();
@@ -1021,29 +1034,7 @@ public class DebateService {
 
         // 回退：选取对方发言次数最少的非 HOST 辩手（保证交替）
         String oppositeSide = "PRO".equals(lastSide) ? "CON" : "CON".equals(lastSide) ? "PRO" : null;
-        if (oppositeSide != null) {
-            return getLeastSpokenSpeakerBySide(speakCounts, oppositeSide);
-        }
-        // 无上一位（自由辩论第一轮首次）→ 正方必须先发言
-        return getLeastSpokenSpeakerBySide(speakCounts, "PRO");
-    }
-
-    /**
-     * 回退：获取发言次数最少的非主持人辩手
-     */
-    private String getLeastSpokenSpeaker(Map<String, Long> speakCounts) {
-        String leastSpeaker = null;
-        long minCount = Long.MAX_VALUE;
-
-        for (String positionKey : getAllPositionKeys()) {
-            if ("HOST".equals(positionKey)) continue;
-            long count = speakCounts.getOrDefault(positionKey, 0L);
-            if (count < minCount) {
-                minCount = count;
-                leastSpeaker = positionKey;
-            }
-        }
-        return leastSpeaker;
+        return getLeastSpokenSpeakerBySide(speakCounts, Objects.requireNonNullElse(oppositeSide, "PRO"));
     }
 
     /**

@@ -351,7 +351,7 @@ public class RoundTableReportService {
     // ==================== LLM 调用 ====================
 
     private String callLlm(String prompt) {
-        ChatModel model = chatModelFactory.buildChatModelWithoutThinkingFromYml();
+        ChatModel model = chatModelFactory.buildToolChatModel();
         return model != null ? model.chat(prompt) : null;
     }
 

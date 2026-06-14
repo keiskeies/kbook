@@ -98,15 +98,16 @@ start.bat                 # Windows（双击）
 
 ### 核心配置说明
 
+> AI 模型供应商（对话模型 / 嵌入模型）现已迁移至数据库管理，部署启动后请登录管理后台 → AI 配置管理 添加配置。首次启动会自动创建默认占位配置，请务必修改为实际值。
+
 | 参数 | 必须改 | 说明 |
 |------|--------|------|
 | `JWT_SECRET` | ✅ | 至少 32 字符随机字符串，用于令牌签名 |
 | `MYSQL_PASSWORD` | ✅ | MySQL root 密码，16 位以上 |
 | `REDIS_PASSWORD` | ✅ | Redis 密码，16 位以上 |
 | `KBOOK_ADMIN_PASSWORD` | ✅ | 管理员密码，12 位以上 |
-| `AI_PROVIDER` | ✅ | `ollama`（本地）或 `openai`（云端） |
-| `AI_BASE_URL` | ✅ | Ollama: `http://host.docker.internal:11434` |
-| `AI_MODEL` | ✅ | Ollama: `gemma4:12b`；DeepSeek: `deepseek-chat` |
+| `AI_VISION_MODEL` | 按需 | PDF OCR 视觉模型（留空则自动使用对话模型） |
+| `AI_VISION_TIMEOUT` | 按需 | 视觉模型超时（默认 `600s`） |
 | `BOOK_PATH_EPUB_HOST` | 按需 | 宿主机上的 EPUB 图书目录 |
 | `APP_PORT_HOST` | 按需 | 前端端口（默认 80，被占则改 8080） |
 

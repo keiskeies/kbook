@@ -169,12 +169,14 @@ public class RoundTableService {
         // 2. 冷启动 / 强制刷新 → LLM
         try {
             String bookInfo = buildBookInfoForRoleSelection(book);
-            String prompt = String.format(AiPromptConstants.ROUND_TABLE_ROLE_SELECTION_PROMPT, bookInfo);
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(AiPromptConstants.ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT),
+                    UserMessage.from("书籍信息：\n" + bookInfo));
 
             String result = chatModelManager.callAi(
                     "圆桌派角色推荐",
                     String.format("bookId=%d, title=%s", bookId, book.getTitle()),
-                    prompt);
+                    chatMessages);
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
@@ -306,20 +308,17 @@ public class RoundTableService {
             String roleList = Arrays.stream(RoundTableRole.values())
                     .map(r -> r.getKey() + "(" + r.getName() + ")")
                     .collect(Collectors.joining(", "));
-            String prompt = """
-                    根据以下书籍信息，从角色列表中选出最适合参与讨论的 4-6 个角色（不含 HOST）。
-                    只输出角色 key，用逗号分隔，不要输出任何解释。
-                    
-                    角色列表：%s
-                    
-                    书籍信息：
-                    %s
-                    """.stripIndent().formatted(roleList, bookInfo);
+            String systemPrompt = "根据提供的书籍信息，从角色列表中选出最适合参与讨论的4-6个角色（不含HOST）。只输出角色key，用逗号分隔，不要输出任何解释。";
+            String userPrompt = "角色列表：" + roleList + "\n\n书籍信息：\n" + bookInfo;
+
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(systemPrompt),
+                    UserMessage.from(userPrompt));
 
             String result = chatModelManager.callAi(
                     "圆桌派角色推荐(回退)",
                     String.format("bookId=%d, title=%s", book.getId(), book.getTitle()),
-                    prompt);
+                    chatMessages);
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
@@ -1014,7 +1013,7 @@ public class RoundTableService {
                         request.getSessionId(), userId, systemPrompt, bookInfo, ragContent, roleSetting, extraInstructions, role.getName());
 
                 // 构建流式模型（不使用 thinking 模式）
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModel();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
@@ -1703,31 +1702,34 @@ public class RoundTableService {
             // 角色专业关键词
             String roleKeywords = getRoleSearchKeywords(role);
 
-            String prompt = """
-                    你是一个检索查询生成器。请根据以下信息，生成一段用于在书中检索相关段落的查询文本。
+            String systemPrompt = """
+                    你是一个检索查询生成器。请根据提供的信息，生成一段用于在书中检索相关段落的查询文本。
                     
                     要求：
                     1. 查询应该从该角色的专业视角出发，结合角色关注的关键词
                     2. 查询要紧扣当前讨论话题，让检索结果能帮助该角色发表有深度的观点
                     3. 只输出查询文本本身，不要输出任何解释或前缀
                     4. 查询长度控制在30-80字
-                    
+                    """;
+            String userPrompt = String.format("""
                     【图书】%s
                     【角色】%s（%s）
                     【角色关注领域】%s
                     【最近讨论】
-                    %s
-                    """.stripIndent().formatted(
+                    %s""",
                     book.getTitle(),
                     role.getName(), role.getTitle(),
                     roleKeywords,
-                    recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion
-            );
+                    recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion);
+
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(systemPrompt),
+                    UserMessage.from(userPrompt));
 
             String result = chatModelManager.callAi(
                     "圆桌派角色检索查询",
                     String.format("role=%s", role.getKey()),
-                    prompt);
+                    chatMessages);
             if (result != null && !result.isBlank()) {
                 // 清理可能的前缀（如"查询："、"检索："等）
                 result = result.trim()
