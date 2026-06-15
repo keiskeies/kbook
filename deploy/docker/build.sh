@@ -34,11 +34,11 @@ fi
 echo -e "${GREEN}✓${NC}"
 
 # 3. Build
-echo -e "${YELLOW}[3/3] 构建镜像 kbook-app:latest ...${NC}"
-docker build -t kbook-app:latest -f ../Dockerfile ..
+echo -e "${YELLOW}[3/3] 构建镜像 kbook-app:1.0.8 ...${NC}"
+docker build -t kbook-app:1.0.8 -f ../Dockerfile ..
 echo -e "${GREEN}✓${NC}"
 
 echo -e "\n${GREEN}============================================${NC}"
-echo -e "${GREEN}  构建成功！kbook-app:latest${NC}"
+echo -e "${GREEN}  构建成功！kbook-app:1.0.8${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo -e "  运行：${YELLOW}./start.sh${NC}"

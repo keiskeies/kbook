@@ -55,8 +55,8 @@ done
 echo -e "${GREEN}✓${NC}"
 
 # 5. 构建镜像
-echo -e "${YELLOW}[5/6] 构建镜像 kbook-app:latest ...${NC}"
-docker build -t kbook-app:latest -f ../Dockerfile ..
+echo -e "${YELLOW}[5/6] 构建镜像 kbook-app:1.0.8 ...${NC}"
+docker build -t kbook-app:1.0.8 -f ../Dockerfile ..
 echo -e "${GREEN}✓${NC}"
 
 # 6. 启动
@@ -141,7 +141,7 @@ docker run -d \
     -v "${CHAT_DIR}:/data/chat" \
     -v "${TTS_CACHE_DIR}:/data/tts_cache" \
     -v "${AI_CONFIG_HOST}:/app/config/ai-config.json:ro" \
-    kbook-app:latest
+    kbook-app:1.0.8
 
 echo -e "${GREEN}✓${NC}"
 

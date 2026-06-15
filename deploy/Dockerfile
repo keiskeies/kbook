@@ -3,8 +3,8 @@
 #
 # 使用方式：
 #   Docker Compose: cd deploy/compose && docker compose up -d --build
-#   手动构建:       docker build -t kbook-app:latest .
-#   K8s:            docker build -t kbook-app:latest -f Dockerfile .
+#   手动构建:       docker build -t kbook-app:1.0.8 .
+#   K8s:            docker build -t kbook-app:1.0.8 -f Dockerfile .
 #
 # 构建前先运行 package.bat / package.sh 生成 package/ 目录
 # ============================================================
