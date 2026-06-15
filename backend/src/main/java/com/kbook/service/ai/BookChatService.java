@@ -27,6 +27,7 @@ import com.kbook.repository.AiSessionRepository;
 import com.kbook.repository.BookSuggestedQuestionRepository;
 
 import static com.kbook.common.util.QueryBuilder.*;
+
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -200,117 +201,88 @@ public class BookChatService {
         log.info("========== 图书问答请求 ==========");
         log.info("userId={}, bookId={}, question={}", userId, bookId, question);
 
-        final String finalSessionId = (sessionId == null || sessionId.isBlank())
+        final String effectiveSessionId = (sessionId == null || sessionId.isBlank())
                 ? "book-" + bookId + "-" + UUID.randomUUID().toString().substring(0, 8)
                 : sessionId;
 
         SseEmitter emitter = new SseEmitter(180_000L);
 
         try {
-            emitter.send(SseEmitter.event().name("session_id").data(finalSessionId));
+            emitter.send(SseEmitter.event().name("session_id").data(effectiveSessionId));
         } catch (Exception ignored) {
         }
 
+        // ——— 前置校验（emitter 创建后、异步任务提交前，快速失败） ———
+        final Book book = bookService.getBookById(bookId);
+        if (book == null) {
+            SseHelper.sendErrorAndComplete(emitter, "图书不存在");
+            return emitter;
+        }
+
+        final StreamingChatModel model = chatModelFactory.buildStreamingChatModel();
+        if (model == null) {
+            SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
+            return emitter;
+        }
+
         try {
-            emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍基本信息..."));
+            emitter.send(SseEmitter.event().name("thinking").data("让我先翻翻这本书…"));
         } catch (Exception ignored) {
         }
 
         Future<?> aiFuture = sseExecutor.submit(() -> {
             try {
-                Book book = bookService.getBookById(bookId);
-                if (book == null) {
-                    SseHelper.sendErrorAndComplete(emitter, "图书不存在");
-                    return;
+                // 1. 按需生成内容向量（首次问答时触发）
+                if (!ensureContentEmbedded(book, bookId, emitter)) return;
+
+                // 2. 懒生成 compressedSummary（首次问答时若为空，同步生成并持久化）
+                ensureCompressedSummary(book, emitter);
+
+                try {
+                    emitter.send(SseEmitter.event().name("thinking").data("在书里找找相关的部分…"));
+                } catch (Exception ignored) {
                 }
-
-                if (!Boolean.TRUE.equals(book.getContentEmbedded())) {
-                    log.info("图书未生成内容向量，尝试按需生成: bookId={}", bookId);
-                    try {
-                        emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍完整内容，请稍候..."));
-                    } catch (Exception ignored) {
-                    }
-
-                    boolean done = false;
-                    long deadline = System.currentTimeMillis() + 3600_000L;
-                    while (!done && System.currentTimeMillis() < deadline) {
-                        Boolean result = bookParserService.ensureContentEmbedded(bookId);
-                        if (result == null) {
-                            try {
-                                Thread.sleep(2000);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                break;
-                            }
-                        } else {
-                            done = true;
-                            if (result) {
-                                book.setContentEmbedded(true);
-                                log.info("按需生成内容向量成功: bookId={}", bookId);
-                            } else {
-                                SseHelper.sendErrorAndComplete(emitter, "该书无法提取文本内容，无法进行 AI 问答");
-                                return;
-                            }
-                        }
-                    }
-                    if (!done) {
-                        SseHelper.sendErrorAndComplete(emitter, "内容向量生成等待超时，请稍后重试");
-                        return;
-                    }
-                }
-
-                // 懒生成 compressedSummary：首次问答时若为空，同步生成并持久化
-                if (book.getCompressedSummary() == null || book.getCompressedSummary().isBlank()) {
-                    if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
-                        try {
-                            emitter.send(SseEmitter.event().name("thinking").data("正在检索书籍完整内容，请稍候..."));
-                        } catch (Exception ignored) {
-                        }
-                        String compressed = chatModelManager.generateCompressedSummary(book);
-                        if (compressed != null && !compressed.isBlank()) {
-                            book.setCompressedSummary(compressed);
-                            bookService.updateBook(book.getId(), book);
-                            log.info("compressedSummary 懒生成成功: bookId={}, len={}", bookId, compressed.length());
-                        }
-                    }
-                }
-
-                emitter.send(SseEmitter.event().name("thinking").data("正在扩展查询语义，请稍候..."));
                 int ragTopK = Optional.ofNullable(aiProviderConfigService.getActiveRagTopK())
                         .orElse(qdrantProperties.getRagTopK());
                 int ragMaxChars = getRagMaxChars();
-                String lastAiAnswer = getLastAiAnswer(userId, finalSessionId);
-                String ragContext = retrieveRagContext(book, question, ragTopK, ragMaxChars, lastAiAnswer);
-                log.debug("RAG 检索结果长度: {}", ragContext.length());
+                String lastAiAnswer = getLastAiAnswer(userId, effectiveSessionId);
+                String ragContext = null;
+                if (embeddingService.isAvailable() && waitForContentEmbedding(book.getId())) {
+                    try {
+                        ragContext = doRagRetrieval(book, question, lastAiAnswer, ragTopK, ragMaxChars, emitter);
+                    } catch (Exception e) {
+                        log.warn("RAG 检索异常: bookId={} - {}", book.getId(), e.getMessage());
+                    }
+                }
+                if (ragContext != null) {
+                    log.debug("RAG 检索结果长度: {}", ragContext.length());
+                }
 
+                String thinkingText = (ragContext != null && !ragContext.isBlank())
+                        ? "找到了，让我整理一下思路…"
+                        : "没找到直接相关的内容，凭印象回答你…";
                 try {
-                    emitter.send(SseEmitter.event().name("thinking").data("根据图书内容思考中..."));
+                    emitter.send(SseEmitter.event().name("thinking").data(thinkingText));
                 } catch (Exception ignored) {
                 }
 
                 // 构建图书基本信息（静态，跨会话共享 KV Cache）和 RAG+问题（每次变化）
                 String bookInfoPrompt = buildBookInfoPrompt(book);
-                String prompt = buildPrompt(question, ragContext);
-
-                StreamingChatModel streamingChatModel = chatModelFactory.buildStreamingChatModel();
-                if (streamingChatModel == null) {
-                    SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
-                    return;
-                }
-
+                String prompt = buildPrompt(question, ragContext != null ? ragContext : "");
                 long startTime = System.currentTimeMillis();
 
                 log.debug("图书问答: bookId={}, question={}, bookInfoLen={}, ragContextLen={}, promptLen={}",
-                        bookId, question, bookInfoPrompt.length(), ragContext.length(), prompt.length());
+                        bookId, question, bookInfoPrompt.length(),
+                        ragContext != null ? ragContext.length() : 0, prompt.length());
 
                 // SystemMessage → UserMessage(bookInfo) → HistoryMessages → UserMessage(RAG + question)
-                List<ChatMessage> messages = buildChatMessages(finalSessionId, userId, bookInfoPrompt, prompt);
+                List<ChatMessage> messages = buildChatMessages(effectiveSessionId, userId, bookInfoPrompt, prompt);
 
                 StringBuilder fullResponse = new StringBuilder();
                 StringBuilder fullThinking = new StringBuilder();
                 final boolean[] connectionClosed = {false};
 
-                streamingChatModel.chat(
+                model.chat(
                         messages,
                         new StreamingChatResponseHandler() {
                             StreamingHandle streamingHandle;
@@ -320,7 +292,8 @@ public class BookChatService {
                                 if (streamingHandle == null) {
                                     streamingHandle = context.streamingHandle();
                                 }
-                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) return;
+                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
+                                    return;
                                 String thinking = partialThinking.text();
                                 if (thinking != null && !thinking.isEmpty()) {
                                     fullThinking.append(thinking);
@@ -337,7 +310,8 @@ public class BookChatService {
                                 if (streamingHandle == null) {
                                     streamingHandle = context.streamingHandle();
                                 }
-                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) return;
+                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
+                                    return;
                                 String text = partialResponse.text();
                                 fullResponse.append(text);
                                 if (!text.isEmpty()) {
@@ -375,11 +349,11 @@ public class BookChatService {
                                     }
                                 }
 
-                                ensureSession(userId, finalSessionId, question, bookId);
-                                saveMessage(userId, finalSessionId, "user", question, bookId, null);
+                                ensureSession(userId, effectiveSessionId, question, bookId);
+                                saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
                                 String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
-                                saveMessage(userId, finalSessionId, "assistant", answer, bookId, thinkingText);
-                                updateSessionTimestamp(finalSessionId);
+                                saveMessage(userId, effectiveSessionId, "assistant", answer, bookId, thinkingText);
+                                updateSessionTimestamp(effectiveSessionId);
 
                                 CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
                                         String.format("bookId=%d, question=%s", bookId, question.substring(0, Math.min(30, question.length()))));
@@ -530,134 +504,6 @@ public class BookChatService {
 
         messages.add(UserMessage.from(currentPrompt));
         return messages;
-    }
-
-    /**
-     * RAG 语义检索：从书籍内容向量中检索与问题相关的片段
-     * RAG 长度上限由模型上下文动态决定：maxTokens × 1.5 × 0.6（留 40% 给系统和对话）
-     * 优化策略：多查询检索 → 去重 → 相邻片段合并 → 按模型上下文截断
-     *
-     * @param book     书籍实体
-     * @param question 用户问题
-     * @param topK     返回的最大结果数
-     * @return 拼接后的 RAG 上下文文本
-     */
-    private String retrieveRagContext(Book book, String question, int topK, int maxChars, String lastAiAnswer) {
-        if (!embeddingService.isAvailable()) {
-            log.debug("Embedding 不可用，跳过 RAG 检索");
-            return "";
-        }
-
-        try {
-
-            // 确保内容向量存在（RedisLock 防止并发重写）
-            if (!waitForContentEmbedding(book.getId())) {
-                log.debug("内容向量不可用，跳过 RAG 检索: bookId={}", book.getId());
-                return "";
-            }
-
-            List<String> subQueries = chatModelManager.expandQuery(question, lastAiAnswer, book);
-            Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
-            int rawCount = 0, rawChars = 0;
-            // 优化策略：多查询检索 + 相邻片段合并 + 关键词重排序 + 自适应 topK
-            int maxResult = Math.max(10, Math.min(topK, !subQueries.isEmpty() ? topK / subQueries.size() * 2 : topK));
-
-            for (String subQuery : subQueries) {
-                try {
-                    List<EmbeddingMatch<TextSegment>> matches =
-                            embeddingService.searchContent(subQuery, maxResult, book);
-                    for (EmbeddingMatch<TextSegment> match : matches) {
-                        String chunkText = match.embedded() != null ? match.embedded().text() : "";
-                        if (chunkText.isBlank()) continue;
-                        rawCount++;
-                        rawChars += chunkText.length();
-                        String dedupeKey = chunkText.length() > 80
-                                ? chunkText.substring(0, 80)
-                                : chunkText;
-                        dedupedMatches.merge(dedupeKey, match, (existing, incoming) ->
-                                incoming.score() > existing.score() ? incoming : existing);
-                    }
-                } catch (Exception e) {
-                    log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
-                }
-            }
-
-            List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>(dedupedMatches.values());
-            int dedupChars = allMatches.stream()
-                    .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
-
-            if (allMatches.isEmpty()) {
-                log.debug("RAG 检索无结果: bookId={}, question={}", book.getId(), question.substring(0, Math.min(30, question.length())));
-
-                // 检测内容向量是否实际缺失（contentEmbedded 标志可能过时），缺失则强制重建并重试
-                Boolean reEmbedResult = bookParserService.forceReEmbedIfMissing(book.getId());
-                if (reEmbedResult != null && reEmbedResult) {
-                    log.info("内容向量重建成功，重新执行 RAG 检索: bookId={}", book.getId());
-                    for (String subQuery : subQueries) {
-                        try {
-                            List<EmbeddingMatch<TextSegment>> matches =
-
-                                    embeddingService.searchContent(subQuery, maxResult, book);
-                            for (EmbeddingMatch<TextSegment> match : matches) {
-                                String chunkText = match.embedded() != null ? match.embedded().text() : "";
-                                if (chunkText.isBlank()) continue;
-                                String dedupeKey = chunkText.length() > 80
-                                        ? chunkText.substring(0, 80)
-                                        : chunkText;
-                                dedupedMatches.merge(dedupeKey, match, (existing, incoming) ->
-                                        incoming.score() > existing.score() ? incoming : existing);
-                            }
-                        } catch (Exception e) {
-                            log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
-                        }
-                    }
-                    allMatches = new ArrayList<>(dedupedMatches.values());
-                }
-
-                if (allMatches.isEmpty()) {
-                    // 命中统计已在 EmbeddingService.searchContent 中记录
-                    return "";
-                }
-            }
-
-            List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(allMatches);
-            int mergeChars = merged.stream()
-                    .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
-
-            StringBuilder sb = new StringBuilder();
-            int totalLen = 0;
-            for (int i = 0; i < merged.size(); i++) {
-                EmbeddingMatch<TextSegment> match = merged.get(i);
-                String chunkText = match.embedded() != null ? match.embedded().text() : "";
-                if (chunkText.isBlank()) continue;
-                if (totalLen + chunkText.length() > maxChars) break;
-                sb.append("【参考片段").append(i + 1).append("】\n");
-                sb.append(chunkText).append("\n\n");
-                totalLen += chunkText.length();
-            }
-
-            String ragContext = sb.toString();
-            log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重后得{}条{}字 → 合并后得{}条{}字 → 最终{}字",
-                    book.getId(),
-                    rawCount, rawChars,
-                    dedupedMatches.size(), dedupChars,
-                    merged.size(), mergeChars,
-                    ragContext.length());
-
-            long questionMarkCount = ragContext.chars().filter(c -> c == '?').count();
-            if (questionMarkCount > ragContext.length() * 0.1) {
-                log.warn("[编码诊断] RAG 上下文疑似乱码! bookId={}, 问号占比={}/{}, 丢弃乱码上下文",
-                        book.getId(), questionMarkCount, ragContext.length());
-                ragHitStatisticsService.recordMiss(book.getId());
-                return "";
-            }
-
-            return ragContext;
-        } catch (Exception e) {
-            // 命中统计已在 EmbeddingService.searchContent 中记录
-            log.warn("RAG 检索异常: bookId={} - {}", book.getId(), e.getMessage());
-            return "";
-        }
     }
 
     /**
@@ -1109,6 +955,163 @@ public class BookChatService {
             }
         } catch (Exception e) {
             log.warn("保存深入追问失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * RAG 检索核心逻辑：查询扩展 → 多查询检索 → 去重 → 合并相邻片段 → 组装上下文。
+     *
+     * @return RAG 上下文字符串，不可用时返回 null
+     */
+    private String doRagRetrieval(Book book, String question, String lastAiAnswer, int ragTopK, int ragMaxChars,
+                                      SseEmitter emitter) {
+        List<String> subQueries = chatModelManager.expandQuery(question, lastAiAnswer, book);
+        if (subQueries.size() > 2) {
+            try {
+                emitter.send(SseEmitter.event().name("thinking")
+                        .data("试试从不同角度理解你的问题…"));
+            } catch (Exception ignored) {}
+        }
+        Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
+        int rawCount = 0, rawChars = 0;
+        int maxResult = Math.max(10, Math.min(ragTopK,
+                !subQueries.isEmpty() ? ragTopK / subQueries.size() * 2 : ragTopK));
+
+        for (String subQuery : subQueries) {
+            try {
+                List<EmbeddingMatch<TextSegment>> matches =
+                        embeddingService.searchContent(subQuery, maxResult, book);
+                for (EmbeddingMatch<TextSegment> match : matches) {
+                    String chunkText = match.embedded() != null ? match.embedded().text() : "";
+                    if (chunkText.isBlank()) continue;
+                    rawCount++;
+                    rawChars += chunkText.length();
+                    String dedupeKey = chunkText.length() > 80
+                            ? chunkText.substring(0, 80) : chunkText;
+                    dedupedMatches.merge(dedupeKey, match,
+                            (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
+                }
+            } catch (Exception e) {
+                log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
+            }
+        }
+
+        List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>(dedupedMatches.values());
+        int dedupChars = allMatches.stream()
+                .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
+
+        if (allMatches.isEmpty()) {
+            log.debug("RAG 检索无结果: bookId={}, question={}",
+                    book.getId(), question.substring(0, Math.min(30, question.length())));
+            Boolean reEmbedResult = bookParserService.forceReEmbedIfMissing(book.getId());
+            if (reEmbedResult != null && reEmbedResult) {
+                log.info("内容向量重建成功，重新执行 RAG 检索: bookId={}", book.getId());
+                for (String subQuery : subQueries) {
+                    try {
+                        List<EmbeddingMatch<TextSegment>> matches =
+                                embeddingService.searchContent(subQuery, maxResult, book);
+                        for (EmbeddingMatch<TextSegment> match : matches) {
+                            String chunkText = match.embedded() != null ? match.embedded().text() : "";
+                            if (chunkText.isBlank()) continue;
+                            String dedupeKey = chunkText.length() > 80
+                                    ? chunkText.substring(0, 80) : chunkText;
+                            dedupedMatches.merge(dedupeKey, match,
+                                    (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
+                        }
+                    } catch (Exception e) {
+                        log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
+                    }
+                }
+                allMatches = new ArrayList<>(dedupedMatches.values());
+            }
+        }
+
+        List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(allMatches);
+        int mergeChars = merged.stream()
+                .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
+
+        StringBuilder sb = new StringBuilder();
+        int totalLen = 0;
+        for (int i = 0; i < merged.size(); i++) {
+            EmbeddingMatch<TextSegment> match = merged.get(i);
+            String chunkText = match.embedded() != null ? match.embedded().text() : "";
+            if (chunkText.isBlank()) continue;
+            if (totalLen + chunkText.length() > ragMaxChars) break;
+            sb.append("【参考片段").append(i + 1).append("】\n");
+            sb.append(chunkText).append("\n\n");
+            totalLen += chunkText.length();
+        }
+
+        String ragContext = sb.toString();
+        log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重后得{}条{}字 → 合并后得{}条{}字 → 最终{}字",
+                book.getId(), rawCount, rawChars,
+                dedupedMatches.size(), dedupChars,
+                merged.size(), mergeChars, ragContext.length());
+
+        long questionMarkCount = ragContext.chars().filter(c -> c == '?').count();
+        if (questionMarkCount > ragContext.length() * 0.1) {
+            log.warn("[编码诊断] RAG 上下文疑似乱码! bookId={}, 问号占比={}/{}, 丢弃乱码上下文",
+                    book.getId(), questionMarkCount, ragContext.length());
+            ragHitStatisticsService.recordMiss(book.getId());
+        }
+        return ragContext;
+    }
+
+    /**
+     * 确保内容向量就绪：若未嵌入则阻塞等待按需生成（最长 1 小时）。
+     *
+     * @return true=就绪，false=失败（错误已通过 SSE 发送）
+     */
+    private boolean ensureContentEmbedded(Book book, Long bookId, SseEmitter emitter) {
+        if (Boolean.TRUE.equals(book.getContentEmbedded())) return true;
+
+        log.info("图书未生成内容向量，尝试按需生成: bookId={}", bookId);
+        try {
+            emitter.send(SseEmitter.event().name("thinking")
+                    .data("这本书我第一次读，花点时间消化一下…"));
+        } catch (Exception ignored) {}
+
+        boolean done = false;
+        long deadline = System.currentTimeMillis() + 3600_000L;
+        while (!done && System.currentTimeMillis() < deadline) {
+            Boolean result = bookParserService.ensureContentEmbedded(bookId);
+            if (result == null) {
+                try { Thread.sleep(2000); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+            } else {
+                done = true;
+                if (result) {
+                    book.setContentEmbedded(true);
+                    log.info("按需生成内容向量成功: bookId={}", bookId);
+                    return true;
+                } else {
+                    SseHelper.sendErrorAndComplete(emitter, "该书无法提取文本内容，无法进行 AI 问答");
+                    return false;
+                }
+            }
+        }
+        if (!done) {
+            SseHelper.sendErrorAndComplete(emitter, "内容向量生成等待超时，请稍后重试");
+        }
+        return false;
+    }
+
+    /**
+     * 确保 compressedSummary 就绪：若为空且 chapterSummary 存在则懒生成。
+     */
+    private void ensureCompressedSummary(Book book, SseEmitter emitter) {
+        if (book.getCompressedSummary() != null && !book.getCompressedSummary().isBlank()) return;
+        if (book.getChapterSummary() == null || book.getChapterSummary().isBlank()) return;
+
+        try {
+            emitter.send(SseEmitter.event().name("thinking")
+                    .data("帮你理一理这本书的脉络…"));
+        } catch (Exception ignored) {}
+        String compressed = chatModelManager.generateCompressedSummary(book);
+        if (compressed != null && !compressed.isBlank()) {
+            book.setCompressedSummary(compressed);
+            bookService.updateBook(book.getId(), book);
+            log.info("compressedSummary 懒生成成功: bookId={}, len={}", book.getId(), compressed.length());
         }
     }
 

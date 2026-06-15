@@ -39,7 +39,7 @@ public class AsyncSchedulingConfig implements AsyncConfigurer, SchedulingConfigu
     // ==================== SSE 流式响应执行器 ====================
 
     @Bean(name = "sseExecutor", destroyMethod = "shutdown")
-    public ExecutorService sseExecutor() {
+    public java.util.concurrent.ThreadPoolExecutor sseExecutor() {
         return buildTaskExecutor("kbook-sse-", 4, 32, 100).getThreadPoolExecutor();
     }
 
