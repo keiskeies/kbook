@@ -151,13 +151,13 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       NOTIFICATION_BASE_URL: ${NOTIFICATION_BASE_URL:-https://book.keiskei.top}
     volumes:
-      - ${BOOK_PATH_EPUB_HOST:-../data/books/epub}:/data/books/epub:ro
-      - ${BOOK_PATH_PDF_HOST:-../data/books/pdf}:/data/books/pdf:ro
-      - ${BOOK_PATH_TXT_HOST:-../data/books/txt}:/data/books/txt:ro
-      - ${COVER_PATH_HOST:-../data/covers}:/data/covers
-      - ${AVATAR_DIR_HOST:-../data/avatars}:/data/avatars
-      - ${CHAT_DIR_HOST:-../data/chat}:/data/chat
-      - ${TTS_CACHE_DIR_HOST:-../data/tts_cache}:/data/tts_cache
+      - ${BOOK_PATH_EPUB:-../data/books/epub}:/data/books/epub:ro
+      - ${BOOK_PATH_PDF:-../data/books/pdf}:/data/books/pdf:ro
+      - ${BOOK_PATH_TXT:-../data/books/txt}:/data/books/txt:ro
+      - ${BOOK_COVER_PATH:-../data/covers}:/data/covers
+      - ${AVATAR_DIR:-../data/avatars}:/data/avatars
+      - ${CHAT_DIR:-../data/chat}:/data/chat
+      - ${TTS_CACHE_DIR:-../data/tts_cache}:/data/tts_cache
       - ${AI_CONFIG_HOST:-../ai-config.json}:/app/config/ai-config.json:ro
     depends_on:
       mysql:

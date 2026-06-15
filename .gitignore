@@ -30,4 +30,6 @@ backend/src/test/resources/application-test.yml
 backend/mail-preview/
 frontend_new/
 package/
+deploy/.env
+deploy/docker/.env
 
