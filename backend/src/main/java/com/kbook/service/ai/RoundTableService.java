@@ -57,6 +57,7 @@ import java.util.stream.Collectors;
 import java.time.LocalDateTime;
 
 import static com.kbook.common.util.QueryBuilder.eq;
+import static com.kbook.common.util.QueryBuilder.in;
 
 /**
  * 圆桌派服务 — 多角色 AI 讨论功能
@@ -571,7 +572,7 @@ public class RoundTableService {
     /**
      * 获取全局圆桌派会话列表（发现页）
      */
-    public Page<RoundTableSessionFeedVO> getGlobalSessions(int page, int size, String sort) {
+    public Page<RoundTableSessionFeedVO> getGlobalSessions(int page, int size, String sort, boolean mine) {
         var pageable = PageRequest.of(page, size,
                 Sort.by("hot".equals(sort)
                         ? Sort.Order.desc("updatedAt")
@@ -580,8 +581,10 @@ public class RoundTableService {
         // 获取当前用户ID（未登录则只能看到公开会话）
         Long currentUserId = getCurrentUserId();
 
-        // 查询公开会话或当前用户的会话
-        var sessions = sessionRepository.findPublicOrOwnSessions(currentUserId, pageable);
+        // 查询公开会话或当前用户的会话；如果 mine=true 则只查当前用户
+        var sessions = mine
+                ? sessionRepository.findByUserId(currentUserId, pageable)
+                : sessionRepository.findPublicOrOwnSessions(currentUserId, pageable);
 
         // Get book info
         var bookIds = sessions.getContent().stream().map(RoundTableSession::getBookId).distinct().toList();
@@ -592,7 +595,9 @@ public class RoundTableService {
         var sessionIds = sessions.getContent().stream().map(RoundTableSession::getSessionId).toList();
         var coverageMap = new java.util.HashMap<String, Double>();
         if (!sessionIds.isEmpty()) {
-            var coverages = roundTableCoverageRepository.findAllBySessionIdIn(sessionIds);
+            var coverages = roundTableCoverageRepository.query()
+                    .where(RoundTableCoverage::getSessionId, in(sessionIds))
+                    .list();
             coverages.stream()
                     .collect(Collectors.toMap(
                             RoundTableCoverage::getSessionId,

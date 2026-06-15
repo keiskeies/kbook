@@ -647,21 +647,6 @@ public final class AiPromptConstants {
             - 古今中外的例子都可以，用事实和经典来武装你的论证
             """;
 
-    /** 奇袭攻辩输出要求（UserMessage 层 — 最终指令）— 已废弃 */
-    @Deprecated
-    public static final String DEBATE_ATTACK_OUTPUT = """
-            【输出要求】
-            - 纯文字，禁止动作描写
-            - 先指出对方漏洞，再抛出反击观点
-            - 可以反问，但别等答案
-            - 必须使用中文
-
-            【引用要求】
-            - 用历史反例、时事新闻或统计数据来拆解对方论证
-            - 引用要一击致命，如「二战前的绥靖政策已经证明……」「2024年《自然》期刊的一篇论文指出……」
-            - 不要空口反驳，用铁铮铮的事实说话
-            """;
-
     /** 交叉质询 — 质询方输出要求（UserMessage 层 — 最终指令） */
     public static final String DEBATE_CROSS_EXAM_QUESTIONER_OUTPUT = """
             【输出要求】

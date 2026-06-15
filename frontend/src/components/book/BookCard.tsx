@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Tag } from 'lucide-react'
+import { Tag, Clock } from 'lucide-react'
 import { parseFormatTags } from '@/types/book'
 import BookCover from './BookCover'
 import { BookActionButtons } from './BookActionButtons'
@@ -12,6 +12,7 @@ interface BookCardProps {
   readingStatus?: string | null
   onStatusChange?: (status: string) => void
   activeTag?: string
+  lastReadAt?: string
 }
 
 function fmtReadCount(n: number): string {
@@ -58,7 +59,21 @@ function MatchBadge({ score }: { score: number | undefined | null }) {
   )
 }
 
-export function BookCard({ book, onClick, highlight, readingStatus, onStatusChange, activeTag }: BookCardProps) {
+function formatTimeAgo(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return '刚刚'
+  if (diffMin < 60) return `${diffMin}分钟前`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}小时前`
+  const diffDay = Math.floor(diffHr / 24)
+  if (diffDay < 30) return `${diffDay}天前`
+  return `${Math.floor(diffDay / 30)}个月前`
+}
+
+export function BookCard({ book, onClick, highlight, readingStatus, onStatusChange, activeTag, lastReadAt }: BookCardProps) {
   const [expandedDesc, setExpandedDesc] = useState(false)
   const rawTags = parseFormatTags(book.formatTags || '')
   const desc = book.description
@@ -168,8 +183,16 @@ export function BookCard({ book, onClick, highlight, readingStatus, onStatusChan
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-1.5 border-t border-border/30 px-3 py-2">
-        <BookActionButtons bookId={book.id} />
+      <div className="flex items-center justify-between border-t border-border/30 px-3 py-2">
+        {lastReadAt && (
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3" />
+            {formatTimeAgo(lastReadAt)}
+          </span>
+        )}
+        <div className="flex items-center gap-1.5 ml-auto">
+          <BookActionButtons bookId={book.id} />
+        </div>
       </div>
     </div>
   )

@@ -1,7 +1,6 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
-import com.kbook.common.util.SseHelper;
 import com.kbook.config.properties.GptSovitsProperties;
 import com.kbook.dto.request.TtsSynthesizeRequest;
 import com.kbook.entity.TtsConfig;
@@ -14,11 +13,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
 
 /**
  * 语音合成控制器 — 公开 TTS 接口（语音合成、流式合成、配置查询）
@@ -68,40 +65,6 @@ public class TtsConfigController {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("audio/wav"))
                 .body(audio);
-    }
-
-    @Operation(summary = "流式语音合成")
-    @PostMapping("/api/tts/synthesize/stream")
-    public SseEmitter synthesizeStream(@Valid @RequestBody TtsSynthesizeRequest request) {
-        log.info("TTS stream request: textLength={}, configId={}",
-                request.getText() != null ? request.getText().length() : 0, request.getConfigId());
-        long start = System.currentTimeMillis();
-        SseEmitter emitter = new SseEmitter(300_000L);
-
-        Future<?> aiFuture = sseExecutor.submit(() -> {
-            try {
-                ttsConfigService.synthesizeStream(request.getText(), request.getConfigId(), emitter);
-            } catch (Exception e) {
-                log.error("TTS stream synthesis failed", e);
-                SseHelper.sendErrorAndComplete(emitter, e.getMessage());
-            }
-        });
-
-        emitter.onCompletion(() -> {
-            aiFuture.cancel(true);
-            log.info("TTS stream completed: elapsed={}ms", System.currentTimeMillis() - start);
-        });
-        emitter.onTimeout(() -> {
-            aiFuture.cancel(true);
-            log.warn("TTS stream timed out: elapsed={}ms", System.currentTimeMillis() - start);
-            emitter.complete();
-        });
-        emitter.onError(e -> {
-            aiFuture.cancel(true);
-            log.warn("TTS stream error: {}, elapsed={}ms", e.getMessage(), System.currentTimeMillis() - start);
-        });
-
-        return emitter;
     }
 
     @Operation(summary = "是否支持流式合成")

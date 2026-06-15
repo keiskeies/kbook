@@ -5,10 +5,10 @@ import {
   Target, Frown,
 } from 'lucide-react'
 import {
-  getHomeStats, getHomePersonalized,
+  getHomePersonalized,
   getHomeCategories,
 } from '@/api/home'
-import type { RecommendedBook, ReadingStatsVO, TagStat } from '@/api/home'
+import type { RecommendedBook, TagStat } from '@/api/home'
 import { BookCard } from '@/components/book/BookCard'
 import MoodQuickSwitch from '@/components/home/MoodQuickSwitch'
 import { useAuthStore } from '@/store/auth'
@@ -133,38 +133,12 @@ function VerticalListSkeleton() {
   )
 }
 
-/** 阅读状态计数 — 简化版 */
-function ReadingStatusCounts({ stats }: { stats: ReadingStatsVO }) {
-  const navigate = useNavigate()
-  if (!stats || (stats.totalBooks === 0 && stats.readingBooks === 0 && stats.completedBooks === 0)) return null
-  const wantToRead = stats.totalBooks - stats.readingBooks - stats.completedBooks
-  return (
-    <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-      <button
-        onClick={() => navigate(ROUTES.READING_LIST)}
-        className="w-full flex items-center justify-between"
-      >
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground">想读(<span className="text-sm font-bold text-foreground">{wantToRead > 0 ? wantToRead : 0}</span>)</span>
-          <div className="w-px h-4 bg-border" />
-          <span className="text-xs text-muted-foreground">在读(<span className="text-sm font-bold text-foreground">{stats.readingBooks}</span>)</span>
-          <div className="w-px h-4 bg-border" />
-          <span className="text-xs text-muted-foreground">已读(<span className="text-sm font-bold text-foreground">{stats.completedBooks}</span>)</span>
-        </div>
-        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-      </button>
-    </section>
-  )
-}
-
 export default function HomePage() {
   const navigate = useNavigate()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const fetchUserInfo = useAuthStore((s) => s.fetchUserInfo)
   const hasFetchedRef = useRef(false)
 
-  const [stats, setStats] = useState<ReadingStatsVO | null>(null)
-  const [statsLoading, setStatsLoading] = useState(true)
   const [personalizedBooks, setPersonalizedBooks] = useState<RecommendedBook[]>([])
   const [personalizedLoading, setPersonalizedLoading] = useState(true)
   const [categories, setCategories] = useState<TagStat[]>([])
@@ -178,12 +152,11 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!isAuthenticated || hasFetchedRef.current) {
-      setStatsLoading(false); setPersonalizedLoading(false)
+      setPersonalizedLoading(false)
       setCategoriesLoading(false)
       return
     }
     hasFetchedRef.current = true
-    getHomeStats().then((res) => setStats((res as any)?.data || (res as any))).catch(() => {}).finally(() => setStatsLoading(false))
     getHomePersonalized().then((res) => setPersonalizedBooks((res as any)?.data || (res as any) || [])).catch(() => {}).finally(() => setPersonalizedLoading(false))
     getHomeCategories().then((res) => setCategories((res as any)?.data || (res as any) || [])).catch(() => {}).finally(() => setCategoriesLoading(false))
   }, [isAuthenticated])
@@ -247,21 +220,6 @@ export default function HomePage() {
         {/* 右栏：侧边栏 — 仅 PC 端显示 */}
         <div className="hidden lg:flex lg:flex-col lg:gap-4">
           <MoodQuickSwitch />
-          {statsLoading ? (
-            <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="h-4 w-16 skeleton rounded" />
-                  <div className="h-4 w-16 skeleton rounded" />
-                  <div className="h-4 w-16 skeleton rounded" />
-                </div>
-                <div className="h-4 w-4 skeleton rounded" />
-              </div>
-            </div>
-          ) : stats && (stats.totalBooks > 0 || stats.readingBooks > 0) ? (
-            <ReadingStatusCounts stats={stats} />
-          ) : null}
-
           {categoriesLoading ? (
             <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
               <div className="mb-3 flex items-center gap-2">
@@ -307,21 +265,6 @@ export default function HomePage() {
 
       {/* 移动端：统计和标签在底部 */}
       <div className="lg:hidden mt-6 space-y-6">
-        {statsLoading ? (
-          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="h-4 w-16 skeleton rounded" />
-                <div className="h-4 w-16 skeleton rounded" />
-                <div className="h-4 w-16 skeleton rounded" />
-              </div>
-              <div className="h-4 w-4 skeleton rounded" />
-            </div>
-          </div>
-        ) : stats && (stats.totalBooks > 0 || stats.readingBooks > 0) ? (
-          <ReadingStatusCounts stats={stats} />
-        ) : null}
-
         {categoriesLoading ? (
           <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
             <div className="mb-3 flex items-center gap-2">
@@ -365,7 +308,7 @@ export default function HomePage() {
       </div>
 
       {/* 空状态 */}
-      {!statsLoading && !personalizedLoading &&
+      {!personalizedLoading &&
         personalizedBooks.length === 0 && (
         <div className="flex h-60 flex-col items-center justify-center text-muted-foreground">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">

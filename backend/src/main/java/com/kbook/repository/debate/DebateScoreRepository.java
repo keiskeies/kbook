@@ -24,4 +24,7 @@ public interface DebateScoreRepository extends BaseRepository<DebateScore, Long>
 
     /** 统计会话评分数 */
     int countBySessionId(String sessionId);
+
+    /** 批量查询指定会话的评分 */
+    List<DebateScore> findAllBySessionIdIn(List<String> sessionIds);
 }

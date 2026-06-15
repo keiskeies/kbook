@@ -25,8 +25,8 @@ export function getRoundTableSessions(bookId: number) {
 }
 
 /** 获取全局圆桌派会话列表（发现页用） */
-export function getGlobalRoundTableSessions(page = 0, size = 20, sort = 'recent') {
-  return request.get<any>(`/round-table/sessions`, { params: { page, size, sort } })
+export function getGlobalRoundTableSessions(page = 0, size = 20, sort = 'recent', mine = false) {
+  return request.get<any>(`/round-table/sessions`, { params: { page, size, sort, mine } })
 }
 
 /** 获取会话历史消息 */

@@ -107,8 +107,9 @@ public class RoundTableController extends BaseController {
     public Result<Page<RoundTableSessionFeedVO>> getGlobalSessions(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "recent") String sort) {
-        return Result.ok(roundTableService.getGlobalSessions(page, size, sort));
+            @RequestParam(defaultValue = "recent") String sort,
+            @RequestParam(defaultValue = "false") boolean mine) {
+        return Result.ok(roundTableService.getGlobalSessions(page, size, sort, mine));
     }
 
     /**

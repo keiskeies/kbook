@@ -79,41 +79,6 @@ export function getBooksByTag(tag: string, page = 1, size = 20) {
   return request.get<PageResult<Book>>(`/books/tag/${encodeURIComponent(tag)}`, { params: { page, size } })
 }
 
-/** 图书入库（管理员） */
-export function createBook(data: {
-  title: string
-  author?: string
-  coverUrl?: string
-  description?: string
-  format: string
-  fileUrl?: string
-  fileSize?: number
-  formatTags?: string
-  totalUnits?: number
-}) {
-  return request.post<Book>('/books', data)
-}
-
-/** 更新格式标签（管理员） */
-export function updateFormatTags(id: number, tags: string[]) {
-  return request.put<Book>(`/admin/books/${id}/tags`, { tags })
-}
-
-/** 更新图书书名（管理员） */
-export function updateBookTitle(id: number, title: string) {
-  return request.put<Book>(`/admin/books/${id}/title`, { title })
-}
-
-/** 更新图书作者（管理员） */
-export function updateBookAuthor(id: number, author: string | null) {
-  return request.put<Book>(`/admin/books/${id}/author`, { author })
-}
-
-/** 更新图书简介（管理员） */
-export function updateBookDescription(id: number, description: string | null) {
-  return request.put<Book>(`/admin/books/${id}/description`, { description })
-}
-
 /** 扫描图书（管理员）— SSE 流式返回进度 */
 export function scanBooksStream(
   onProgress: (data: ScanProgress) => void,
@@ -184,16 +149,6 @@ export function uploadBookWithProgress(
 /** 用户评分 */
 export function rateBook(id: number, rating: number) {
   return request.post<Book>(`/books/${id}/rate`, { rating })
-}
-
-/** 更新图书封面（管理员） */
-export function updateBookCover(id: number, file: File) {
-  const formData = new FormData()
-  formData.append('cover', file)
-  return request.post<Book>(`/admin/books/${id}/cover`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 60000,
-  })
 }
 
 /** 推荐结果项 */
@@ -375,18 +330,6 @@ export interface BookSpeedRead {
   currentItem?: string
   /** 当前正在接收的 section key */
   currentSection?: string
-}
-
-// ==================== 管理员AI图书操作 ====================
-
-/** 按作者删除所有书籍（全链路：DB+缓存+RAG+ES+封面） */
-export function deleteBooksByAuthor(author: string) {
-  return request.delete<{ deletedCount: number; author: string }>('/admin/books/delete-by-author', { params: { author } })
-}
-
-/** 合并同名书籍（以EPUB为主，其他格式数据迁移后删除） */
-export function mergeBooksByTitle(title: string) {
-  return request.post<{ message: string; title: string }>('/admin/books/merge-by-title', null, { params: { title } })
 }
 
 // ==================== 内容向量管理 ====================

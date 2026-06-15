@@ -23,7 +23,7 @@ export function DesktopSidebar() {
   // 屏幕宽度 < 1024px 时自动收缩为图标模式
   const [autoCollapsed, setAutoCollapsed] = useState(false)
   useEffect(() => {
-    const mql = window.matchMedia('(max-width: 1249px)')
+    const mql = window.matchMedia('(max-width: 1299px)')
     const handler = (e: MediaQueryListEvent) => setAutoCollapsed(e.matches)
     setAutoCollapsed(mql.matches)
     mql.addEventListener('change', handler)

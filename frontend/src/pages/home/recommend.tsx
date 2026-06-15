@@ -12,7 +12,7 @@ import { BookCard } from '@/components/book/BookCard'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 18
 
 const SWIPE_THRESHOLD = 60
 const SWIPE_MAX = 80
@@ -295,7 +295,6 @@ export default function RecommendPage() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2 flex-1">
-            <Sparkles className="h-5 w-5 text-warning" />
             <h1 className="text-h3 font-bold">为你推荐</h1>
             {total > 0 && !generating && (
               <span className="text-xs text-muted-foreground">共{total}本</span>

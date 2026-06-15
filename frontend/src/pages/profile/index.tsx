@@ -298,7 +298,7 @@ export default function ProfilePage() {
     : null
 
   const menuItems = [
-    { label: '阅读记录', icon: BookOpen, path: ROUTES.READING_LIST },
+    { label: '阅读记录', icon: BookOpen, path: ROUTES.READING_LIST, extra: `${stats?.totalBooks ?? 0}本` },
     { label: '编辑画像', icon: UserCircle, path: '', action: () => setShowTraitsModal(true) },
     { label: '对话风格', icon: Sparkles, path: '', extra: `${BOOK_CHAT_STYLES.find(s => s.value === (userInfo?.bookChatStyle || 'DEEP'))?.label || '深度'}`, action: () => setShowStylePicker(true) },
     { label: '修改密码', icon: Lock, path: ROUTES.CHANGE_PASSWORD },
@@ -377,11 +377,6 @@ export default function ProfilePage() {
                     管理员
                   </span>
                 )}
-                {userInfo?.mbti && (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0">
-                    {userInfo.mbti}
-                  </span>
-                )}
               </div>
               <p className="text-sm text-muted-foreground truncate">
                 {userInfo?.email || '未设置邮箱'}
@@ -394,19 +389,6 @@ export default function ProfilePage() {
               <Settings className="h-4.5 w-4.5 text-muted-foreground" />
             </button>
           </div>
-
-          {/* Reading Stats - simple entry */}
-          <button
-            onClick={() => navigate(ROUTES.READING_LIST)}
-            className="mt-4 w-full flex items-center justify-between rounded-xl bg-muted/50 p-3 active:scale-[0.98] transition-transform"
-          >
-            <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">阅读记录</span>
-              <span className="text-xs text-muted-foreground">({stats?.totalBooks ?? 0}本)</span>
-            </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </button>
         </div>
 
         {/* 管理员功能 */}

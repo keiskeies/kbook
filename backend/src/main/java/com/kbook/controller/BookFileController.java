@@ -2,7 +2,6 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.common.exception.BusinessException;
-import com.kbook.dto.admin.TextInfoResponse;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.service.book.BookService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -92,30 +91,6 @@ public class BookFileController {
                         "inline; filename*=UTF-8''" + filename)
                 .cacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic())
                 .body(resource);
-    }
-
-    /**
-     * 获取 TXT 文件元数据（分块信息）
-     */
-    @GetMapping(value = "/{id}/text-info", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Result<TextInfoResponse> getBookTextInfo(@PathVariable Long id) {
-        BookProjection book = bookService.getBookProjectionById(id);
-
-        if (!"TXT".equals(book.getFormat())) {
-            throw new BusinessException("仅支持 TXT 格式");
-        }
-
-        Path filePath = Paths.get(book.getFileUrl());
-        File file = filePath.toFile();
-
-        if (!file.exists()) {
-            throw new BusinessException("图书文件未找到");
-        }
-
-        TextInfoResponse resp = new TextInfoResponse();
-        resp.setFileSize(file.length());
-        resp.setFileUrl("/api/books/" + id + "/file");
-        return Result.ok(resp);
     }
 
     /**

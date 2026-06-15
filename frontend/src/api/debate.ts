@@ -57,8 +57,8 @@ export function getDebateSessions(bookId: number) {
 }
 
 /** 获取全局辩论会话列表（发现页用） */
-export function getGlobalDebateSessions(page = 0, size = 20, sort = 'recent') {
-  return request.get<any>(`/debate/sessions`, { params: { page, size, sort } })
+export function getGlobalDebateSessions(page = 0, size = 20, sort = 'recent', mine = false) {
+  return request.get<any>(`/debate/sessions`, { params: { page, size, sort, mine } })
 }
 
 /** 获取辩论历史消息 */

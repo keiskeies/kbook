@@ -54,7 +54,7 @@ interface RoundTableFeedItem {
 }
 
 type TabKey = 'debate' | 'roundtable' | 'books'
-type SortKey = 'recent' | 'hot'
+type SortKey = 'mine' | 'recent' | 'hot'
 
 // ==================== 辅助函数 ====================
 
@@ -488,8 +488,8 @@ export default function DiscoverPage() {
   const initialTab = (searchParams.get('tab') as TabKey) || 'books'
   const initialTag = searchParams.get('tag') || ''
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab)
-  const [debateSort, setDebateSort] = useState<SortKey>('recent')
-  const [rtSort, setRtSort] = useState<SortKey>('recent')
+  const [debateSort, setDebateSort] = useState<SortKey>('mine')
+  const [rtSort, setRtSort] = useState<SortKey>('mine')
 
   // 搜索
   const [searchQuery, setSearchQuery] = useState('')
@@ -515,11 +515,23 @@ export default function DiscoverPage() {
   const [categories, setCategories] = useState<TagStat[]>([])
   const [activeTag, setActiveTag] = useState(initialTag)
 
+  // 同步 URL 参数到 state（keep-alive 场景下外部导航会改变 URL 参数）
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab && ['debate', 'roundtable', 'books'].includes(tab)) {
+      setActiveTab(tab as TabKey)
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    setActiveTag(searchParams.get('tag') || '')
+  }, [searchParams])
+
   // 加载辩论
   const loadDebates = useCallback(async (pageNum: number, sort: SortKey = debateSort) => {
     setDebateLoading(true)
     try {
-      const res = await getGlobalDebateSessions(pageNum, 18, sort)
+      const res = await getGlobalDebateSessions(pageNum, 18, sort === 'mine' ? 'recent' : sort, sort === 'mine')
       const data = (res as any)?.data || (res as any)
       const content: DebateFeedItem[] = data?.content || []
       setDebates(prev => pageNum === 0 ? content : [...prev, ...content])
@@ -536,7 +548,7 @@ export default function DiscoverPage() {
   const loadRoundTables = useCallback(async (pageNum: number, sort: SortKey = rtSort) => {
     setRtLoading(true)
     try {
-      const res = await getGlobalRoundTableSessions(pageNum, 18, sort)
+      const res = await getGlobalRoundTableSessions(pageNum, 18, sort === 'mine' ? 'recent' : sort, sort === 'mine')
       const data = (res as any)?.data || (res as any)
       const content: RoundTableFeedItem[] = data?.content || []
       setRoundTables(prev => pageNum === 0 ? content : [...prev, ...content])
@@ -619,8 +631,9 @@ export default function DiscoverPage() {
   ]
 
   const SORT_OPTS: { key: SortKey; label: string }[] = [
-    { key: 'recent', label: '最新' },
+    { key: 'mine', label: '我的' },
     { key: 'hot', label: '最热' },
+    { key: 'recent', label: '最新' },
   ]
 
   const tabIndex = TABS.findIndex(t => t.key === activeTab)

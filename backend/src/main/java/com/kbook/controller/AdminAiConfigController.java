@@ -2,9 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.config.ChatModelFactory;
-import com.kbook.config.ai.AiConfig;
 import com.kbook.config.ai.AiConfigProvider;
-import com.kbook.config.ai.AiConfigSummary;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
 import com.kbook.service.ai.AiProviderConfigService;
@@ -44,21 +42,6 @@ public class AdminAiConfigController {
     @GetMapping("/purpose/{purpose}")
     public Result<List<AiProviderConfig>> getByPurpose(@PathVariable String purpose) {
         return Result.ok(providerConfigService.getConfigsByPurpose(purpose));
-    }
-
-    @GetMapping("/{purpose}/active")
-    public Result<AiProviderConfig> getActiveByPurpose(@PathVariable String purpose) {
-        AiProviderConfig config = providerConfigService.getFirstEnabledByPurpose(purpose);
-        return Result.ok(config);
-    }
-
-    @GetMapping("/{purpose}/active/{role}")
-    public Result<AiProviderConfig> getActiveByPurposeAndRole(
-            @PathVariable String purpose, @PathVariable String role) {
-        if ("CHAT".equalsIgnoreCase(purpose)) {
-            return Result.ok(providerConfigService.getChatConfigByRole(role));
-        }
-        return Result.ok(providerConfigService.getFirstEnabledByPurpose(purpose));
     }
 
     @PostMapping
@@ -200,16 +183,6 @@ public class AdminAiConfigController {
     }
 
     // ==================== AI 系统配置文件管理 ====================
-
-    @GetMapping("/file")
-    public Result<AiConfig> getFullConfig() {
-        return Result.ok(configProvider.getConfig());
-    }
-
-    @GetMapping("/file/summary")
-    public Result<AiConfigSummary> getSummary() {
-        return Result.ok(configProvider.buildSummary());
-    }
 
     @PostMapping("/file/reload")
     public Result<Void> reload() {

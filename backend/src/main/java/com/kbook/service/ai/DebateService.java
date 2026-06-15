@@ -358,7 +358,7 @@ public class DebateService {
      * 获取全局辩论会话列表（发现页）
      * 只返回公开会话或当前用户创建的会话
      */
-    public Page<DebateSessionFeedVO> getGlobalSessions(int page, int size, String sort) {
+    public Page<DebateSessionFeedVO> getGlobalSessions(int page, int size, String sort, boolean mine) {
         var pageable = PageRequest.of(page, size,
                 Sort.by("hot".equals(sort)
                         ? Sort.Order.desc("updatedAt")
@@ -367,8 +367,10 @@ public class DebateService {
         // 获取当前用户ID（未登录则只能看到公开会话）
         Long currentUserId = getCurrentUserId();
 
-        // 查询公开会话或当前用户的会话
-        var sessions = sessionRepository.findPublicOrOwnSessions(currentUserId, pageable);
+        // 查询公开会话或当前用户的会话；如果 mine=true 则只查当前用户
+        var sessions = mine
+                ? sessionRepository.findByUserId(currentUserId, pageable)
+                : sessionRepository.findPublicOrOwnSessions(currentUserId, pageable);
 
         // Get book info
         var bookIds = sessions.getContent().stream().map(DebateSession::getBookId).distinct().toList();
@@ -920,7 +922,7 @@ public class DebateService {
             case "REBUTTAL" -> AiPromptConstants.DEBATE_REBUTTAL_OUTPUT;
             case "FREE" -> AiPromptConstants.DEBATE_FREE_OUTPUT;
             case "CLOSING" -> AiPromptConstants.DEBATE_CLOSING_OUTPUT;
-            case "ATTACK" -> AiPromptConstants.DEBATE_ATTACK_OUTPUT; // deprecated
+            // ATTACK 已废弃，被 CROSS_EXAM + REBUTTAL 取代
             default -> AiPromptConstants.DEBATE_OPENING_OUTPUT;
         };
     }

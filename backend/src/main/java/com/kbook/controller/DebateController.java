@@ -111,8 +111,9 @@ public class DebateController extends BaseController {
     public Result<Page<DebateSessionFeedVO>> getGlobalSessions(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "recent") String sort) {
-        return Result.ok(debateService.getGlobalSessions(page, size, sort));
+            @RequestParam(defaultValue = "recent") String sort,
+            @RequestParam(defaultValue = "false") boolean mine) {
+        return Result.ok(debateService.getGlobalSessions(page, size, sort, mine));
     }
 
     @Operation(summary = "获取辩论历史消息")

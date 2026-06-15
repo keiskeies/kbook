@@ -12,7 +12,6 @@ import com.kbook.dto.auth.TokenRefreshRequest;
 import com.kbook.service.auth.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
@@ -104,28 +103,4 @@ public class AuthController {
         return Result.ok();
     }
 
-    /**
-     * 登出（将 Token 加入黑名单）
-     */
-    @Operation(summary = "登出")
-    @PostMapping("/logout")
-    public Result<Void> logout(HttpServletRequest request) {
-        String token = extractToken(request);
-        authService.logout(token);
-        return Result.ok();
     }
-
-    /**
-     * 从请求头中提取 Bearer Token
-     * @param request HTTP 请求
-     * @return Token 字符串，若无则返回 null
-     */
-    private String extractToken(HttpServletRequest request) {
-        String bearerToken = request.getHeader("Authorization");
-        if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);
-        }
-        return null;
-    }
-
-}

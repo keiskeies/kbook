@@ -192,20 +192,6 @@ public class AdminBookController extends BaseController {
         return Result.ok(bookService.updateFormatTags(id, req.getTags()));
     }
 
-    @Operation(summary = "按作者删除图书")
-    @DeleteMapping("/delete-by-author")
-    public Result<Map<String, Object>> deleteBooksByAuthor(@RequestParam String author) {
-        int count = bookService.deleteBooksByAuthor(author);
-        return Result.ok(Map.of("deletedCount", count, "author", author));
-    }
-
-    @Operation(summary = "合并同名图书")
-    @PostMapping("/merge-by-title")
-    public Result<Map<String, Object>> mergeBooksByTitle(@RequestParam String title) {
-        String result = bookService.mergeBooksByTitle(title);
-        return Result.ok(Map.of("message", result, "title", title));
-    }
-
     // ==================== 内容向量管理 ====================
 
     @Operation(summary = "获取向量统计")
