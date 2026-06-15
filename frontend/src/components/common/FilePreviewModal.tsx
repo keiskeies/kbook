@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Download, FileText, File, Loader2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/utils/cn'
 import { fetchWithAuth, getAuthBlobUrl } from '@/utils/auth-image'
 import { toast } from 'sonner'
 import PinchZoomImage from '@/components/common/PinchZoomImage'

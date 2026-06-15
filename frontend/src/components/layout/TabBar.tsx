@@ -1,7 +1,7 @@
-﻿import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Home, Trophy, BookOpen, User } from 'lucide-react'
 import { ROUTES } from '@/constants'
-import { cn } from '@/lib/utils'
+import { cn } from '@/utils/cn'
 import { useUiStore } from '@/store/ui'
 
 /** 会眨眼的 AI 机器人图标 */

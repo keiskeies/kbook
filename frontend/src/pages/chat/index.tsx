@@ -1,11 +1,11 @@
-﻿import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { ArrowLeft, Search, MessageCircle, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { getConversations, searchConversations } from '@/api/chat'
 import { useChatStore } from '@/store/chat'
-import { chatWebSocketService } from '@/services/chatWebSocket'
+import { chatWebSocketService } from '@/utils/chatWebSocket'
 import { formatRelativeTime } from '@/utils/time'
 
 export default function ChatListPage() {

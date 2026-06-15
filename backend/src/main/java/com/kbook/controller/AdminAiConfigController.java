@@ -166,6 +166,22 @@ public class AdminAiConfigController {
         return Result.ok(saved);
     }
 
+    @PostMapping("/{id}/activate")
+    public Result<AiProviderConfig> activate(@PathVariable Long id) {
+        AiProviderConfig config = configRepository.findById(id).orElse(null);
+        if (config == null) {
+            return Result.fail("配置不存在");
+        }
+        if (!Boolean.TRUE.equals(config.getEnabled())) {
+            return Result.fail("不能激活已禁用的配置");
+        }
+        // 强制触发 @PreUpdate 使 updatedAt 刷新，成为 "最新更新的启用配置"
+        config.setUpdatedAt(java.time.LocalDateTime.now());
+        AiProviderConfig saved = providerConfigService.saveConfig(config);
+        log.info("已激活嵌入模型配置: id={}, name={}", id, config.getName());
+        return Result.ok(saved);
+    }
+
     @PostMapping("/{id}/test")
     public Result<String> testConnection(@PathVariable Long id) {
         AiProviderConfig config = configRepository.findById(id).orElse(null);

@@ -66,6 +66,11 @@ export function deleteAiConfig(id: number) {
   return request.delete(`/admin/ai-config/${id}`)
 }
 
+/** 激活指定配置（刷新 updatedAt 使其成为最新更新的启用配置） */
+export function activateAiConfig(id: number) {
+  return request.post<AiProviderConfig>(`/admin/ai-config/${id}/activate`)
+}
+
 /** 切换指定配置的角色 (QA / TOOL) — 有该角色则移除，无则添加 */
 export function setConfigRole(id: number, role: string) {
   return request.post<AiProviderConfig>(`/admin/ai-config/${id}/set-role/${role}`)

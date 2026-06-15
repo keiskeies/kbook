@@ -1,4 +1,4 @@
-﻿import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react'
 import { ArrowLeft, Send, Plus, Image, Paperclip, Mic, Smile, User, Loader2, ChevronDown, Keyboard, Delete, Video, RotateCcw } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
@@ -11,7 +11,7 @@ import { getAuthBlobUrl, getThumbnailUrl, getVideoThumbnailUrl, isVideoFileName 
 import { compressImage } from '@/utils/image-compress'
 import AuthImage from '@/components/common/AuthImage'
 import { toast } from 'sonner'
-import { chatWebSocketService } from '@/services/chatWebSocket'
+import { chatWebSocketService } from '@/utils/chatWebSocket'
 import FilePreviewModal from '@/components/common/FilePreviewModal'
 
 const COMMON_EMOJIS = [

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getAuthBlobUrl, getCachedBlobUrl } from '@/utils/auth-image'
-import { cn } from '@/lib/utils'
+import { cn } from '@/utils/cn'
 
 interface AuthImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   src: string

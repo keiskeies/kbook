@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import {
   ArrowLeft, Save, Trash2, RefreshCw, Eye, EyeOff,
   ExternalLink, ChevronDown, ChevronUp, Globe, MapPin,
@@ -16,6 +16,7 @@ import {
   testAiConfig,
   fetchProviderPresets,
   reloadAiConfig,
+  activateAiConfig,
   type AiProviderConfig,
   type AiProviderPreset,
 } from '@/api/aiConfig'
@@ -295,7 +296,7 @@ export default function AiConfigPage() {
 
   const handleActivateEmbedding = async (id: number) => {
     try {
-      await updateAiConfig(id, {} as any)
+      await activateAiConfig(id)
       toast.success('已切换激活嵌入模型')
       loadEmbeddingConfigs()
     } catch (err: any) { toast.error(err.message || '激活失败') }
