@@ -60,6 +60,11 @@ public class RoundTableSession extends BaseEntity {
     @Builder.Default
     private String status = "ACTIVE";
 
+    /** 可见性：PUBLIC / PRIVATE */
+    @Column(name = "visibility", length = 20)
+    @Builder.Default
+    private String visibility = "PRIVATE";
+
     @Override
     public Long getId() {
         return id;

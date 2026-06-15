@@ -57,3 +57,8 @@ export function getHomePersonalized() {
 export function getHomeCategories() {
   return request.get<TagStat[]>('/home/categories')
 }
+
+/** 获取筛选标签（更多） */
+export function getHomeTags() {
+  return request.get<TagStat[]>('/home/tags')
+}

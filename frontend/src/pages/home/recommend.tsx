@@ -1,66 +1,18 @@
-﻿import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { useKeepAliveStore } from '@/store/keepAlive'
-import { ArrowLeft, Sparkles, Star, RefreshCw, Tag, Trash2, Loader2 } from 'lucide-react'
+import { ArrowLeft, Sparkles, RefreshCw, Trash2, Loader2 } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
 import { getRecommendationsPage, generateRecommendationsStream } from '@/api/book'
 import { moveToTrash } from '@/api/bookTrash'
 import type { RecommendedItem, RecommendProgress } from '@/api/book'
-import BookCover from '@/components/book/BookCover'
-import { parseFormatTags } from '@/types/book'
+import { BookCard } from '@/components/book/BookCard'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 
 const PAGE_SIZE = 20
-
-function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
-  if (rating == null || rating < 0) return null
-  const r = Number(rating.toFixed(1))
-  let colorClass = ''
-  if (r >= 5.0) colorClass = 'text-danger dark:text-danger'
-  else if (r >= 4.5) colorClass = 'text-warning dark:text-warning'
-  else if (r >= 4.0) colorClass = 'text-warning dark:text-warning'
-  else if (r >= 3.0) colorClass = 'text-success dark:text-success'
-  else if (r >= 2.5) colorClass = 'text-success dark:text-success'
-  else colorClass = 'text-muted-foreground dark:text-muted-foreground'
-  return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
-      <Star className="h-2.5 w-2.5" />
-      评分：{r}
-    </span>
-  )
-}
-
-function MatchBadgeCN({ score }: { score: number | undefined | null }) {
-  const pct = Math.round(Math.max(0, score ?? 0) * 100)
-  let colorClass = ''
-  if (pct >= 100) colorClass = 'text-danger dark:text-danger'
-  else if (pct >= 80) colorClass = 'text-warning dark:text-warning'
-  else if (pct >= 60) colorClass = 'text-warning dark:text-warning'
-  else if (pct >= 50) colorClass = 'text-success dark:text-success'
-  else if (pct >= 40) colorClass = 'text-success dark:text-success'
-  else colorClass = 'text-muted-foreground dark:text-muted-foreground'
-  return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
-      <Sparkles className="h-2.5 w-2.5" />
-      匹配度：{pct}%
-    </span>
-  )
-}
-
-function fmtReadCount(n: number): string {
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万次阅读`
-  return `${n}次阅读`
-}
-
-function fmtFileSize(bytes: number | null | undefined): string {
-  if (bytes == null || bytes <= 0) return ''
-  if (bytes < 1024) return `${bytes}B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
-}
 
 const SWIPE_THRESHOLD = 60
 const SWIPE_MAX = 80
@@ -79,7 +31,6 @@ function SwipeableBookCard({
   const startYRef = useRef(0)
   const currentXRef = useRef(0)
   const directionRef = useRef<'none' | 'horizontal' | 'vertical'>('none')
-  const [descExpanded, setDescExpanded] = useState(false)
 
   const handleTouchStart = (e: React.TouchEvent) => {
     startXRef.current = e.touches[0].clientX
@@ -121,8 +72,6 @@ function SwipeableBookCard({
     directionRef.current = 'none'
   }
 
-  const tags = parseFormatTags(book.formatTags || '')
-
   return (
     <div className="relative overflow-hidden rounded-2xl break-inside-avoid">
       <div
@@ -141,7 +90,6 @@ function SwipeableBookCard({
         </button>
       </div>
       <div
-        className="relative bg-card p-3 shadow-sm border border-border/50 cursor-pointer active:scale-[0.98] transition-transform duration-150"
         style={{
           transform: `translateX(${offsetX}px)`,
           transition: directionRef.current === 'horizontal' ? 'none' : 'transform 0.2s ease-out',
@@ -154,76 +102,7 @@ function SwipeableBookCard({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        <div className="flex gap-3">
-          <BookCover
-            coverUrl={book.coverUrl}
-            title={book.title}
-            author={book.author}
-            format={book.format}
-            size="md"
-            className="flex-shrink-0"
-          />
-          <div className="flex-1 min-w-0 flex flex-col justify-between">
-            <div>
-              <p className="truncate text-sm font-semibold">{book.title}</p>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {book.author || '未知作者'}
-              </p>
-            </div>
-
-            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-              <RatingBadgeCN rating={book.rating} />
-              <MatchBadgeCN score={book.matchScore} />
-              {book.readCount != null && book.readCount > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {fmtReadCount(book.readCount)}
-                </span>
-              )}
-              {fmtFileSize(book.fileSize) && (
-                <span className="text-xs text-muted-foreground">
-                  {fmtFileSize(book.fileSize)}
-                </span>
-              )}
-            </div>
-
-            {tags.length > 0 && (
-              <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-                {tags.map((t) => (
-                  <span
-                    key={t}
-                    className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-                  >
-                    <Tag className="h-2.5 w-2.5" />
-                    {t}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {book.description && (
-          <div className="mt-2 border-t border-border/30 pt-2">
-            <div
-              className={`text-xs text-muted-foreground/70 leading-relaxed ${
-                descExpanded ? '' : 'line-clamp-2'
-              }`}
-            >
-              {book.description}
-            </div>
-            {book.description.length > 60 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setDescExpanded(!descExpanded)
-                }}
-                className="mt-1 text-xs font-medium text-primary"
-              >
-                {descExpanded ? '收起' : '展开'}
-              </button>
-            )}
-          </div>
-        )}
+        <BookCard book={{ ...book, id: book.bookId }} onClick={onClick} />
       </div>
     </div>
   )

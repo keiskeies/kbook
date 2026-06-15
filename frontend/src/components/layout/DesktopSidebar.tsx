@@ -1,17 +1,14 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Home, Trophy, BookOpen, User, BookOpenCheck, Sun, Moon } from 'lucide-react'
+import { Home, Compass, User, BookOpenCheck, Sun, Moon } from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { cn } from '@/utils/cn'
-import { BlinkingBot } from './TabBar'
 import { useAuthStore } from '@/store/auth'
 import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
 
 const navItems = [
   { path: ROUTES.HOME, label: '首页', icon: Home },
-  { path: ROUTES.RANK, label: '发现', icon: Trophy },
-  { path: ROUTES.AI, label: 'AI 助手', icon: BlinkingBot },
-  { path: ROUTES.BOOKSHELF, label: '书架', icon: BookOpen },
+  { path: ROUTES.DISCOVER, label: '发现', icon: Compass },
   { path: ROUTES.PROFILE, label: '我的', icon: User },
 ]
 
@@ -56,7 +53,7 @@ export function DesktopSidebar() {
         {!effectiveCollapsed && (
           <div className="overflow-hidden whitespace-nowrap">
             <h1 className="text-lg font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">KBook</h1>
-            <p className="text-xs text-sidebar-foreground/50 -mt-0.5">智能阅读平台</p>
+            <p className="text-xs text-sidebar-foreground/50 -mt-0.5">AI 书籍讨论平台</p>
           </div>
         )}
       </div>

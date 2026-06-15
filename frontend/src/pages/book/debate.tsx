@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Sparkles, MessageSquare, Swords, Trash2, Loader2, History, Check, X,
@@ -53,27 +53,39 @@ function SessionCard({ session, bookId, onDelete }: {
   onDelete: (id: string) => void
 }) {
   const navigate = useNavigate()
+  const dateStr = new Date(session.createdAt).toLocaleDateString('zh-CN', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
   return (
-    <button
-      onClick={() => navigate(`/book/${bookId}/debate/sessions/${session.sessionId}`)}
-      className="w-full text-left rounded-xl border border-border/30 bg-card p-3 hover:border-border/60 transition-colors"
-    >
+    <div className="rounded-2xl border border-border/50 bg-card p-3 hover:border-border/60 transition-colors">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-bold truncate">{session.topic}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             {session.status === 'COMPLETED' ? '已完成' : '进行中'}
             {' · '}第{session.currentRound}轮
+            {' · '}{dateStr}
           </p>
         </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(session.sessionId) }}
-          className="shrink-0 rounded-lg p-1 text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 transition-colors"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => navigate(`/book/${bookId}/debate/sessions/${session.sessionId}`)}
+            className="rounded-lg px-2 py-1 text-xs font-medium text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/10 transition-colors"
+          >
+            观看
+          </button>
+          <button
+            onClick={() => onDelete(session.sessionId)}
+            className="rounded-lg p-1 text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -345,6 +357,23 @@ export default function DebatePage() {
       </header>
 
       <div className="flex-1 overflow-y-auto overscroll-contain">
+        {/* 已有辩论 */}
+        <section className="px-4 pt-4 pb-2">
+          <h2 className="text-xs font-bold text-muted-foreground mb-3 flex items-center gap-1.5">
+            <History className="h-3.5 w-3.5" />
+            已有辩论 ({sessions.length})
+          </h2>
+          {sessions.length > 0 ? (
+            <div className="space-y-2">
+              {sessions.map(s => (
+                <SessionCard key={s.sessionId} session={s} bookId={bookIdNum} onDelete={handleDeleteSession} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground/50 text-center py-4">暂无辩论记录</p>
+          )}
+        </section>
+
         {/* 辩题选择区 */}
         <section className="px-4 pt-4 pb-2">
           <h2 className="text-xs font-bold text-muted-foreground mb-3 flex items-center gap-1.5">
@@ -479,20 +508,6 @@ export default function DebatePage() {
           </button>
         </section>
 
-        {/* 历史辩论 */}
-        {sessions.length > 0 && (
-          <section className="px-4 pb-6">
-            <h2 className="text-xs font-bold text-muted-foreground mb-3 flex items-center gap-1.5">
-              <History className="h-3.5 w-3.5" />
-              历史辩论
-            </h2>
-            <div className="space-y-2">
-              {sessions.map(s => (
-                <SessionCard key={s.sessionId} session={s} bookId={bookIdNum} onDelete={handleDeleteSession} />
-              ))}
-            </div>
-          </section>
-        )}
       </div>
 
       {/* 性格选择 Modal — 居中弹出8种性格 */}

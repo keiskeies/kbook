@@ -3,6 +3,7 @@ package com.kbook.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.kbook.common.api.Result;
 import com.kbook.dto.roundtable.RoleVO;
+import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
 import com.kbook.dto.roundtable.SpeakRequest;
 import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
@@ -16,6 +17,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -95,6 +97,18 @@ public class RoundTableController extends BaseController {
     public Result<List<RoundTableSession>> getSessions(@PathVariable Long bookId) {
         Long userId = extractUserId();
         return Result.ok(roundTableService.getSessions(userId, bookId));
+    }
+
+    /**
+     * 获取全局圆桌列表（发现页）
+     */
+    @Operation(summary = "获取全局圆桌列表（发现页）")
+    @GetMapping("/sessions")
+    public Result<Page<RoundTableSessionFeedVO>> getGlobalSessions(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "recent") String sort) {
+        return Result.ok(roundTableService.getGlobalSessions(page, size, sort));
     }
 
     /**

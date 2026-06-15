@@ -3,12 +3,9 @@ import { RouterProvider } from 'react-router-dom'
 import { ThemeProvider } from 'next-themes'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
-import TtsFloatPlayer from '@/components/reader/TtsFloatPlayer'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useAuthStore } from '@/store/auth'
-import { useTtsStore } from '@/store/tts'
 import { initTokenSyncListener } from '@/utils/token-sync'
-import { getActiveTtsConfig } from '@/api/adminTts'
 import { useTokenRefresh } from '@/hooks/useTokenRefresh'
 import { router } from '@/router'
 import './index.css'
@@ -29,17 +26,6 @@ const queryClient = new QueryClient({
 try {
   useAuthStore.getState().hydrate()
 } catch { /* ignore */ }
-
-if (useAuthStore.getState().isAuthenticated) {
-  try {
-    getActiveTtsConfig().then((config) => {
-      if (config) {
-        useTtsStore.getState().setBackendConfig(config)
-        useTtsStore.getState().setBackendMode(true)
-      }
-    }).catch(() => { /* no backend TTS configured */ })
-  } catch { /* ignore */ }
-}
 
 // 初始化多标签页 token 同步监听（try-catch 兜底，部分移动端 BroadcastChannel 会抛异常）
 try {
@@ -73,7 +59,6 @@ createRoot(document.getElementById('root')!).render(
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
         <App />
         <Toaster position="top-center" richColors closeButton duration={4000} style={{ marginTop: '60px' }} />
-        <TtsFloatPlayer />
       </ThemeProvider>
     </QueryClientProvider>
   </ErrorBoundary>

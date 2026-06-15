@@ -19,14 +19,8 @@ const AdminTtsConfigPage = lazy(() => import('@/pages/admin/tts-config'))
 
 const BookDetailPage = lazy(() => import('@/pages/book/detail'))
 const SearchPage = lazy(() => import('@/pages/search'))
-const ReaderPage = lazy(() => import('@/pages/reader'))
-const ReadingHistoryPage = lazy(() => import('@/pages/profile/history'))
-const BookTrashPage = lazy(() => import('@/pages/profile/trash'))
-const ReviewsPage = lazy(() => import('@/pages/reviews'))
+const ReadingListPage = lazy(() => import('@/pages/profile/reading-list'))
 const RecommendPage = lazy(() => import('@/pages/home/recommend'))
-const NotificationsPage = lazy(() => import('@/pages/notifications'))
-const UserProfilePage = lazy(() => import('@/pages/user/profile'))
-const FollowListPage = lazy(() => import('@/pages/follow/list'))
 const ChatListPage = lazy(() => import('@/pages/chat'))
 const ChatRoomPage = lazy(() => import('@/pages/chat/room'))
 const RoundTablePage = lazy(() => import('@/pages/book/round-table'))
@@ -50,20 +44,12 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <></> },
       { path: ROUTES.HOME, element: <></> },
-      { path: ROUTES.RANK, element: <></> },
-      { path: ROUTES.AI, element: <></> },
-      { path: ROUTES.BOOKSHELF, element: <></> },
+      { path: ROUTES.DISCOVER, element: <></> },
       { path: ROUTES.PROFILE, element: <></> },
       { path: ROUTES.BOOK_DETAIL, element: <LazyLoad><BookDetailPage /></LazyLoad> },
       { path: ROUTES.SEARCH, element: <LazyLoad><SearchPage /></LazyLoad> },
-      { path: ROUTES.READER, element: <LazyLoad><ReaderPage /></LazyLoad> },
-      { path: ROUTES.HISTORY, element: <LazyLoad><ReadingHistoryPage /></LazyLoad> },
-      { path: ROUTES.TRASH, element: <LazyLoad><BookTrashPage /></LazyLoad> },
-      { path: ROUTES.REVIEWS, element: <LazyLoad><ReviewsPage /></LazyLoad> },
+      { path: ROUTES.READING_LIST, element: <LazyLoad><ReadingListPage /></LazyLoad> },
       { path: ROUTES.RECOMMEND, element: <LazyLoad><RecommendPage /></LazyLoad> },
-      { path: ROUTES.NOTIFICATIONS, element: <LazyLoad><NotificationsPage /></LazyLoad> },
-      { path: ROUTES.USER_PROFILE, element: <LazyLoad><UserProfilePage /></LazyLoad> },
-      { path: ROUTES.FOLLOW_LIST + '/:tab?', element: <LazyLoad><FollowListPage /></LazyLoad> },
       { path: ROUTES.CHAT, element: <LazyLoad><ChatListPage /></LazyLoad> },
       { path: ROUTES.CHAT_ROOM, element: <LazyLoad><ChatRoomPage /></LazyLoad> },
       { path: ROUTES.ROUND_TABLE, element: <LazyLoad><RoundTablePage /></LazyLoad> },
@@ -71,6 +57,8 @@ export const router = createBrowserRouter([
       { path: ROUTES.DEBATE, element: <LazyLoad><DebatePage /></LazyLoad> },
       { path: ROUTES.DEBATE_SESSION, element: <LazyLoad><DebateSessionPage /></LazyLoad> },
       { path: ROUTES.CHANGE_PASSWORD, element: <LazyLoad><ChangePasswordPage /></LazyLoad> },
+      { path: ROUTES.TERMS, element: <LazyLoad><TermsPage /></LazyLoad> },
+      { path: ROUTES.PRIVACY, element: <LazyLoad><PrivacyPage /></LazyLoad> },
       { path: '/onboarding', element: <LazyLoad><OnboardingPage /></LazyLoad> },
       { path: ROUTES.ADMIN_REVIEW, element: <AdminGuard><LazyLoad><AdminReviewPage /></LazyLoad></AdminGuard> },
       { path: ROUTES.ADMIN_BIND_EMAIL, element: <AdminGuard><LazyLoad><AdminBindEmailPage /></LazyLoad></AdminGuard> },
@@ -98,14 +86,6 @@ export const router = createBrowserRouter([
       {
         path: ROUTES.RESET_PASSWORD,
         element: <LazyLoad><ResetPasswordPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.TERMS,
-        element: <LazyLoad><TermsPage /></LazyLoad>,
-      },
-      {
-        path: ROUTES.PRIVACY,
-        element: <LazyLoad><PrivacyPage /></LazyLoad>,
       },
     ],
   },

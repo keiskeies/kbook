@@ -1,22 +1,19 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { TabBar } from './TabBar'
 import { DesktopSidebar } from './DesktopSidebar'
+import { AiFab } from './AiFab'
 import { useUiStore } from '@/store/ui'
 import { useKeepAliveStore } from '@/store/keepAlive'
 import { ROUTES } from '@/constants'
 import { lazy, Suspense, useRef, useEffect, useCallback } from 'react'
 
 const HomePage = lazy(() => import('@/pages/home'))
-const RankPage = lazy(() => import('@/pages/rank'))
-const AIPage = lazy(() => import('@/pages/ai'))
-const BookshelfPage = lazy(() => import('@/pages/bookshelf'))
+const DiscoverPage = lazy(() => import('@/pages/discover'))
 const ProfilePage = lazy(() => import('@/pages/profile'))
 
 const TAB_ROUTES = [
   { path: ROUTES.HOME, component: HomePage },
-  { path: ROUTES.RANK, component: RankPage },
-  { path: ROUTES.AI, component: AIPage },
-  { path: ROUTES.BOOKSHELF, component: BookshelfPage },
+  { path: ROUTES.DISCOVER, component: DiscoverPage },
   { path: ROUTES.PROFILE, component: ProfilePage },
 ]
 
@@ -140,6 +137,7 @@ export function AppLayout() {
           </div>
           {/* 移动端底部 TabBar - PC隐藏 */}
           {isOnTabPage && tabBarVisible && <TabBar />}
+          <AiFab />
         </div>
       </div>
     </>

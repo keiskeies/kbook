@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Users, RefreshCw, History, Trash2, BookOpen, Sparkles,
@@ -99,11 +99,13 @@ function SessionCard({
   const dateStr = new Date(session.updatedAt || session.createdAt).toLocaleDateString('zh-CN', {
     month: 'short',
     day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   })
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-border/40 bg-card p-3 hover:border-border/60 hover:shadow-sm transition-all duration-200">
-      <button onClick={onLoad} className="flex-1 text-left min-w-0">
+    <div className="flex items-center gap-3 rounded-2xl border border-border/50 bg-card p-3 hover:border-border/60 transition-all duration-200">
+      <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold truncate">{session.title || '圆桌派讨论'}</p>
         <div className="flex items-center gap-1.5 mt-1">
           <div className="flex -space-x-1">
@@ -124,13 +126,21 @@ function SessionCard({
           </div>
           <span className="text-xs text-muted-foreground">{dateStr}</span>
         </div>
-      </button>
-      <button
-        onClick={onDelete}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-red-500/10 hover:text-red-500 transition-colors"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <button
+          onClick={onLoad}
+          className="rounded-lg px-2 py-1 text-xs font-medium text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/10 transition-colors"
+        >
+          观看
+        </button>
+        <button
+          onClick={onDelete}
+          className="rounded-lg p-1 text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 transition-colors"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   )
 }
@@ -256,6 +266,28 @@ export default function RoundTablePage() {
       </header>
 
       <div className="flex flex-1 flex-col items-center px-4 py-6 overflow-y-auto">
+        {/* 已有圆桌 */}
+        <div className="w-full max-w-2xl mb-6">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-muted-foreground">
+            <History className="h-4 w-4" />
+            已有圆桌 ({pastSessions.length})
+          </h3>
+          {pastSessions.length > 0 ? (
+            <div className="space-y-2">
+              {pastSessions.map(session => (
+                <SessionCard
+                  key={session.sessionId}
+                  session={session}
+                  onLoad={() => loadHistorySession(session)}
+                  onDelete={() => handleDeleteSession(session.sessionId)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground/50 text-center py-4">暂无圆桌讨论记录</p>
+          )}
+        </div>
+
         <div className="mb-5 text-center">
           <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-100 to-brand-200 mb-3 shadow-sm">
             <Users className="h-7 w-7 text-brand-500" />
@@ -314,24 +346,6 @@ export default function RoundTablePage() {
           </button>
         </div>
 
-        {pastSessions.length > 0 && (
-          <div className="mt-8 w-full max-w-2xl">
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-muted-foreground">
-              <History className="h-4 w-4" />
-              历史讨论
-            </h3>
-            <div className="space-y-2">
-              {pastSessions.map(session => (
-                <SessionCard
-                  key={session.sessionId}
-                  session={session}
-                  onLoad={() => loadHistorySession(session)}
-                  onDelete={() => handleDeleteSession(session.sessionId)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )

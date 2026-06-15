@@ -4,6 +4,7 @@ import com.kbook.common.api.Result;
 import com.kbook.dto.debate.DebateMessageVO;
 import com.kbook.dto.debate.DebateReportVO;
 import com.kbook.dto.debate.DebateRoleVO;
+import com.kbook.dto.debate.DebateSessionFeedVO;
 import com.kbook.dto.debate.DebateSessionVO;
 import com.kbook.dto.debate.DebateScoreVO;
 import com.kbook.dto.debate.DebateSpeakRequest;
@@ -16,6 +17,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -102,6 +104,15 @@ public class DebateController extends BaseController {
     public Result<List<DebateSessionVO>> getSessions(@PathVariable Long bookId) {
         Long userId = extractUserId();
         return Result.ok(debateService.getSessions(userId, bookId));
+    }
+
+    @Operation(summary = "获取全局辩论列表（发现页）")
+    @GetMapping("/sessions")
+    public Result<Page<DebateSessionFeedVO>> getGlobalSessions(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "recent") String sort) {
+        return Result.ok(debateService.getGlobalSessions(page, size, sort));
     }
 
     @Operation(summary = "获取辩论历史消息")

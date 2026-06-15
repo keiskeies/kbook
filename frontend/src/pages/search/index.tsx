@@ -1,68 +1,14 @@
-﻿import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
-import { ArrowLeft, Search, X, Star, Sparkles, Tag, ChevronDown, ChevronUp } from 'lucide-react'
+import { ArrowLeft, Search, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { useKeepAliveStore } from '@/store/keepAlive'
-
-/** 评分徽章（带中文标签） — 5分制分等级配色（无背景） */
-function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
-  if (rating == null || rating < 0) return null
-  const r = Number(rating.toFixed(1))
-
-  let colorClass = ''
-  if (r >= 5.0) {
-    colorClass = 'text-danger dark:text-danger'
-  } else if (r >= 4.5) {
-    colorClass = 'text-warning dark:text-warning'
-  } else if (r >= 4.0) {
-    colorClass = 'text-warning dark:text-warning'
-  } else if (r >= 3.0) {
-    colorClass = 'text-success dark:text-success'
-  } else if (r >= 2.5) {
-    colorClass = 'text-success dark:text-success'
-  } else {
-    colorClass = 'text-muted-foreground dark:text-muted-foreground'
-  }
-
-  return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
-      <Star className="h-2.5 w-2.5" />
-      评分：{r}
-    </span>
-  )
-}
-
-/** 匹配度徽章（带中文标签） — 根据匹配度分等级配色（无背景） */
-function MatchBadgeCN({ score }: { score: number | undefined | null }) {
-  const pct = Math.round(Math.max(0, score ?? 0) * 100)
-
-  let colorClass = ''
-  if (pct >= 100) {
-    colorClass = 'text-danger dark:text-danger'
-  } else if (pct >= 80) {
-    colorClass = 'text-warning dark:text-warning'
-  } else if (pct >= 60) {
-    colorClass = 'text-warning dark:text-warning'
-  } else if (pct >= 50) {
-    colorClass = 'text-success dark:text-success'
-  } else if (pct >= 40) {
-    colorClass = 'text-success dark:text-success'
-  } else {
-    colorClass = 'text-muted-foreground dark:text-muted-foreground'
-  }
-
-  return (
-    <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold ${colorClass}`}>
-      <Sparkles className="h-2.5 w-2.5" />
-      匹配度：{pct}%
-    </span>
-  )
-}
+import { toast } from 'sonner'
 import { searchBooks } from '@/api/book'
-import { parseFormatTags } from '@/types/book'
-import BookCover from '@/components/book/BookCover'
-import { useMatchScores } from '@/hooks/useMatchScores'
+import { BookCard } from '@/components/book/BookCard'
+
+import { reportProgress, getProgressBatch } from '@/api/progress'
 
 /** 标签筛选栏 — 一行展示+展开全部 */
 function TagFilterBar({
@@ -152,57 +98,12 @@ function TagFilterBar({
   )
 }
 
-/** 简介展开/收起组件 */
-function BookDescription({ description }: { description: string }) {
-  const [expanded, setExpanded] = useState(false)
-  const isLong = description.length > 80
-
-  return (
-    <div className="mt-2 border-t border-border/30 pt-2">
-      <p
-        className={`text-xs text-muted-foreground/70 leading-relaxed transition-all duration-200 ${
-          expanded ? '' : 'line-clamp-2'
-        }`}
-      >
-        {description}
-      </p>
-      {isLong && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            setExpanded(!expanded)
-          }}
-          className="mt-1 flex items-center gap-0.5 text-xs text-primary/80 hover:text-primary font-medium"
-        >
-          {expanded ? (
-            <>
-              <ChevronUp className="h-3 w-3" />
-              收起
-            </>
-          ) : (
-            <>
-              <ChevronDown className="h-3 w-3" />
-              展开
-            </>
-          )}
-        </button>
-      )}
-    </div>
-  )
-}
-
-/** 格式化阅读量 */
-function fmtReadCount(n: number): string {
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万次阅读`
-  return `${n}次阅读`
-}
-
-/** 格式化文件大小 */
-function fmtFileSize(bytes: number | null | undefined): string {
-  if (bytes == null || bytes <= 0) return ''
-  if (bytes < 1024) return `${bytes}B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+/** 根据进度值判断阅读状态 */
+function getReadingStatus(progress: number | null | undefined): string | null {
+  if (progress == null) return null
+  if (progress <= 0) return 'WANT'
+  if (progress >= 1) return 'READ'
+  return 'READING'
 }
 
 const CACHE_KEY = '/search'
@@ -249,6 +150,42 @@ export default function SearchPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const { handleScroll } = useScrollRestore(scrollRef)
   const [searchTriggerKey, setSearchTriggerKey] = useState(0)
+  const [progressMap, setProgressMap] = useState<Record<number, number>>({})
+
+  /** 批量获取搜索结果的阅读进度 */
+  useEffect(() => {
+    if (results.length === 0) return
+    const ids = results.map((b: any) => b.id as number).filter(Boolean)
+    if (ids.length === 0) return
+    getProgressBatch(ids).then((data) => {
+      if (!data) return
+      const map: Record<number, number> = {}
+      for (const [id, p] of Object.entries(data)) {
+        const rp = p as { progress?: number }
+        map[Number(id)] = rp.progress ?? 0
+      }
+      setProgressMap(map)
+    }).catch(() => { /* ignore */ })
+  }, [results])
+
+  /** 处理阅读状态变更 */
+  const handleStatusChange = useCallback(async (bookId: number, status: string) => {
+    let newProgress: number
+    switch (status) {
+      case 'WANT': newProgress = 0; break
+      case 'READING': newProgress = 0.01; break
+      case 'READ': newProgress = 1; break
+      default: return
+    }
+    try {
+      await reportProgress({ bookId, progress: newProgress, currentPosition: null })
+      setProgressMap(prev => ({ ...prev, [bookId]: newProgress }))
+      const labels: Record<string, string> = { WANT: '想读', READING: '在读', READ: '已读' }
+      toast.success(`已标记为「${labels[status]}」`)
+    } catch {
+      toast.error('操作失败')
+    }
+  }, [])
 
   useEffect(() => {
     if (!useCache || popularTags.length === 0) {
@@ -338,10 +275,6 @@ export default function SearchPage() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSearch()
   }
-
-  // 搜索结果的匹配分
-  const resultIds = results.map((b: any) => b.id as number)
-  const matchScores = useMatchScores(resultIds)
 
   const highlight = (text: string) => {
     if (!keyword.trim() || !text) return text
@@ -442,75 +375,16 @@ export default function SearchPage() {
         ) : results.length > 0 ? (
           <div className="columns-1 sm:columns-2 lg:columns-3 gap-3 space-y-3">
             {results.map((book: any) => {
-              const tags = parseFormatTags(book.formatTags)
-              const ms = matchScores?.[String(book.id)]
+              const readingStatus = getReadingStatus(progressMap[book.id])
               return (
-                <div
+                <BookCard
                   key={book.id}
-                  className="rounded-2xl bg-card p-3 shadow-sm border border-border/50 cursor-pointer active:scale-[0.98] transition-all duration-150 break-inside-avoid"
+                  book={book}
                   onClick={() => navigate(`/book/${book.id}`)}
-                >
-                  <div className="flex gap-3">
-                    {/* 封面 + 信息 + 简介 */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex gap-3">
-                        {/* 封面 */}
-                        <BookCover
-                          coverUrl={book.coverUrl}
-                          title={book.title}
-                          author={book.author}
-                          format={book.format}
-                          size="md"
-                          className="flex-shrink-0"
-                        />
-
-                        {/* 信息区 */}
-                        <div className="flex-1 min-w-0 flex flex-col justify-between">
-                          <div>
-                            <p className="truncate text-sm font-semibold" dangerouslySetInnerHTML={{ __html: highlight(book.title) }} />
-                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                              {book.author ? <span dangerouslySetInnerHTML={{ __html: highlight(book.author) }} /> : '未知作者'}
-                            </p>
-                          </div>
-
-                          {/* 评分 + 匹配度 + 阅读量 + 文件大小 */}
-                          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                            <RatingBadgeCN rating={book.rating} />
-                            <MatchBadgeCN score={ms} />
-                            <span className="text-xs text-muted-foreground">
-                              {fmtReadCount(book.readCount)}
-                            </span>
-                            {fmtFileSize(book.fileSize) && (
-                              <span className="text-xs text-muted-foreground">
-                                {fmtFileSize(book.fileSize)}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* 标签 */}
-                          {tags.length > 0 && (
-                            <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-                              {tags.map((t) => (
-                                <span
-                                  key={t}
-                                  className="inline-flex items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary flex-shrink-0"
-                                >
-                                  <Tag className="h-2.5 w-2.5" />
-                                  {t}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* 简介 — 点击展开/收起 */}
-                      {book.description && (
-                        <BookDescription description={book.description} />
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  highlight={highlight}
+                  readingStatus={readingStatus}
+                  onStatusChange={(status) => handleStatusChange(book.id, status)}
+                />
               )
             })}
           </div>

@@ -12,11 +12,15 @@ import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.roundtable.RoleVO;
+import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
 import com.kbook.dto.roundtable.SpeakRequest;
 import com.kbook.entity.Book;
+import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
 import com.kbook.entity.RoundTableSession;
 import com.kbook.enums.RoundTableRole;
+import com.kbook.repository.BookRepository;
+import com.kbook.repository.RoundTableCoverageRepository;
 import com.kbook.repository.RoundTableMessageRepository;
 import com.kbook.repository.RoundTableSessionRepository;
 import com.kbook.service.book.BookParserService;
@@ -32,7 +36,14 @@ import dev.langchain4j.model.chat.response.*;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -43,6 +54,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.time.LocalDateTime;
 
 import static com.kbook.common.util.QueryBuilder.eq;
 
@@ -72,6 +84,8 @@ public class RoundTableService {
     private final ReadingProgressService readingProgressService;
     private final AiConfigProvider aiConfigProvider;
     private final ExecutorService sseExecutor;
+    private final BookRepository bookRepository;
+    private final RoundTableCoverageRepository roundTableCoverageRepository;
 
     public RoundTableService(
             EmbeddingService embeddingService,
@@ -85,7 +99,9 @@ public class RoundTableService {
             RoundTableCoverageService coverageService,
             ReadingProgressService readingProgressService,
             AiConfigProvider aiConfigProvider,
-            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+            @Qualifier("sseExecutor") ExecutorService sseExecutor,
+            @Lazy BookRepository bookRepository,
+            @Lazy RoundTableCoverageRepository roundTableCoverageRepository) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
         this.bookParserService = bookParserService;
@@ -98,6 +114,8 @@ public class RoundTableService {
         this.readingProgressService = readingProgressService;
         this.aiConfigProvider = aiConfigProvider;
         this.sseExecutor = sseExecutor;
+        this.bookRepository = bookRepository;
+        this.roundTableCoverageRepository = roundTableCoverageRepository;
     }
 
     /**
@@ -548,6 +566,107 @@ public class RoundTableService {
                 .stream().findFirst()
                 .filter(s -> s.getUserId().equals(userId))
                 .ifPresent(sessionRepository::delete);
+    }
+
+    /**
+     * 获取全局圆桌派会话列表（发现页）
+     */
+    public Page<RoundTableSessionFeedVO> getGlobalSessions(int page, int size, String sort) {
+        var pageable = PageRequest.of(page, size,
+                Sort.by("hot".equals(sort)
+                        ? Sort.Order.desc("updatedAt")
+                        : Sort.Order.desc("createdAt")));
+
+        // 获取当前用户ID（未登录则只能看到公开会话）
+        Long currentUserId = getCurrentUserId();
+
+        // 查询公开会话或当前用户的会话
+        var sessions = sessionRepository.findPublicOrOwnSessions(currentUserId, pageable);
+
+        // Get book info
+        var bookIds = sessions.getContent().stream().map(RoundTableSession::getBookId).distinct().toList();
+        var books = bookRepository.findListByIds(bookIds);
+        var bookMap = books.stream().collect(Collectors.toMap(Book::getId, b -> b));
+
+        // Get coverage scores
+        var sessionIds = sessions.getContent().stream().map(RoundTableSession::getSessionId).toList();
+        var coverageMap = new java.util.HashMap<String, Double>();
+        if (!sessionIds.isEmpty()) {
+            var coverages = roundTableCoverageRepository.findAllBySessionIdIn(sessionIds);
+            coverages.stream()
+                    .collect(Collectors.toMap(
+                            RoundTableCoverage::getSessionId,
+                            c -> c.getOverallScore() != null ? c.getOverallScore() : 0.0,
+                            (a, b) -> a))
+                    .forEach(coverageMap::put);
+        }
+
+        // 计算热度分数
+        var now = LocalDateTime.now();
+
+        return sessions.map(session -> {
+            var book = bookMap.get(session.getBookId());
+            var coverageScore = coverageMap.getOrDefault(session.getSessionId(), 0.0);
+            
+            // 计算热度分数
+            double hotScore = calculateHotScore(coverageScore, session.getStatus(), session.getCreatedAt(), now);
+            
+            return RoundTableSessionFeedVO.builder()
+                    .id(session.getId())
+                    .sessionId(session.getSessionId())
+                    .bookId(session.getBookId())
+                    .bookTitle(book != null ? book.getTitle() : "未知书籍")
+                    .bookCoverUrl(book != null ? book.getCoverUrl() : null)
+                    .title(session.getTitle())
+                    .roleKeys(session.getRoleKeys())
+                    .status(session.getStatus())
+                    .visibility(session.getVisibility())
+                    .isOwner(currentUserId != null && currentUserId.equals(session.getUserId()))
+                    .coverageScore(coverageScore)
+                    .hotScore(hotScore)
+                    .createdAt(session.getCreatedAt())
+                    .updatedAt(session.getUpdatedAt())
+                    .build();
+        });
+    }
+
+    /**
+     * 计算热度分数
+     * @param score 评分（辩论用avgScore，圆桌用coverageScore）
+     * @param status 状态
+     * @param createdAt 创建时间
+     * @param now 当前时间
+     * @return 热度分数
+     */
+    private double calculateHotScore(double score, String status, LocalDateTime createdAt, LocalDateTime now) {
+        // 基础分：评分 * 100（归一化到0-100分）
+        double baseScore = score * 100;
+        
+        // 完成加分：已完成+50分，进行中+10分
+        int completionBonus = "COMPLETED".equals(status) ? 50 : ("ACTIVE".equals(status) ? 10 : 0);
+        
+        // 时间衰减：每天减2分，防止旧内容霸榜
+        long daysSinceCreated = java.time.Duration.between(createdAt, now).toDays();
+        double timeDecay = daysSinceCreated * 2.0;
+        
+        return baseScore + completionBonus - timeDecay;
+    }
+
+    /**
+     * 从 Spring Security 上下文获取当前用户ID
+     * 未登录返回 null（只能看到公开会话）
+     */
+    private Long getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
+            return null;
+        }
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof Long userId) {
+            return userId;
+        }
+        return null;
     }
 
     /**

@@ -11,6 +11,8 @@ export const ROUTES = {
   READER: '/reader/:bookId',
   BOOK_DETAIL: '/book/:bookId',
   SEARCH: '/search',
+  DISCOVER: '/discover',
+  READING_LIST: '/profile/reading-list',
   HISTORY: '/profile/history',
   TRASH: '/profile/trash',
   RECOMMEND: '/recommend',

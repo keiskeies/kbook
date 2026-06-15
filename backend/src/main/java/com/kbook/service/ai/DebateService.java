@@ -11,9 +11,12 @@ import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.*;
 import com.kbook.entity.Book;
 import com.kbook.entity.debate.DebateMessage;
+import com.kbook.entity.debate.DebateScore;
 import com.kbook.entity.debate.DebateSession;
 import com.kbook.enums.DebateRole;
+import com.kbook.repository.BookRepository;
 import com.kbook.repository.debate.DebateMessageRepository;
+import com.kbook.repository.debate.DebateScoreRepository;
 import com.kbook.repository.debate.DebateSessionRepository;
 import com.kbook.service.book.BookService;
 import com.kbook.service.progress.ReadingProgressService;
@@ -24,7 +27,14 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -33,6 +43,7 @@ import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.time.LocalDateTime;
 
 import static com.kbook.common.util.QueryBuilder.eq;
 import static com.kbook.common.util.QueryBuilder.ne;
@@ -65,6 +76,8 @@ public class DebateService {
     private final ReadingProgressService readingProgressService;
     private final AiConfigProvider aiConfigProvider;
     private final ExecutorService sseExecutor;
+    private final BookRepository bookRepository;
+    private final DebateScoreRepository debateScoreRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final String DEBATE_SESSION_KEY_PREFIX = "kbook:debate:session:";
@@ -82,7 +95,9 @@ public class DebateService {
             StringRedisTemplate stringRedisTemplate,
             ReadingProgressService readingProgressService,
             AiConfigProvider aiConfigProvider,
-            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+            @Qualifier("sseExecutor") ExecutorService sseExecutor,
+            @Lazy BookRepository bookRepository,
+            @Lazy DebateScoreRepository debateScoreRepository) {
         this.bookService = bookService;
         this.chatModelManager = chatModelManager;
         this.sessionRepository = sessionRepository;
@@ -92,6 +107,8 @@ public class DebateService {
         this.readingProgressService = readingProgressService;
         this.aiConfigProvider = aiConfigProvider;
         this.sseExecutor = sseExecutor;
+        this.bookRepository = bookRepository;
+        this.debateScoreRepository = debateScoreRepository;
     }
 
     // ==================== 辩题生成 ====================
@@ -335,6 +352,110 @@ public class DebateService {
         return Stream.of(DebateRole.values())
                 .map(DebateRoleVO::from)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 获取全局辩论会话列表（发现页）
+     * 只返回公开会话或当前用户创建的会话
+     */
+    public Page<DebateSessionFeedVO> getGlobalSessions(int page, int size, String sort) {
+        var pageable = PageRequest.of(page, size,
+                Sort.by("hot".equals(sort)
+                        ? Sort.Order.desc("updatedAt")
+                        : Sort.Order.desc("createdAt")));
+
+        // 获取当前用户ID（未登录则只能看到公开会话）
+        Long currentUserId = getCurrentUserId();
+
+        // 查询公开会话或当前用户的会话
+        var sessions = sessionRepository.findPublicOrOwnSessions(currentUserId, pageable);
+
+        // Get book info
+        var bookIds = sessions.getContent().stream().map(DebateSession::getBookId).distinct().toList();
+        var books = bookRepository.findListByIds(bookIds);
+        var bookMap = books.stream().collect(Collectors.toMap(Book::getId, b -> b));
+
+        // Get average scores per session
+        var sessionIds = sessions.getContent().stream().map(DebateSession::getSessionId).toList();
+        var scoreMap = new java.util.HashMap<String, Double>();
+        if (!sessionIds.isEmpty()) {
+            var scores = debateScoreRepository.findAllBySessionIdIn(sessionIds);
+            scores.stream()
+                    .collect(Collectors.groupingBy(
+                            DebateScore::getSessionId,
+                            Collectors.averagingDouble(s -> s.getAverageScore() != null ? s.getAverageScore() : 0)))
+                    .forEach(scoreMap::put);
+        }
+
+        // 计算热度分数
+        var now = LocalDateTime.now();
+
+        return sessions.map(session -> {
+            var book = bookMap.get(session.getBookId());
+            var avgScore = scoreMap.getOrDefault(session.getSessionId(), 0.0);
+            
+            // 计算热度分数
+            double hotScore = calculateHotScore(avgScore, session.getStatus(), session.getCreatedAt(), now);
+            
+            return DebateSessionFeedVO.builder()
+                    .id(session.getId())
+                    .sessionId(session.getSessionId())
+                    .bookId(session.getBookId())
+                    .bookTitle(book != null ? book.getTitle() : "未知书籍")
+                    .bookCoverUrl(book != null ? book.getCoverUrl() : null)
+                    .topic(session.getTopic())
+                    .proRoleKeys(session.getProRoleKeys())
+                    .conRoleKeys(session.getConRoleKeys())
+                    .currentRound(session.getCurrentRound())
+                    .currentPhase(session.getCurrentPhase())
+                    .status(session.getStatus())
+                    .visibility(session.getVisibility())
+                    .isOwner(currentUserId != null && currentUserId.equals(session.getUserId()))
+                    .avgScore(avgScore)
+                    .hotScore(hotScore)
+                    .createdAt(session.getCreatedAt())
+                    .updatedAt(session.getUpdatedAt())
+                    .build();
+        });
+    }
+
+    /**
+     * 计算热度分数
+     * @param score 评分（辩论用avgScore，圆桌用coverageScore）
+     * @param status 状态
+     * @param createdAt 创建时间
+     * @param now 当前时间
+     * @return 热度分数
+     */
+    private double calculateHotScore(double score, String status, LocalDateTime createdAt, LocalDateTime now) {
+        // 基础分：评分 * 100（归一化到0-100分）
+        double baseScore = score * 100;
+        
+        // 完成加分：已完成+50分，进行中+10分
+        int completionBonus = "COMPLETED".equals(status) ? 50 : ("ACTIVE".equals(status) ? 10 : 0);
+        
+        // 时间衰减：每天减2分，防止旧内容霸榜
+        long daysSinceCreated = java.time.Duration.between(createdAt, now).toDays();
+        double timeDecay = daysSinceCreated * 2.0;
+        
+        return baseScore + completionBonus - timeDecay;
+    }
+
+    /**
+     * 从 Spring Security 上下文获取当前用户ID
+     * 未登录返回 null（只能看到公开会话）
+     */
+    private Long getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
+            return null;
+        }
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof Long userId) {
+            return userId;
+        }
+        return null;
     }
 
     // ==================== 位置 ↔ 性格 解析 ====================
