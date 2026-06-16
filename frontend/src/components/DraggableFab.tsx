@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
+type SnapEdge = 'left' | 'right' | 'top' | 'bottom'
+
 interface DraggableFabProps {
   /** 点击回调（短按才触发，拖动不触发） */
   onClick: () => void
@@ -15,13 +17,20 @@ interface DraggableFabProps {
   snapDuration?: number
   /** 标题 */
   title?: string
+  /** 允许贴边的方向，默认 ['left', 'right'] */
+  snapEdges?: SnapEdge[]
+  /** 贴边后是否半隐藏 + 半透明，默认 false */
+  autoHide?: boolean
+  /** localStorage 存储键名，默认 'draggable-fab-pos' */
+  storageKey?: string
 }
 
 /**
  * 可拖动 + 自动贴边的浮动按钮
- * - 拖动释放后自动吸附到最近的左/右边缘
+ * - 拖动释放后自动吸附到最近的边缘
  * - 短按（无拖动位移）触发 onClick
  * - 位置持久化到 localStorage
+ * - 支持多边缘吸附 + 自动半隐藏
  */
 export default function DraggableFab({
   onClick,
@@ -31,12 +40,13 @@ export default function DraggableFab({
   edgePadding = 16,
   snapDuration = 300,
   title,
+  snapEdges = ['left', 'right'],
+  autoHide = false,
+  storageKey = 'draggable-fab-pos',
 }: DraggableFabProps) {
-  const STORAGE_KEY = 'draggable-fab-pos'
-
   const [pos, setPos] = useState<{ x: number; y: number }>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY)
+      const saved = localStorage.getItem(storageKey)
       if (saved) {
         const p = JSON.parse(saved)
         if (typeof p.x === 'number' && typeof p.y === 'number') return p
@@ -48,6 +58,7 @@ export default function DraggableFab({
 
   const [snapping, setSnapping] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [snappedEdge, setSnappedEdge] = useState<SnapEdge | null>(null)
   const dragRef = useRef<{
     startX: number
     startY: number
@@ -56,39 +67,109 @@ export default function DraggableFab({
     moved: boolean
   } | null>(null)
 
-  // 贴边：吸附到最近的左/右边缘
-  const snapToEdge = useCallback((x: number, y: number) => {
-    const midX = window.innerWidth / 2
-    const snappedX = x + size / 2 < midX ? edgePadding : window.innerWidth - size - edgePadding
-    // 限制 Y 在可视范围内
+  // 贴边：吸附到 snapEdges 中欧氏距离最近的边缘
+  const snapToEdge = useCallback((x: number, y: number): { x: number; y: number; edge: SnapEdge } => {
+    const windowWidth = window.innerWidth
+    const windowHeight = window.innerHeight
     const minY = 60
-    const maxY = window.innerHeight - size - edgePadding
-    const snappedY = Math.min(Math.max(y, minY), maxY)
-    return { x: snappedX, y: snappedY }
-  }, [size, edgePadding])
+    const maxY = windowHeight - size - edgePadding
+    const minX = 0
+    const maxX = windowWidth - size
+
+    let bestDist = Infinity
+    let bestX = x
+    let bestY = y
+    let bestEdge: SnapEdge = snapEdges[0]
+
+    for (const edge of snapEdges) {
+      let targetX: number
+      let targetY: number
+
+      switch (edge) {
+        case 'right':
+          targetX = windowWidth - (autoHide ? size / 2 : size) - (autoHide ? 4 : edgePadding)
+          targetY = Math.min(Math.max(y, minY), maxY)
+          break
+        case 'left':
+          targetX = autoHide ? -(size / 2) + 4 : edgePadding
+          targetY = Math.min(Math.max(y, minY), maxY)
+          break
+        case 'bottom':
+          targetY = windowHeight - (autoHide ? size / 2 : size) - (autoHide ? 4 : edgePadding)
+          targetX = Math.min(Math.max(x, minX), maxX)
+          break
+        case 'top':
+          targetY = autoHide ? -(size / 2) + 4 : edgePadding
+          targetX = Math.min(Math.max(x, minX), maxX)
+          break
+      }
+
+      const dx = x - targetX
+      const dy = y - targetY
+      const dist = dx * dx + dy * dy
+
+      if (dist < bestDist) {
+        bestDist = dist
+        bestX = targetX
+        bestY = targetY
+        bestEdge = edge
+      }
+    }
+
+    return { x: bestX, y: bestY, edge: bestEdge }
+  }, [size, edgePadding, snapEdges, autoHide])
 
   // 释放时贴边
   const handleSnap = useCallback((x: number, y: number) => {
     const target = snapToEdge(x, y)
     setSnapping(true)
-    setPos(target)
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(target)) } catch {}
+    setSnappedEdge(target.edge)
+    setPos({ x: target.x, y: target.y })
+    try { localStorage.setItem(storageKey, JSON.stringify({ x: target.x, y: target.y })) } catch {}
     setTimeout(() => setSnapping(false), snapDuration)
-  }, [snapToEdge, snapDuration])
+  }, [snapToEdge, snapDuration, storageKey])
 
   // ---- Pointer 事件（兼容 PC 和移动端） ----
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
+
+    let newX = pos.x
+    let newY = pos.y
+
+    // 如果开启了 autoHide 且当前已贴边，先完全滑入可见区域再开始拖拽
+    if (autoHide && snappedEdge) {
+      const windowWidth = window.innerWidth
+      const windowHeight = window.innerHeight
+
+      switch (snappedEdge) {
+        case 'right':
+          newX = windowWidth - size - edgePadding
+          break
+        case 'left':
+          newX = edgePadding
+          break
+        case 'bottom':
+          newY = windowHeight - size - edgePadding
+          break
+        case 'top':
+          newY = edgePadding
+          break
+      }
+
+      setPos({ x: newX, y: newY })
+      setSnappedEdge(null)
+    }
+
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      startPosX: pos.x,
-      startPosY: pos.y,
+      startPosX: newX,
+      startPosY: newY,
       moved: false,
     }
     setDragging(true)
-  }, [pos])
+  }, [pos, size, edgePadding, autoHide, snappedEdge])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current) return
@@ -117,14 +198,19 @@ export default function DraggableFab({
     if (!moved) {
       // 短按 → 触发点击
       onClick()
-      // 位置恢复（拖动中可能因微小位移改变了 pos）
-      setPos({ x: startPosX, y: startPosY })
+      if (autoHide) {
+        // autoHide 模式：点击后重新贴边隐藏（pointerDown 已把按钮滑入可见区域）
+        handleSnap(pos.x, pos.y)
+      } else {
+        // 非 autoHide：恢复原位
+        setPos({ x: startPosX, y: startPosY })
+      }
     } else {
       // 拖动结束 → 贴边
       handleSnap(pos.x, pos.y)
     }
     dragRef.current = null
-  }, [onClick, handleSnap, pos])
+  }, [onClick, handleSnap, pos, autoHide])
 
   // 窗口大小变化时重新贴边
   useEffect(() => {
@@ -134,6 +220,9 @@ export default function DraggableFab({
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [pos.x, pos.y, handleSnap])
+
+  // autoHide 模式下的不透明度
+  const fabOpacity = (autoHide && snappedEdge && !dragging) ? 0.5 : 1
 
   return (
     <button
@@ -151,12 +240,11 @@ export default function DraggableFab({
         width: size,
         height: size,
         zIndex: 40,
+        opacity: fabOpacity,
         transition: snapping
-          ? `left ${snapDuration}ms cubic-bezier(0.25,1,0.5,1), top ${snapDuration}ms cubic-bezier(0.25,1,0.5,1), transform 0.15s`
-          : 'transform 0.15s',
-        boxShadow: dragging
-          ? '0 8px 30px rgba(147,51,234,0.4)'
-          : undefined,
+          ? `left ${snapDuration}ms cubic-bezier(0.25,1,0.5,1), top ${snapDuration}ms cubic-bezier(0.25,1,0.5,1), transform 0.15s, opacity 0.3s ease`
+          : 'transform 0.15s, opacity 0.3s ease',
+
       }}
       title={title}
     >

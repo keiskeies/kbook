@@ -1,7 +1,7 @@
-﻿import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Volume2, Square, Loader2, BarChart3, FileText, Play, Pause,
+  ArrowLeft, Volume2, Square, Loader2, BarChart3, FileText, Play, Pause, Mic,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import ScorePanel from '@/components/debate/ScorePanel'
@@ -23,6 +23,7 @@ import {
 } from '@/types/debate'
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { useAuthStore } from '@/store/auth'
 import { getSortedChineseVoices, assignVoiceForRole } from '@/utils/browserTts'
 import { speechService } from '@/utils/speechService'
 import { getAzureVoiceForRole, DEBATE_AZURE_VOICE } from '@/utils/speechVoices'
@@ -165,250 +166,81 @@ function insertHostMessages(msgs: DisplayMessage[], bookTitle: string): DisplayM
 }
 
 
-function RoleBar({ speakingKey, allRoleKeys, personalityTitles }: {
-  speakCounts: Record<string, number>
+/** 角色状态条 — 嵌入 header，带性格标签 */
+function RoleStatusBar({ speakingKey, allRoleKeys, personalityMap }: {
   speakingKey: string | null
   allRoleKeys: string[]
-  personalityTitles?: Record<string, string>
+  personalityMap: Record<string, string>
 }) {
-  const getTitle = (key: string) => {
-    if (key === 'HOST') return ''
-    return personalityTitles?.[key] || ''
-  }
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const springRaf = useRef<number | null>(null)
-  const isSpringing = useRef(false)
-
-  /** 排列 反4-反1 → 主持人 → 正1-正4 */
-  const proKeys = [...allRoleKeys.filter(k => k.startsWith('PRO'))].reverse() // PRO_4 → PRO_1
-  const conKeys = allRoleKeys.filter(k => k.startsWith('CON'))               // CON_1 → CON_4
-  const hostKeys = allRoleKeys.filter(k => k === 'HOST')
-
-  /** 取消正在进行的弹簧动画 */
-  const cancelSpring = useCallback(() => {
-    isSpringing.current = false
-    if (springRaf.current !== null) {
-      cancelAnimationFrame(springRaf.current)
-      springRaf.current = null
-    }
-  }, [])
-
-  /** 弹簧物理回弹到中间 */
-  const snapToCenter = useCallback(() => {
-    cancelSpring()
-    const el = scrollRef.current
-    if (!el) return
-    const target = (el.scrollWidth - el.clientWidth) / 2
-    // 弹簧参数：stiffness 刚度, damping 阻尼
-    const k = 0.15
-    const damp = 0.85
-    const threshold = 0.5
-    let v = 0
-    isSpringing.current = true
-
-    function step() {
-      const currentEl = scrollRef.current
-      if (!currentEl) { springRaf.current = null; isSpringing.current = false; return }
-      const x = currentEl.scrollLeft - target
-      const force = -k * x
-      v = v * damp + force
-      currentEl.scrollLeft += v
-      if (Math.abs(x) > threshold || Math.abs(v) > 0.1) {
-        springRaf.current = requestAnimationFrame(step)
-      } else {
-        currentEl.scrollLeft = target
-        springRaf.current = null
-        isSpringing.current = false
-      }
-    }
-    springRaf.current = requestAnimationFrame(step)
-  }, [cancelSpring])
-
-  const scheduleSnap = useCallback(() => {
-    if (isSpringing.current) return  // 弹簧动画引起的 scroll 事件，不打断
-    cancelSpring()
-    if (snapTimer.current) clearTimeout(snapTimer.current)
-    snapTimer.current = setTimeout(snapToCenter, 1000)
-  }, [cancelSpring, snapToCenter])
-
-  useEffect(() => {
-    return () => {
-      cancelSpring()
-      if (snapTimer.current) clearTimeout(snapTimer.current)
-    }
-  }, [cancelSpring])
-
-  /** 挂载时回到中间 */
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => snapToCenter())
-    return () => cancelAnimationFrame(raf)
-  }, [snapToCenter])
+  const proKeys = allRoleKeys.filter(k => k.startsWith('PRO'))
+  const conKeys = allRoleKeys.filter(k => k.startsWith('CON'))
 
   return (
-    <div className="shrink-0 border-b border-border/20 bg-background/80 backdrop-blur-xl px-3 py-2">
-      <div
-        ref={scrollRef}
-        onScroll={scheduleSnap}
-        onTouchStart={cancelSpring}
-        onTouchEnd={scheduleSnap}
-        onMouseDown={cancelSpring}
-        onMouseUp={scheduleSnap}
-        className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide cursor-grab active:cursor-grabbing md:justify-center"
-      >
-        {/* 正方（反向：4→1） */}
+    <div className="flex items-center gap-2">
+      {/* 正方圆点 */}
+      <div className="flex items-center gap-1">
         {proKeys.map(key => {
+          const isActive = speakingKey === key
           const color = DEBATE_ROLE_COLORS[key] || '#6B8FA8'
-          const isActive = speakingKey === key
+          const personality = personalityMap[key]
+          const label = `${DEBATE_ROLE_NAMES[key] || key}${personality ? ` · ${personality}` : ''}`
           return (
             <div
               key={key}
-              className={`flex shrink-0 items-center gap-1.5 rounded-xl px-2 py-1.5 transition-all duration-300 ${
-                isActive ? 'bg-[var(--role-color)]/[0.08]' : 'bg-muted/40'
-              }`}
-              style={{ '--role-color': color } as React.CSSProperties}
+              className="relative flex items-center justify-center group"
+              title={label}
             >
               <div
-                className={`flex h-7 w-7 items-center justify-center rounded-full text-sm transition-all duration-300 ${
-                  isActive ? 'scale-110' : ''
+                className={`rounded-full transition-all duration-300 ${
+                  isActive ? 'h-2.5 w-2.5 scale-110' : 'h-2 w-2'
                 }`}
                 style={{
-                  backgroundColor: hexToRgba(color, isActive ? 0.2 : 0.08),
-                  border: isActive ? `2px solid ${color}` : `1px solid ${hexToRgba(color, 0.15)}`,
-                  boxShadow: isActive ? `0 0 12px ${hexToRgba(color, 0.25)}` : undefined,
+                  backgroundColor: isActive ? color : hexToRgba(color, 0.25),
+                  boxShadow: isActive ? `0 0 10px ${hexToRgba(color, 0.6)}` : 'none',
                 }}
-              >
-                {DEBATE_ROLE_ICONS[key] || '👤'}
+              />
+              {/* tooltip */}
+              <div className="absolute -top-7 left-1/2 -translate-x-1/2 hidden group-hover:block whitespace-nowrap z-50">
+                <div className="px-1.5 py-0.5 rounded-md bg-popover border border-border/20 shadow-sm">
+                  <span className="text-[10px] text-popover-foreground">{label}</span>
+                </div>
               </div>
-              <div className="flex flex-col">
-                <span
-                  className="text-xs font-semibold leading-tight"
-                  style={{ color: isActive ? color : undefined }}
-                >
-                  {DEBATE_ROLE_NAMES[key] || key}
-                </span>
-                {getTitle(key) && (
-                  <span className="text-xs text-muted-foreground/80 leading-tight">{getTitle(key)}</span>
-                )}
-              </div>
-              {isActive && (
-                <span className="flex items-end gap-[1px] h-2 ml-0.5">
-                  {[0, 1, 2].map(i => (
-                    <span
-                      key={i}
-                      className="w-[2px] rounded-full animate-pulse"
-                      style={{
-                        backgroundColor: color,
-                        animationDelay: `${i * 120}ms`,
-                        height: `${3 + (i % 2) * 3}px`,
-                      }}
-                    />
-                  ))}
-                </span>
-              )}
             </div>
           )
         })}
-        {/* 主持人 */}
-        {hostKeys.map(key => {
-          const color = DEBATE_ROLE_COLORS[key] || '#D4A843'
-          const isActive = speakingKey === key
-          return (
-            <div
-              key={key}
-              className={`flex shrink-0 items-center gap-1.5 rounded-xl px-2 py-1.5 transition-all duration-300 ${
-                isActive ? 'bg-[var(--role-color)]/[0.08]' : 'bg-muted/40'
-              }`}
-              style={{ '--role-color': color } as React.CSSProperties}
-            >
-              <div
-                className={`flex h-7 w-7 items-center justify-center rounded-full text-sm transition-all duration-300 ${
-                  isActive ? 'scale-110' : ''
-                }`}
-                style={{
-                  backgroundColor: hexToRgba(color, isActive ? 0.2 : 0.08),
-                  border: isActive ? `2px solid ${color}` : `1px solid ${hexToRgba(color, 0.15)}`,
-                  boxShadow: isActive ? `0 0 12px ${hexToRgba(color, 0.25)}` : undefined,
-                }}
-              >
-                {DEBATE_ROLE_ICONS[key] || '🎙️'}
-              </div>
-              <div className="flex flex-col">
-                <span
-                  className="text-xs font-semibold leading-tight"
-                  style={{ color: isActive ? color : undefined }}
-                >
-                  {DEBATE_ROLE_NAMES[key] || key}
-                </span>
-              </div>
-              {isActive && (
-                <span className="flex items-end gap-[1px] h-2 ml-0.5">
-                  {[0, 1, 2].map(i => (
-                    <span
-                      key={i}
-                      className="w-[2px] rounded-full animate-pulse"
-                      style={{
-                        backgroundColor: color,
-                        animationDelay: `${i * 120}ms`,
-                        height: `${3 + (i % 2) * 3}px`,
-                      }}
-                    />
-                  ))}
-                </span>
-              )}
-            </div>
-          )
-        })}
-        {/* 反方 */}
+      </div>
+
+      {/* VS 分隔 */}
+      <span className="text-[10px] font-bold text-muted-foreground/40">VS</span>
+
+      {/* 反方圆点 */}
+      <div className="flex items-center gap-1">
         {conKeys.map(key => {
-          const color = DEBATE_ROLE_COLORS[key] || '#C75B5B'
           const isActive = speakingKey === key
+          const color = DEBATE_ROLE_COLORS[key] || '#C75B5B'
+          const personality = personalityMap[key]
+          const label = `${DEBATE_ROLE_NAMES[key] || key}${personality ? ` · ${personality}` : ''}`
           return (
             <div
               key={key}
-              className={`flex shrink-0 items-center gap-1.5 rounded-xl px-2 py-1.5 transition-all duration-300 ${
-                isActive ? 'bg-[var(--role-color)]/[0.08]' : 'bg-muted/40'
-              }`}
-              style={{ '--role-color': color } as React.CSSProperties}
+              className="relative flex items-center justify-center group"
+              title={label}
             >
               <div
-                className={`flex h-7 w-7 items-center justify-center rounded-full text-sm transition-all duration-300 ${
-                  isActive ? 'scale-110' : ''
+                className={`rounded-full transition-all duration-300 ${
+                  isActive ? 'h-2.5 w-2.5 scale-110' : 'h-2 w-2'
                 }`}
                 style={{
-                  backgroundColor: hexToRgba(color, isActive ? 0.2 : 0.08),
-                  border: isActive ? `2px solid ${color}` : `1px solid ${hexToRgba(color, 0.15)}`,
-                  boxShadow: isActive ? `0 0 12px ${hexToRgba(color, 0.25)}` : undefined,
+                  backgroundColor: isActive ? color : hexToRgba(color, 0.25),
+                  boxShadow: isActive ? `0 0 10px ${hexToRgba(color, 0.6)}` : 'none',
                 }}
-              >
-                {DEBATE_ROLE_ICONS[key] || '👤'}
+              />
+              {/* tooltip */}
+              <div className="absolute -top-7 left-1/2 -translate-x-1/2 hidden group-hover:block whitespace-nowrap z-50">
+                <div className="px-1.5 py-0.5 rounded-md bg-popover border border-border/20 shadow-sm">
+                  <span className="text-[10px] text-popover-foreground">{label}</span>
+                </div>
               </div>
-              <div className="flex flex-col">
-                <span
-                  className="text-xs font-semibold leading-tight"
-                  style={{ color: isActive ? color : undefined }}
-                >
-                  {DEBATE_ROLE_NAMES[key] || key}
-                </span>
-                {getTitle(key) && (
-                  <span className="text-xs text-muted-foreground/80 leading-tight">{getTitle(key)}</span>
-                )}
-              </div>
-              {isActive && (
-                <span className="flex items-end gap-[1px] h-2 ml-0.5">
-                  {[0, 1, 2].map(i => (
-                    <span
-                      key={i}
-                      className="w-[2px] rounded-full animate-pulse"
-                      style={{
-                        backgroundColor: color,
-                        animationDelay: `${i * 120}ms`,
-                        height: `${3 + (i % 2) * 3}px`,
-                      }}
-                    />
-                  ))}
-                </span>
-              )}
             </div>
           )
         })}
@@ -439,7 +271,10 @@ export default function DebateSessionPage() {
   const [sessionStatus, setSessionStatus] = useState<string>('ACTIVE')
   const [sessionProKeys, setSessionProKeys] = useState('')
   const [sessionConKeys, setSessionConKeys] = useState('')
+  const [isOwner, setIsOwner] = useState(false)
+  const [useOverlay, setUseOverlay] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const mainLayoutRef = useRef<HTMLDivElement>(null)
   const reportPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const handleAdvanceRoundRef = useRef<() => void>(() => {})
   const currentRoundRef = useRef(1)
@@ -465,11 +300,11 @@ export default function DebateSessionPage() {
   const zhVoicesRef = useRef<SpeechSynthesisVoice[]>([])
   const speechEnabledRef = useRef(false)
 
-  // 发言次数统计
-  const speakCounts = messages.reduce<Record<string, number>>((acc, m) => {
+  // 发言次数统计（调试用）
+  useMemo(() => messages.reduce<Record<string, number>>((acc, m) => {
     acc[m.roleKey] = (acc[m.roleKey] || 0) + 1
     return acc
-  }, {})
+  }, {}), [messages])
 
   // 加载图书信息
   useEffect(() => {
@@ -479,34 +314,59 @@ export default function DebateSessionPage() {
     }).catch(() => {})
   }, [bookIdNum])
 
-  // 智能自动滚动：用户在底部时跟随新内容，手动拖走则暂停，拖回底部则恢复
-  const isNearBottom = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return true
-    // PC 分屏模式：滚动容器是各列，追踪最长的列
-    if (!isMobile) {
-      const columns = el.querySelectorAll('.overflow-y-auto')
-      let maxDist = 0
-      columns.forEach(col => {
-        const dist = col.scrollHeight - col.scrollTop - col.clientHeight
-        if (dist > maxDist) maxDist = dist
-      })
-      return maxDist < 80
+  // ==================== 响应式布局检测 ====================
+  useEffect(() => {
+    const checkLayout = () => {
+      const width = mainLayoutRef.current?.clientWidth || window.innerWidth
+      // 辩论内容最小需要 640px，评分面板 320px，报告面板 420px
+      // 如果打开面板后内容区小于 640px，就用覆盖层模式
+      setUseOverlay(width < 1100)
     }
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 80
-  }, [isMobile])
+    checkLayout()
+    window.addEventListener('resize', checkLayout)
+    return () => window.removeEventListener('resize', checkLayout)
+  }, [])
+
+  // ==================== 智能自动滚动 ====================
+  // PC 双栏：每列独立追踪是否「在底部」和「用户是否手动滚动」
+  const colScrollStateRef = useRef<Map<HTMLElement, { nearBottom: boolean; userScrolled: boolean }>>(new Map())
+
+  const isColNearBottom = useCallback((col: HTMLElement) => {
+    return col.scrollHeight - col.scrollTop - col.clientHeight < 100
+  }, [])
+
+  const handleColScroll = useCallback((col: HTMLElement) => {
+    const near = isColNearBottom(col)
+    const state = colScrollStateRef.current.get(col) || { nearBottom: true, userScrolled: false }
+    // 用户向上滚动（远离底部）→ 标记为手动滚动
+    if (!near && state.nearBottom) {
+      state.userScrolled = true
+    }
+    // 用户拖回底部 → 恢复自动跟随
+    if (near && state.userScrolled) {
+      state.userScrolled = false
+    }
+    state.nearBottom = near
+    colScrollStateRef.current.set(col, state)
+  }, [isColNearBottom])
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    // 用户手动滚动：向上滚动时暂停自动跟随，拖到底部恢复
-    if (isNearBottom()) {
-      userScrolledAwayRef.current = false
+    if (!isMobile) {
+      const columns = el.querySelectorAll('.debate-column')
+      columns.forEach(col => handleColScroll(col as HTMLElement))
     } else {
-      userScrolledAwayRef.current = true
+      const near = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+      if (near) {
+        userScrolledAwayRef.current = false
+      } else if (el.scrollTop < lastScrollTopRef.current) {
+        // 移动端向上滚动
+        userScrolledAwayRef.current = true
+      }
+      lastScrollTopRef.current = el.scrollTop
     }
-    lastScrollTopRef.current = el.scrollTop
-  }, [isNearBottom])
+  }, [isMobile, handleColScroll])
 
   // 离开页面时清理所有辩论定时器和 SSE 连接
   useEffect(() => {
@@ -533,20 +393,21 @@ export default function DebateSessionPage() {
 
   // 新内容到达时自动滚动到底部（仅当用户未手动离开时）
   useEffect(() => {
-    if (userScrolledAwayRef.current) return
-
     if (isMobile) {
-      // 移动端始终滚动到最新消息
+      if (userScrolledAwayRef.current) return
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    } else {
-      if (!isNearBottom()) return
-      // PC 分屏：各列独立滚动到最底部
-      const columns = scrollContainerRef.current?.querySelectorAll('.overflow-y-auto')
-      columns?.forEach(col => {
-        col.scrollTop = col.scrollHeight
-      })
+      return
     }
-  }, [messages, isMobile, isNearBottom])
+
+    // PC 双栏：只滚动「有新增消息且在底部」的列
+    const cols = scrollContainerRef.current?.querySelectorAll('.debate-column')
+    cols?.forEach(col => {
+      const state = colScrollStateRef.current.get(col as HTMLElement) || { nearBottom: true, userScrolled: false }
+      if (!state.userScrolled) {
+        ;(col as HTMLElement).scrollTop = (col as HTMLElement).scrollHeight
+      }
+    })
+  }, [messages, isMobile])
 
   // 初始加载完成后，滚动到底部（有历史消息时）
   const initialScrollDone = useRef(false)
@@ -559,9 +420,11 @@ export default function DebateSessionPage() {
       if (isMobile) {
         messagesEndRef.current?.scrollIntoView({ block: 'end' })
       } else {
-        const columns = scrollContainerRef.current?.querySelectorAll('.overflow-y-auto')
-        columns?.forEach(col => {
-          col.scrollTop = col.scrollHeight
+        const cols = scrollContainerRef.current?.querySelectorAll('.debate-column')
+        cols?.forEach(col => {
+          const c = col as HTMLElement
+          c.scrollTop = c.scrollHeight
+          colScrollStateRef.current.set(c, { nearBottom: true, userScrolled: false })
         })
       }
     })
@@ -587,6 +450,10 @@ export default function DebateSessionPage() {
           setSessionProKeys(session.proRoleKeys || '')
           setSessionConKeys(session.conRoleKeys || '')
         }
+
+        // 判断是否为会话创建者
+        const currentUserId = useAuthStore.getState().userInfo?.id
+        setIsOwner(currentUserId != null && session != null && session.userId === currentUserId)
 
         if (msgs.length > 0) {
           // 将 DebateMessage[] 转为 DisplayMessage[] 用于渲染
@@ -1228,7 +1095,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
   // 无消息时自动开始辩论（预写开场白，不用 LLM）
   const autoStartTriggered = useRef(false)
   useEffect(() => {
-    if (phase !== 'OPENING' || messages.length > 0 || autoStartTriggered.current) return
+    if (phase !== 'OPENING' || messages.length > 0 || autoStartTriggered.current || !isOwner) return
     if (!sessionId || !bookIdNum) return
     autoStartTriggered.current = true
     const timer = setTimeout(() => {
@@ -1245,7 +1112,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
       setTimeout(() => speakOpening(0), 600)
     }, 600)
     return () => clearTimeout(timer)
-  }, [phase, messages.length, sessionId, bookIdNum, speakOpening, bookTitle])
+  }, [phase, messages.length, sessionId, bookIdNum, speakOpening, bookTitle, isOwner])
 
   // 始终同步最新版到 ref，供内部闭包使用（避开 useCallback 闭包过期）
   handleAdvanceRoundRef.current = handleAdvanceRound
@@ -1347,7 +1214,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
 
   return (
     <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background">
-      {/* 顶部导航 — 与圆桌派一致：左侧图书信息 + 右上轮次指示 */}
+      {/* 顶部导航 — 整合角色状态 + 环节标签 */}
       <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-background/80 px-4 py-2.5 backdrop-blur-xl z-20">
         <button
           onClick={() => navigate(-1)}
@@ -1359,63 +1226,87 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
           <h1 className="text-sm font-bold text-foreground truncate">
             {bookTitle ? `《${bookTitle}》奇葩说辩论` : '奇葩说辩论'}
           </h1>
-          <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
-            {sessionStatus === 'COMPLETED' ? (
-              <>
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-500" />
-                已完成
-              </>
-            ) : (
-              <>
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" />
-                进行中
-                {' · '}{ROUND_LABELS[currentPhase] || currentPhase}
-                {speakingKey ? ' · 发言中' : ''}
-              </>
-            )}
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
+              {sessionStatus === 'COMPLETED' ? (
+                <>
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-500" />
+                  已完成
+                </>
+              ) : (
+                <>
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse" />
+                  进行中
+                </>
+              )}
+            </p>
+            {/* 极简角色状态条 */}
+            <div className="hidden md:flex">
+              <RoleStatusBar
+                speakingKey={speakingKey}
+                allRoleKeys={allRoleKeys.current}
+                personalityMap={personalityMap}
+              />
+            </div>
+          </div>
+        </div>
+        {/* 环节标签页 */}
+        <div className="hidden md:flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
+          {ROUND_SEQUENCE.map((r) => (
+            <button
+              key={r}
+              onClick={() => {
+                // 点击跳转到该环节第一条消息
+                const firstMsg = messages.find(m => m.roundType === r)
+                if (firstMsg && !isMobile) {
+                  const cols = scrollContainerRef.current?.querySelectorAll('.debate-column')
+                  cols?.forEach(col => {
+                    const el = col.querySelector(`[data-msg-id*="${firstMsg.id}"]`)
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  })
+                }
+              }}
+              className={`px-2 py-1 rounded-md text-[11px] font-medium transition-all ${
+                sessionStatus === 'COMPLETED'
+                  ? 'text-brand-500'
+                  : currentPhase === r
+                  ? 'bg-background text-brand-500 shadow-sm'
+                  : 'text-muted-foreground/50 hover:text-muted-foreground'
+              }`}
+            >
+              {ROUND_LABELS[r]}
+            </button>
+          ))}
+          <div className={`px-2 py-1 rounded-md text-[11px] font-medium transition-all ${
+            sessionStatus === 'COMPLETED' ? 'bg-background text-brand-500 shadow-sm' : 'text-muted-foreground/30'
+          }`}>
+            结束
+          </div>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden relative">
-        <div className="flex flex-1 flex-col overflow-hidden relative">
-          {/* 轮次指示器 */}
-          <div className="shrink-0 flex items-center justify-center gap-0.5 sm:gap-2 px-2 sm:px-4 py-1.5 border-b border-border/10">
+      <div className="flex flex-1 overflow-hidden relative" ref={mainLayoutRef}>
+        <div className="flex flex-1 flex-col overflow-hidden relative min-w-0">
+          {/* 移动端环节指示器 — 简化版 */}
+          <div className="md:hidden shrink-0 flex items-center justify-center gap-0.5 px-2 py-1.5 border-b border-border/10">
             {ROUND_SEQUENCE.map((r, i) => (
-              <div key={r} className="flex items-center gap-0.5 sm:gap-2">
+              <div key={r} className="flex items-center gap-0.5">
                 <div className={`flex items-center gap-0.5 ${
                   sessionStatus === 'COMPLETED' ? 'text-brand-500' :
                   currentPhase === r ? 'text-brand-500 font-bold' : 'text-muted-foreground/50'
                 }`}>
-                  <div className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
+                  <div className={`h-1.5 w-1.5 rounded-full ${
                     sessionStatus === 'COMPLETED' ? 'bg-brand-500' :
                     currentPhase === r ? 'bg-brand-500' : 'bg-muted'
                   }`} />
-                  <span className="text-xs">{ROUND_LABELS[r]}</span>
+                  <span className="text-[10px]">{ROUND_LABELS[r]}</span>
                 </div>
                 {i < ROUND_SEQUENCE.length - 1 && (
-                  <div className="h-px w-1.5 sm:w-4 bg-border/30" />
+                  <div className="h-px w-1 bg-border/30" />
                 )}
               </div>
             ))}
-            <div className="h-px w-1.5 sm:w-4 bg-border/30" />
-            <div className={`flex items-center gap-0.5 ${
-              sessionStatus === 'COMPLETED' ? 'text-brand-500 font-bold' : 'text-muted-foreground/30'
-            }`}>
-              <div className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
-                sessionStatus === 'COMPLETED' ? 'bg-brand-500' : 'bg-muted'
-              }`} />
-              <span className="text-xs">结束</span>
-            </div>
           </div>
-
-          {/* RoleBar — 显示名称 + 称号 */}
-          <RoleBar
-            speakCounts={speakCounts}
-            speakingKey={speakingKey}
-            allRoleKeys={allRoleKeys.current}
-            personalityTitles={personalityMap}
-          />
 
           {/* 消息列表 */}
           <div ref={scrollContainerRef} className={`flex-1 ${isMobile ? 'overflow-y-auto overscroll-y-contain' : 'min-h-0 flex flex-col'}`}>
@@ -1426,158 +1317,216 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
               </div>
             ) : (
               <>
-                {/* PC端分屏 — 各列独立滚动 */}
+                {/* PC端双栏对抗 — 正方左 / 反方右 / 主持人全宽穿插 */}
                 {!isMobile && (
                   <div className="flex-1 min-h-0 flex overflow-hidden">
-                    {/* 正方区（左）— 更宽，2份 */}
-                    <div onScroll={handleScroll} className="flex-[2] min-w-0 border-r border-border/10 bg-blue-50/20 dark:bg-blue-950/10 p-3 space-y-3 overflow-y-auto">
-                      <div className="text-xs font-bold text-blue-500 uppercase tracking-wider">正方</div>
-                      {messages.filter(m => m.side === 'PRO').map(m => (
-                        <div key={m.id} className="rounded-xl bg-blue-500/5 border border-blue-200/30 p-3 group">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
-                              {m.roleName}
-                            </span>
-                            {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-xs text-muted-foreground">
-                                {m.personalityTitle}
+                    {/* 正方区（左） */}
+                    <div onScroll={handleScroll} className="debate-column flex-1 min-w-0 border-r border-border/10 p-3 space-y-3 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-3 w-3 rounded-full bg-[#4A7C6F]" />
+                          <span className="text-xs font-bold text-[#4A7C6F] uppercase tracking-wider">正方</span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/50">
+                          {messages.filter(m => m.side === 'PRO').length} 条发言
+                        </span>
+                      </div>
+                      {messages.filter(m => m.side === 'PRO').map(m => {
+                        const isActive = speakingKey === m.roleKey && m.streaming
+                        return (
+                          <div
+                            key={m.id}
+                            data-msg-id={m.id}
+                            className={`rounded-xl border p-3 group transition-all duration-300 ${
+                              isActive
+                                ? 'bg-card border-teal-400 dark:border-teal-500 shadow-sm'
+                                : 'bg-card border-border/50 hover:border-teal-300 dark:hover:border-teal-700'
+                            }`}
+                            style={isActive ? { borderLeftWidth: '3px', borderLeftColor: '#4A7C6F' } : undefined}
+                          >
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <div
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-xs"
+                                style={{
+                                  backgroundColor: hexToRgba(DEBATE_ROLE_COLORS[m.roleKey] || '#4A7C6F', 0.12),
+                                  border: `1.5px solid ${DEBATE_ROLE_COLORS[m.roleKey] || '#4A7C6F'}`,
+                                }}
+                              >
+                                {DEBATE_ROLE_ICONS[m.roleKey] || '👤'}
+                              </div>
+                              <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
+                                {m.roleName}
+                              </span>
+                              {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                                  {m.personalityTitle}
+                                </span>
+                              )}
+                              {isActive && (
+                                <span className="flex items-center gap-[2px] ml-auto">
+                                  <Mic className="h-3 w-3 text-teal-400" />
+                                  <span className="flex items-end gap-[1px] h-2">
+                                    {[0, 1, 2].map(i => (
+                                      <span key={i} className="w-[2px] rounded-full bg-teal-400 animate-pulse" style={{ animationDelay: `${i * 120}ms`, height: `${3 + (i % 2) * 3}px` }} />
+                                    ))}
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+                            {m.streaming && !m.content ? (
+                              <span className="flex items-center gap-1.5 text-xs text-teal-400">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                麦克风传递中...
+                              </span>
+                            ) : (
+                              <MarkdownRenderer content={m.content} className="!text-detail !leading-relaxed" />
+                            )}
+                            {m.streaming && m.content && (
+                              <span className="inline-flex items-center ml-1">
+                                <span className="h-3 w-[2px] bg-teal-400 animate-pulse rounded-full" />
                               </span>
                             )}
+                            {!m.streaming && m.content && (
+                              <button
+                                onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
+                                className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
+                                  speakingMsgId === m.id
+                                    ? 'text-primary bg-primary/10 opacity-100'
+                                    : 'text-muted-foreground/60 hover:text-muted-foreground'
+                                }`}
+                              >
+                                {speakingMsgId === m.id ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
+                              </button>
+                            )}
                           </div>
-                          {m.streaming && !m.content ? (
-                            <span className="flex items-center gap-1.5 text-xs text-blue-400">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              麦克风传递中...
-                            </span>
-                          ) : (
-                            <MarkdownRenderer content={m.content} className="!text-detail !leading-relaxed" />
-                          )}
-                          {m.streaming && m.content && (
-                            <span className="inline-flex items-center ml-1">
-                              <span className="h-3 w-[2px] bg-blue-400 animate-pulse rounded-full" />
-                            </span>
-                          )}
-                          {!m.streaming && m.content && (
-                            <button
-                              onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
-                              className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
-                                speakingMsgId === m.id
-                                  ? 'text-primary bg-primary/10 opacity-100'
-                                  : 'text-muted-foreground/60 hover:text-muted-foreground'
-                              }`}
-                            >
-                              {speakingMsgId === m.id ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
 
-                    {/* 中心区（主持人）— 更窄，固定宽度 */}
-                    <div onScroll={handleScroll} className="w-72 shrink-0 p-3 space-y-3 overflow-y-auto">
-                      {messages.filter(m => m.side === 'NEUTRAL').map(m => (
-                        <div key={m.id} className="rounded-xl bg-brand-50/50 dark:bg-brand-600/10 border border-brand-200/20 dark:border-brand-600/30 p-3 max-w-[230px] mx-auto group">
-                          <div className="flex items-center justify-center gap-1.5 mb-1">
-                            <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
-                              🎙️ {m.roleName}
-                            </span>
-                          </div>
-                          {m.streaming && !m.content ? (
-                            <span className="flex items-center justify-center gap-1.5 text-xs text-brand-500">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              麦克风传递中...
-                            </span>
-                          ) : (
-                            <MarkdownRenderer content={m.content} className="!text-detail !leading-relaxed" />
-                          )}
-                          {m.streaming && m.content && (
-                            <span className="inline-flex items-center ml-1">
-                              <span className="h-3 w-[2px] bg-brand-400 animate-pulse rounded-full" />
-                            </span>
-                          )}
-                          {!m.streaming && m.content && (
-                            <button
-                              onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
-                              className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
-                                speakingMsgId === m.id
-                                  ? 'text-primary bg-primary/10 opacity-100'
-                                  : 'text-muted-foreground/60 hover:text-muted-foreground'
-                              }`}
-                            >
-                              {speakingMsgId === m.id ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
-                            </button>
-                          )}
+                    {/* 反方区（右） */}
+                    <div onScroll={handleScroll} className="debate-column flex-1 min-w-0 border-l border-border/10 p-3 space-y-3 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-3 w-3 rounded-full bg-[#B8704A]" />
+                          <span className="text-xs font-bold text-[#B8704A] uppercase tracking-wider">反方</span>
                         </div>
-                      ))}
-                    </div>
-
-                    {/* 反方区（右）— 更宽，2份 */}
-                    <div onScroll={handleScroll} className="flex-[2] min-w-0 border-l border-border/10 bg-red-50/20 dark:bg-red-950/10 p-3 space-y-3 overflow-y-auto">
-                      <div className="text-xs font-bold text-red-500 uppercase tracking-wider text-right">反方</div>
-                      {messages.filter(m => m.side === 'CON').map(m => (
-                        <div key={m.id} className="rounded-xl bg-red-500/5 border border-red-200/30 p-3 group">
-                          <div className="flex items-center justify-end gap-1.5 mb-1">
-                            {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-xs text-muted-foreground">
-                                {m.personalityTitle}
+                        <span className="text-[10px] text-muted-foreground/50">
+                          {messages.filter(m => m.side === 'CON').length} 条发言
+                        </span>
+                      </div>
+                      {messages.filter(m => m.side === 'CON').map(m => {
+                        const isActive = speakingKey === m.roleKey && m.streaming
+                        return (
+                          <div
+                            key={m.id}
+                            data-msg-id={m.id}
+                            className={`rounded-xl border p-3 group transition-all duration-300 ${
+                              isActive
+                                ? 'bg-card border-amber-400 dark:border-amber-500 shadow-sm'
+                                : 'bg-card border-border/50 hover:border-amber-300 dark:hover:border-amber-700'
+                            }`}
+                            style={isActive ? { borderRightWidth: '3px', borderRightColor: '#B8704A' } : undefined}
+                          >
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <div
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-xs"
+                                style={{
+                                  backgroundColor: hexToRgba(DEBATE_ROLE_COLORS[m.roleKey] || '#B8704A', 0.12),
+                                  border: `1.5px solid ${DEBATE_ROLE_COLORS[m.roleKey] || '#B8704A'}`,
+                                }}
+                              >
+                                {DEBATE_ROLE_ICONS[m.roleKey] || '👤'}
+                              </div>
+                              <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
+                                {m.roleName}
+                              </span>
+                              {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                                  {m.personalityTitle}
+                                </span>
+                              )}
+                              {isActive && (
+                                <span className="flex items-center gap-[2px] ml-auto">
+                                  <Mic className="h-3 w-3 text-amber-400" />
+                                  <span className="flex items-end gap-[1px] h-2">
+                                    {[0, 1, 2].map(i => (
+                                      <span key={i} className="w-[2px] rounded-full bg-amber-400 animate-pulse" style={{ animationDelay: `${i * 120}ms`, height: `${3 + (i % 2) * 3}px` }} />
+                                    ))}
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+                            {m.streaming && !m.content ? (
+                              <span className="flex items-center gap-1.5 text-xs text-amber-400">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                麦克风传递中...
+                              </span>
+                            ) : (
+                              <MarkdownRenderer content={m.content} className="!text-detail !leading-relaxed" />
+                            )}
+                            {m.streaming && m.content && (
+                              <span className="inline-flex items-center ml-1">
+                                <span className="h-3 w-[2px] bg-amber-400 animate-pulse rounded-full" />
                               </span>
                             )}
-                            <span className="text-xs font-bold" style={{ color: DEBATE_ROLE_COLORS[m.roleKey] }}>
-                              {m.roleName}
-                            </span>
+                            {!m.streaming && m.content && (
+                              <button
+                                onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
+                                className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
+                                  speakingMsgId === m.id
+                                    ? 'text-primary bg-primary/10 opacity-100'
+                                    : 'text-muted-foreground/60 hover:text-muted-foreground'
+                                }`}
+                              >
+                                {speakingMsgId === m.id ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
+                              </button>
+                            )}
                           </div>
-                          {m.streaming && !m.content ? (
-                            <span className="flex items-center gap-1.5 text-xs text-red-400">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              麦克风传递中...
-                            </span>
-                          ) : (
-                            <MarkdownRenderer content={m.content} className="!text-detail !leading-relaxed" />
-                          )}
-                          {m.streaming && m.content && (
-                            <span className="inline-flex items-center ml-1">
-                              <span className="h-3 w-[2px] bg-red-400 animate-pulse rounded-full" />
-                            </span>
-                          )}
-                          {!m.streaming && m.content && (
-                            <button
-                              onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
-                              className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
-                                speakingMsgId === m.id
-                                  ? 'text-primary bg-primary/10 opacity-100'
-                                  : 'text-muted-foreground/60 hover:text-muted-foreground'
-                              }`}
-                            >
-                              {speakingMsgId === m.id ? <><Square className="h-2.5 w-2.5 fill-current" />停止</> : <><Volume2 className="h-2.5 w-2.5" />朗读</>}
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}
 
-                {/* 移动端上下排列 */}
+                {/* 移动端上下排列 — 主持人全宽穿插 */}
                 {isMobile && (
                   <div onScroll={handleScroll} className="p-3 space-y-3">
                     {messages.map(m => {
                       const isPro = m.side === 'PRO'
                       const isCon = m.side === 'CON'
+                      const isHost = m.side === 'NEUTRAL'
                       const color = DEBATE_ROLE_COLORS[m.roleKey] || '#888'
-                      const bgColor = isPro ? 'bg-blue-500/5 border-blue-200/30' :
-                        isCon ? 'bg-red-500/5 border-red-200/30' :
-                        'bg-brand-50/50 dark:bg-brand-600/20 border-brand-200/20 dark:border-brand-600/30'
+
+                      if (isHost) {
+                        return (
+                          <div key={m.id} className="flex items-center justify-center py-2">
+                            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-muted border border-border/50">
+                              <span className="text-xs">🎙️</span>
+                              <span className="text-xs text-muted-foreground">{m.content}</span>
+                            </div>
+                          </div>
+                        )
+                      }
 
                       return (
-                        <div key={m.id} className={`rounded-xl border p-3 ${bgColor} group`}
-                          style={isPro ? { borderLeft: `3px solid ${color}` } : isCon ? { borderRight: `3px solid ${color}` } : {}}
+                        <div key={m.id} className={`rounded-xl border p-3 group transition-all duration-300 bg-card border-border/50 hover:border-border`}
+                          style={isPro ? { borderLeft: `3px solid #4A7C6F` } : { borderRight: `3px solid #B8704A` }}
                         >
-                          <div className={`flex items-center gap-1.5 mb-1 ${isCon ? 'flex-row-reverse' : ''}`}>
+                          <div className={`flex items-center gap-1.5 mb-1.5 ${isCon ? 'flex-row-reverse' : ''}`}>
+                            <div
+                              className="flex h-5 w-5 items-center justify-center rounded-full text-[10px]"
+                              style={{
+                                backgroundColor: hexToRgba(color, 0.12),
+                                border: `1px solid ${color}`,
+                              }}
+                            >
+                              {DEBATE_ROLE_ICONS[m.roleKey] || '👤'}
+                            </div>
                             <span className="font-bold" style={{ color, fontSize: '11px' }}>
                               {m.roleName}
                             </span>
                             {m.personalityTitle && m.roleKey !== 'HOST' && !m.streaming && (
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
                                 {m.personalityTitle}
                               </span>
                             )}
@@ -1626,14 +1575,15 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
             )}
           </div>
 
-          {/* 底部控制栏 — 与圆桌派一致 */}
+          {/* 底部控制栏 — 1+1 原则：主操作唯一 + 次要操作折叠 */}
           <div
             className="shrink-0 border-t border-border/20 bg-background/95 backdrop-blur-xl px-4 py-2.5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
             <div className="flex items-center gap-2 max-w-3xl mx-auto">
-              {/* 左区：操作按钮 */}
-              <div className="flex items-center gap-1">
+              {/* 主操作区 */}
+              <div className="flex items-center gap-2">
+                {/* 语音开关 */}
                 <button
                   onClick={() => {
                     if (ttsEnabled) {
@@ -1641,61 +1591,61 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                       setTtsEnabled(false)
                     } else {
                       setTtsEnabled(true)
-                      // 自动朗读最后一条非流式消息
                     }
                   }}
-                  className={`flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium transition-all duration-200 ${
+                  className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition-all duration-200 ${
                     ttsEnabled
                       ? 'bg-brand-100 text-brand-500 border border-brand-200'
                       : 'bg-muted text-muted-foreground hover:text-foreground'
                   }`}
+                  title={ttsEnabled ? '关闭语音' : '开启语音'}
                 >
-                  <Volume2 className="h-3 w-3 shrink-0" />
-                  <span className="hidden sm:inline">{ttsEnabled ? '朗读中' : '语音关'}</span>
+                  <Volume2 className="h-3.5 w-3.5 shrink-0" />
+                  <span className="hidden sm:inline">{ttsEnabled ? '朗读中' : '语音'}</span>
                 </button>
 
-                {phase !== 'completed' && (speakingKey || isChainActiveRef.current) && (
+                {/* 暂停 / 继续 — 互斥显示，主操作（仅主人可见） */}
+                {isOwner && phase !== 'completed' && (speakingKey || isChainActiveRef.current) ? (
                   <button
                     onClick={pauseDiscussion}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
+                    className="flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border border-amber-200/50 transition-colors"
                   >
-                    <Pause className="h-3 w-3 shrink-0" />
-                    <span className="hidden sm:inline">暂停</span>
+                    <Pause className="h-3.5 w-3.5 shrink-0" />
+                    <span>暂停辩论</span>
                   </button>
-                )}
-
-                {/* 继续辩论 — 有消息但未完成且未在发言时显示 */}
-                {isStarted && sessionStatus !== 'COMPLETED' && !speakingKey && !isChainActiveRef.current && (
+                ) : isOwner && isStarted && sessionStatus !== 'COMPLETED' ? (
                   <button
                     onClick={handleContinue}
-                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
+                    className="flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
                   >
-                    <Play className="h-3 w-3 shrink-0" />
-                    <span className="hidden sm:inline">继续</span>
+                    <Play className="h-3.5 w-3.5 shrink-0" />
+                    <span>继续辩论</span>
                   </button>
-                )}
+                ) : !isOwner && sessionStatus !== 'COMPLETED' ? (
+                  <span className="text-xs text-muted-foreground italic">观摩模式</span>
+                ) : null}
               </div>
 
               <div className="flex-1" />
 
-              {/* 右区：信息开关 */}
+              {/* 次要操作：评分 + 报告 + 统计 */}
               <div className="flex items-center gap-1">
                 {isStarted && (
                   <>
                     <button
                       onClick={() => {
                         if (showScorePanel) { setShowScorePanel(false); return }
-                        // 打开评分面板时自动加载评分
                         if (sessionId && scores.length === 0) {
                           getDebateScores(sessionId).then(setScores).catch(() => {})
                         }
                         setShowScorePanel(true)
                       }}
-                      className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs transition-colors ${
+                      className={`flex items-center justify-center gap-1 rounded-xl px-2.5 py-2 text-xs transition-colors ${
                         showScorePanel ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
                       }`}
+                      title="评分面板"
                     >
-                      <BarChart3 className="h-3 w-3 shrink-0" />
+                      <BarChart3 className="h-3.5 w-3.5 shrink-0" />
                       <span className="hidden sm:inline">评分</span>
                     </button>
 
@@ -1708,14 +1658,15 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                             getDebateReport(sessionId).then(setReport).catch(() => {})
                           }
                         }}
-                        className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs transition-colors ${
+                        className={`flex items-center justify-center gap-1 rounded-xl px-2.5 py-2 text-xs transition-colors ${
                           showReportPanel ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
                         }`}
+                        title="辩论报告"
                       >
                         {reportGenerating || report?.status === 'GENERATING' ? (
-                          <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                         ) : (
-                          <FileText className="h-3 w-3 shrink-0" />
+                          <FileText className="h-3.5 w-3.5 shrink-0" />
                         )}
                         <span className="hidden sm:inline">报告</span>
                       </button>
@@ -1723,32 +1674,46 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                   </>
                 )}
 
-                <span className="text-xs text-muted-foreground/60 shrink-0 tabular-nums">
-                  {allRoleKeys.current.filter(k => !k.startsWith('HOST')).length}人·{currentRound}轮
+                <span className="text-xs text-muted-foreground/60 shrink-0 tabular-nums ml-1">
+                  {currentRound}轮
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* PC端评分/报告面板 — 圆桌派式动画宽度 */}
+        {/* PC端评分/报告面板 — 智能布局：宽屏并排，窄屏覆盖 */}
         {!isMobile && (
           <>
-            <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out flex flex-col border-l border-border/20 bg-background/95 backdrop-blur-xl ${showScorePanel ? 'w-80' : 'w-0'}`}>
-              {showScorePanel && (
-                <ScorePanel scores={scores} onClose={() => setShowScorePanel(false)} onRefresh={() => sessionId ? getDebateScores(sessionId).then(setScores) : null} isMobile={isMobile} />
-              )}
-            </div>
-            <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out border-l border-border/20 bg-background/95 backdrop-blur-xl ${showReportPanel ? 'w-[420px] max-w-[90vw]' : 'w-0'}`}>
-              {showReportPanel && (
-                <ReportPanel
-                  report={report}
-                  isGenerating={reportGenerating}
-                  onTrigger={handleTriggerReport}
-                  onClose={() => setShowReportPanel(false)}
-                />
-              )}
-            </div>
+            {/* 评分面板：宽屏并排，窄屏覆盖 */}
+            {useOverlay && showScorePanel && (
+              <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowScorePanel(false)}>
+                <div className="h-full w-80 border-l border-border/20 bg-background/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
+                  <ScorePanel scores={scores} onClose={() => setShowScorePanel(false)} onRefresh={() => sessionId ? getDebateScores(sessionId).then(setScores) : null} isMobile={isMobile} />
+                </div>
+              </div>
+            )}
+            {!useOverlay && (
+              <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out flex flex-col border-l border-border/20 bg-background/95 backdrop-blur-xl ${showScorePanel ? 'w-80' : 'w-0'}`}>
+                {showScorePanel && (
+                  <ScorePanel scores={scores} onClose={() => setShowScorePanel(false)} onRefresh={() => sessionId ? getDebateScores(sessionId).then(setScores) : null} isMobile={isMobile} />
+                )}
+              </div>
+            )}
+            {/* 报告面板：始终覆盖 */}
+            {showReportPanel && (
+              <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowReportPanel(false)}>
+                <div className="h-full w-[420px] max-w-[80vw] border-l border-border/20 bg-background/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
+                  <ReportPanel
+                    report={report}
+                    isGenerating={reportGenerating}
+                    isOwner={isOwner}
+                    onTrigger={handleTriggerReport}
+                    onClose={() => setShowReportPanel(false)}
+                  />
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -1767,9 +1732,9 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
             <ReportPanel
               report={report}
               isGenerating={reportGenerating}
+              isOwner={isOwner}
               onTrigger={handleTriggerReport}
               onClose={() => setShowReportPanel(false)}
-              isMobile={isMobile}
             />
           </SheetContent>
         </Sheet>

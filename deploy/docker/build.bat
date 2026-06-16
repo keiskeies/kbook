@@ -3,8 +3,12 @@ chcp 65001 >nul
 title KBook Docker Build
 pushd "%~dp0"
 
+REM Read version from single source of truth
+set /p VERSION=<..\VERSION
+
 echo ============================================
 echo   KBook Docker 镜像构建
+echo   Version: %VERSION%
 echo ============================================
 echo.
 
@@ -28,13 +32,13 @@ if not exist "..\package\dist" (
 echo OK
 
 REM 3. Build image
-echo [3/3] 构建镜像 kbook-app:1.1.0 ...
-docker build -t kbook-app:1.1.0 -f ..\Dockerfile ..
+echo [3/3] 构建镜像 kbook-app:%VERSION% ...
+docker build -t kbook-app:%VERSION% -f ..\Dockerfile ..
 if errorlevel 1 ( echo FAIL: 镜像构建失败 && pause && exit /b 1 )
 
 echo.
 echo ============================================
-echo   构建成功！kbook-app:1.1.0
+echo   构建成功！kbook-app:%VERSION%
 echo ============================================
 echo   运行：start.bat
 echo.

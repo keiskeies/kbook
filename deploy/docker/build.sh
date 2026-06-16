@@ -9,9 +9,11 @@
 set -e
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 cd "$(dirname "$0")"
+VERSION=$(cat ../VERSION)
 
 echo -e "${BLUE}============================================${NC}"
 echo -e "${BLUE}  KBook Docker 镜像构建                     ${NC}"
+echo -e "${BLUE}  Version: ${VERSION}                       ${NC}"
 echo -e "${BLUE}============================================${NC}"
 
 # 1. Docker
@@ -34,11 +36,11 @@ fi
 echo -e "${GREEN}✓${NC}"
 
 # 3. Build
-echo -e "${YELLOW}[3/3] 构建镜像 kbook-app:1.1.0 ...${NC}"
-docker build -t kbook-app:1.1.0 -f ../Dockerfile ..
+echo -e "${YELLOW}[3/3] 构建镜像 kbook-app:${VERSION} ...${NC}"
+docker build -t "kbook-app:${VERSION}" -f ../Dockerfile ..
 echo -e "${GREEN}✓${NC}"
 
 echo -e "\n${GREEN}============================================${NC}"
-echo -e "${GREEN}  构建成功！kbook-app:1.0.8${NC}"
+echo -e "${GREEN}  构建成功！kbook-app:${VERSION}${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo -e "  运行：${YELLOW}./start.sh${NC}"

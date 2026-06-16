@@ -25,7 +25,7 @@ import {
   X,
   XCircle
 } from 'lucide-react'
-import DraggableFab from '@/components/DraggableFab'
+
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import type {
@@ -969,16 +969,14 @@ export default function AdminBooksPage() {
         </div>
       </div>
 
-      {/* ===== 可拖动浮动 AI 圆圈 ===== */}
-      <DraggableFab
+      {/* ===== AI 聊天按钮 ===== */}
+      <button
         onClick={() => setShowChat(true)}
-        size={56}
-        edgePadding={16}
-        className="bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40"
         title="AI 智能图书管理员"
+        className="fixed z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg shadow-purple-500/30 hover:scale-105 active:scale-95 transition-transform md:bottom-6 md:right-6 bottom-24 right-4"
       >
         <MessageCircle className="h-6 w-6" />
-      </DraggableFab>
+      </button>
 
       {/* ===== AI 对话弹窗：移动端底部80%高度，PC端右侧抽屉 ===== */}
       {showChat && (

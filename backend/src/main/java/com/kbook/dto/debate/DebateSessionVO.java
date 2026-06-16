@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 public class DebateSessionVO {
 
     private Long id;
+    private Long userId;
     private String sessionId;
     private Long bookId;
     private String topic;
@@ -36,6 +37,7 @@ public class DebateSessionVO {
     public static DebateSessionVO from(DebateSession entity) {
         return DebateSessionVO.builder()
                 .id(entity.getId())
+                .userId(entity.getUserId())
                 .sessionId(entity.getSessionId())
                 .bookId(entity.getBookId())
                 .topic(entity.getTopic())

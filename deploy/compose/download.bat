@@ -9,7 +9,7 @@ echo   Download KBook Build Artifacts
 echo ============================================
 echo.
 
-set "BASE_URL=https://book.keiskei.top/package"
+set /p BASE_URL=<..\PACKAGE_URL
 for %%I in ("%~dp0..") do set "DEPLOY_PACKAGE_DIR=%%~fI\package"
 
 REM Create directory

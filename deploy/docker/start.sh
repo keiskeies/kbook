@@ -7,9 +7,11 @@ set -e
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 cd "$(dirname "$0")"
 ENV_FILE=".env"
+VERSION=$(cat ../VERSION)
 
 echo -e "${BLUE}============================================${NC}"
 echo -e "${BLUE}  KBook 单容器启动                          ${NC}"
+echo -e "${BLUE}  Version: ${VERSION}                       ${NC}"
 echo -e "${BLUE}============================================${NC}"
 
 # 1. Docker
@@ -55,8 +57,8 @@ done
 echo -e "${GREEN}✓${NC}"
 
 # 5. 构建镜像
-echo -e "${YELLOW}[5/6] 构建镜像 kbook-app:1.1.0 ...${NC}"
-docker build -t kbook-app:1.1.0 -f ../Dockerfile ..
+echo -e "${YELLOW}[5/6] 构建镜像 kbook-app:${VERSION} ...${NC}"
+docker build -t "kbook-app:${VERSION}" -f ../Dockerfile ..
 echo -e "${GREEN}✓${NC}"
 
 # 6. 启动
@@ -141,7 +143,7 @@ docker run -d \
     -v "${CHAT_DIR}:/data/chat" \
     -v "${TTS_CACHE_DIR}:/data/tts_cache" \
     -v "${AI_CONFIG_HOST}:/app/config/ai-config.json:ro" \
-    kbook-app:1.1.0
+    "kbook-app:${VERSION}"
 
 echo -e "${GREEN}✓${NC}"
 

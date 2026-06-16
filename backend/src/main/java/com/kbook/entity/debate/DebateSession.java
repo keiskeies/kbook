@@ -84,7 +84,7 @@ public class DebateSession extends BaseEntity {
     /** 可见性：PUBLIC / PRIVATE */
     @Column(name = "visibility", length = 20)
     @Builder.Default
-    private String visibility = "PRIVATE";
+    private String visibility = "PUBLIC";
 
     @Override
     public Long getId() {

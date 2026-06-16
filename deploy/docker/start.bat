@@ -6,8 +6,12 @@ setlocal enabledelayedexpansion
 
 set ENV_FILE=.env
 
+REM Read version
+set /p VERSION=<..\VERSION
+
 echo ============================================
 echo   KBook 单容器启动
+echo   Version: !VERSION!
 echo ============================================
 echo.
 
@@ -65,8 +69,8 @@ echo OK
 REM =====================================================
 REM 5. Build
 REM =====================================================
-echo [5/6] 构建镜像...
-docker build -t kbook-app:1.1.0 -f ..\Dockerfile ..
+echo [5/6] 构建镜像 kbook-app:!VERSION! ...
+docker build -t kbook-app:!VERSION! -f ..\Dockerfile ..
 if errorlevel 1 ( echo FAIL: 镜像构建失败 && pause && exit /b 1 )
 echo OK
 
@@ -144,7 +148,7 @@ docker run -d ^
     -v "!CHAT_DIR!:/data/chat" ^
     -v "!TTS_CACHE_DIR!:/data/tts_cache" ^
     -v "!AI_CONFIG_HOST!:/app/config/ai-config.json:ro" ^
-    kbook-app:1.1.0
+    kbook-app:!VERSION!
 
 if errorlevel 1 ( echo FAIL: 容器启动失败 && pause && exit /b 1 )
 

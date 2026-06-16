@@ -270,7 +270,7 @@ export default function RecommendPage() {
     if (inView && hasMoreRef.current && !fetchingRef.current && !loading) {
       loadPage(pageRef.current + 1)
     }
-  }, [inView, books.length, loadPage, loading])
+  }, [inView, loadPage, loading])
 
   const handleTrashClick = (book: RecommendedItem) => {
     setTrashTarget(book)

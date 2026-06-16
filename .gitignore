@@ -10,6 +10,8 @@ target/
 .claude/
 .omo/
 .mimocode/
+.codegraph/
+.trae/
 
 # 环境变量（生产）
 .env

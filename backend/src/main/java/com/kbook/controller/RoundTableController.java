@@ -176,8 +176,6 @@ public class RoundTableController extends BaseController {
     @Operation(summary = "获取覆盖度报告")
     @GetMapping("/sessions/{sessionId}/coverage")
     public Result<RoundTableCoverage> getCoverage(@PathVariable String sessionId) {
-        Long userId = extractUserId();
-        roundTableService.verifySessionOwnership(userId, sessionId);
         return Result.ok(coverageService.getCoverage(sessionId));
     }
 
@@ -213,8 +211,6 @@ public class RoundTableController extends BaseController {
     @Operation(summary = "获取解读报告")
     @GetMapping("/sessions/{sessionId}/report")
     public Result<RoundTableReport> getReport(@PathVariable String sessionId) {
-        Long userId = extractUserId();
-        roundTableService.verifySessionOwnership(userId, sessionId);
         return Result.ok(reportService.getReport(sessionId));
     }
 }

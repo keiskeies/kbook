@@ -1,7 +1,7 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  ArrowLeft, Volume2, Square, Loader2, Play, Pause, BarChart3, Target, RefreshCw, FileText,
+  ArrowLeft, Volume2, Square, Loader2, Play, Pause, BarChart3, Target, RefreshCw, FileText, X,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
@@ -18,6 +18,7 @@ import {
 } from '@/types/roundTable'
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { useAuthStore } from '@/store/auth'
 import { getSortedChineseVoices, assignVoiceForRole } from '@/utils/browserTts'
 import { speechService } from '@/utils/speechService'
 import { getAzureVoiceForRole, ROUNDTABLE_AZURE_VOICE } from '@/utils/speechVoices'
@@ -260,10 +261,13 @@ function SpeakStatsPanel({
 function ReportPanel({
   report,
   isGenerating,
+  isOwner,
   onTrigger,
+  onClose,
 }: {
   report: RoundTableReport | null
   isGenerating: boolean
+  isOwner?: boolean
   onTrigger: () => void
   onClose: () => void
 }) {
@@ -274,20 +278,32 @@ function ReportPanel({
           <FileText className="h-3.5 w-3.5 text-brand-500" />
           解读报告
         </h3>
+        <button
+          onClick={onClose}
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3">
         {!report && !isGenerating && (
           <div className="text-center py-6">
-            <p className="text-xs text-muted-foreground mb-3">AI 将深度解读本次讨论，生成七维度分析报告</p>
-            <button
-              onClick={onTrigger}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-2 text-xs font-medium text-white shadow-sm active:scale-[0.97] transition-transform"
-            >
-              <FileText className="h-3 w-3" />
-              生成解读报告
-            </button>
-            <p className="text-xs text-muted-foreground/60 mt-2">预计 2-3 分钟，完成后站内信通知</p>
+            {isOwner !== false ? (
+              <>
+                <p className="text-xs text-muted-foreground mb-3">AI 将深度解读本次讨论，生成七维度分析报告</p>
+                <button
+                  onClick={onTrigger}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-2 text-xs font-medium text-white shadow-sm active:scale-[0.97] transition-transform"
+                >
+                  <FileText className="h-3 w-3" />
+                  生成解读报告
+                </button>
+                <p className="text-xs text-muted-foreground/60 mt-2">预计 2-3 分钟，完成后站内信通知</p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">报告尚未生成</p>
+            )}
           </div>
         )}
 
@@ -316,13 +332,15 @@ function ReportPanel({
         {report?.status === 'FAILED' && (
           <div className="text-center py-6">
             <p className="text-xs text-red-500 mb-2">报告生成失败：{report.errorMessage || '未知错误'}</p>
-            <button
-              onClick={onTrigger}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-2 text-xs font-medium text-white shadow-sm active:scale-[0.97] transition-transform"
-            >
-              <RefreshCw className="h-3 w-3" />
-              重新生成
-            </button>
+            {isOwner !== false && (
+              <button
+                onClick={onTrigger}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-2 text-xs font-medium text-white shadow-sm active:scale-[0.97] transition-transform"
+              >
+                <RefreshCw className="h-3 w-3" />
+                重新生成
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -350,6 +368,8 @@ export default function RoundTableSessionPage() {
   const [showReport, setShowReport] = useState(false)
   const [report, setReport] = useState<RoundTableReport | null>(null)
   const [reportPolling, setReportPolling] = useState(false)
+  const [isOwner, setIsOwner] = useState(false)
+  const [useOverlay, setUseOverlay] = useState(false)
   const reportPollingStartRef = useRef<number>(0)
 
   const activeRolesRef = useRef<RoundTableRole[]>([])
@@ -369,8 +389,20 @@ export default function RoundTableSessionPage() {
   const ttsEnabledRef = useRef(false)
   const ttsLastReadIndexRef = useRef<number>(-1)
   const speechEnabledRef = useRef(false)
+  const mainLayoutRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { messagesRef.current = messages }, [messages])
+
+  // 响应式布局检测
+  useEffect(() => {
+    const checkLayout = () => {
+      const width = mainLayoutRef.current?.clientWidth || window.innerWidth
+      setUseOverlay(width < 1100)
+    }
+    checkLayout()
+    window.addEventListener('resize', checkLayout)
+    return () => window.removeEventListener('resize', checkLayout)
+  }, [])
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -500,11 +532,17 @@ export default function RoundTableSessionPage() {
         setBookTitle(bookData.title)
       }
 
-      // 有历史消息 → 暂停等待用户点继续；新建会话（无消息）→ 自动开始
+      // 判断是否为会话创建者（从消息的 userId 获取）
+      const currentUserId = useAuthStore.getState().userInfo?.id
+      const sessionOwnerId = (data as RoundTableMessage[])?.[0]?.userId
+      const owner = sessionOwnerId != null && currentUserId != null && sessionOwnerId === currentUserId
+      setIsOwner(owner)
+
+      // 有历史消息 → 暂停等待用户点继续；新建会话（无消息）→ 自动开始（仅主人）
       const hasHistory = Array.isArray(data) && data.length > 0
-      setPhase(hasHistory ? 'paused' : 'discussing')
-      if (!hasHistory) {
-        // 新建会话，立即开始讨论循环
+      setPhase(hasHistory ? 'paused' : owner ? 'discussing' : 'paused')
+      if (!hasHistory && owner) {
+        // 新建会话，立即开始讨论循环（仅主人）
         discussionLoopRef.current = true
         setTimeout(() => grabMicAndSpeak(undefined), 1000)
       }
@@ -880,8 +918,8 @@ export default function RoundTableSessionPage() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden relative">
-        <div className="flex flex-1 flex-col overflow-hidden relative transition-all duration-300 ease-out">
+      <div className="flex flex-1 overflow-hidden relative" ref={mainLayoutRef}>
+        <div className="flex flex-1 flex-col overflow-hidden relative min-w-0">
           {showStats && !isMobile && (
             <SpeakStatsPanel
               roles={roles}
@@ -981,7 +1019,7 @@ export default function RoundTableSessionPage() {
                   <span className="hidden sm:inline">{ttsEnabled ? '朗读中' : '语音关'}</span>
                 </button>
 
-                {phase === 'discussing' && (
+                {isOwner && phase === 'discussing' && (
                   <button
                     onClick={pauseDiscussion}
                     className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
@@ -991,7 +1029,7 @@ export default function RoundTableSessionPage() {
                   </button>
                 )}
 
-                {phase === 'paused' && messages.some(m => m.streaming === undefined) && (
+                {isOwner && phase === 'paused' && messages.some(m => m.streaming === undefined) && (
                   <button
                     onClick={resumeDiscussion}
                     className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
@@ -1011,7 +1049,7 @@ export default function RoundTableSessionPage() {
                   </button>
                 )}
 
-                {phase === 'discussing' && (
+                {isOwner && phase === 'discussing' && (
                   <button
                     onClick={pauseDiscussion}
                     className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
@@ -1019,6 +1057,10 @@ export default function RoundTableSessionPage() {
                     <Square className="h-3 w-3 shrink-0" />
                     <span className="hidden sm:inline">结束</span>
                   </button>
+                )}
+
+                {!isOwner && phase !== 'error' && (
+                  <span className="text-xs text-muted-foreground italic ml-1">观摩模式</span>
                 )}
               </div>
 
@@ -1084,28 +1126,46 @@ export default function RoundTableSessionPage() {
           />
         )}
 
-        <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out flex flex-col ${showSidePanel ? 'w-80' : 'w-0'}`}>
-          <CoveragePanel
-            sessionId={sessionId ?? null}
-            open={showCoverage}
-            onClose={() => setShowCoverage(false)}
-            isMobile={false}
-            version={coverageVersion}
-          />
-        </div>
+        {/* 话题覆盖度面板：宽屏并排，窄屏覆盖 */}
+        {useOverlay && showCoverage && (
+          <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowCoverage(false)}>
+            <div className="h-full w-80 border-l border-border/20 bg-background/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
+              <CoveragePanel
+                sessionId={sessionId ?? null}
+                open={showCoverage}
+                onClose={() => setShowCoverage(false)}
+                isMobile={false}
+                version={coverageVersion}
+              />
+            </div>
+          </div>
+        )}
+        {!useOverlay && (
+          <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out flex flex-col ${showSidePanel ? 'w-80' : 'w-0'}`}>
+            <CoveragePanel
+              sessionId={sessionId ?? null}
+              open={showCoverage}
+              onClose={() => setShowCoverage(false)}
+              isMobile={false}
+              version={coverageVersion}
+            />
+          </div>
+        )}
 
-        <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out ${showReport && !isMobile ? 'w-[420px] max-w-[90vw]' : 'w-0'}`}>
-          {showReport && !isMobile && (
-            <div className="w-[420px] max-w-[90vw] h-full border-l border-border/20 bg-background/95 backdrop-blur-xl animate-in slide-in-from-right duration-200 flex flex-col overflow-hidden">
+        {/* 报告面板：始终覆盖弹出 */}
+        {showReport && !isMobile && (
+          <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowReport(false)}>
+            <div className="h-full w-[420px] max-w-[80vw] border-l border-border/20 bg-background/95 backdrop-blur-xl shadow-xl animate-in slide-in-from-right duration-200 flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
               <ReportPanel
                 report={report}
                 isGenerating={reportPolling || report?.status === 'GENERATING'}
+                isOwner={isOwner}
                 onTrigger={handleTriggerReport}
                 onClose={() => setShowReport(false)}
               />
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {showReport && isMobile && (
           <Sheet open={showReport} onOpenChange={(v) => !v && setShowReport(false)}>
@@ -1113,6 +1173,7 @@ export default function RoundTableSessionPage() {
               <ReportPanel
                 report={report}
                 isGenerating={reportPolling || report?.status === 'GENERATING'}
+                isOwner={isOwner}
                 onTrigger={handleTriggerReport}
                 onClose={() => setShowReport(false)}
               />

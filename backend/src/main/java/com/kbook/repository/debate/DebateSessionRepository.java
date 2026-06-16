@@ -14,11 +14,11 @@ import org.springframework.data.repository.query.Param;
  */
 public interface DebateSessionRepository extends BaseRepository<DebateSession, Long> {
 
-    /** 查询公开会话或当前用户的会话 */
-    @Query("SELECT s FROM DebateSession s WHERE s.visibility = 'PUBLIC' OR s.userId = :userId")
-    Page<DebateSession> findPublicOrOwnSessions(@Param("userId") Long userId, Pageable pageable);
+    /** 查询全局会话（排除已废弃的） */
+    @Query("SELECT s FROM DebateSession s WHERE s.status <> 'ABANDONED'")
+    Page<DebateSession> findPublicOrOwnSessions(Pageable pageable);
 
     /** 只查询当前用户的会话 */
-    @Query("SELECT s FROM DebateSession s WHERE s.userId = :userId")
+    @Query("SELECT s FROM DebateSession s WHERE s.userId = :userId AND s.status <> 'ABANDONED'")
     Page<DebateSession> findByUserId(@Param("userId") Long userId, Pageable pageable);
 }

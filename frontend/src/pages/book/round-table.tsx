@@ -233,21 +233,6 @@ export default function RoundTablePage() {
     }
   }, [])
 
-  if (phase === 'loading') {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center px-4">
-        <div className="relative w-full max-w-md aspect-square mb-6">
-          <div className="absolute inset-[15%] rounded-full border-2 border-primary/10 bg-primary/5" />
-          <div className="absolute inset-[20%] rounded-full border border-primary/5 flex flex-col items-center justify-center gap-2">
-            <Users className="h-8 w-8 animate-pulse text-primary" />
-            <span className="text-xs text-muted-foreground">邀请嘉宾中...</span>
-          </div>
-        </div>
-        <p className="text-sm text-muted-foreground">AI 正在根据书籍内容推荐讨论嘉宾</p>
-      </div>
-    )
-  }
-
   return (
     <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter">
       <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-background/80 px-4 py-2.5 backdrop-blur-xl z-20">
@@ -315,30 +300,45 @@ export default function RoundTablePage() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 w-full max-w-2xl">
-          {availableRoles.map(role => (
-            <RoleCard
-              key={role.key}
-              role={role}
-              isSelected={selectedKeys.has(role.key)}
-              isHost={role.key === 'HOST'}
-              onToggle={() => toggleRole(role.key)}
-            />
-          ))}
-        </div>
+        {/* 角色选择区 — 局部加载中 */}
+        {phase === 'loading' ? (
+          <div className="w-full max-w-2xl flex flex-col items-center justify-center py-12">
+            <div className="relative w-32 h-32 mb-4">
+              <div className="absolute inset-0 rounded-full border-2 border-primary/10 bg-primary/5" />
+              <div className="absolute inset-[10%] rounded-full border border-primary/5 flex flex-col items-center justify-center gap-2">
+                <Users className="h-6 w-6 animate-pulse text-primary" />
+                <span className="text-xs text-muted-foreground">邀请嘉宾中...</span>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">AI 正在根据书籍内容推荐讨论嘉宾</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 w-full max-w-2xl">
+            {availableRoles.map(role => (
+              <RoleCard
+                key={role.key}
+                role={role}
+                isSelected={selectedKeys.has(role.key)}
+                isHost={role.key === 'HOST'}
+                onToggle={() => toggleRole(role.key)}
+              />
+            ))}
+          </div>
+        )}
 
         <div className="mt-6 flex items-center gap-3">
           <button
             onClick={() => loadRecommendedRoles(true)}
-            className="flex items-center gap-1.5 rounded-2xl border border-border/40 bg-card px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-border/60 transition-all duration-200 active:scale-[0.97]"
+            disabled={phase === 'loading'}
+            className="flex items-center gap-1.5 rounded-2xl border border-border/40 bg-card px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-border/60 transition-all duration-200 active:scale-[0.97] disabled:opacity-50"
             title="重新邀请一组嘉宾"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className={`h-4 w-4 ${phase === 'loading' ? 'animate-spin' : ''}`} />
             重新邀请
           </button>
           <button
             onClick={startDiscussion}
-            disabled={selectedKeys.size < 4}
+            disabled={selectedKeys.size < 4 || phase === 'loading'}
             className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-400 to-brand-500 px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-400/20 transition-all duration-200 hover:shadow-xl hover:shadow-brand-400/25 active:scale-[0.97] disabled:opacity-50 disabled:shadow-none"
           >
             <Sparkles className="h-4 w-4" />

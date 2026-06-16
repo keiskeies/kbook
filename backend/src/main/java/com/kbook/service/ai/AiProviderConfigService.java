@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -41,6 +42,9 @@ public class AiProviderConfigService {
     private final AiProviderConfigRepository configRepository;
     private final ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider;
     private final StringRedisTemplate redisTemplate;
+
+    /** QA AiAssistant 缓存，key = configId，配置变更时清空 */
+    private final ConcurrentHashMap<Long, AiAssistant> chatAssistantCache = new ConcurrentHashMap<>();
 
     public AiProviderConfigService(
             AiChatMemory chatMemoryStore,
@@ -147,9 +151,8 @@ public class AiProviderConfigService {
      * 使对话 Assistant 缓存失效
      */
     public void invalidateChatAssistantCache() {
-        // 不再需要内存版本缓存，每次从 DB 读取最新配置
-        // ChatModelFactory 每次调用都查 DB
-        log.debug("对话 Assistant 缓存已标记失效");
+        chatAssistantCache.clear();
+        log.debug("对话 Assistant 缓存已清空");
     }
 
     /**
@@ -162,20 +165,20 @@ public class AiProviderConfigService {
     // ==================== 对话 AI ====================
 
     /**
-     * 获取 QA 角色的 AiAssistant
+     * 获取 QA 角色的 AiAssistant（带缓存）
      */
     public AiAssistant getChatAssistant() {
-        return buildChatAssistant("QA");
+        AiProviderConfig config = getChatConfigByRole("QA");
+        if (config == null) {
+            throw new IllegalStateException("未找到可用QA对话配置");
+        }
+        return chatAssistantCache.computeIfAbsent(config.getId(), id -> buildChatAssistant("QA", config));
     }
 
     /**
      * 构建指定角色的 AiAssistant
      */
-    private AiAssistant buildChatAssistant(String role) {
-        AiProviderConfig config = getChatConfigByRole(role);
-        if (config == null) {
-            throw new IllegalStateException("未找到可用" + role + "对话配置");
-        }
+    private AiAssistant buildChatAssistant(String role, AiProviderConfig config) {
 
         boolean toolsSupported = chatModelFactory.isToolsSupported(config);
 

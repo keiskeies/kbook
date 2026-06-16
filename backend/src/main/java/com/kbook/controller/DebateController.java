@@ -248,7 +248,8 @@ public class DebateController extends BaseController {
     @Operation(summary = "推进到下一轮")
     @PostMapping("/sessions/{sessionId}/advance-round")
     public Result<DebateSessionVO> advanceRound(@PathVariable String sessionId) {
-        return Result.ok(debateService.advanceRound(sessionId));
+        Long userId = extractUserId();
+        return Result.ok(debateService.advanceRound(userId, sessionId));
     }
 
     // ==================== 评分 ====================

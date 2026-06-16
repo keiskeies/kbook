@@ -239,6 +239,9 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
           )
         )
       },
+      (sid) => {
+        setSessionId(sid)
+      },
     )
     abortRef.current = controller
   }, [input, loading, sessionId])

@@ -703,7 +703,7 @@ public class RecommendService {
                + COALESCE(rt.cnt, 0) * 2.5
                + COALESCE(db.cnt, 0) * 3.0
                + COALESCE(bs.cnt, 0) * 1.5
-               + COALESCE(b.rating, 0) / 5.0 * COALESCE(b.rating_count, 0) * 0.5
+               + COALESCE(b.rating, 0) * 0.2
               ) AS hotness
             FROM books b
             LEFT JOIN (

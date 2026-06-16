@@ -479,6 +479,7 @@ public class RoundTableService {
                 .roleKeys(String.join(",", roleKeys))
                 .roleConfigs(roleConfigs)
                 .status("ACTIVE")
+                .visibility("PUBLIC")
                 .build();
 
         RoundTableSession saved = sessionRepository.save(session);
@@ -540,8 +541,7 @@ public class RoundTableService {
     @LogAction("获取圆桌派历史")
     public List<RoundTableMessage> getHistory(Long userId, String sessionId) {
         return messageRepository.query()
-                .where(RoundTableMessage::getUserId, eq(userId))
-                .and(RoundTableMessage::getSessionId, eq(sessionId))
+                .where(RoundTableMessage::getSessionId, eq(sessionId))
                 .list();
     }
 
@@ -584,7 +584,7 @@ public class RoundTableService {
         // 查询公开会话或当前用户的会话；如果 mine=true 则只查当前用户
         var sessions = mine
                 ? sessionRepository.findByUserId(currentUserId, pageable)
-                : sessionRepository.findPublicOrOwnSessions(currentUserId, pageable);
+                : sessionRepository.findPublicOrOwnSessions(pageable);
 
         // Get book info
         var bookIds = sessions.getContent().stream().map(RoundTableSession::getBookId).distinct().toList();
@@ -1049,6 +1049,14 @@ public class RoundTableService {
                 .stream().findFirst().orElse(null);
         if (session == null) {
             SseHelper.sendErrorAndComplete(emitter, "会话不存在: " + request.getSessionId());
+            return emitter;
+        }
+
+        // 验证会话所有权：只有创建者可以发言
+        try {
+            verifySessionOwnership(userId, request.getSessionId());
+        } catch (BusinessException e) {
+            SseHelper.sendErrorAndComplete(emitter, e.getMessage());
             return emitter;
         }
 

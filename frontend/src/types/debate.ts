@@ -33,6 +33,7 @@ export interface DebateMessage {
 /** 辩论会话 */
 export interface DebateSession {
   id: number
+  userId: number
   sessionId: string
   bookId: number
   topic: string
@@ -92,17 +93,17 @@ export interface DebateTopic {
 
 // ==================== 位置常量（PRO_1/CON_2/HOST — 用于颜色/图标/排序） ====================
 
-/** 位置 → 颜色映射 — 正方钢蓝/反方柔红/主持人品牌绿 */
+/** 位置 → 颜色映射 — 正方青黛/反方赭石/主持人品牌绿 */
 export const DEBATE_ROLE_COLORS: Record<string, string> = {
   HOST: '#7DBA7C',
-  PRO_1: '#6B8FA8',
-  PRO_2: '#5A7E98',
-  PRO_3: '#4A6D88',
-  PRO_4: '#3A5C78',
-  CON_1: '#C75B5B',
-  CON_2: '#B54D4D',
-  CON_3: '#A34343',
-  CON_4: '#913939',
+  PRO_1: '#4A7C6F',
+  PRO_2: '#3D6B5F',
+  PRO_3: '#305A4F',
+  PRO_4: '#23493F',
+  CON_1: '#B8704A',
+  CON_2: '#A56340',
+  CON_3: '#945636',
+  CON_4: '#83492C',
 }
 
 /** 位置 → 名称映射 */

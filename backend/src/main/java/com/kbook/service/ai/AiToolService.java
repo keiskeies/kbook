@@ -85,14 +85,14 @@ public class AiToolService {
 
     // ==================== 图书查询工具 ====================
 
-    @Tool("当用户想找书、搜书、查询书籍时调用。按关键词搜索图书，返回包含图书ID、书名、作者、评分、标签、简介的列表。支持书名、作者名、主题描述等自然语言搜索。")
+    @Tool("当用户想找书、搜书、查询书籍时调用。按关键词搜索图书，返回包含图书ID、书名、作者、评分、标签、简介的列表。支持书名、作者名、主题描述等自然语言搜索。返回20本供你挑选最合适的推荐。")
     public String searchBooks(
             @P("搜索关键词。精确找书用书名或作者名；主题搜索用简短描述如'科幻'或'治愈'，不要用完整句子") String keyword
     ) {
         log.debug("[AI Tool] searchBooks: keyword={}", keyword);
         try {
             PageResult<BookDocument> result =
-                    bookService.hybridSearch(keyword, null, 1, 10);
+                    bookService.hybridSearch(keyword, null, 1, 20);
             if (result.getList().isEmpty()) {
                 return "没有找到相关图书。";
             }
@@ -261,45 +261,6 @@ public class AiToolService {
         } catch (Exception e) {
             log.error("[AI Tool] searchBookContent error", e);
             return "搜索书籍内容时发生错误。";
-        }
-    }
-
-    // ==================== 图书管理操作工具（可直接操作数据库） ====================
-
-    @Tool("删除指定作者的所有书籍。此操作会从数据库、Elasticsearch索引、Qdrant向量库、Redis缓存和封面图片文件中彻底删除，不可恢复。请谨慎使用，操作前需与用户确认。")
-    public String deleteBooksByAuthor(
-            @P("作者名，如'金庸'、'余华'") String author
-    ) {
-        log.info("[AI Tool] deleteBooksByAuthor: author={}", author);
-        try {
-            // 先查询确认有多少本
-            var books = bookService.searchBooks(author, 1, 50);
-            long authorBookCount = books.getList().stream()
-                    .filter(b -> author.equals(b.getAuthor()))
-                    .count();
-
-            if (authorBookCount == 0) {
-                return "未找到作者 \"" + author + "\" 的书籍。";
-            }
-
-            int deleted = bookService.deleteBooksByAuthor(author);
-            return String.format("已删除作者 \"%s\" 的 %d 本书籍（数据库/ES索引/Qdrant向量/Redis缓存/封面图片已同步清理）。", author, deleted);
-        } catch (Exception e) {
-            log.error("[AI Tool] deleteBooksByAuthor error", e);
-            return "删除书籍时发生错误：" + e.getMessage();
-        }
-    }
-
-    @Tool("合并同名的不同格式书籍。以EPUB格式为主书籍，将其他格式（PDF/TXT）的数据合并到EPUB上，然后删除其他格式的书籍。合并后EPUB书籍将拥有最完整的数据，其他格式的数据库记录、ES索引、向量数据将被删除。")
-    public String mergeBooksByTitle(
-            @P("书名，如'三体'、'活着'") String title
-    ) {
-        log.info("[AI Tool] mergeBooksByTitle: title={}", title);
-        try {
-            return bookService.mergeBooksByTitle(title);
-        } catch (Exception e) {
-            log.error("[AI Tool] mergeBooksByTitle error", e);
-            return "合并书籍时发生错误：" + e.getMessage();
         }
     }
 
@@ -519,7 +480,7 @@ public class AiToolService {
 
     // ==================== 个性化推荐工具 ====================
 
-    @Tool("根据用户画像（年龄、性别、MBTI、阅读偏好等）进行个性化推荐。当用户说\"推荐适合我的书\"、\"猜我喜欢\"、\"我适合看什么\"时使用。")
+    @Tool("根据用户画像（年龄、性别、MBTI、阅读偏好等）进行个性化推荐。当用户说\"推荐适合我的书\"、\"猜我喜欢\"、\"我适合看什么\"时使用。返回20本供你挑选最合适的推荐。")
     public String personalizeRecommend(
             @P("用户ID") Long userId,
             @P("推荐数量，默认5") Integer count
@@ -527,7 +488,7 @@ public class AiToolService {
         log.debug("[AI Tool] personalizeRecommend: userId={}, count={}", userId, count);
         try {
             int limit = (count != null && count > 0 && count <= 20) ? count : 5;
-            List<RecommendedItem> items = recommendService.getPersonalizedRecommendations(userId, limit);
+            List<RecommendedItem> items = recommendService.getPersonalizedRecommendations(userId, Math.max(limit, 20));
             if (items.isEmpty()) {
                 return "暂无个性化推荐数据，可以尝试搜索或查看排行榜。";
             }

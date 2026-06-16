@@ -8,7 +8,7 @@
 set -e
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 
-BASE_URL="https://book.keiskei.top/package"
+BASE_URL=$(cat ../PACKAGE_URL)
 DEPLOY_PACKAGE_DIR="$(cd "$(dirname "$0")/.." && pwd)/package"
 
 echo -e "${BLUE}============================================${NC}"

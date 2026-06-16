@@ -289,6 +289,7 @@ public class DebateService {
                 .currentRound(1)
                 .currentPhase("OPENING")
                 .status("ACTIVE")
+                .visibility("PUBLIC")
                 .build();
 
         sessionRepository.save(session);
@@ -326,7 +327,6 @@ public class DebateService {
     public List<DebateMessageVO> getHistory(Long userId, String sessionId) {
         List<DebateMessage> messages = messageRepository.query()
                 .where(DebateMessage::getSessionId, eq(sessionId))
-                .and(DebateMessage::getUserId, eq(userId))
                 .orderBy(DebateMessage::getId)
                 .list();
         return messages.stream()
@@ -370,7 +370,7 @@ public class DebateService {
         // 查询公开会话或当前用户的会话；如果 mine=true 则只查当前用户
         var sessions = mine
                 ? sessionRepository.findByUserId(currentUserId, pageable)
-                : sessionRepository.findPublicOrOwnSessions(currentUserId, pageable);
+                : sessionRepository.findPublicOrOwnSessions(pageable);
 
         // Get book info
         var bookIds = sessions.getContent().stream().map(DebateSession::getBookId).distinct().toList();
@@ -533,6 +533,12 @@ public class DebateService {
             return emitter;
         }
 
+        // 验证会话所有权：只有创建者可以发言
+        if (!session.getUserId().equals(userId)) {
+            SseHelper.sendErrorAndComplete(emitter, "无权操作该会话");
+            return emitter;
+        }
+
         DebateRole personality = resolvePersonality(session, positionKey);
         String side = getSideFromPositionKey(positionKey);
         String sideName = getSideName(side);
@@ -576,6 +582,12 @@ public class DebateService {
         DebateSession session = getSessionBySessionId(request.getSessionId());
         if (session == null) {
             SseHelper.sendErrorAndComplete(emitter, "会话不存在: " + request.getSessionId());
+            return emitter;
+        }
+
+        // 验证会话所有权：只有创建者可以发言
+        if (!session.getUserId().equals(userId)) {
+            SseHelper.sendErrorAndComplete(emitter, "无权操作该会话");
             return emitter;
         }
 
@@ -630,6 +642,12 @@ public class DebateService {
         DebateSession session = getSessionBySessionId(request.getSessionId());
         if (session == null) {
             SseHelper.sendErrorAndComplete(emitter, "会话不存在: " + request.getSessionId());
+            return emitter;
+        }
+
+        // 验证会话所有权：只有创建者可以发言
+        if (!session.getUserId().equals(userId)) {
+            SseHelper.sendErrorAndComplete(emitter, "无权操作该会话");
             return emitter;
         }
 
@@ -707,6 +725,12 @@ public class DebateService {
             return emitter;
         }
 
+        // 验证会话所有权：只有创建者可以发言
+        if (!session.getUserId().equals(userId)) {
+            SseHelper.sendErrorAndComplete(emitter, "无权操作该会话");
+            return emitter;
+        }
+
         DebateRole personality = resolvePersonality(session, positionKey);
         String side = getSideFromPositionKey(positionKey);
         String sideName = getSideName(side);
@@ -753,6 +777,12 @@ public class DebateService {
             return emitter;
         }
 
+        // 验证会话所有权：只有创建者可以发言
+        if (!session.getUserId().equals(userId)) {
+            SseHelper.sendErrorAndComplete(emitter, "无权操作该会话");
+            return emitter;
+        }
+
         DebateRole personality = resolvePersonality(session, positionKey);
         String side = getSideFromPositionKey(positionKey);
         String sideName = getSideName(side);
@@ -795,6 +825,12 @@ public class DebateService {
         DebateSession session = getSessionBySessionId(request.getSessionId());
         if (session == null) {
             SseHelper.sendErrorAndComplete(emitter, "会话不存在: " + request.getSessionId());
+            return emitter;
+        }
+
+        // 验证会话所有权：只有创建者可以发言
+        if (!session.getUserId().equals(userId)) {
+            SseHelper.sendErrorAndComplete(emitter, "无权操作该会话");
             return emitter;
         }
 
@@ -988,7 +1024,7 @@ public class DebateService {
 
                     String side = getSideFromPositionKey(positionKey);
                     scoringService.scoreSpeechAsync(userId, request.getSessionId(),
-                            positionKey, positionKey, side, content,
+                            personality.getKey(), positionKey, side, content,
                             request.getRoundNumber(), request.getRoundType());
                 }
 
@@ -1054,6 +1090,10 @@ public class DebateService {
     public String getNextSpeakerFree(Long userId, String sessionId) {
         DebateSession session = getSessionBySessionId(sessionId);
         if (session == null) return null;
+        // 验证会话所有权
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException("无权操作该会话");
+        }
 
         List<DebateMessage> allMessages = messageRepository.findBySessionIdOrderById(sessionId);
         List<DebateMessage> roundMessages = messageRepository.findBySessionIdAndRoundNumberOrderByPhaseOrder(
@@ -1154,10 +1194,14 @@ public class DebateService {
     // ==================== 轮次推进 ====================
 
     @Transactional(rollbackFor = Exception.class)
-    public DebateSessionVO advanceRound(String sessionId) {
+    public DebateSessionVO advanceRound(Long userId, String sessionId) {
         DebateSession session = getSessionBySessionId(sessionId);
         if (session == null) {
             throw new BusinessException("辩论会话不存在");
+        }
+        // 验证会话所有权
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException("无权操作该会话");
         }
 
         String currentPhase = session.getCurrentPhase();

@@ -100,14 +100,15 @@ public class AiChatService {
         // 创建 SSE 发送器，设置 1 小时超时
         SseEmitter emitter = new SseEmitter(3_600_000L);
 
-        // 发送初始思考状态
+        // 确保会话记录存在
+        ensureSession(userId, sessionId, userMessage);
+
+        // 发送 sessionId 回前端，确保多轮对话上下文不丢失
         try {
+            emitter.send(SseEmitter.event().name("session_id").data(sessionId));
             emitter.send(SseEmitter.event().name("thinking").data("正在思考..."));
         } catch (Exception ignored) {
         }
-
-        // 确保会话记录存在
-        ensureSession(userId, sessionId, userMessage);
 
         // 压缩历史消息以控制内存使用，然后清空当前会话的聊天记忆
         chatMemoryStore.compressHistoryIfNeeded(userId, sessionId);

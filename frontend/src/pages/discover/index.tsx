@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useKeepAliveStore } from '@/store/keepAlive'
 import {
   Swords, CircleDot, BookOpen, ChevronRight,
   Trophy, BarChart3, Clock, Search, User, Eye,
@@ -292,13 +293,10 @@ function DebateCard({ item }: { item: DebateFeedItem }) {
           {/* 辩题 - 两行 */}
           <p className="text-sm font-bold leading-snug line-clamp-2 min-h-[2.5em]">{item.topic}</p>
 
-          {/* 书名 - 点击进入图书详情页 */}
-          <p
-            className="mt-0.5 text-xs text-brand-600 hover:underline truncate cursor-pointer"
-            onClick={goToBook}
-          >
+          {/* 书名 - 仅展示，点击进入辩论页 */}
+          <span className="mt-0.5 text-xs text-brand-600 truncate block">
             📖 {item.bookTitle}
-          </p>
+          </span>
 
           {/* 正反方 */}
           <div className="mt-1.5 flex items-center gap-2">
@@ -403,13 +401,10 @@ function RoundTableCard({ item }: { item: RoundTableFeedItem }) {
           {/* 讨论主题 - 两行 */}
           <p className="text-sm font-bold leading-snug line-clamp-2 min-h-[2.5em]">{item.title || '圆桌派讨论'}</p>
 
-          {/* 书名 - 点击进入图书详情页 */}
-          <p
-            className="mt-0.5 text-xs text-brand-600 hover:underline truncate cursor-pointer"
-            onClick={goToBook}
-          >
+          {/* 书名 - 仅展示，点击进入圆桌讨论页 */}
+          <span className="mt-0.5 text-xs text-brand-600 truncate block">
             📖 {item.bookTitle}
-          </p>
+          </span>
 
           {/* 参与角色（不含主持人） */}
           <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
@@ -553,7 +548,7 @@ export default function DiscoverPage() {
     } finally {
       setDebateLoading(false)
     }
-  }, [debateSort])
+  }, [])
 
   // 加载圆桌
   const loadRoundTables = useCallback(async (pageNum: number, sort: SortKey = rtSort) => {
@@ -570,7 +565,7 @@ export default function DiscoverPage() {
     } finally {
       setRtLoading(false)
     }
-  }, [rtSort])
+  }, [])
 
   // 加载书籍
   const loadBooks = useCallback(async (tag: string, pageNum: number, query?: string) => {
@@ -599,7 +594,7 @@ export default function DiscoverPage() {
     }
   }, [])
 
-  // 初始加载
+  // 初始加载 — stable callbacks (empty deps) ensure this runs exactly once
   useEffect(() => {
     loadDebates(0)
     loadRoundTables(0)
@@ -608,7 +603,15 @@ export default function DiscoverPage() {
       const data = (res as any)?.data || (res as any) || []
       setCategories(data)
     }).catch(() => {})
-  }, [loadDebates, loadRoundTables, loadBooks, initialTag])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // URL tag 参数变化时重新加载书籍
+  useEffect(() => {
+    if (initialTag !== undefined) {
+      loadBooks(initialTag, 1)
+    }
+  }, [initialTag, loadBooks])
 
   // 加载完书籍后获取匹配度分数
   useEffect(() => {
@@ -619,6 +622,32 @@ export default function DiscoverPage() {
       setBookMatchScores(prev => ({ ...prev, ...data }))
     }).catch(() => {})
   }, [books])
+
+  // ====== 内部滚动位置保存/恢复 ======
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const hasRestoredRef = useRef(false)
+  const saveScroll = useKeepAliveStore((s) => s.saveScroll)
+  const getScroll = useKeepAliveStore((s) => s.getScroll)
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (el) {
+      saveScroll('/discover', el.scrollTop)
+    }
+  }, [saveScroll])
+
+  useEffect(() => {
+    if (hasRestoredRef.current) return
+    const saved = getScroll('/discover')
+    if (saved !== undefined && saved > 0 && scrollRef.current) {
+      requestAnimationFrame(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = saved
+        }
+      })
+    }
+    hasRestoredRef.current = true
+  }, [getScroll])
 
   const handleDebateSortChange = (sort: SortKey) => {
     setDebateSort(sort)
@@ -688,9 +717,9 @@ export default function DiscoverPage() {
   )
 
   return (
-    <div className="px-4 md:px-6 lg:px-8 page-enter pb-20 md:pb-6">
-      {/* 整体 sticky 头部 — 统一放在条件分支外，保证 tab 滑块 DOM 连续 */}
-      <div className="sticky top-0 z-50 -mx-4 md:-mx-6 lg:-mx-8 bg-background/80 backdrop-blur-xl border-b border-border/30">
+    <div className="flex flex-col h-full page-enter">
+      {/* 固定头部 — 不滚动 */}
+      <div className="shrink-0 bg-background/80 backdrop-blur-xl border-b border-border/30 z-50">
         {renderTabBar()}
 
         {/* 奇葩说子栏 */}
@@ -758,100 +787,103 @@ export default function DiscoverPage() {
         )}
       </div>
 
-      {/* ====== 奇葩说 内容 ====== */}
-      {activeTab === 'debate' && (
-        <div>
-          {debateLoading && debates.length === 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {Array.from({ length: 18 }, (_, i) => <DebateSkeleton key={i} />)}
-            </div>
-          ) : debates.length > 0 ? (
-            <>
+      {/* ====== 可滚动内容区（pt-3 留出与头部的间距）====== */}
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 pt-3 pb-20 md:pb-6">
+        {/* 奇葩说 内容 */}
+        {activeTab === 'debate' && (
+          <div>
+            {debateLoading && debates.length === 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {debates.map(item => <DebateCard key={item.id} item={item} />)}
-                {debateLoading && Array.from({ length: 6 }, (_, i) => <DebateSkeleton key={`more-${i}`} />)}
+                {Array.from({ length: 18 }, (_, i) => <DebateSkeleton key={i} />)}
               </div>
-              {debateHasMore && !debateLoading && (
-                <button onClick={() => loadDebates(debatePage + 1)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press">
-                  查看更多 <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              )}
-              {!debateHasMore && debates.length > 0 && (
-                <p className="mt-4 mb-20 text-center text-xs text-muted-foreground">没有更多了</p>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-100 mb-4"><Swords className="h-7 w-7 text-brand-500" /></div>
-              <p className="text-sm font-medium">还没有辩论</p>
-              <p className="mt-1 text-xs text-muted-foreground">去书籍详情页开启一场精彩辩论吧</p>
-            </div>
-          )}
-        </div>
-      )}
+            ) : debates.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {debates.map(item => <DebateCard key={item.id} item={item} />)}
+                  {debateLoading && Array.from({ length: 6 }, (_, i) => <DebateSkeleton key={`more-${i}`} />)}
+                </div>
+                {debateHasMore && !debateLoading && (
+                  <button onClick={() => loadDebates(debatePage + 1)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press">
+                    查看更多 <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {!debateHasMore && debates.length > 0 && (
+                  <p className="mt-4 mb-20 text-center text-xs text-muted-foreground">没有更多了</p>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-100 mb-4"><Swords className="h-7 w-7 text-brand-500" /></div>
+                <p className="text-sm font-medium">还没有辩论</p>
+                <p className="mt-1 text-xs text-muted-foreground">去书籍详情页开启一场精彩辩论吧</p>
+              </div>
+            )}
+          </div>
+        )}
 
-      {/* ====== 圆桌派 内容 ====== */}
-      {activeTab === 'roundtable' && (
-        <div>
-          {rtLoading && roundTables.length === 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {Array.from({ length: 18 }, (_, i) => <RoundTableSkeleton key={i} />)}
-            </div>
-          ) : roundTables.length > 0 ? (
-            <>
+        {/* 圆桌派 内容 */}
+        {activeTab === 'roundtable' && (
+          <div>
+            {rtLoading && roundTables.length === 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {roundTables.map(item => <RoundTableCard key={item.id} item={item} />)}
-                {rtLoading && Array.from({ length: 6 }, (_, i) => <RoundTableSkeleton key={`more-${i}`} />)}
+                {Array.from({ length: 18 }, (_, i) => <RoundTableSkeleton key={i} />)}
               </div>
-              {rtHasMore && !rtLoading && (
-                <button onClick={() => loadRoundTables(rtPage + 1)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press">
-                  查看更多 <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              )}
-              {!rtHasMore && roundTables.length > 0 && (
-                <p className="mt-4 mb-20 text-center text-xs text-muted-foreground">没有更多了</p>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/10 mb-4"><CircleDot className="h-7 w-7 text-violet-500" /></div>
-              <p className="text-sm font-medium">还没有圆桌讨论</p>
-              <p className="mt-1 text-xs text-muted-foreground">去书籍详情页开启一场圆桌讨论吧</p>
-            </div>
-          )}
-        </div>
-      )}
+            ) : roundTables.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {roundTables.map(item => <RoundTableCard key={item.id} item={item} />)}
+                  {rtLoading && Array.from({ length: 6 }, (_, i) => <RoundTableSkeleton key={`more-${i}`} />)}
+                </div>
+                {rtHasMore && !rtLoading && (
+                  <button onClick={() => loadRoundTables(rtPage + 1)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press">
+                    查看更多 <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {!rtHasMore && roundTables.length > 0 && (
+                  <p className="mt-4 mb-20 text-center text-xs text-muted-foreground">没有更多了</p>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500/10 mb-4"><CircleDot className="h-7 w-7 text-violet-500" /></div>
+                <p className="text-sm font-medium">还没有圆桌讨论</p>
+                <p className="mt-1 text-xs text-muted-foreground">去书籍详情页开启一场圆桌讨论吧</p>
+              </div>
+            )}
+          </div>
+        )}
 
-      {/* ====== 书籍 内容 ====== */}
-      {activeTab === 'books' && (
-        <div>
-          {bookLoading && books.length === 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {Array.from({ length: 18 }, (_, i) => <BookSkeleton key={i} />)}
-            </div>
-          ) : books.length > 0 ? (
-            <>
+        {/* 书籍 内容 */}
+        {activeTab === 'books' && (
+          <div>
+            {bookLoading && books.length === 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {books.map(book => <BookListCard key={book.id} book={book} activeTag={activeTag || undefined} matchScore={bookMatchScores[book.id]} />)}
-                {bookLoading && Array.from({ length: 6 }, (_, i) => <BookSkeleton key={`more-${i}`} />)}
+                {Array.from({ length: 18 }, (_, i) => <BookSkeleton key={i} />)}
               </div>
-              {bookHasMore && !bookLoading && (
-                <button onClick={() => loadBooks(activeTag, bookPage + 1, searchQuery || undefined)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press">
-                  查看更多 <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              )}
-              {!bookHasMore && books.length > 0 && (
-                <p className="mt-4 mb-20 text-center text-xs text-muted-foreground">没有更多了</p>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted mb-4"><BookOpen className="h-7 w-7 text-muted-foreground/50" /></div>
-              <p className="text-sm text-muted-foreground">暂无书籍</p>
-            </div>
-          )}
-        </div>
-      )}
+            ) : books.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {books.map(book => <BookListCard key={book.id} book={book} activeTag={activeTag || undefined} matchScore={bookMatchScores[book.id]} />)}
+                  {bookLoading && Array.from({ length: 6 }, (_, i) => <BookSkeleton key={`more-${i}`} />)}
+                </div>
+                {bookHasMore && !bookLoading && (
+                  <button onClick={() => loadBooks(activeTag, bookPage + 1, searchQuery || undefined)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press">
+                    查看更多 <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {!bookHasMore && books.length > 0 && (
+                  <p className="mt-4 mb-20 text-center text-xs text-muted-foreground">没有更多了</p>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted mb-4"><BookOpen className="h-7 w-7 text-muted-foreground/50" /></div>
+                <p className="text-sm text-muted-foreground">暂无书籍</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

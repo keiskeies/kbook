@@ -34,7 +34,7 @@ echo -e "${GREEN}✓${NC}"
 # 3. package（从远程下载）
 echo -e "${YELLOW}[3/5] 下载 package/...${NC}"
 if [ ! -f "../package/app.jar" ] || [ ! -d "../package/dist" ]; then
-    echo -e "${YELLOW}从 ${BLUE}https://book.keiskei.top/package/${NC} 下载...${NC}"
+    echo -e "${YELLOW}从远程下载构建产物...${NC}"
     bash download.sh
 fi
 echo -e "${GREEN}✓${NC}"

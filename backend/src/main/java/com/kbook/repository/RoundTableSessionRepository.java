@@ -14,11 +14,11 @@ import org.springframework.data.repository.query.Param;
  */
 public interface RoundTableSessionRepository extends BaseRepository<RoundTableSession, Long> {
 
-    /** 查询公开会话或当前用户的会话 */
-    @Query("SELECT s FROM RoundTableSession s WHERE s.visibility = 'PUBLIC' OR s.userId = :userId")
-    Page<RoundTableSession> findPublicOrOwnSessions(@Param("userId") Long userId, Pageable pageable);
+    /** 查询全局会话（排除已废弃的） */
+    @Query("SELECT s FROM RoundTableSession s WHERE s.status <> 'ABANDONED'")
+    Page<RoundTableSession> findPublicOrOwnSessions(Pageable pageable);
 
     /** 只查询当前用户的会话 */
-    @Query("SELECT s FROM RoundTableSession s WHERE s.userId = :userId")
+    @Query("SELECT s FROM RoundTableSession s WHERE s.userId = :userId AND s.status <> 'ABANDONED'")
     Page<RoundTableSession> findByUserId(@Param("userId") Long userId, Pageable pageable);
 }

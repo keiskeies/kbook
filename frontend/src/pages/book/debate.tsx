@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Sparkles, MessageSquare, Swords, Trash2, Loader2, History, Check, X,
+  ArrowLeft, Sparkles, MessageSquare, Swords, Trash2, Loader2, History, X,
 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import {
@@ -60,7 +60,10 @@ function SessionCard({ session, bookId, onDelete }: {
     minute: '2-digit',
   })
   return (
-    <div className="rounded-2xl border border-border/50 bg-card p-3 hover:border-border/60 transition-colors">
+    <div
+      onClick={() => navigate(`/book/${bookId}/debate/sessions/${session.sessionId}`)}
+      className="rounded-2xl border border-border/50 bg-card p-3 hover:border-border/60 transition-colors cursor-pointer"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-bold truncate">{session.topic}</p>
@@ -70,20 +73,12 @@ function SessionCard({ session, bookId, onDelete }: {
             {' · '}{dateStr}
           </p>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => navigate(`/book/${bookId}/debate/sessions/${session.sessionId}`)}
-            className="rounded-lg px-2 py-1 text-xs font-medium text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/10 transition-colors"
-          >
-            观看
-          </button>
-          <button
-            onClick={() => onDelete(session.sessionId)}
-            className="rounded-lg p-1 text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 transition-colors"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(session.sessionId) }}
+          className="rounded-lg p-1 text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   )
@@ -108,15 +103,7 @@ function SlotSelector({
   return (
     <button
       onClick={() => onToggle(slotIndex)}
-      className="w-full rounded-xl border px-2 py-2 text-center transition-all hover:shadow-sm cursor-pointer"
-      style={{
-        borderColor: selectedKey
-          ? hexToRgba(color, 0.4)
-          : hexToRgba(color, 0.15),
-        backgroundColor: selectedKey
-          ? hexToRgba(color, 0.06)
-          : hexToRgba(color, 0.03),
-      }}
+      className="w-full rounded-xl bg-muted px-2 py-2 text-center transition-all hover:bg-muted/80 cursor-pointer"
     >
       <div className="flex flex-col items-center gap-0.5">
         {selectedKey ? (
@@ -124,8 +111,7 @@ function SlotSelector({
             <div
               className="flex h-7 w-7 items-center justify-center rounded-full text-xs"
               style={{
-                backgroundColor: hexToRgba(color, 0.15),
-                border: `1.5px solid ${color}`,
+                backgroundColor: hexToRgba(color, 0.12),
               }}
             >
               {DEBATE_PERSONALITY_ICONS[selectedKey] || '👤'}
@@ -133,7 +119,7 @@ function SlotSelector({
             <span className="text-xs font-semibold leading-tight" style={{ color }}>
               {label}{slotLabels[slotIndex]}
             </span>
-            <span className="text-xs text-muted-foreground/60 leading-tight">
+            <span className="text-xs text-muted-foreground leading-tight">
               {DEBATE_PERSONALITY_TITLES[selectedKey]}
             </span>
           </>
@@ -141,11 +127,11 @@ function SlotSelector({
           <>
             <div
               className="flex h-7 w-7 items-center justify-center rounded-full text-xs"
-              style={{ backgroundColor: hexToRgba(color, 0.1), border: `1.5px dashed ${hexToRgba(color, 0.25)}` }}
+              style={{ backgroundColor: hexToRgba(color, 0.08) }}
             >
-              <span style={{ color: hexToRgba(color, 0.4) }}>?</span>
+              <span style={{ color: hexToRgba(color, 0.35) }}>?</span>
             </div>
-            <span className="text-xs font-semibold" style={{ color: hexToRgba(color, 0.5) }}>
+            <span className="text-xs font-semibold" style={{ color: hexToRgba(color, 0.45) }}>
               {label}{slotLabels[slotIndex]}
             </span>
           </>
@@ -316,29 +302,18 @@ export default function DebatePage() {
   }, [])
 
   const renderSlotGroup = (side: 'PRO' | 'CON', keys: string[]) => {
-    const color = side === 'PRO' ? '#3B82F6' : '#EF4444'
-    const sideLabel = side === 'PRO' ? '正方阵容' : '反方阵容'
-
     return (
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <h3 className="text-xs font-bold" style={{ color }}>{sideLabel}</h3>
-          <span className="text-xs text-muted-foreground/60">
-            {keys.filter(Boolean).length}/4
-          </span>
-        </div>
-        <div className="grid grid-cols-4 gap-2">
-          {keys.map((key, i) => (
-            <div key={`${side}-${i}`}>
-              <SlotSelector
-                slotIndex={i}
-                selectedKey={key}
-                side={side}
-                onToggle={(index) => handleSlotToggle(side, index)}
-              />
-            </div>
-          ))}
-        </div>
+      <div className="grid grid-cols-4 gap-2">
+        {keys.map((key, i) => (
+          <div key={`${side}-${i}`}>
+            <SlotSelector
+              slotIndex={i}
+              selectedKey={key}
+              side={side}
+              onToggle={(index) => handleSlotToggle(side, index)}
+            />
+          </div>
+        ))}
       </div>
     )
   }
@@ -350,154 +325,207 @@ export default function DebatePage() {
         <button onClick={() => navigate(-1)} className="rounded-xl p-1.5 hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="text-sm font-bold">奇葩说</h1>
-          {book && <p className="text-xs text-muted-foreground">来自《{book.title}》</p>}
+          {book && <p className="text-xs text-muted-foreground truncate">来自《{book.title}》</p>}
         </div>
+        {/* 历史记录入口 */}
+        {sessions.length > 0 && (
+          <button
+            onClick={() => {
+              const el = document.getElementById('history-section')
+              el?.scrollIntoView({ behavior: 'smooth' })
+            }}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <History className="h-3 w-3" />
+            <span>{sessions.length}场历史</span>
+          </button>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto overscroll-contain">
-        {/* 已有辩论 */}
-        <section className="px-4 pt-4 pb-2">
-          <h2 className="text-xs font-bold text-muted-foreground mb-3 flex items-center gap-1.5">
-            <History className="h-3.5 w-3.5" />
-            已有辩论 ({sessions.length})
-          </h2>
-          {sessions.length > 0 ? (
-            <div className="space-y-2">
-              {sessions.map(s => (
-                <SessionCard key={s.sessionId} session={s} bookId={bookIdNum} onDelete={handleDeleteSession} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground/50 text-center py-4">暂无辩论记录</p>
-          )}
-        </section>
+        {/* 辩题选择区 — 核心任务前置 */}
+        <section className="px-4 pt-5 pb-3">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-brand-500" />
+              选择辩题
+            </h2>
+            <span className="text-xs text-muted-foreground">{topics.length} 个推荐</span>
+          </div>
 
-        {/* 辩题选择区 */}
-        <section className="px-4 pt-4 pb-2">
-          <h2 className="text-xs font-bold text-muted-foreground mb-3 flex items-center gap-1.5">
-            <MessageSquare className="h-3.5 w-3.5 text-brand-500" />
-            选择辩题
-          </h2>
-
-          {/* LLM推荐 */}
+          {/* 辩题列表：PC纵向紧凑列表 + 移动端横向滑动卡片 */}
           {loadingTopics ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
               <Loader2 className="h-4 w-4 animate-spin" />
               AI 正在从书中提炼辩题...
             </div>
           ) : (
-            <div className="space-y-2">
-              {topics.map((t, i) => (
+            <>
+              {/* PC端：双列网格 */}
+              <div className="hidden md:grid md:grid-cols-2 gap-3">
+                {topics.map((t, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setSelectedTopic(t); setShowManualInput(false); setManualTopic('') }}
+                    className={`text-left rounded-xl border p-3 transition-all ${
+                      selectedTopic?.topic === t.topic
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'border-border/50 bg-card text-foreground hover:bg-muted'
+                    }`}
+                  >
+                    <p className={`text-sm font-bold mb-2 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground' : ''}`}>{t.topic}</p>
+                    <div className="space-y-1.5">
+                      <div className="flex items-start gap-1.5">
+                        <span className={`text-xs font-semibold shrink-0 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/80' : 'text-[#4A7C6F]'}`}>正方</span>
+                        <p className={`text-xs line-clamp-1 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.proArgument}</p>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <span className={`text-xs font-semibold shrink-0 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/80' : 'text-[#B8704A]'}`}>反方</span>
+                        <p className={`text-xs line-clamp-1 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.conArgument}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
                 <button
-                  key={i}
-                  onClick={() => { setSelectedTopic(t); setShowManualInput(false); setManualTopic('') }}
-                  className={`w-full text-left rounded-xl border p-3 transition-all ${
-                    selectedTopic?.topic === t.topic
-                      ? 'border-brand-400/50 bg-brand-50/50 dark:bg-brand-500/10'
-                      : 'border-border/30 hover:border-border/60'
+                  onClick={() => { setShowManualInput(true); setSelectedTopic(null) }}
+                  className={`flex items-center justify-center gap-2 rounded-xl border p-3 transition-all ${
+                    showManualInput
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-dashed border-border/50 bg-card text-foreground hover:bg-muted hover:border-border'
                   }`}
                 >
-                  <p className="text-sm font-bold mb-3">{t.topic}</p>
-                  {/* 正反方分栏展示 */}
-                  <div className={`flex ${isMobile ? 'flex-col gap-2' : 'flex-row gap-3'}`}>
-                    <div className={`${isMobile ? '' : 'flex-1'} rounded-lg border border-blue-200/40 bg-blue-50/30 dark:bg-blue-950/10 px-3 py-2`}>
-                      <span className="text-xs font-semibold text-blue-500 block mb-1">正方</span>
-                      <span className="text-sm text-blue-700/80 dark:text-blue-300/80 leading-relaxed">{t.proArgument}</span>
-                    </div>
-                    <div className={`${isMobile ? '' : 'flex-1'} rounded-lg border border-red-200/40 bg-red-50/30 dark:bg-red-950/10 px-3 py-2`}>
-                      <span className="text-xs font-semibold text-red-500 block mb-1">反方</span>
-                      <span className="text-sm text-red-700/80 dark:text-red-300/80 leading-relaxed">{t.conArgument}</span>
-                    </div>
-                  </div>
+                  <MessageSquare className={`h-4 w-4 ${showManualInput ? 'text-primary-foreground' : 'text-brand-500'}`} />
+                  <span className={`text-xs font-medium ${showManualInput ? 'text-primary-foreground' : 'text-muted-foreground'}`}>自定义辩题</span>
                 </button>
-              ))}
-            </div>
+              </div>
+
+              {/* 移动端：横向滑动卡片 */}
+              <div className="md:hidden flex gap-3 overflow-x-auto pb-2 scrollbar-hide px-4">
+                {topics.map((t, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setSelectedTopic(t); setShowManualInput(false); setManualTopic('') }}
+                    className={`shrink-0 w-72 text-left rounded-2xl border p-4 transition-all ${
+                      selectedTopic?.topic === t.topic
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'border-border/50 bg-card text-foreground hover:bg-muted hover:border-border'
+                    }`}
+                  >
+                    <p className={`text-sm font-bold mb-3 line-clamp-2 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground' : ''}`}>{t.topic}</p>
+                    <div className="space-y-2">
+                      <div className={`rounded-lg border px-3 py-2 ${selectedTopic?.topic === t.topic ? 'border-primary-foreground/20 bg-primary-foreground/10' : 'border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/20'}`}>
+                        <span className={`text-xs font-semibold block mb-0.5 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/80' : 'text-[#4A7C6F]'}`}>正方</span>
+                        <span className={`text-xs line-clamp-2 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.proArgument}</span>
+                      </div>
+                      <div className={`rounded-lg border px-3 py-2 ${selectedTopic?.topic === t.topic ? 'border-primary-foreground/20 bg-primary-foreground/10' : 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20'}`}>
+                        <span className={`text-xs font-semibold block mb-0.5 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/80' : 'text-[#B8704A]'}`}>反方</span>
+                        <span className={`text-xs line-clamp-2 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.conArgument}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                <button
+                  onClick={() => { setShowManualInput(true); setSelectedTopic(null) }}
+                  className={`shrink-0 w-40 flex flex-col items-center justify-center gap-2 rounded-2xl border p-4 transition-all ${
+                    showManualInput
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-dashed border-border/50 bg-card text-foreground hover:bg-muted hover:border-border'
+                  }`}
+                >
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-full ${showManualInput ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-brand-100 text-brand-500'}`}>
+                    <MessageSquare className="h-5 w-5" />
+                  </div>
+                  <span className={`text-xs font-medium ${showManualInput ? 'text-primary-foreground' : 'text-muted-foreground'}`}>自定义辩题</span>
+                </button>
+              </div>
+            </>
           )}
 
           {/* 手动输入 */}
-          {showManualInput ? (
-            <div className="mt-4 space-y-3">
-              <h3 className="text-xs font-bold text-center text-muted-foreground">自定义辩题</h3>
+          {showManualInput && (
+            <div className="mt-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
               <div className="relative">
                 <textarea
                   value={manualTopic}
                   onChange={e => setManualTopic(e.target.value)}
                   placeholder="输入你的辩题..."
-                  className="w-full rounded-xl border border-border/30 bg-background p-3 text-sm resize-none focus:outline-none focus:border-brand-400/50 pr-10"
-                  rows={3}
+                  className="w-full rounded-xl border border-border/50 bg-card p-4 text-sm resize-none focus:outline-none focus:border-brand-400 pr-12"
+                  rows={2}
                 />
                 <button
                   onClick={handleOptimizeTopic}
                   disabled={optimizing || !manualTopic.trim()}
-                  className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-600/10 text-brand-500 hover:bg-brand-100 dark:hover:bg-brand-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-90"
+                  className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 text-brand-500 hover:bg-brand-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-90"
                   title="使用AI优化辩题"
                 >
                   {optimizing ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <Sparkles className="h-3.5 w-3.5" />
+                    <Sparkles className="h-4 w-4" />
                   )}
                 </button>
               </div>
-              <div className={`flex ${isMobile ? 'flex-col gap-2' : 'flex-row gap-2'}`}>
+              <div className={`flex ${isMobile ? 'flex-col gap-3' : 'flex-row gap-3'}`}>
                 <textarea
                   value={manualProArg}
                   onChange={e => setManualProArg(e.target.value)}
-                  placeholder="正方观点（填写正方立场的核心论据）..."
-                  className="flex-1 rounded-xl border border-blue-200/50 bg-blue-50/30 dark:bg-blue-950/10 p-3 text-sm resize-none focus:outline-none focus:border-blue-400/50"
-                  rows={3}
+                  placeholder="正方观点..."
+                  className="flex-1 rounded-xl border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/20 p-4 text-sm resize-none focus:outline-none focus:border-teal-500"
+                  rows={2}
                 />
                 <textarea
                   value={manualConArg}
                   onChange={e => setManualConArg(e.target.value)}
-                  placeholder="反方观点（填写反方立场的核心论据）..."
-                  className="flex-1 rounded-xl border border-red-200/50 bg-red-50/30 dark:bg-red-950/10 p-3 text-sm resize-none focus:outline-none focus:border-red-400/50"
-                  rows={3}
+                  placeholder="反方观点..."
+                  className="flex-1 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm resize-none focus:outline-none focus:border-amber-500"
+                  rows={2}
                 />
               </div>
-              <div className="flex justify-center">
-                <button
-                  onClick={() => { setSelectedTopic(null); setShowManualInput(false) }}
-                  className="flex items-center gap-1.5 rounded-xl px-6 py-2 text-xs font-medium text-muted-foreground hover:text-foreground border border-border/30 hover:border-border/60 transition-colors"
-                >
-                  取消自定义
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex justify-center mt-4">
-              <button
-                onClick={() => { setShowManualInput(true); setSelectedTopic(null) }}
-                className="flex items-center justify-center gap-2 rounded-xl border border-brand-200/40 bg-brand-50/30 dark:bg-brand-600/10 px-6 py-2.5 text-sm font-medium text-primary hover:border-brand-300/60 hover:bg-brand-50/50 active:scale-[0.98] transition-all"
-              >
-                <MessageSquare className="h-4 w-4" />
-                自定义辩题
-              </button>
             </div>
           )}
         </section>
 
-        {/* 辩手阵容区 */}
-        <section className="px-4 pt-4 pb-2">
-          <h2 className="text-xs font-bold text-muted-foreground mb-3">辩手阵容</h2>
+        {/* 辩手阵容区 — VS 对抗布局 */}
+        <section className="px-4 pt-6 pb-3">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold flex items-center gap-2">
+              <Swords className="h-4 w-4 text-brand-500" />
+              辩手阵容
+            </h2>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-[#4A7C6F] font-medium">正方</span>
+              <span className="text-xs font-bold text-muted-foreground/30">VS</span>
+              <span className="text-xs text-[#B8704A] font-medium">反方</span>
+            </div>
+          </div>
           <div className={`flex ${isMobile ? 'flex-col gap-4' : 'flex-row gap-4'}`}>
-            <div className={`${isMobile ? '' : 'flex-1'} rounded-xl border border-blue-200/30 bg-blue-50/10 dark:bg-blue-950/5 p-3`}>
+            <div className={`${isMobile ? '' : 'flex-1'} rounded-2xl border border-border/50 bg-card p-4`}>
+              <div className="flex items-center gap-1.5 mb-3 px-1">
+                <div className="h-2 w-2 rounded-full bg-[#4A7C6F]" />
+                <span className="text-xs font-bold text-[#4A7C6F]">正方阵容</span>
+                <span className="text-xs text-muted-foreground ml-auto">{proRoleKeys.filter(Boolean).length}/4</span>
+              </div>
               {renderSlotGroup('PRO', proRoleKeys)}
             </div>
-            <div className={`${isMobile ? '' : 'flex-1'} rounded-xl border border-red-200/30 bg-red-50/10 dark:bg-red-950/5 p-3`}>
+            <div className={`${isMobile ? '' : 'flex-1'} rounded-2xl border border-border/50 bg-card p-4`}>
+              <div className="flex items-center gap-1.5 mb-3 px-1">
+                <div className="h-2 w-2 rounded-full bg-[#B8704A]" />
+                <span className="text-xs font-bold text-[#B8704A]">反方阵容</span>
+                <span className="text-xs text-muted-foreground ml-auto">{conRoleKeys.filter(Boolean).length}/4</span>
+              </div>
               {renderSlotGroup('CON', conRoleKeys)}
             </div>
           </div>
         </section>
 
-        {/* 开始按钮 */}
-        <section className="px-4 pt-2 pb-4">
+        {/* 开始按钮 — 底部悬浮感 */}
+        <section className="px-4 pt-6 pb-8">
           <button
             onClick={handleCreateSession}
             disabled={creating || (!selectedTopic && !manualTopic.trim())}
-            className="mt-2 w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all"
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-brand-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all"
           >
             {creating ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -508,13 +536,33 @@ export default function DebatePage() {
           </button>
         </section>
 
+        {/* 已有辩论 — 折叠到底部 */}
+        {sessions.length > 0 && (
+          <section id="history-section" className="px-4 pt-4 pb-8 border-t border-border/10">
+            <h2 className="text-sm font-bold mb-4 flex items-center gap-2">
+              <History className="h-4 w-4 text-muted-foreground" />
+              历史辩论 ({sessions.length})
+            </h2>
+            <div className="space-y-3">
+              {sessions.map(s => (
+                <SessionCard key={s.sessionId} session={s} bookId={bookIdNum} onDelete={handleDeleteSession} />
+              ))}
+            </div>
+          </section>
+        )}
+
       </div>
 
-      {/* 性格选择 Modal — 居中弹出8种性格 */}
+      {/* 性格选择 Modal — 抽卡式全屏 */}
       <Dialog open={expandedSlot !== null} onOpenChange={(v) => { if (!v) setExpandedSlot(null) }}>
-        <DialogContent className="max-w-sm rounded-2xl p-0 gap-0" showCloseButton={false}>
+        <DialogContent className="max-w-md rounded-2xl p-0 gap-0" showCloseButton={false}>
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
-            <h3 className="text-sm font-bold">选择性格</h3>
+            <div>
+              <h3 className="text-sm font-bold">选择辩手性格</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {expandedSlot ? `${expandedSlot.side === 'PRO' ? '正方' : '反方'}${['一辩','二辩','三辩','四辩'][expandedSlot.index]}` : ''}
+              </p>
+            </div>
             <button
               onClick={() => setExpandedSlot(null)}
               className="rounded-full p-1 hover:bg-muted transition-colors"
@@ -522,8 +570,8 @@ export default function DebatePage() {
               <X className="h-4 w-4 text-muted-foreground" />
             </button>
           </div>
-          <div className="px-5 pb-5">
-            <div className="grid grid-cols-2 gap-2">
+          <div className="px-5 pb-5 max-h-[60vh] overflow-y-auto overscroll-contain">
+            <div className="grid grid-cols-2 gap-3">
               {PERSONALITY_OPTIONS.map(p => {
                 const isActive = expandedSlot
                   ? (expandedSlot.side === 'PRO' ? proRoleKeys : conRoleKeys)[expandedSlot.index] === p.key
@@ -538,27 +586,23 @@ export default function DebatePage() {
                         setExpandedSlot(null)
                       }
                     }}
-                    className={`flex items-center gap-2 rounded-xl px-2.5 py-2.5 text-left transition-all ${
+                    className={`flex flex-col items-center text-center rounded-2xl p-4 transition-all ${
                       isActive
-                        ? 'bg-[var(--modal-color)]/[0.08] ring-1 ring-[var(--modal-color)]/30'
-                        : 'hover:bg-muted'
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'bg-card border border-border/50 hover:border-border hover:bg-muted/50'
                     }`}
-                    style={{ '--modal-color': color } as React.CSSProperties}
                   >
                     <div
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs"
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-lg mb-2"
                       style={{
-                        backgroundColor: hexToRgba(color, 0.12),
-                        border: isActive ? `2px solid ${color}` : `1px solid ${hexToRgba(color, 0.2)}`,
+                        backgroundColor: isActive ? 'rgba(255,255,255,0.15)' : hexToRgba(color, 0.1),
                       }}
                     >
                       {DEBATE_PERSONALITY_ICONS[p.key] || '👤'}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs font-semibold leading-tight block" style={{ color }}>{p.label}</span>
-                      <span className="text-xs text-muted-foreground/60 leading-tight block mt-0.5">{p.desc}</span>
-                    </div>
-                    {isActive && <Check className="h-3.5 w-3.5 shrink-0" style={{ color }} />}
+                    <span className={`text-xs font-semibold leading-tight ${isActive ? 'text-primary-foreground' : 'text-foreground'}`}>{p.label}</span>
+                    <span className={`text-xs leading-tight mt-1 ${isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{p.desc}</span>
+
                   </button>
                 )
               })}

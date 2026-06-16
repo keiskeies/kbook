@@ -2,11 +2,12 @@
 # KBook 单容器镜像 — 纯 COPY，无构建阶段
 #
 # 使用方式：
-#   Docker Compose: cd deploy/compose && docker compose up -d --build
-#   手动构建:       docker build -t kbook-app:1.1.0 .
-#   K8s:            docker build -t kbook-app:1.1.0 -f Dockerfile .
+#   Docker Compose: cd deploy/compose && bash update.sh    (一键更新)
+#   手动构建:       docker build -t kbook-app:$(cat VERSION) .
+#   K8s:            cd deploy/k8s && bash update.sh         (一键更新)
 #
 # 构建前先运行 package.bat / package.sh 生成 package/ 目录
+# 或使用 update 脚本自动从网络下载预构建包
 # ============================================================
 
 FROM nginx:alpine
