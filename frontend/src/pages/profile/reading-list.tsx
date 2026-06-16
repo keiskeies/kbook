@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, BookOpen, Loader2 } from 'lucide-react'
 import { getReadingHistory } from '@/api/progress'
+import { getMatchScores } from '@/api/book'
 import { BookCard } from '@/components/book/BookCard'
 
 interface ReadingListItem {
@@ -26,6 +27,7 @@ export default function ReadingListPage() {
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(true)
+  const [matchScores, setMatchScores] = useState<Record<string, number>>({})
 
   const loadItems = useCallback(async (p: number) => {
     setLoading(true)
@@ -58,6 +60,16 @@ export default function ReadingListPage() {
     setPage(0)
     loadItems(0)
   }, [loadItems])
+
+  // 加载完阅读记录后获取匹配度分数
+  useEffect(() => {
+    if (items.length === 0) { setMatchScores({}); return }
+    const ids = items.map(item => item.bookId)
+    getMatchScores(ids).then(res => {
+      const data = (res as any)?.data || (res as any) || {}
+      setMatchScores(prev => ({ ...prev, ...data }))
+    }).catch(() => {})
+  }, [items])
 
   return (
     <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter">
@@ -102,6 +114,7 @@ export default function ReadingListPage() {
                     rating: book.rating ?? null,
                     readCount: book.readCount ?? null,
                     description: book.description ?? null,
+                    matchScore: matchScores[book.bookId],
                   }}
                   lastReadAt={book.updatedAt}
                   onClick={() => navigate(`/book/${book.bookId}`)}

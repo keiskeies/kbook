@@ -8,7 +8,7 @@ import {
 import { getGlobalDebateSessions } from '@/api/debate'
 import { getGlobalRoundTableSessions } from '@/api/roundTable'
 import { getHomeTags } from '@/api/home'
-import { searchBooks, getReadRank } from '@/api/book'
+import { searchBooks, getReadRank, getMatchScores } from '@/api/book'
 import type { TagStat } from '@/api/home'
 import type { Book } from '@/types/book'
 import { DEBATE_PERSONALITY_NAMES, DEBATE_PERSONALITY_ICONS } from '@/types/debate'
@@ -375,6 +375,7 @@ function DebateCard({ item }: { item: DebateFeedItem }) {
 function RoundTableCard({ item }: { item: RoundTableFeedItem }) {
   const navigate = useNavigate()
   const roles = parseRoleKeys(item.roleKeys)
+  const displayRoles = roles.filter(k => k !== 'HOST')
 
   const goToBook = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -410,30 +411,37 @@ function RoundTableCard({ item }: { item: RoundTableFeedItem }) {
             📖 {item.bookTitle}
           </p>
 
-          {/* 参与角色 */}
+          {/* 参与角色（不含主持人） */}
           <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-            {roles.slice(0, 4).map(key => (
+            {displayRoles.slice(0, 4).map(key => (
               <span
                 key={key}
-                className="inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-xs font-medium text-violet-600"
+                className="inline-flex items-center gap-0.5 rounded-md bg-brand-100 px-1.5 py-0.5 text-xs font-medium text-brand-500"
               >
                 <span>{ROLE_ICONS[key] || '👤'}</span>
                 {ROLE_NAMES[key] || key}
               </span>
             ))}
-            {roles.length > 4 && (
-              <span className="text-xs text-muted-foreground">+{roles.length - 4}</span>
+            {displayRoles.length > 4 && (
+              <span className="text-xs text-muted-foreground">+{displayRoles.length - 4}</span>
             )}
           </div>
 
           {/* 维度数据行 */}
           <div className="mt-2 flex items-center gap-2.5 text-xs text-muted-foreground">
-            {/* 覆盖度 - 突出显示 */}
+            {/* 覆盖度 - 根据数值变色 */}
             {item.coverageScore != null && item.coverageScore > 0 && (
-              <span className="inline-flex items-center gap-0.5 rounded-md bg-success/10 px-1.5 py-0.5 font-semibold text-success">
-                <Eye className="h-3 w-3" />
-                覆盖度{Math.round(item.coverageScore * 100)}%
-              </span>
+              (() => {
+                const pct = Math.round(item.coverageScore)
+                const colorCls = pct >= 80 ? 'text-danger' : pct >= 60 ? 'text-warning' : pct >= 40 ? 'text-success' : 'text-muted-foreground'
+                const bgCls = pct >= 80 ? 'bg-danger/10' : pct >= 60 ? 'bg-warning/10' : pct >= 40 ? 'bg-success/10' : 'bg-muted'
+                return (
+                  <span className={`inline-flex items-center gap-0.5 rounded-md ${bgCls} px-1.5 py-0.5 font-semibold ${colorCls}`}>
+                    <Eye className="h-3 w-3" />
+                    覆盖度{pct}%
+                  </span>
+                )
+              })()
             )}
             {/* 角色数 */}
             <span className="inline-flex items-center gap-0.5">
@@ -470,11 +478,11 @@ function RoundTableCard({ item }: { item: RoundTableFeedItem }) {
 
 // ==================== 书籍卡片 ====================
 
-function BookListCard({ book, activeTag }: { book: Book; activeTag?: string }) {
+function BookListCard({ book, activeTag, matchScore }: { book: Book; activeTag?: string; matchScore?: number }) {
   const navigate = useNavigate()
   return (
     <BookCard
-      book={book}
+      book={{ ...book, matchScore }}
       onClick={() => navigate(`/book/${book.id}`)}
       activeTag={activeTag}
     />
@@ -514,6 +522,7 @@ export default function DiscoverPage() {
   const [bookHasMore, setBookHasMore] = useState(true)
   const [categories, setCategories] = useState<TagStat[]>([])
   const [activeTag, setActiveTag] = useState(initialTag)
+  const [bookMatchScores, setBookMatchScores] = useState<Record<string, number>>({})
 
   // 同步 URL 参数到 state（keep-alive 场景下外部导航会改变 URL 参数）
   useEffect(() => {
@@ -534,7 +543,9 @@ export default function DiscoverPage() {
       const res = await getGlobalDebateSessions(pageNum, 18, sort === 'mine' ? 'recent' : sort, sort === 'mine')
       const data = (res as any)?.data || (res as any)
       const content: DebateFeedItem[] = data?.content || []
-      setDebates(prev => pageNum === 0 ? content : [...prev, ...content])
+      // 最热/最新不展示未结束的辩论（ACTIVE）
+      const filtered = sort !== 'mine' ? content.filter(i => i.status === 'COMPLETED' || i.status === 'ABANDONED') : content
+      setDebates(prev => pageNum === 0 ? filtered : [...prev, ...filtered])
       setDebateHasMore(!(data?.last ?? true))
       setDebatePage(pageNum)
     } catch {
@@ -598,6 +609,16 @@ export default function DiscoverPage() {
       setCategories(data)
     }).catch(() => {})
   }, [loadDebates, loadRoundTables, loadBooks, initialTag])
+
+  // 加载完书籍后获取匹配度分数
+  useEffect(() => {
+    if (books.length === 0) { setBookMatchScores({}); return }
+    const ids = books.map(b => b.id)
+    getMatchScores(ids).then(res => {
+      const data = (res as any)?.data || (res as any) || {}
+      setBookMatchScores(prev => ({ ...prev, ...data }))
+    }).catch(() => {})
+  }, [books])
 
   const handleDebateSortChange = (sort: SortKey) => {
     setDebateSort(sort)
@@ -811,7 +832,7 @@ export default function DiscoverPage() {
           ) : books.length > 0 ? (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {books.map(book => <BookListCard key={book.id} book={book} activeTag={activeTag || undefined} />)}
+                {books.map(book => <BookListCard key={book.id} book={book} activeTag={activeTag || undefined} matchScore={bookMatchScores[book.id]} />)}
                 {bookLoading && Array.from({ length: 6 }, (_, i) => <BookSkeleton key={`more-${i}`} />)}
               </div>
               {bookHasMore && !bookLoading && (

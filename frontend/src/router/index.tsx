@@ -20,6 +20,7 @@ const AdminTtsConfigPage = lazy(() => import('@/pages/admin/tts-config'))
 const BookDetailPage = lazy(() => import('@/pages/book/detail'))
 const SearchPage = lazy(() => import('@/pages/search'))
 const ReadingListPage = lazy(() => import('@/pages/profile/reading-list'))
+const BookTrashPage = lazy(() => import('@/pages/profile/trash'))
 const RecommendPage = lazy(() => import('@/pages/home/recommend'))
 const ChatListPage = lazy(() => import('@/pages/chat'))
 const ChatRoomPage = lazy(() => import('@/pages/chat/room'))
@@ -49,6 +50,7 @@ export const router = createBrowserRouter([
       { path: ROUTES.BOOK_DETAIL, element: <LazyLoad><BookDetailPage /></LazyLoad> },
       { path: ROUTES.SEARCH, element: <LazyLoad><SearchPage /></LazyLoad> },
       { path: ROUTES.READING_LIST, element: <LazyLoad><ReadingListPage /></LazyLoad> },
+      { path: ROUTES.TRASH, element: <LazyLoad><BookTrashPage /></LazyLoad> },
       { path: ROUTES.RECOMMEND, element: <LazyLoad><RecommendPage /></LazyLoad> },
       { path: ROUTES.CHAT, element: <LazyLoad><ChatListPage /></LazyLoad> },
       { path: ROUTES.CHAT_ROOM, element: <LazyLoad><ChatRoomPage /></LazyLoad> },

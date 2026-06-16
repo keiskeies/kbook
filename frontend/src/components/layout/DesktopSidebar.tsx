@@ -53,7 +53,7 @@ export function DesktopSidebar() {
         {!effectiveCollapsed && (
           <div className="overflow-hidden whitespace-nowrap">
             <h1 className="text-lg font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">KBook</h1>
-            <p className="text-xs text-sidebar-foreground/50 -mt-0.5">AI 书籍讨论平台</p>
+            <p className="text-xs text-sidebar-foreground/50 -mt-0.5">你的 AI 读书智囊团</p>
           </div>
         )}
       </div>

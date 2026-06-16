@@ -5,11 +5,11 @@
 <h1 align="center">KBook</h1>
 
 <p align="center">
-  <strong>为「此刻的你」找到那本书</strong>
+  <strong>赛博斗蛐蛐，读书也疯狂</strong>
 </p>
 
 <p align="center">
-  AI 原生问答平台 · 让 AI 真正「读过」每一本书，再陪你聊透每一个细节
+  16 种性格 AI 围剿一本书 · 圆桌激辩、立场交锋，让读书变成一场真人秀
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <a href="#-quick-start"><strong>快速开始</strong></a> · <a href="#-preview">预览</a> · <a href="#-features">功能</a> · <a href="#how-ai-book-qa-works">AI 问答原理</a>
+  <a href="#-核心体验"><strong>核心体验</strong></a> · <a href="#-功能清单">功能清单</a> · <a href="#how-ai-book-qa-works">AI 问答原理</a>
 </p>
 
 ---
@@ -40,26 +40,89 @@
 
 你是否也经历过这些时刻——
 
-- 读完一本好书，满脑子想法却无处讨论？
-- 书中某个观点让你困惑，翻遍搜索引擎也找不到针对这本书的深度解读？
-- 被推荐了一本「人生必读」，却发现和你的生活阶段毫无共鸣？
+- 读完一本好书，满脑子想法却无人可聊？
+- 书中某个观点让你彻夜难眠，翻遍全网也找不到针对这本书的深度解读？
+- 被推荐了一本「人生必读」，却发现和你的生活阶段、性格气质毫无共鸣？
+- 面对复杂议题，你渴望看到不同立场的人激烈交锋，而不是一家之言？
 
-KBook 重新定义了人与书的关系：**不是读完即走，而是聊到通透。**
+**KBook 为「真正想读懂一本书的人」而生。**
+
+我们不做「读完即走」的浅层阅读。KBook 将整本书籍内容完整注入 RAG 向量知识库，让 AI 真正「读过」这本书——然后陪你一对一深聊、组局多人圆桌、甚至发起一场多性格辩手的激烈辩论。书不是被读完的，是被**聊透、辩明、想通**的。
 
 ---
 
-## ✨ 为「此刻的你」找到那本书
+## 🔥 四大核心体验
 
-30 岁未婚的 INTJ 与 35 岁二孩的 ESFJ，注定不该读到同一本「人生指南」。
+### 1️⃣ AI 问答 —— 和「真正读过这本书」的 AI 聊到天亮
 
-KBook 基于真实人生状态（年龄 / 婚姻 / 育儿 / MBTI）构建推荐引擎，让每本书都精准对应当下的人生课题。更关键的是，我们不做「读完即走」的浅层阅读——KBook 将整本书籍内容完整注入 RAG 向量知识库，让 AI 真正「读过」这本书，再陪你聊透每一个细节：
+把书扔给 KBook，AI 先把全书吃透（RAG 向量知识库 + 800 字智能分块），然后陪你展开**穿透式对话**：
 
-- 📖 **穿透式追问** — 「作者第三章的论据在第五章被自我推翻了，你怎么看？」AI 能跨章节检索，带你看清论证脉络
-- 🧠 **苏格拉底式对谈** — 不直接给答案，而是用书中的思想框架向你层层提问，逼出你自己的独立思考
-- 🔗 **知识图谱编织** — 让 AI 对比你书架里的其他书籍，发现跨书的隐藏关联，构建属于你的认知网络
-- ✍️ **观点压力测试** — 抛出与作者相左的学界观点，看 AI 如何替你拆解辩论双方的逻辑漏洞
+- **跨章节灵魂追问** —— 「作者第三章的论据在第五章被自我推翻了，你怎么看？」AI 能精准检索全书，带你看清论证脉络
+- **苏格拉底式对谈** —— 不直接给答案，而是用书中的思想框架向你层层提问，逼出你自己的独立思考
+- **观点压力测试** —— 抛出与作者相左的学界观点，看 AI 如何替你拆解辩论双方的逻辑漏洞
+- **知识图谱编织** —— 对比你书架里的其他书籍，发现跨书的隐藏关联，构建属于你的认知网络
 
-**在 KBook，书不是被读完的，是被聊透的。**
+**适合谁：** 读完后一肚子问题没人讨论的深度阅读者；写论文、做研究需要快速吃透一本书的人；不想被 AI 糊弄、要求每个回答都有原文出处的较真读者。
+
+<p align="center">
+  <img src="./doc/AI图书问答1.jpg" alt="AI 图书问答" width="280" />
+  <img src="./doc/AI图书问答2.jpg" alt="AI 深入追问" width="280" />
+  <img src="./doc/AI图书问答3.jpg" alt="AI 多轮对话" width="280" />
+</p>
+
+---
+
+### 2️⃣ 圆桌讨论 —— 多 AI 角色围炉夜话，一本书读出 N 种人生
+
+一个人读书是独处，一群人读书是盛宴。KBook 的**圆桌讨论**让多个 AI 角色围绕同一本书展开多轮对话：
+
+- **多角色自主发言** —— 每个 AI 角色基于自身设定（人生阅历、专业背景、性格倾向）对书中观点发表独立见解
+- **观点碰撞与回应** —— 角色之间会互相质疑、补充、引申，形成真实的讨论张力
+- **智能主持人控场** —— AI 主持人引导话题深入，确保讨论不跑偏、不冷场
+- **覆盖度报告** —— 讨论结束后生成覆盖度分析，帮你发现「哪些角度还没聊到」
+
+**适合谁：** 想知道「不同背景的人怎么看待这本书」的好奇读者；读书俱乐部想找讨论灵感的组织者；感觉一个人读不透、渴望「听别人怎么看」的社交型学习者。
+
+<p align="center">
+  <img src="./doc/圆桌派.jpg" alt="圆桌讨论" width="280" />
+  <img src="./doc/圆桌派2.jpg" alt="圆桌讨论角色视角" width="280" />
+</p>
+
+---
+
+### 3️⃣ AI 辩论 —— 16 种性格辩手，把一本书辩得底朝天
+
+这是 KBook 最燃的功能。我们设计了 **16 种鲜明性格的 AI 辩手**——逻辑型、毒舌型、幽默型、理想主义型、悲观审慎型……围绕一本书的争议观点展开**多轮结构化辩论**：
+
+- **性格鲜明，开口就是人设** —— 毒舌型会毫不留情拆穿逻辑漏洞，幽默型用段子包装犀利观点，逻辑型死磕论据链的每一处断裂
+- **多轮攻防，不是一次性输出** —— 立论、质询、自由辩论、结辩，完整模拟真实辩论赛流程
+- **AI 评委打分** —— 每轮辩论后 AI 评委从论点、论据、表达、反驳四维度打分，生成详细点评报告
+- **看完辩论再读书** —— 很多用户说：「看完 AI 辩论，才发现自己第一遍完全读偏了」
+
+**适合谁：** 喜欢《奇葩说》《辩论赛》的思辨爱好者；面对复杂议题想「先看正反双方怎么打」的理性决策者；觉得一本书「好像有道理又哪里不对」、想借辩论理清思路的纠结读者。
+
+<p align="center">
+  <img src="./doc/奇葩说.jpg" alt="AI 辩论" width="280" />
+  <img src="./doc/奇葩说1.jpg" alt="AI 辩论角色视角" width="280" />
+</p>
+
+---
+
+### 4️⃣ 画像推荐 —— 懂你的人生状态，才推得出对的书
+
+30 岁未婚的 INTJ 与 35 岁二孩的 ESFJ，注定不该读到同一本「人生指南」。KBook 的推荐引擎基于**真实人生状态 + 当下情绪 + 阅读意图**三重匹配：
+
+- **人生画像** —— 年龄、婚姻、育儿阶段、MBTI、兴趣标签，构建你的多维阅读 DNA
+- **情绪感知** —— 开心、焦虑、疲惫、迷茫……不同情绪状态下，同一本书的推荐优先级完全不同
+- **阅读意图** —— 你是想「充电」（学技能）、「共鸣」（找安慰）、还是「解惑」（求答案）？意图不同，推荐逻辑不同
+- **八维度匹配度** —— 每本书展示与你的匹配分数，量化推荐理由，拒绝「因为热门所以推你」的敷衍
+
+**适合谁：** 厌倦了「全网都在读」的同质化推荐；处于人生转折期（换工作、结婚、育儿）、需要「对的书」而不是「好的书」的精准读者；相信「阅读是私事」、要求推荐懂自己的人。
+
+<p align="center">
+  <img src="./doc/推荐列表.jpg" alt="个性推荐" width="280" />
+  <img src="./doc/个人画像.jpg" alt="个人画像" width="280" />
+</p>
 
 ---
 
@@ -68,45 +131,21 @@ KBook 基于真实人生状态（年龄 / 婚姻 / 育儿 / MBTI）构建推荐�
 | | 传统阅读 App | KBook |
 |---|---|---|
 | **阅读后** | 合上书，阅读结束 | 打开 AI 对话，阅读才刚开始 |
+| **讨论** | 看书评区的水评 | 和 AI 一对一深聊 / 多角色圆桌 / 16 性格辩论 |
 | **搜索** | 只能搜书名、作者 | 全书内容向量检索，一句话定位段落 |
-| **推荐** | 热门榜单 + 标签筛选 | 基于人生状态（年龄/婚姻/MBTI）的精准推荐 |
-| **AI** | 摘要生成、语音朗读 | RAG 问答、苏格拉底式对谈、跨书知识关联 |
-| **理解深度** | 依赖读者自身 | AI 陪你追问，层层深入直到真正理解 |
+| **推荐** | 热门榜单 + 标签筛选 | 基于人生状态（年龄/婚姻/MBTI/情绪/意图）的精准推荐 |
+| **AI** | 摘要生成、语音朗读 | RAG 问答、苏格拉底对谈、圆桌讨论、AI 辩论、跨书知识关联 |
+| **理解深度** | 依赖读者自身 | AI 陪你追问、辩论、讨论，直到真正理解 |
 
 ---
 
-## 📸 预览
-
-<table>
-  <tr>
-    <td align="center"><b>📚 图书详情</b></td>
-    <td align="center"><b>🤖 AI 书籍问答</b></td>
-    <td align="center"><b>🤖 AI 深入追问</b></td>
-  </tr>
-  <tr>
-    <td><img src="./doc/book_detail.jpg" alt="图书详情" width="240" /></td>
-    <td><img src="./doc/book_ask_1.jpg" alt="AI 书籍问答" width="240" /></td>
-    <td><img src="./doc/book_ask_2.jpg" alt="AI 深入追问" width="240" /></td>
-  </tr>
-  <tr>
-    <td align="center"><b>🤖 AI 多轮对话</b></td>
-    <td align="center"><b>🎯 个性推荐</b></td>
-    <td align="center"><b>👤 个人画像</b></td>
-  </tr>
-  <tr>
-    <td><img src="./doc/book_ask_3.jpg" alt="AI 多轮对话" width="240" /></td>
-    <td><img src="./doc/ai_recomend.png" alt="个性推荐" width="240" /></td>
-    <td><img src="./doc/self_info.jpg" alt="个人画像" width="240" /></td>
-  </tr>
-</table>
-
----
-
-## 🎯 Features
+## 🎯 功能清单
 
 ### 🤖 AI 智能引擎
 
 - **AI 图书问答** — 针对单本书全量内容的 RAG 向量检索问答，自动生成推荐问题，基于原著片段精准回答，支持深入追问
+- **AI 圆桌讨论** — 多 AI 角色围绕一本书展开多轮自主讨论，智能主持人控场，生成覆盖度报告
+- **AI 辩论赛** — 16 种性格辩手（逻辑型 / 毒舌型 / 幽默型 / 理想主义型等）进行结构化多轮辩论，AI 评委四维度打分点评
 - **AI 伴读助手** — 基于 LangChain4j 的多轮流式对话，支持 @Tool 调用（搜索图书 / 查书架 / 查进度 / 查阅读统计）
 - **AI 元数据生成** — 自动提取标签、评分、八维度相关度（年龄段 / 性别 / 婚姻 / 子女 / MBTI）
 - **AI 速读卡片** — 一键生成书籍核心观点摘要，快速了解一本书值不值得深读
@@ -114,34 +153,19 @@ KBook 基于真实人生状态（年龄 / 婚姻 / 育儿 / MBTI）构建推荐�
 - **多模型支持** — 管理后台可配置多个 AI 提供商（Ollama / OpenAI / DeepSeek 等），一键切换
 - **对话风格** — 支持随和 / 深度 / 简洁 / 幽默四种对话风格，满足不同阅读场景
 
-### 📖 沉浸阅读
-
-- **多格式引擎** — EPUB / PDF / TXT 三格式统一引擎，字体、字号、行距、主题色自由调节
-- **进度同步** — 实时上报 + 离线批量同步，时间戳覆盖冲突解决，跨设备无缝衔接
-- **TTS 朗读** — 支持小米 TTS、讯飞 TTS 等多种语音引擎，文本分片语音合成，播放/暂停/停止一键操控
-- **目录导航** — EPUB / PDF 自动提取目录，章节级快速跳转
-- **阅读主题** — 多种主题色切换，支持自定义阅读背景
+<p align="center">
+  <img src="./doc/AI助手.jpg" alt="AI 伴读助手" width="280" />
+  <img src="./doc/AI助手2.jpg" alt="AI 伴读助手多轮对话" width="280" />
+</p>
 
 ### 🎯 个性推荐
 
 - **用户画像** — 注册采集 + 运行时更新，构建多维阅读画像（年龄段 / 性别 / 婚姻 / 子女 / MBTI / 兴趣标签）
+- **情绪与意图** — 支持按当下情绪（开心 / 焦虑 / 疲惫 / 迷茫等）和阅读意图（充电 / 共鸣 / 解惑等）动态调整推荐
 - **向量召回** — Qdrant 存储图书元数据向量，基于用户画像余弦相似度召回
 - **协同过滤** — 基于阅读 / 收藏 / 评分 / 完成行为加权，推荐相似用户喜爱的书籍
 - **融合排序** — 规则匹配 + 向量召回 + 协同过滤 + 探索发现 + 热门兜底，多路融合排序
 - **匹配度评分** — 每本书展示与你的八维度匹配度，量化推荐理由
-
-### 📚 书架与发现
-
-- **书架管理** — 收藏/移除、筛选排序、阅读状态追踪
-- **全文搜索** — Elasticsearch 驱动的全文检索，搜索建议、标签筛选、高亮匹配
-- **排行榜** — 热门阅读 / 高分推荐 / 新书速递多维度榜单
-- **热门标签** — 基于全局阅读数据的标签云，快速发现感兴趣的方向
-
-### 💬 社区互动
-
-- **书评系统** — 书籍 / 章节级评论，嵌套回复、点赞、收藏
-- **关注体系** — 关注 / 粉丝体系，用户主页展示在读 / 已读 / 书评
-- **消息通知** — 评论回复、点赞里程碑等阶梯式推送，站内通知 + 邮件通知
 
 ### ⚙️ 管理后台
 
@@ -161,63 +185,51 @@ kbook/
 ├── frontend/                # React 19 + TypeScript + Vite
 │   ├── src/
 │   │   ├── components/      # UI 组件
-│   │   │   ├── ai/          # AI 相关组件（InlineBookCard）
-│   │   │   ├── auth/        # 路由守卫（AuthGuard / AdminGuard / GuestGuard）
-│   │   │   ├── book/        # 图书组件（BookChatSheet / AI 问答面板 / 匹配度 / 速读卡片）
-│   │   │   ├── comment/     # 评论组件
-│   │   │   ├── common/      # 通用组件（AuthImage / AvatarCrop / ImageViewer / PinchZoom）
-│   │   │   ├── home/        # 首页组件（MoodQuickSwitch）
-│   │   │   ├── layout/      # 布局（TabBar / AppLayout / DesktopSidebar / BlankLayout）
-│   │   │   ├── reader/      # 阅读器组件（EpubRenderer / PdfRenderer / TxtRenderer / TtsFloatPlayer）
+│   │   │   ├── ai/          # AI 相关组件
+│   │   │   ├── auth/        # 路由守卫
+│   │   │   ├── book/        # 图书组件（AI 问答面板 / 匹配度 / 速读卡片）
+│   │   │   ├── common/      # 通用组件
+│   │   │   ├── home/        # 首页组件
+│   │   │   ├── layout/      # 布局
+│   │   │   ├── reader/      # 阅读器组件
 │   │   │   └── ui/          # shadcn/ui 基础组件
 │   │   ├── pages/           # 页面
-│   │   │   ├── home/        # 首页（继续阅读 / 推荐 / 榜单 / 分类 / 统计）
-│   │   │   ├── rank/        # 排行榜（热门阅读 / 高分推荐 / 新书速递）
-│   │   │   ├── ai/          # AI 助理（多轮对话 / 历史会话 / 对话风格）
-│   │   │   ├── bookshelf/   # 书架（筛选 / 排序 / 管理）
-│   │   │   ├── book/        # 图书详情 + AI 问答入口 + 速读卡片
-│   │   │   ├── reader/      # 阅读器（EPUB / PDF / TXT / TTS）
-│   │   │   ├── search/      # 搜索（ES 全文检索 / 标签筛选 / 搜索建议）
-│   │   │   ├── reviews/     # 书评
-│   │   │   ├── follow/      # 关注 / 粉丝
-│   │   │   ├── notifications/ # 消息通知
-│   │   │   ├── profile/     # 个人中心 / 阅读历史 / 阅读统计 / 偏好设置
-│   │   │   ├── user/        # 用户主页
-│   │   │   ├── admin/       # 管理后台（审核 / 图书 / AI 配置 / TTS 配置）
-│   │   │   └── auth/        # 登录 / 注册 / 重置密码 / 邮箱绑定
-│   │   ├── router/          # 路由配置（懒加载 + 守卫）
-│   │   ├── store/           # Zustand 状态管理（auth / reader / progress / tts / ui / chat）
-│   │   ├── api/             # API 接口层（与后端 Controller 一一对应）
-│   │   ├── hooks/           # Custom Hooks（useEpubReader / usePdfReader / useTtsReader / useMatchScores）
+│   │   │   ├── home/        # 首页
+│   │   │   ├── ai/          # AI 助理
+│   │   │   ├── book/        # 图书详情 + AI 问答 + 圆桌讨论 + AI 辩论
+│   │   │   ├── reader/      # 阅读器
+│   │   │   ├── profile/     # 个人中心 / 阅读历史 / 偏好设置
+│   │   │   ├── admin/       # 管理后台
+│   │   │   └── auth/        # 登录 / 注册
+│   │   ├── router/          # 路由配置
+│   │   ├── store/           # Zustand 状态管理
+│   │   ├── api/             # API 接口层
+│   │   ├── hooks/           # Custom Hooks
 │   │   ├── types/           # TS 类型定义
-│   │   └── utils/           # 工具函数（Axios 封装 / SSE 请求 / Token 刷新 / TTS）
+│   │   └── utils/           # 工具函数
 │   └── vite.config.ts       # PWA + 代理配置
 │
 ├── backend/                 # Spring Boot 3.4
 │   └── src/main/java/com/kbook/
-│       ├── common/          # 统一响应、分页、异常处理、基础服务
-│       ├── config/          # Security / JWT / CORS / Redis / Qdrant / LangChain4j / ChatModelFactory
+│       ├── common/          # 统一响应、分页、异常处理
+│       ├── config/          # Security / JWT / Redis / Qdrant / LangChain4j
 │       ├── constants/       # AI 提示词常量
 │       ├── controller/      # REST API 控制器
 │       ├── document/        # Elasticsearch 文档定义
-│       ├── dto/             # 请求/响应 DTO（按业务域分包）
+│       ├── dto/             # 请求/响应 DTO
 │       ├── entity/          # JPA 实体
 │       ├── repository/      # 数据访问层
 │       └── service/         # 业务逻辑层
-│           ├── ai/          # AI 服务（BookChat / AiChat / BookAdminChat / AiProviderConfig）
-│           ├── auth/        # 认证服务（AuthService / ClickCaptchaService）
-│           ├── book/        # 图书服务（BookService / BookScanService / BookParserService / BookSearchService）
-│           ├── comment/     # 评论服务
-│           ├── embedding/   # 向量嵌入服务（EmbeddingService / RagHitStatisticsService）
-│           ├── notification/ # 通知服务（站内 + 邮件）
+│           ├── ai/          # AI 服务（BookChat / RoundTable / Debate）
+│           ├── auth/        # 认证服务
+│           ├── book/        # 图书服务
+│           ├── embedding/   # 向量嵌入服务
 │           ├── progress/    # 阅读进度服务
-│           ├── rank/        # 排行服务
-│           ├── recommend/   # 推荐服务（多路召回 + 融合排序）
+│           ├── recommend/   # 推荐服务
 │           ├── storage/     # 文件存储服务
-│           ├── tools/       # AI 工具支持（维度统计 / 动态查询）
-│           ├── tts/         # TTS 服务（小米 / 讯飞引擎 + 缓存）
-│           ├── user/        # 用户服务（UserService / UserFollowService / UserBookPreferenceService）
-│           └── video/       # 视频处理服务（FFmpeg 缩略图 / 转码）
+│           ├── tts/         # TTS 服务
+│           ├── user/        # 用户服务
+│           └── video/       # 视频处理服务
 │
 └── deploy/                  # 部署配置
     ├── docker-compose.yml   # 全栈容器编排
@@ -237,11 +249,9 @@ kbook/
 | Tailwind CSS + shadcn/ui | 3.4 | Styling & Components |
 | React Router DOM | 7 | Routing |
 | Zustand | 5 | State Management |
-| Axios | 1.x | HTTP Client (Interceptor + Token Refresh) |
+| Axios | 1.x | HTTP Client |
 | epubjs | 0.3.93 | EPUB Renderer |
 | pdfjs-dist | 5.x | PDF Renderer |
-| Lucide React | — | Icon Library |
-| vite-plugin-pwa | — | PWA Offline Support |
 
 ### Backend
 
@@ -250,23 +260,20 @@ kbook/
 | Spring Boot | 3.4 | Application Framework |
 | Java | 17 | Runtime |
 | Spring Security + JWT | — | Stateless Auth |
-| Spring Data JPA + Hibernate | — | ORM |
-| LangChain4j | 1.13 | AI Chat / RAG / Embedding / Tools |
+| LangChain4j | 1.13 | AI Chat / RAG / Embedding |
 | epublib-core | 3.1 | EPUB Parsing |
-| Apache PDFBox | — | PDF Parsing / Rendering / OCR |
-| FFmpeg | — | Video Thumbnail & Transcode |
+| Apache PDFBox | — | PDF Parsing / OCR |
 | Maven | — | Build Tool |
 
 ### Infrastructure
 
 | Component | Tech | Purpose |
 |-----------|------|---------|
-| RDBMS | MySQL 8 + HikariCP | Primary Data Store |
-| Cache | Redis 7 (Lettuce) | Captcha / Session / Recommendation Cache / Rate Limit |
-| Search | Elasticsearch 8.12 | Full-Text Search / Highlight / Suggestion |
-| Vector DB | Qdrant v1.12 | Book Metadata Vectors + RAG Content Vectors |
-| Mail | QQ SMTP (SSL 465) | Captcha / Invitation / Notification |
-| Reverse Proxy | Nginx (Alpine) | SSL / Compression / Rate Limit / SSE / Static |
+| RDBMS | MySQL 8 | Primary Data Store |
+| Cache | Redis 7 | Session / Recommendation Cache |
+| Search | Elasticsearch 8.12 | Full-Text Search |
+| Vector DB | Qdrant v1.12 | Book Metadata + RAG Content Vectors |
+| Reverse Proxy | Nginx | SSL / SSE / Static |
 | Container | Docker Compose | Full-Stack Deployment |
 
 ---
@@ -352,15 +359,12 @@ Docker Compose 包含：MySQL, Redis, Elasticsearch, Qdrant, Spring Boot 后端,
 | 首页 | `/api/home` | Auth | 聚合数据（统计 / 推荐 / 榜单 / 分类） |
 | 图书 | `/api/books` | Public / Auth | 搜索、详情、排行、封面、评分、文件流 |
 | **图书问答** | `/api/books/{id}/chat` | Auth | **RAG 流式问答、推荐问题、历史记录、深入追问** |
+| **圆桌讨论** | `/api/round-table` | Auth | **创建讨论、角色发言、获取消息流、生成报告** |
+| **AI 辩论** | `/api/debate` | Auth | **创建辩论、辩手发言、评分、生成报告** |
 | AI 助手 | `/api/ai` | Auth | 多轮对话 (SSE)、会话管理、@Tool 调用 |
-| 书架 | `/api/bookshelf` | Auth | 增删查、检查、计数 |
 | 进度 | `/api/progress` | Auth | 上报、批量同步、统计 |
 | 推荐 | `/api/recommend` | Auth / Admin | 个性推荐、缓存清理、向量重建 |
-| 评论 | `/api/comments` | Public / Auth | 书籍/章节评论、回复、点赞、收藏 |
-| 通知 | `/api/notifications` | Auth | 列表、未读数、标记已读 |
 | 用户 | `/api/user` | Auth | 个人信息、头像、画像更新、对话风格 |
-| 用户主页 | `/api/user-profile` | Public | 用户页面、在读 / 已读 / 书评 |
-| 关注 | `/api/follow` | Public / Auth | 关注 / 取关、粉丝 / 关注列表 |
 | 管理 | `/api/admin` | ADMIN | 用户审核、邀请注册、邮箱绑定 |
 | 图书管理 | `/api/books/admin` | ADMIN | 扫描、上传、重新解析 |
 | AI 配置 | `/api/admin/ai-provider` | ADMIN | 多模型 CRUD、启用 / 禁用、连接测试 |
@@ -402,4 +406,10 @@ Docker Compose 包含：MySQL, Redis, Elasticsearch, Qdrant, Spring Boot 后端,
 
 ## License
 
-Private — All Rights Reserved
+本项目采用 **个人免费使用，商业需授权** 的许可模式：
+
+- **个人用户**：可免费下载、部署及使用本项目的全部功能，仅供个人学习、研究与非商业用途。
+- **商业用途**：任何企业、组织或个人将本项目用于商业运营、内部生产环境、SaaS 服务、二次开发后销售，或产生直接或间接商业收益的行为，**必须事先获得书面授权**。请联系项目作者洽谈合作与授权事宜。
+- **禁止行为**：未经授权，不得将本项目或其衍生作品用于商业目的；不得移除或篡改版权声明。
+
+**未经授权的商业使用将被视为侵权，保留追究法律责任的权利。**

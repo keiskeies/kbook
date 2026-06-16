@@ -5,11 +5,11 @@
 <h1 align="center">KBook</h1>
 
 <p align="center">
-  <strong>The Right Book for Who You Are Right Now</strong>
+  <strong>Cage Match for Books — Powered by AI</strong>
 </p>
 
 <p align="center">
-  AI-Native Askin Platform · AI truly "reads" every book before discussing every detail with you
+  16 distinct AI personalities battle over every book — roundtable debates, clashing viewpoints, reading as a reality show
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <a href="#-quick-start"><strong>Quick Start</strong></a> · <a href="#-preview">Preview</a> · <a href="#-features">Features</a> · <a href="#how-ai-book-qa-works">How AI Q&A Works</a>
+  <a href="#-core-experiences"><strong>Core Experiences</strong></a> · <a href="#-feature-list">Feature List</a> · <a href="#how-ai-book-qa-works">How AI Q&A Works</a>
 </p>
 
 ---
@@ -41,25 +41,88 @@
 Have you ever experienced these moments —
 
 - Finished a great book, mind buzzing with thoughts, but nowhere to discuss them?
-- A passage confused you, but search engines can't find book-specific deep analysis?
-- Got recommended a "must-read" that completely misses your life stage?
+- A passage kept you up all night, yet nowhere on the internet offers deep, book-specific analysis?
+- Got recommended a "must-read" that completely misses your life stage and personality?
+- Facing a complex issue, you crave to see fierce clashes between different stances, not just one voice?
 
-KBook redefines the relationship between reader and book: **not read-and-leave, but talk-it-through.**
+**KBook is built for those who truly want to understand a book.**
+
+We reject the "read and leave" approach to shallow reading. KBook injects a book's entire content into a RAG vector knowledge base, so the AI truly "reads" the book — then sits down for a one-on-one deep chat, hosts a multi-role roundtable, or even stages a fiery debate between debaters of wildly different personalities. Books aren't just read — they're **talked through, debated, and fully understood**.
 
 ---
 
-## ✨ The Right Book for Who You Are Right Now
+## 🔥 Four Core Experiences
 
-A 30-year-old unmarried INTJ and a 35-year-old ESFJ with two kids shouldn't be reading the same "life guide."
+### 1️⃣ AI Book Q&A — Talk All Night with an AI That Truly "Read" the Book
 
-KBook builds its recommendation engine on real life states — age, marital status, parenthood, MBTI — so every book precisely matches your current life chapter. More importantly, we reject the "read and leave" approach to shallow reading. KBook injects a book's entire content into a RAG vector knowledge base, so the AI truly "reads" the book before sitting down to discuss every detail with you:
+Drop a book into KBook. The AI devours it first (RAG vector knowledge base + 800-character intelligent chunking), then engages you in **penetrating dialogue**:
 
-- 📖 **Piercing Follow-ups** — "The author's argument in Chapter 3 is self-contradicted in Chapter 5 — what do you think?" AI retrieves across chapters, revealing the full argumentative arc.
-- 🧠 **Socratic Dialogue** — Rather than handing you answers, AI uses the book's own intellectual framework to ask layered questions, pushing you toward independent thinking.
-- 🔗 **Knowledge Graph Weaving** — AI compares across the other books on your shelf, surfacing hidden cross-book connections and building your personal cognitive network.
-- ✍️ **Stress-Testing Viewpoints** — Introduce dissenting academic perspectives and watch AI dismantle the logical blind spots on both sides of the debate.
+- **Cross-Chapter Soul-Searching** — "The author's argument in Chapter 3 is self-contradicted in Chapter 5 — what do you think?" AI retrieves across the entire book, revealing the full argumentative arc.
+- **Socratic Dialogue** — Rather than handing you answers, AI uses the book's own intellectual framework to ask layered questions, pushing you toward independent thinking.
+- **Stress-Testing Viewpoints** — Introduce dissenting academic perspectives and watch AI dismantle the logical blind spots on both sides of the debate.
+- **Knowledge Graph Weaving** — AI compares across the other books on your shelf, surfacing hidden cross-book connections and building your personal cognitive network.
 
-**At KBook, books aren't just read — they're talked through.**
+**For:** Deep readers bursting with questions after the last page; researchers who need to fully grasp a book quickly; readers who refuse to be fed generic AI fluff and demand every answer cite the original text.
+
+<p align="center">
+  <img src="./doc/AI图书问答1.jpg" alt="AI Book Q&A" width="280" />
+  <img src="./doc/AI图书问答2.jpg" alt="Follow-up Questions" width="280" />
+  <img src="./doc/AI图书问答3.jpg" alt="Multi-turn Dialogue" width="280" />
+</p>
+
+---
+
+### 2️⃣ Roundtable Discussion — A Book Read Through N Different Lives
+
+Reading alone is solitude; reading together is a feast. KBook's **Roundtable Discussion** brings multiple AI roles into multi-turn dialogue around a single book:
+
+- **Autonomous Multi-Role Speaking** — Each AI role speaks from its own persona (life experience, professional background, personality tendency), offering independent perspectives.
+- **Genuine Idea Clash** — Roles challenge, complement, and extend each other's points, creating real discursive tension.
+- **Smart Moderator** — An AI moderator keeps the discussion on track and prevents it from going cold or off-topic.
+- **Coverage Report** — After the discussion, a coverage analysis reveals which angles haven't been explored yet.
+
+**For:** Curious readers who wonder "how do people from different backgrounds see this book?"; book club organizers looking for discussion inspiration; social learners who feel they can't fully grasp a book alone and crave hearing other perspectives.
+
+<p align="center">
+  <img src="./doc/圆桌派.jpg" alt="Roundtable Discussion" width="280" />
+  <img src="./doc/圆桌派2.jpg" alt="Roundtable Role View" width="280" />
+</p>
+
+---
+
+### 3️⃣ AI Debate — 16 Distinct Personalities Debate a Book Inside Out
+
+This is KBook's most electrifying feature. We've designed **16 vividly distinct AI debater personalities** — Logical, Scathing, Witty, Idealistic, Pessimistically Cautious... — who engage in **structured multi-turn debates** around controversial ideas in a book:
+
+- **Personalities That Leap Off the Screen** — The Scathing type mercilessly tears apart logical fallacies; the Witty type wraps sharp points in humor; the Logical type obsesses over every break in the evidentiary chain.
+- **Multi-Round Attack and Defense** — Opening arguments, cross-examination, free debate, closing statements — a complete simulation of real debate tournament flow.
+- **AI Judge Scoring** — After each round, AI judges score across four dimensions (argument, evidence, delivery, rebuttal) and generate detailed critique reports.
+- **Watch the Debate, Then Read the Book** — Many users say: "After watching the AI debate, I realized I completely misread the book the first time."
+
+**For:** Fans of debate shows and competitive argument; rational decision-makers who want to "see how both sides fight it out" before forming an opinion; readers who feel a book "sort of makes sense but something feels off" and want to use debate to sort out their thoughts.
+
+<p align="center">
+  <img src="./doc/奇葩说.jpg" alt="AI Debate" width="280" />
+  <img src="./doc/奇葩说1.jpg" alt="AI Debate Role View" width="280" />
+</p>
+
+---
+
+### 4️⃣ Persona-Based Recommendations — Only Someone Who Understands Your Life Can Recommend the Right Book
+
+A 30-year-old unmarried INTJ and a 35-year-old ESFJ with two kids shouldn't be reading the same "life guide." KBook's recommendation engine is built on **real life state + current mood + reading intent** triple matching:
+
+- **Life Persona** — Age, marital status, parenthood stage, MBTI, interest tags — building your multi-dimensional reading DNA.
+- **Mood Awareness** — Happy, anxious, exhausted, lost... the same book gets completely different recommendation priority depending on your emotional state.
+- **Reading Intent** — Are you looking to "recharge" (learn skills), "resonate" (find comfort), or "resolve" (get answers)? Different intents trigger different recommendation logics.
+- **8-Dimension Match Score** — Every book shows its match score with your profile, quantifying the recommendation reason. No more "it's popular so we recommend it" nonsense.
+
+**For:** Readers tired of homogeneous "everyone's reading this" recommendations; those in life transitions (career change, marriage, parenthood) who need the *right* book, not just a *good* book; anyone who believes reading is personal and demands recommendations that truly understand them.
+
+<p align="center">
+  <img src="./doc/推荐列表.jpg" alt="Recommendations" width="280" />
+  <img src="./doc/个人画像.jpg" alt="User Portrait" width="280" />
+</p>
 
 ---
 
@@ -68,45 +131,21 @@ KBook builds its recommendation engine on real life states — age, marital stat
 | | Traditional Apps | KBook |
 |---|---|---|
 | **After reading** | Close the book, reading ends | Open AI dialogue, reading begins |
+| **Discussion** | Skim through shallow comment sections | One-on-one deep chat / Multi-role roundtable / 16-personality debate |
 | **Search** | Book title & author only | Full-content vector search, locate passages with one sentence |
-| **Recommendations** | Bestseller lists + tag filters | Life-stage-based precision (age / marriage / MBTI) |
-| **AI** | Summaries, text-to-speech | RAG Q&A, Socratic dialogue, cross-book knowledge linking |
-| **Depth** | Depends on reader alone | AI pushes you deeper until you truly understand |
+| **Recommendations** | Bestseller lists + tag filters | Life-state-based precision (age / marriage / MBTI / mood / intent) |
+| **AI** | Summaries, text-to-speech | RAG Q&A, Socratic dialogue, roundtable, AI debate, cross-book knowledge linking |
+| **Depth** | Depends on reader alone | AI pushes you deeper through questioning, debating, and discussing until you truly understand |
 
 ---
 
-## 📸 Preview
-
-<table>
-  <tr>
-    <td align="center"><b>📚 Book Detail</b></td>
-    <td align="center"><b>🤖 AI Book Q&A</b></td>
-    <td align="center"><b>🤖 Follow-up Questions</b></td>
-  </tr>
-  <tr>
-    <td><img src="./doc/book_detail.jpg" alt="Book Detail" width="240" /></td>
-    <td><img src="./doc/book_ask_1.jpg" alt="AI Book Q&A" width="240" /></td>
-    <td><img src="./doc/book_ask_2.jpg" alt="Follow-up Questions" width="240" /></td>
-  </tr>
-  <tr>
-    <td align="center"><b>🤖 Multi-turn Dialogue</b></td>
-    <td align="center"><b>🎯 Recommendations</b></td>
-    <td align="center"><b>👤 User Portrait</b></td>
-  </tr>
-  <tr>
-    <td><img src="./doc/book_ask_3.jpg" alt="Multi-turn Dialogue" width="240" /></td>
-    <td><img src="./doc/ai_recomend.png" alt="Recommendations" width="240" /></td>
-    <td><img src="./doc/self_info.jpg" alt="User Portrait" width="240" /></td>
-  </tr>
-</table>
-
----
-
-## 🎯 Features
+## 🎯 Feature List
 
 ### 🤖 AI Intelligence
 
 - **AI Book Q&A** — RAG vector search Q&A over a single book's full content, auto-generated suggested questions, answers grounded in original passages, follow-up question support
+- **AI Roundtable Discussion** — Multi AI roles engage in autonomous multi-turn discussion around a book, with smart moderator and coverage report generation
+- **AI Debate Tournament** — 16 distinct personality debaters (Logical / Scathing / Witty / Idealistic / Pessimistically Cautious etc.) in structured multi-turn debates, with AI judges scoring across four dimensions
 - **AI Companion Chat** — Multi-turn streaming dialogue powered by LangChain4j, with @Tool invocation (search books / check bookshelf / check progress / check reading stats)
 - **AI Metadata Generation** — Auto-extract tags, ratings, 8-dimension relevance (age / gender / marital status / children / MBTI)
 - **AI Speed Read** — One-click generation of core viewpoint summaries, quickly assess whether a book is worth deep reading
@@ -114,34 +153,19 @@ KBook builds its recommendation engine on real life states — age, marital stat
 - **Multi-Model Support** — Admin console supports multiple AI providers (Ollama / OpenAI / DeepSeek etc.), switch with one click
 - **Chat Styles** — Four dialogue styles (Casual / Deep / Concise / Witty) for different reading scenarios
 
-### 📖 Immersive Reader
-
-- **Multi-Format Engine** — Unified EPUB / PDF / TXT engine with adjustable font, size, line height, and theme colors
-- **Progress Sync** — Real-time upload + offline batch sync, timestamp-based conflict resolution, seamless cross-device handoff
-- **TTS Read-Aloud** — Multiple TTS engines (Xiaomi / iFlytek), text-chunked speech synthesis, play/pause/stop at your fingertips
-- **Table of Contents** — Auto-extracted TOC for EPUB/PDF, chapter-level quick navigation
-- **Reading Themes** — Multiple theme colors, customizable reading background
+<p align="center">
+  <img src="./doc/AI助手.jpg" alt="AI Companion" width="280" />
+  <img src="./doc/AI助手2.jpg" alt="AI Companion Multi-turn" width="280" />
+</p>
 
 ### 🎯 Personalized Recommendations
 
 - **User Profiling** — Registration-time collection + runtime updates, building multi-dimensional reading profiles (age / gender / marital status / children / MBTI / interest tags)
+- **Mood & Intent** — Dynamic recommendation adjustment based on current mood (happy / anxious / exhausted / lost etc.) and reading intent (recharge / resonate / resolve etc.)
 - **Vector Recall** — Qdrant stores book metadata vectors, cosine similarity recall based on user profiles
 - **Collaborative Filtering** — Weighted by reading / collection / rating / completion behaviors, recommending books loved by similar users
 - **Fusion Ranking** — Rule matching + vector recall + collaborative filtering + exploration discovery + popular fallback, multi-path fusion sorting
 - **Match Score** — Each book displays 8-dimension match score with your profile, quantifying recommendation reasons
-
-### 📚 Bookshelf & Discovery
-
-- **Bookshelf Management** — Add/remove, filter & sort, reading status tracking
-- **Full-Text Search** — Elasticsearch-powered full-text search, search suggestions, tag filtering, highlight matching
-- **Rankings** — Hot reads / Top rated / New arrivals multi-dimensional leaderboards
-- **Popular Tags** — Tag cloud based on global reading data, quickly discover topics of interest
-
-### 💬 Social & Community
-
-- **Book Reviews** — Book/chapter-level comments, nested replies, likes, bookmarks
-- **Follow System** — Follow/follower system, user profiles showing reading/read/reviews
-- **Notifications** — Comment replies, like milestones, and tiered push notifications (in-app + email)
 
 ### ⚙️ Admin Console
 
@@ -161,63 +185,51 @@ kbook/
 ├── frontend/                # React 19 + TypeScript + Vite
 │   ├── src/
 │   │   ├── components/      # UI Components
-│   │   │   ├── ai/          # AI Components (InlineBookCard)
-│   │   │   ├── auth/        # Route Guards (AuthGuard / AdminGuard / GuestGuard)
-│   │   │   ├── book/        # Book Components (BookChatSheet / AI Q&A Panel / Match Score / Speed Read)
-│   │   │   ├── comment/     # Comment Components
-│   │   │   ├── common/      # Common Components (AuthImage / AvatarCrop / ImageViewer / PinchZoom)
-│   │   │   ├── home/        # Home Components (MoodQuickSwitch)
-│   │   │   ├── layout/      # Layout (TabBar / AppLayout / DesktopSidebar / BlankLayout)
-│   │   │   ├── reader/      # Reader Components (EpubRenderer / PdfRenderer / TxtRenderer / TtsFloatPlayer)
+│   │   │   ├── ai/          # AI Components
+│   │   │   ├── auth/        # Route Guards
+│   │   │   ├── book/        # Book Components (AI Q&A Panel / Match Score / Speed Read)
+│   │   │   ├── common/      # Common Components
+│   │   │   ├── home/        # Home Components
+│   │   │   ├── layout/      # Layout
+│   │   │   ├── reader/      # Reader Components
 │   │   │   └── ui/          # shadcn/ui Base Components
 │   │   ├── pages/           # Pages
-│   │   │   ├── home/        # Home (Continue Reading / Recommendations / Ranks / Categories / Stats)
-│   │   │   ├── rank/        # Rankings (Hot Reads / Top Rated / New Arrivals)
-│   │   │   ├── ai/          # AI Assistant (Multi-turn Chat / History / Chat Styles)
-│   │   │   ├── bookshelf/   # Bookshelf (Filter / Sort / Manage)
-│   │   │   ├── book/        # Book Detail + AI Q&A Entry + Speed Read Card
-│   │   │   ├── reader/      # Reader (EPUB / PDF / TXT / TTS)
-│   │   │   ├── search/      # Search (ES Full-Text / Tag Filter / Search Suggestions)
-│   │   │   ├── reviews/     # Reviews
-│   │   │   ├── follow/      # Follow / Followers
-│   │   │   ├── notifications/ # Notifications
-│   │   │   ├── profile/     # Profile / Reading History / Reading Stats / Preferences
-│   │   │   ├── user/        # User Profile
-│   │   │   ├── admin/       # Admin (Audit / Books / AI Config / TTS Config)
-│   │   │   └── auth/        # Login / Register / Reset Password / Bind Email
-│   │   ├── router/          # Route Config (Lazy Load + Guards)
-│   │   ├── store/           # Zustand State Management (auth / reader / progress / tts / ui / chat)
-│   │   ├── api/             # API Layer (1:1 mapping with backend Controllers)
-│   │   ├── hooks/           # Custom Hooks (useEpubReader / usePdfReader / useTtsReader / useMatchScores)
+│   │   │   ├── home/        # Home
+│   │   │   ├── ai/          # AI Assistant
+│   │   │   ├── book/        # Book Detail + AI Q&A + Roundtable + Debate
+│   │   │   ├── reader/      # Reader
+│   │   │   ├── profile/     # Profile / Reading History / Preferences
+│   │   │   ├── admin/       # Admin Console
+│   │   │   └── auth/        # Login / Register
+│   │   ├── router/          # Route Config
+│   │   ├── store/           # Zustand State Management
+│   │   ├── api/             # API Layer
+│   │   ├── hooks/           # Custom Hooks
 │   │   ├── types/           # TS Type Definitions
-│   │   └── utils/           # Utilities (Axios Wrapper / SSE Request / Token Refresh / TTS)
+│   │   └── utils/           # Utilities
 │   └── vite.config.ts       # PWA + Proxy Config
 │
 ├── backend/                 # Spring Boot 3.4
 │   └── src/main/java/com/kbook/
-│       ├── common/          # Unified Response, Pagination, Exception Handling, Base Services
-│       ├── config/          # Security / JWT / CORS / Redis / Qdrant / LangChain4j / ChatModelFactory
+│       ├── common/          # Unified Response, Pagination, Exception Handling
+│       ├── config/          # Security / JWT / Redis / Qdrant / LangChain4j
 │       ├── constants/       # AI Prompt Constants
 │       ├── controller/      # REST API Controllers
 │       ├── document/        # Elasticsearch Document Definitions
-│       ├── dto/             # Request/Response DTOs (organized by business domain)
+│       ├── dto/             # Request/Response DTOs
 │       ├── entity/          # JPA Entities
 │       ├── repository/      # Data Access Layer
 │       └── service/         # Business Logic Layer
-│           ├── ai/          # AI Services (BookChat / AiChat / BookAdminChat / AiProviderConfig)
-│           ├── auth/        # Auth Services (AuthService / ClickCaptchaService)
-│           ├── book/        # Book Services (BookService / BookScanService / BookParserService / BookSearchService)
-│           ├── comment/     # Comment Service
-│           ├── embedding/   # Embedding Services (EmbeddingService / RagHitStatisticsService)
-│           ├── notification/ # Notification Services (In-App + Email)
+│           ├── ai/          # AI Services (BookChat / RoundTable / Debate)
+│           ├── auth/        # Auth Services
+│           ├── book/        # Book Services
+│           ├── embedding/   # Embedding Services
 │           ├── progress/    # Reading Progress Service
-│           ├── rank/        # Ranking Service
-│           ├── recommend/   # Recommendation Service (Multi-path Recall + Fusion Ranking)
+│           ├── recommend/   # Recommendation Service
 │           ├── storage/     # File Storage Service
-│           ├── tools/       # AI Tool Support (Dimension Stats / Dynamic Query)
-│           ├── tts/         # TTS Services (Xiaomi / iFlytek Engines + Cache)
-│           ├── user/        # User Services (UserService / UserFollowService / UserBookPreferenceService)
-│           └── video/       # Video Processing Service (FFmpeg Thumbnail / Transcode)
+│           ├── tts/         # TTS Services
+│           ├── user/        # User Services
+│           └── video/       # Video Processing Service
 │
 └── deploy/                  # Deployment Config
     ├── docker-compose.yml   # Full-Stack Container Orchestration
@@ -237,11 +249,9 @@ kbook/
 | Tailwind CSS + shadcn/ui | 3.4 | Styling & Components |
 | React Router DOM | 7 | Routing |
 | Zustand | 5 | State Management |
-| Axios | 1.x | HTTP Client (Interceptor + Token Refresh) |
+| Axios | 1.x | HTTP Client |
 | epubjs | 0.3.93 | EPUB Renderer |
 | pdfjs-dist | 5.x | PDF Renderer |
-| Lucide React | — | Icon Library |
-| vite-plugin-pwa | — | PWA Offline Support |
 
 ### Backend
 
@@ -250,23 +260,20 @@ kbook/
 | Spring Boot | 3.4 | Application Framework |
 | Java | 17 | Runtime |
 | Spring Security + JWT | — | Stateless Auth |
-| Spring Data JPA + Hibernate | — | ORM |
-| LangChain4j | 1.13 | AI Chat / RAG / Embedding / Tools |
+| LangChain4j | 1.13 | AI Chat / RAG / Embedding |
 | epublib-core | 3.1 | EPUB Parsing |
-| Apache PDFBox | — | PDF Parsing / Rendering / OCR |
-| FFmpeg | — | Video Thumbnail & Transcode |
+| Apache PDFBox | — | PDF Parsing / OCR |
 | Maven | — | Build Tool |
 
 ### Infrastructure
 
 | Component | Tech | Purpose |
 |-----------|------|---------|
-| RDBMS | MySQL 8 + HikariCP | Primary Data Store |
-| Cache | Redis 7 (Lettuce) | Captcha / Session / Recommendation Cache / Rate Limit |
-| Search | Elasticsearch 8.12 | Full-Text Search / Highlight / Suggestion |
-| Vector DB | Qdrant v1.12 | Book Metadata Vectors + RAG Content Vectors |
-| Mail | QQ SMTP (SSL 465) | Captcha / Invitation / Notification |
-| Reverse Proxy | Nginx (Alpine) | SSL / Compression / Rate Limit / SSE / Static |
+| RDBMS | MySQL 8 | Primary Data Store |
+| Cache | Redis 7 | Session / Recommendation Cache |
+| Search | Elasticsearch 8.12 | Full-Text Search |
+| Vector DB | Qdrant v1.12 | Book Metadata + RAG Content Vectors |
+| Reverse Proxy | Nginx | SSL / SSE / Static |
 | Container | Docker Compose | Full-Stack Deployment |
 
 ---
@@ -352,15 +359,12 @@ Docker Compose includes: MySQL, Redis, Elasticsearch, Qdrant, Spring Boot Backen
 | Home | `/api/home` | Auth | Aggregated Data (Stats / Recommendations / Ranks / Categories) |
 | Books | `/api/books` | Public / Auth | Search, Detail, Rank, Cover, Rating, File Stream |
 | **Book Q&A** | `/api/books/{id}/chat` | Auth | **RAG Streaming Q&A, Suggested Questions, History, Follow-ups** |
+| **Roundtable** | `/api/round-table` | Auth | **Create Discussion, Role Speaking, Message Feed, Report Generation** |
+| **AI Debate** | `/api/debate` | Auth | **Create Debate, Debater Speaking, Scoring, Report Generation** |
 | AI Assistant | `/api/ai` | Auth | Multi-turn Chat (SSE), Session Management, @Tool Invocation |
-| Bookshelf | `/api/bookshelf` | Auth | CRUD, Check, Count |
 | Progress | `/api/progress` | Auth | Report, Batch Sync, Stats |
 | Recommend | `/api/recommend` | Auth / Admin | Personalized Recommendations, Cache Clear, Vector Rebuild |
-| Comments | `/api/comments` | Public / Auth | Book/Chapter Reviews, Replies, Likes, Bookmarks |
-| Notifications | `/api/notifications` | Auth | List, Unread Count, Mark Read |
 | User | `/api/user` | Auth | Profile, Avatar, User Profile Update, Chat Style |
-| User Profile | `/api/user-profile` | Public | User Page, Reading / Read, Reviews |
-| Follow | `/api/follow` | Public / Auth | Follow / Unfollow, Followers / Following |
 | Admin | `/api/admin` | ADMIN | User Audit, Invite Registration, Email Bind |
 | Book Admin | `/api/books/admin` | ADMIN | Scan, Upload, Re-Parse |
 | AI Config | `/api/admin/ai-provider` | ADMIN | Multi-Model CRUD, Enable / Disable, Connection Test |
@@ -402,4 +406,10 @@ If this project helps you, consider giving it a Star ⭐
 
 ## License
 
-Private — All Rights Reserved
+This project is licensed under a **Free for Personal Use, Commercial License Required** model:
+
+- **Personal Users**: You may download, deploy, and use all features of this project free of charge for personal learning, research, and non-commercial purposes only.
+- **Commercial Use**: Any use by businesses, organizations, or individuals for commercial operations, internal production environments, SaaS services, resale after modification, or any activity generating direct or indirect revenue **requires prior written authorization**. Please contact the project author to discuss cooperation and licensing.
+- **Prohibited Actions**: Using this project or its derivatives for commercial purposes without authorization is strictly prohibited. Removing or altering copyright notices is not allowed.
+
+**Unauthorized commercial use will be treated as infringement, and we reserve the right to pursue legal liability.**

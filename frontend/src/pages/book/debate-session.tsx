@@ -609,6 +609,12 @@ export default function DebateSessionPage() {
             }
           }
           setPhase(isCompleted ? 'completed' : (session?.currentPhase || 'OPENING'))
+
+          // 已完成辩论进入页面时自动打开报告面板并加载报告
+          if (isCompleted && sessionId) {
+            setShowReportPanel(true)
+            getDebateReport(sessionId).then(setReport).catch(() => {})
+          }
         } else {
           setPhase('OPENING')
         }

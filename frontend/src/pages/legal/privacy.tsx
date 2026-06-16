@@ -14,7 +14,7 @@ export default function PrivacyPage() {
       </header>
 
       <div className="mx-auto max-w-2xl px-5 py-6 text-body leading-relaxed text-muted-foreground space-y-6">
-        <p className="text-xs text-muted-foreground/60">最后更新日期：2026年6月2日</p>
+        <p className="text-xs text-muted-foreground/60">最后更新日期：2026年6月16日</p>
 
         <section>
           <h2 className="mb-2 text-base font-bold text-foreground">一、概述</h2>
@@ -26,17 +26,16 @@ export default function PrivacyPage() {
           <p>我们可能收集以下类型的信息：</p>
           <p className="font-medium text-foreground mt-2">2.1 您主动提供的信息</p>
           <ul className="list-disc pl-5 space-y-1">
-            <li>注册信息：邮箱地址、昵称、头像等；</li>
-            <li>个人画像：性别、年龄、职业、MBTI、学历等（均为可选填写）；</li>
+            <li>注册信息：邮箱地址、密码、昵称、头像等；</li>
+            <li>个人画像：出生日期、性别、婚姻状况、子女情况、MBTI 人格类型、职业方向、学历、年收入、创业意向、阅读意图与心情等（部分为注册时必填，部分可在个人中心修改）；</li>
             <li>阅读偏好：您设置的偏好标签、排除标签等；</li>
-            <li>互动内容：评论、书评、与 AI 的对话记录等。</li>
+            <li>互动内容：评论、书评、与 AI 的对话记录、辩论讨论内容等；</li>
+            <li>联系信息：您的邮箱地址将用于接收验证码和服务通知。</li>
           </ul>
           <p className="font-medium text-foreground mt-2">2.2 自动收集的信息</p>
           <ul className="list-disc pl-5 space-y-1">
-            <li>阅读数据：阅读进度、阅读时长、阅读完成情况等；</li>
-            <li>设备信息：设备型号、操作系统版本、浏览器类型等；</li>
-            <li>日志信息：访问时间、页面浏览记录、操作日志等；</li>
-            <li>位置信息：仅用于提供本地化服务，我们会进行模糊化处理。</li>
+            <li>阅读数据：阅读进度、阅读时长、阅读完成情况、书架状态等；</li>
+            <li>日志信息：访问时间、页面浏览记录、操作日志等。</li>
           </ul>
         </section>
 
@@ -69,8 +68,8 @@ export default function PrivacyPage() {
             <li>事先获得您的明确授权同意；</li>
             <li>根据法律法规或政府主管部门的强制性要求；</li>
             <li>为维护平台及其他用户的合法权益；</li>
-            <li>与关联公司共享：仅限于本声明所述目的；</li>
-            <li>与授权合作伙伴共享：仅限于实现服务功能所必需（如 AI 服务提供商），且我们会与其签署数据保护协议。</li>
+            <li>与第三方 AI 服务提供商共享：当您使用 AI 问答、图书分析等功能时，您的提问内容可能会被发送至由平台管理员配置的第三方 AI 服务提供商（如 OpenAI、DeepSeek、Ollama 等）进行处理。我们已与相关服务提供商签署数据保护协议，确保您的数据仅用于处理您的请求，不会被用于训练或改善第三方模型；</li>
+            <li>与语音合成（TTS）服务提供商共享：当您使用语音朗读功能时，相关文本内容可能会发送至第三方 TTS 引擎（如小米、讯飞等）进行处理。</li>
           </ul>
           <p>5.2 我们不会将您的个人信息出售给任何第三方。</p>
         </section>
@@ -81,18 +80,17 @@ export default function PrivacyPage() {
           <ul className="list-disc pl-5 space-y-1">
             <li>访问权：您可以在个人中心查看您的个人信息；</li>
             <li>更正权：您可以在个人中心修改您的个人信息；</li>
-            <li>删除权：您可以申请删除您的个人信息或注销账号；</li>
-            <li>撤回同意权：您可以随时撤回此前给予的授权同意；</li>
-            <li>数据可携带权：您可以申请导出您的个人数据。</li>
+            <li>删除权：您可以联系管理员申请删除您的个人信息或注销账号。我们将在合理期限内处理您的请求；</li>
+            <li>撤回同意权：您可以随时在个人中心关闭部分信息收集功能，或联系管理员撤销已提供的授权。</li>
           </ul>
-          <p>如您需要行使上述权利，请通过平台内功能或联系管理员进行操作。</p>
+          <p>如您需要行使上述权利，请通过平台内设置功能或发送邮件至 <a href="mailto:right_way@foxmail.com" className="text-primary hover:underline">right_way@foxmail.com</a> 进行操作。</p>
         </section>
 
         <section>
-          <h2 className="mb-2 text-base font-bold text-foreground">七、Cookie 和类似技术</h2>
-          <p>7.1 我们使用 Cookie 和类似技术来存储您的登录状态、偏好设置等信息，以提供更好的服务体验。</p>
-          <p>7.2 您可以通过浏览器设置管理或删除 Cookie。但请注意，禁用 Cookie 可能会影响您使用本平台的部分功能。</p>
-          <p>7.3 我们使用本地存储（LocalStorage）保存您的阅读设置和离线进度数据。</p>
+          <h2 className="mb-2 text-base font-bold text-foreground">七、本地存储技术</h2>
+          <p>7.1 我们使用浏览器本地存储（LocalStorage）来保存您的登录态（Token）、用户信息和阅读设置等数据，以提供持续的服务体验。</p>
+          <p>7.2 我们使用本地存储保存您的阅读进度和离线数据，方便您在不同设备间同步。</p>
+          <p>7.3 您可以通过浏览器设置清除本地存储数据。但请注意，清除后您需要重新登录，部分离线功能可能受到影响。</p>
         </section>
 
         <section>

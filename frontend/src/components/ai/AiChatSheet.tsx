@@ -300,7 +300,7 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
         side={side}
         className={`p-0 flex flex-col [&>button]:hidden ${
           side === 'right'
-            ? 'h-full w-full sm:max-w-[400px] rounded-l-2xl border-l'
+            ? 'h-full w-full sm:max-w-[500px] rounded-l-2xl border-l'
             : 'h-[85vh] rounded-t-2xl border-t'
         }`}
       >
