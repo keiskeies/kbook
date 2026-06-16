@@ -181,6 +181,8 @@ export interface RecommendPageResult {
   total: number
   page: number
   size: number
+  /** 未完成画像时返回 true，用于前端友好提示 */
+  profileIncomplete?: boolean
 }
 
 /** 分页查询推荐结果（从 Redis Sorted Set） */

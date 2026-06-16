@@ -12,6 +12,7 @@ import type { RecommendedBook, TagStat } from '@/api/home'
 import { BookCard } from '@/components/book/BookCard'
 import MoodQuickSwitch from '@/components/home/MoodQuickSwitch'
 import { useAuthStore } from '@/store/auth'
+import { useUiStore } from '@/store/ui'
 import { ROUTES } from '@/constants'
 
 /** 固定在顶部的 Logo 区域 */
@@ -160,6 +161,13 @@ export default function HomePage() {
     getHomePersonalized().then((res) => setPersonalizedBooks((res as any)?.data || (res as any) || [])).catch(() => {}).finally(() => setPersonalizedLoading(false))
     getHomeCategories().then((res) => setCategories((res as any)?.data || (res as any) || [])).catch(() => {}).finally(() => setCategoriesLoading(false))
   }, [isAuthenticated])
+
+  const recommendRefreshKey = useUiStore((s) => s.recommendRefreshKey)
+  useEffect(() => {
+    if (!isAuthenticated || recommendRefreshKey === 0) return
+    setPersonalizedLoading(true)
+    getHomePersonalized().then((res) => setPersonalizedBooks((res as any)?.data || (res as any) || [])).catch(() => {}).finally(() => setPersonalizedLoading(false))
+  }, [recommendRefreshKey, isAuthenticated])
 
   const goToBook = (id: number) => navigate(`/book/${id}`)
 

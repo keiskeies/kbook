@@ -6,6 +6,7 @@ import { updateMood } from '@/api/auth'
 import type { UserInfo } from '@/store/auth'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import MobileSheetHeader from '@/components/common/MobileSheetHeader'
+import { useUiStore } from '@/store/ui'
 
 const MOOD_OPTIONS = [
   { value: 'HAPPY', label: '开心', emoji: '😊' },
@@ -71,6 +72,7 @@ export default function ProfileEditSheet({ open, onOpenChange, userInfo, updateU
       }
       onOpenChange(false)
       toast.success('个人信息已更新')
+      setTimeout(() => useUiStore.getState().triggerRefreshRecommend(), 5000)
     } catch (err: any) {
       toast.error(err.message || '更新未完成，稍后再试试')
     } finally {

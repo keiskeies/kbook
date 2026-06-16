@@ -20,6 +20,8 @@ import com.kbook.service.book.BookTrashService;
 import com.kbook.service.tools.DimensionStatsService;
 import com.kbook.service.user.UserService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.DefaultTypedTuple;
@@ -63,6 +65,8 @@ public class RecommendService {
     private final RecommendCoefficientService coefficientService;
     private final DimensionStatsService dimensionStatsService;
     private final BookTrashService bookTrashService;
+    private final NamedParameterJdbcTemplate namedJdbc;
+    private final ScoreSqlBuilder scoreSqlBuilder;
 
     public RecommendService(
             BookRepository bookRepository,
@@ -74,7 +78,9 @@ public class RecommendService {
             RedisTemplate<String, Object> redisTemplate,
             @Lazy RecommendCoefficientService coefficientService,
             @Lazy DimensionStatsService dimensionStatsService,
-            @Lazy BookTrashService bookTrashService
+            @Lazy BookTrashService bookTrashService,
+            NamedParameterJdbcTemplate namedJdbc,
+            ScoreSqlBuilder scoreSqlBuilder
     ) {
         this.bookRepository = bookRepository;
         this.progressRepository = progressRepository;
@@ -86,6 +92,8 @@ public class RecommendService {
         this.coefficientService = coefficientService;
         this.dimensionStatsService = dimensionStatsService;
         this.bookTrashService = bookTrashService;
+        this.namedJdbc = namedJdbc;
+        this.scoreSqlBuilder = scoreSqlBuilder;
     }
 
     /** 推荐缓存键前缀 */
@@ -220,6 +228,23 @@ public class RecommendService {
         String sortedKey = SORTED_KEY_PREFIX + userId;
         Map<String, Object> result = new LinkedHashMap<>();
 
+        // 检查用户是否完成画像，用于前端友好提示
+        try {
+            User u = userService.getUserById(userId);
+            boolean hasProfile = u.getBirthday() != null || u.getGender() != null
+                    || u.getMarried() != null
+                    || (u.getChildrenAgeRanges() != null && !u.getChildrenAgeRanges().isBlank())
+                    || u.getHasChildren() != null
+                    || u.getMbti() != null || u.getOccupation() != null
+                    || u.getAspirationEducation() != null || u.getEntrepreneurship() != null
+                    || u.getAspirationIncome() != null || u.getMood() != null;
+            if (!hasProfile) {
+                result.put("profileIncomplete", true);
+            }
+        } catch (Exception e) {
+            log.debug("检查用户画像状态失败: {}", e.getMessage());
+        }
+
         try {
             Long total = redisTemplate.opsForZSet().size(sortedKey);
             if (total == null || total == 0) {
@@ -336,6 +361,7 @@ public class RecommendService {
     @LogAction("SSE推荐生成")
     public void generateWithProgress(Long userId, SseEmitter emitter) {
         try {
+            // ==================== 阶段 1：加载数据 ====================
             sendProgress(emitter, "loading", "正在加载书籍数据...", 0, 0, 0);
 
             String restartKey = RESTART_KEY_PREFIX + userId;
@@ -343,27 +369,37 @@ public class RecommendService {
 
             List<BookProjection> allBooks = loadCachedBooks();
             int intTotalBooks = allBooks.size();
+            sendProgress(emitter, "loading", "已加载 " + intTotalBooks + " 本书籍", 10, intTotalBooks, intTotalBooks);
 
             int maxRestarts = 5;
             for (int restartCount = 0; restartCount <= maxRestarts; restartCount++) {
                 if (restartCount > 0) {
                     redisTemplate.delete(restartKey);
-                    sendProgress(emitter, "restarting", "检测到画像变更，正在重新计算...", 5, 0, intTotalBooks);
+                    sendProgress(emitter, "restarting", "检测到画像变更，正在重新计算...", 12, 0, intTotalBooks);
                 }
 
+                // ==================== 阶段 2：匹配度计算 ====================
+                sendProgress(emitter, "matching", "正在分析阅读画像...", 20, 0, intTotalBooks);
+                // scoreAllBooks 内部的 onProgress 回调仅用于 Java 兜底路径（SQL 路径立即返回）
                 List<ScoredBook> scoredBooks = scoreAllBooks(userId, allBooks, restartKey, processed -> {
-                    int progressPercent = 10 + (int) (60.0 * processed / Math.max(intTotalBooks, 1));
-                    sendProgress(emitter, "matching", "正在计算匹配度...", progressPercent, processed, intTotalBooks);
+                    int progressPercent = 25 + (int) (30.0 * processed / Math.max(intTotalBooks, 1));
+                    sendProgress(emitter, "matching", "正在计算匹配度 " + progressPercent + "%...",
+                            progressPercent, processed, intTotalBooks);
                 });
 
                 if (scoredBooks == null) {
                     continue;
                 }
 
-                sendProgress(emitter, "saving", "正在保存推荐结果...", 90, 0, 0);
-                this.saveToSortedSetDirect(userId, scoredBooks);
+                sendProgress(emitter, "matching", "匹配度计算完成，共 " + scoredBooks.size() + " 本", 55, scoredBooks.size(), intTotalBooks);
 
-                sendProgress(emitter, "done", "推荐生成完成", 100, scoredBooks.size(), intTotalBooks);
+                // ==================== 阶段 3：保存结果 ====================
+                sendProgress(emitter, "saving", "正在生成推荐列表...", 70, 0, 0);
+                this.saveToSortedSetDirect(userId, scoredBooks);
+                sendProgress(emitter, "saving", "推荐列表已保存", 85, scoredBooks.size(), intTotalBooks);
+
+                // ==================== 完成 ====================
+                sendProgress(emitter, "done", "推荐刷新完成", 100, scoredBooks.size(), intTotalBooks);
 
                 emitter.complete();
 
@@ -533,7 +569,214 @@ public class RecommendService {
     }
 
     /**
+     * 使用 SQL 批量评分（替代 Java parallelStream 路径，约 100x 速度提升）
+     * <p>
+     * 构建包含维度偏差表达式 + Z-Score + Sigmoid 的 SQL 查询，
+     * 直接在 MySQL 中完成加权求和和归一化，避免 20k 本书的 JSON 解析和 Java 对象分配。
+     * <p>
+     * 仅在用户有画像维度时启用；无画像维度时返回 null，触发 Java 路径兜底。
+     *
+     * @param user              用户（含画像信息）
+     * @param excludeSet        已读/回收站书籍 ID
+     * @param excludedTags      排除标签
+     * @param excludedAuthors   排除作者
+     * @param excludedFormats   排除格式
+     * @param includedTags      偏好标签
+     * @param includedAuthors   偏好作者
+     * @param includedFormats   偏好格式
+     * @param ruleMinScore      规则召回最低匹配分阈值
+     * @return 评分结果列表（已排序），无画像维度时返回 null
+     */
+    private List<ScoredBook> sqlScoreAllBooks(User user, Set<Long> excludeSet,
+                                               List<String> excludedTags, List<String> excludedAuthors, List<String> excludedFormats,
+                                               List<String> includedTags, List<String> includedAuthors, List<String> includedFormats,
+                                               double ruleMinScore) {
+        // 构建 SQL 维度偏差表达式
+        ScoreSqlBuilder.BuildResult buildResult = scoreSqlBuilder.build(user, dimensionStatsService, coefficientService);
+        if (buildResult.totalWeight() == 0) {
+            log.debug("用户无画像维度，跳过 SQL 评分: userId={}", user.getId());
+            return null;
+        }
+
+        String weightedSumSql = buildResult.weightedSumSql();
+        double totalWeight = buildResult.totalWeight();
+        int activeDimCount = buildResult.activeDimensionCount();
+        double coverageFactor = RecommendMatchCalculator.getCoverageFactor(activeDimCount);
+
+        // 构建主查询 SQL
+        // sigmoid 公式必须与 Java RecommMatchCalculator.normalizeScore() 一致：
+        //   normalizeScore(x) = x<=0 ? 0 : 1/(1+exp(-4*(x-0.5)))
+        // 其中 x = weightedSum / totalWeight * coverageFactor
+        String sql = String.format("""
+            SELECT
+              b.id, b.title, b.author, b.cover_url, b.format,
+              b.rating, b.read_count, b.format_tags, b.file_size, b.description,
+              b.created_at,
+              CASE WHEN ((%s)/GREATEST(%f,0.001))*%f <= 0 THEN 0
+                ELSE LEAST(GREATEST(
+                  1/(1+EXP(-4*(((%s)/GREATEST(%f,0.001))*%f-0.5)))
+                , 0), 1)
+              END AS match_score
+            FROM books b
+            LEFT JOIN book_dimension_scores ds ON b.id = ds.book_id
+            """,
+                weightedSumSql, totalWeight, coverageFactor,
+                weightedSumSql, totalWeight, coverageFactor);
+
+        // 排除已读/回收站书籍
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (!excludeSet.isEmpty()) {
+            sql += " WHERE b.id NOT IN (:excludeIds)";
+            params.addValue("excludeIds", excludeSet);
+        }
+
+        List<ScoredBook> results = new ArrayList<>();
+        try {
+            List<Map<String, Object>> rows = namedJdbc.queryForList(sql, params);
+
+            for (Map<String, Object> row : rows) {
+                long bookId = ((Number) row.get("id")).longValue();
+
+                // 构建 BookProjection
+                BookProjection bp = new BookProjection(
+                        bookId,
+                        (String) row.get("title"),
+                        (String) row.get("author"),
+                        (String) row.get("cover_url"),
+                        (String) row.get("format"),
+                        row.get("file_size") != null ? ((Number) row.get("file_size")).longValue() : 0L,
+                        null, // fileUrl - not needed for scoring
+                        (String) row.get("format_tags"),
+                        row.get("rating") != null ? ((Number) row.get("rating")).doubleValue() : 0.0,
+                        row.get("read_count") != null ? ((Number) row.get("read_count")).longValue() : 0L,
+                        0L, // totalUnits - not needed
+                        (String) row.get("description"),
+                        null, // relevanceScores - not needed for SQL path
+                        toLocalDateTime(row.get("created_at")),
+                        null, null, null, null, // conceptTags, readerNeedTags, targetReaderTags, toc
+                        0L, 0, null, null // ratingCount, dimensionRatingCount, contentEmbedded, updatedAt
+                );
+
+                // 偏好排除（标签/作者/格式 — 字符串匹配，SQL 不擅长）
+                if (isExcludedByPreference(bp, excludedTags, excludedAuthors, excludedFormats)) continue;
+
+                double matchScore = ((Number) row.get("match_score")).doubleValue();
+                if (matchScore <= ruleMinScore) continue;
+
+                // 新鲜度加成 + 偏好加成
+                double freshnessBonus = calculateFreshnessBonus(bp.getCreatedAt());
+                double preferenceBonus = calculateIncludeBonus(bp, includedTags, includedAuthors, includedFormats);
+                double finalScore = (matchScore * 0.90) + (freshnessBonus * 0.05) + (preferenceBonus * 0.05);
+                if (finalScore > 1.0) finalScore = 1.0;
+                if (finalScore < 0.0) finalScore = 0.0;
+
+                results.add(new ScoredBook(bp, finalScore, matchScore, 0.0, "RULE"));
+            }
+        } catch (Exception e) {
+            log.error("SQL 评分查询失败，回退 Java 路径: {}", e.getMessage());
+            return null;
+        }
+
+        results.sort((a, b) -> Double.compare(b.finalScore, a.finalScore));
+        log.debug("SQL 评分完成: count={}, totalWeight={}, activeDims={}", results.size(), totalWeight, activeDimCount);
+        return results;
+    }
+
+    /**
+     * 热榜评分（无画像用户兜底）
+     * <p>
+     * 综合阅读量、AI问答、圆桌讨论、辩论、书架收藏，带时间衰减（半衰期 30 天）。
+     * 每项互动乘以衰减系数后加权求和，按综合热度降序取前 300 本，
+     * 分数按排名线性递减（第1名 0.95 → 第300名 ~0.05）。
+     */
+    private List<ScoredBook> scoreHotBooks(Set<Long> excludeSet) {
+        // 时间衰减：POW(0.5, days / 30)，30天前半衰
+        String decay = "POW(0.5, DATEDIFF(NOW(), created_at) / 30.0)";
+        String shelfDecay = "POW(0.5, DATEDIFF(NOW(), added_at) / 30.0)";
+
+        String sql = """
+            SELECT
+              b.id, b.title, b.author, b.cover_url, b.format,
+              b.rating, b.read_count, b.format_tags, b.file_size, b.description, b.created_at,
+              (COALESCE(b.read_count, 0) * 1.0
+               + COALESCE(ai.cnt, 0) * 2.0
+               + COALESCE(rt.cnt, 0) * 2.5
+               + COALESCE(db.cnt, 0) * 3.0
+               + COALESCE(bs.cnt, 0) * 1.5
+               + COALESCE(b.rating, 0) / 5.0 * COALESCE(b.rating_count, 0) * 0.5
+              ) AS hotness
+            FROM books b
+            LEFT JOIN (
+              SELECT book_id, SUM(%s) AS cnt
+              FROM ai_conversations WHERE type = 'BOOK'
+              GROUP BY book_id
+            ) ai ON b.id = ai.book_id
+            LEFT JOIN (
+              SELECT book_id, SUM(%s) AS cnt
+              FROM round_table_sessions
+              GROUP BY book_id
+            ) rt ON b.id = rt.book_id
+            LEFT JOIN (
+              SELECT book_id, SUM(%s) AS cnt
+              FROM debate_sessions
+              GROUP BY book_id
+            ) db ON b.id = db.book_id
+            LEFT JOIN (
+              SELECT book_id, SUM(%s) AS cnt
+              FROM bookshelf
+              GROUP BY book_id
+            ) bs ON b.id = bs.book_id
+            """.formatted(decay, decay, decay, shelfDecay);
+
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (!excludeSet.isEmpty()) {
+            sql += " WHERE b.id NOT IN (:excludeIds)";
+            params.addValue("excludeIds", excludeSet);
+        }
+        sql += " ORDER BY hotness DESC, b.read_count DESC, b.id DESC LIMIT 300";
+
+        List<ScoredBook> results = new ArrayList<>();
+        try {
+            List<Map<String, Object>> rows = namedJdbc.queryForList(sql, params);
+            int rank = 0;
+            for (Map<String, Object> row : rows) {
+                rank++;
+                double score = Math.max(0.95 - (rank - 1) * 0.003, 0.05);
+                score = Math.round(score * 100.0) / 100.0;
+
+                long bookId = ((Number) row.get("id")).longValue();
+                BookProjection bp = new BookProjection(
+                        bookId,
+                        (String) row.get("title"),
+                        (String) row.get("author"),
+                        (String) row.get("cover_url"),
+                        (String) row.get("format"),
+                        row.get("file_size") != null ? ((Number) row.get("file_size")).longValue() : 0L,
+                        null,
+                        (String) row.get("format_tags"),
+                        row.get("rating") != null ? ((Number) row.get("rating")).doubleValue() : 0.0,
+                        row.get("read_count") != null ? ((Number) row.get("read_count")).longValue() : 0L,
+                        0L,
+                        (String) row.get("description"),
+                        null,
+                        toLocalDateTime(row.get("created_at")),
+                        null, null, null, null,
+                        0L, 0, null, null
+                );
+                results.add(new ScoredBook(bp, score, score, 0.0, "HOT"));
+            }
+        } catch (Exception e) {
+            log.warn("热榜评分失败: {}", e.getMessage());
+            return null;
+        }
+
+        return results;
+    }
+
+    /**
      * 对给定的图书列表执行评分（可被 restartKey 中断后重新调用，不重复查库）
+     * <p>
+     * 优先使用 SQL 快速评分路径；当用户无画像维度或 SQL 查询异常时回退 Java parallelStream 路径。
      *
      * @param userId       用户ID
      * @param allBooks     已加载的图书列表（复用，不重复查库）
@@ -557,6 +800,48 @@ public class RecommendService {
 
         double ruleMinScore = coefficientService.getCoefficient("OTHER", "rule_min_score", -0.5);
 
+        // ==================== SQL 快速路径（优先）========================
+        // 当用户有画像维度时，使用 SQL 批量评分替代 parallelStream，
+        // 将 ~11s CPU 计算降至 ~0.5s 数据库查询。
+        boolean hasProfile = user.getBirthday() != null || user.getGender() != null
+                || user.getMarried() != null
+                || (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank())
+                || user.getHasChildren() != null
+                || user.getMbti() != null || user.getOccupation() != null
+                || user.getAspirationEducation() != null || user.getEntrepreneurship() != null
+                || user.getAspirationIncome() != null || user.getMood() != null;
+
+        if (hasProfile) {
+            List<ScoredBook> sqlResults = sqlScoreAllBooks(user, excludeSet,
+                    excludedTags, excludedAuthors, excludedFormats,
+                    includedTags, includedAuthors, includedFormats, ruleMinScore);
+            if (sqlResults != null) {
+                sqlResults.sort((a, b) -> Double.compare(b.finalScore, a.finalScore));
+
+                if (onProgress != null) {
+                    // SQL 路径速度极快，直接标记完成
+                    onProgress.accept(allBooks.size());
+                }
+                return sqlResults;
+            }
+            // SQL 路径失败或用户无画像维度，回退 Java 路径
+        }
+
+        // ==================== 热榜路径（无画像兜底）========================
+        // 无画像用户无法做个性化匹配，按全站热度排名推荐
+        if (!hasProfile) {
+            List<ScoredBook> hotResults = scoreHotBooks(excludeSet);
+            if (hotResults != null) {
+                hotResults.sort((a, b) -> Double.compare(b.finalScore, a.finalScore));
+                if (onProgress != null) {
+                    onProgress.accept(allBooks.size());
+                }
+                log.info("热榜推荐完成: userId={}, count={}", userId, hotResults.size());
+                return hotResults;
+            }
+        }
+
+        // ==================== Java 路径（兜底）========================
         // 预解析所有图书的 relevanceScores JSON，避免每本书重复解析
         Map<Long, JsonNode> preParsedScores = preParseScores(allBooks);
 
@@ -595,64 +880,10 @@ public class RecommendService {
             onProgress.accept(total);
         }
 
-        addExploreBooks(user, excludeSet, scoredBooks);
-
         scoredBooks.sort((a, b) -> Double.compare(b.finalScore, a.finalScore));
         return scoredBooks;
     }
 
-
-    /**
-     * 添加探索发现书籍到推荐列表
-     * 包括随机采样书籍和热门书籍，用于拓展用户视野
-     * 探索书籍的得分上限设为正常推荐最低分的40%，确保排在规则匹配之后
-     *
-     * @param user        用户实体
-     * @param excludeSet  需要排除的书籍ID集合（已读/回收站）
-     * @param scoredBooks 已评分书籍列表（会被修改，添加探索书籍）
-     */
-    private void addExploreBooks(User user, Set<Long> excludeSet, List<ScoredBook> scoredBooks) {
-        int exploreRandomCount = (int) coefficientService.getCoefficient("OTHER", "explore_random_count", 30);
-        Set<Long> existingIds = scoredBooks.stream()
-                .map(sb -> sb.book.getId())
-                .collect(Collectors.toSet());
-
-        // 探索书籍得分上限设为正常推荐最低分的 40%，确保排在后面
-        double minRuleScore = scoredBooks.stream()
-                .filter(sb -> "RULE".equals(sb.recallPath()))
-                .mapToDouble(ScoredBook::finalScore)
-                .min()
-                .orElse(0.2);
-        double exploreMaxScore = Math.max(0.08, minRuleScore * 0.4);
-
-        int randomCount = (int) (exploreRandomCount * 0.6);
-        List<Book> randomBooks = bookRepository.findRandomBooks(randomCount * 2);
-        int added = 0;
-        for (Book book : randomBooks) {
-            if (excludeSet.contains(book.getId()) || existingIds.contains(book.getId())) continue;
-            BookProjection bp = BookProjection.from(book);
-            double matchScore = RecommendMatchCalculator.calculateMatchScore(user, bp, coefficientService, objectMapper, dimensionStatsService);
-            double exploreScore = 0.05 + matchScore * exploreMaxScore * 0.9;
-            scoredBooks.add(new ScoredBook(bp, exploreScore, matchScore, 0.0, "EXPLORE"));
-            existingIds.add(book.getId());
-            added++;
-            if (added >= randomCount) break;
-        }
-
-        int hotCount = (int) (exploreRandomCount * 0.4);
-        List<Book> hotBooks = bookRepository.findAllByOrderByReadCountDesc(PageRequest.of(0, hotCount * 3)).getContent();
-        added = 0;
-        for (Book book : hotBooks) {
-            if (excludeSet.contains(book.getId()) || existingIds.contains(book.getId())) continue;
-            BookProjection bp = BookProjection.from(book);
-            double matchScore = RecommendMatchCalculator.calculateMatchScore(user, bp, coefficientService, objectMapper, dimensionStatsService);
-            double exploreScore = 0.06 + matchScore * exploreMaxScore * 0.94;
-            scoredBooks.add(new ScoredBook(bp, exploreScore, matchScore, 0.0, "EXPLORE"));
-            existingIds.add(book.getId());
-            added++;
-            if (added >= hotCount) break;
-        }
-    }
 
     /**
      * 通过临时Set写入推荐结果（原子操作）
@@ -663,18 +894,31 @@ public class RecommendService {
      */
     private void saveToSortedSetWithTemp(Long userId, List<ScoredBook> scoredBooks) {
         if (scoredBooks == null || scoredBooks.isEmpty()) return;
+        long t0 = System.currentTimeMillis();
         try {
             String tempKey = SORTED_KEY_PREFIX + userId + SORTED_TEMP_SUFFIX;
             String realKey = SORTED_KEY_PREFIX + userId;
 
+            long t1 = System.currentTimeMillis();
             redisTemplate.delete(tempKey);
             // 批量 ZADD：将全部评分结果打包为 TypedTuple 集合，单次写入
+            long t2 = System.currentTimeMillis();
             Set<ZSetOperations.TypedTuple<Object>> tuples = scoredBooks.stream()
                     .map(sb -> new DefaultTypedTuple<Object>(sb.book.getId(), sb.finalScore))
                     .collect(Collectors.toSet());
+            long tBuild = System.currentTimeMillis() - t2;
+
+            long t3 = System.currentTimeMillis();
             redisTemplate.opsForZSet().add(tempKey, tuples);
+            long tAdd = System.currentTimeMillis() - t3;
+
+            long t4 = System.currentTimeMillis();
             redisTemplate.delete(realKey);
             redisTemplate.rename(tempKey, realKey);
+            long tSwap = System.currentTimeMillis() - t4;
+
+            log.info("saveToSortedSetWithTemp: count={}, delete={}ms, buildTuples={}ms, zadd={}ms, swap={}ms, total={}ms",
+                    scoredBooks.size(), t1 - t0, tBuild, tAdd, tSwap, System.currentTimeMillis() - t0);
         } catch (Exception e) {
             log.debug("写入推荐Sorted Set(temp)失败: {}", e.getMessage());
         }
@@ -689,14 +933,27 @@ public class RecommendService {
      */
     void saveToSortedSetDirect(Long userId, List<ScoredBook> scoredBooks) {
         if (scoredBooks == null || scoredBooks.isEmpty()) return;
+        long t0 = System.currentTimeMillis();
         try {
             String sortedKey = SORTED_KEY_PREFIX + userId;
+
+            long t1 = System.currentTimeMillis();
             redisTemplate.delete(sortedKey);
+            long tDel = System.currentTimeMillis() - t1;
+
             // 批量 ZADD：单次写入全部评分结果
+            long t2 = System.currentTimeMillis();
             Set<ZSetOperations.TypedTuple<Object>> tuples = scoredBooks.stream()
                     .map(sb -> new DefaultTypedTuple<Object>(sb.book.getId(), sb.finalScore))
                     .collect(Collectors.toSet());
+            long tBuild = System.currentTimeMillis() - t2;
+
+            long t3 = System.currentTimeMillis();
             redisTemplate.opsForZSet().add(sortedKey, tuples);
+            long tAdd = System.currentTimeMillis() - t3;
+
+            log.info("saveToSortedSetDirect: count={}, delete={}ms, buildTuples={}ms, zadd={}ms, total={}ms",
+                    scoredBooks.size(), tDel, tBuild, tAdd, System.currentTimeMillis() - t0);
         } catch (Exception e) {
             log.debug("写入推荐Sorted Set失败: {}", e.getMessage());
         }
@@ -990,6 +1247,21 @@ public class RecommendService {
     }
 
     // ==================== 辅助方法 ====================
+
+    /**
+     * 将 SQL 查询结果中的日期时间值安全转换为 LocalDateTime
+     * <p>
+     * MySQL Connector/J 8+ 对 DATETIME 列可能返回 java.time.LocalDateTime 或 java.sql.Timestamp，
+     * 取决于驱动版本和连接参数。此方法同时兼容两种类型。
+     */
+    private static LocalDateTime toLocalDateTime(Object value) {
+        if (value == null) return null;
+        if (value instanceof java.time.LocalDateTime) return (java.time.LocalDateTime) value;
+        if (value instanceof java.sql.Timestamp) return ((java.sql.Timestamp) value).toLocalDateTime();
+        return null;
+    }
+
+    /**
 
     /**
      * 记录用户阅读行为（用于协同过滤）

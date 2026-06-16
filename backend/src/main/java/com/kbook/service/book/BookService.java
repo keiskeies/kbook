@@ -2,6 +2,7 @@ package com.kbook.service.book;
 
 import com.kbook.service.ai.ChatModelManager;
 import com.kbook.service.embedding.EmbeddingService;
+import com.kbook.service.recommend.BookDimensionScoreService;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,6 +57,7 @@ public class BookService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final UserReadHistoryRepository userReadHistoryRepository;
+    private final BookDimensionScoreService bookDimensionScoreService;
 
     private final BookStorageProperties storageProps;
 
@@ -80,7 +82,8 @@ public class BookService {
                        StringRedisTemplate redisTemplate,
                        BookStorageProperties storageProps,
                         ObjectMapper objectMapper,
-                       UserReadHistoryRepository userReadHistoryRepository) {
+                       UserReadHistoryRepository userReadHistoryRepository,
+                       BookDimensionScoreService bookDimensionScoreService) {
         this.bookRepository = bookRepository;
         this.bookSearchService = bookSearchService;
         this.embeddingService = embeddingService;
@@ -89,6 +92,7 @@ public class BookService {
         this.storageProps = storageProps;
         this.objectMapper = objectMapper;
         this.userReadHistoryRepository = userReadHistoryRepository;
+        this.bookDimensionScoreService = bookDimensionScoreService;
     }
 
 
@@ -234,13 +238,19 @@ public class BookService {
         if (updates.getReaderNeedTags() != null) book.setReaderNeedTags(updates.getReaderNeedTags());
         if (updates.getTargetReaderTags() != null) book.setTargetReaderTags(updates.getTargetReaderTags());
         if (updates.getTotalUnits() != null) book.setTotalUnits(updates.getTotalUnits());
-        if (updates.getRelevanceScores() != null) book.setRelevanceScores(updates.getRelevanceScores());
+        if (updates.getRelevanceScores() != null) {
+            book.setRelevanceScores(updates.getRelevanceScores());
+        }
         // 注意：rating 和 ratingCount 不通过 updateBook 更新，必须使用 setAiRating 或 rateBook 方法
         if (updates.getReadCount() != null) book.setReadCount(updates.getReadCount());
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
         Book saved = bookRepository.save(book);
+        // sync 到 book_dimension_scores（供 SQL 批量评分使用）
+        if (updates.getRelevanceScores() != null) {
+            bookDimensionScoreService.syncFromBook(saved);
+        }
         TransactionUtils.afterCommit(() -> evictBookCache(id));
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
@@ -261,13 +271,19 @@ public class BookService {
         if (updates.getReaderNeedTags() != null) book.setReaderNeedTags(updates.getReaderNeedTags());
         if (updates.getTargetReaderTags() != null) book.setTargetReaderTags(updates.getTargetReaderTags());
         if (updates.getTotalUnits() != null) book.setTotalUnits(updates.getTotalUnits());
-        if (updates.getRelevanceScores() != null) book.setRelevanceScores(updates.getRelevanceScores());
+        if (updates.getRelevanceScores() != null) {
+            book.setRelevanceScores(updates.getRelevanceScores());
+        }
         if (updates.getRating() != null) book.setRating(updates.getRating());
         if (updates.getReadCount() != null) book.setReadCount(updates.getReadCount());
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
         Book saved = bookRepository.save(book);
+        // sync 到 book_dimension_scores（供 SQL 批量评分使用）
+        if (updates.getRelevanceScores() != null) {
+            bookDimensionScoreService.syncFromBook(saved);
+        }
         TransactionUtils.afterCommit(() -> evictBookCache(id));
         log.info("图书ALL更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
@@ -453,6 +469,8 @@ public class BookService {
         Book book = getBookById(bookId);
         book.setRelevanceScores(scoresJson);
         bookRepository.save(book);
+        // 同步维度得分到 book_dimension_scores 表（供 SQL 批量评分使用）
+        bookDimensionScoreService.syncFromBook(book);
         TransactionUtils.afterCommit(() -> evictBookCache(bookId));
     }
 

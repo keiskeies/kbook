@@ -363,7 +363,7 @@ public class RecommendMatchCalculator {
      * @param dimension 匹配权重维度枚举
      * @return 调制系数，乘以原始权重后使用
      */
-    private static double getIntentModulation(String intentKey, MatchWeight dimension) {
+    static double getIntentModulation(String intentKey, MatchWeight dimension) {
         if (intentKey == null || intentKey.isEmpty()) return 1.0;
         return switch (intentKey) {
             case "growth" -> switch (dimension) {

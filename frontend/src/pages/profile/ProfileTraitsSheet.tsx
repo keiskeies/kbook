@@ -5,6 +5,7 @@ import { updateTraits } from '@/api/auth'
 import type { UserInfo } from '@/store/auth'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import MobileSheetHeader from '@/components/common/MobileSheetHeader'
+import { useUiStore } from '@/store/ui'
 
 const MBTI_OPTIONS = ['INTJ','INTP','ENTJ','ENTP','INFJ','INFP','ENFJ','ENFP','ISTJ','ISFJ','ESTJ','ESFJ','ISTP','ISFP','ESTP','ESFP']
 
@@ -123,6 +124,7 @@ export default function ProfileTraitsSheet({ open, onOpenChange, userInfo, updat
       })
       onOpenChange(false)
       toast.success('画像已更新')
+      setTimeout(() => useUiStore.getState().triggerRefreshRecommend(), 5000)
     } catch (err: any) {
       toast.error(err.message || '更新未完成，稍后再试试')
     } finally {

@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { useKeepAliveStore } from '@/store/keepAlive'
-import { ArrowLeft, Sparkles, RefreshCw, Trash2, Loader2 } from 'lucide-react'
+import { useUiStore } from '@/store/ui'
+import { ArrowLeft, Sparkles, RefreshCw, Trash2, Loader2, X } from 'lucide-react'
 import { useInView } from 'react-intersection-observer'
 import { getRecommendationsPage, generateRecommendationsStream } from '@/api/book'
 import { moveToTrash } from '@/api/bookTrash'
@@ -11,6 +12,7 @@ import type { RecommendedItem, RecommendProgress } from '@/api/book'
 import { BookCard } from '@/components/book/BookCard'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
+
 
 const PAGE_SIZE = 18
 
@@ -139,6 +141,10 @@ export default function RecommendPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState<RecommendProgress | null>(null)
+  const [profileIncomplete, setProfileIncomplete] = useState(false)
+  const profileHintRef = useRef(
+    typeof window !== 'undefined' && localStorage.getItem('kbook_profile_hint_dismissed') === '1'
+  )
   const abortRef = useRef<AbortController | null>(null)
   const fetchingRef = useRef(false)
   const hasMoreRef = useRef(isCacheValid ? cached.hasMore : true)
@@ -190,6 +196,10 @@ export default function RecommendPage() {
       const list: RecommendedItem[] = data?.list || []
       const totalCount: number = data?.total || 0
 
+      if (data?.profileIncomplete && !profileHintRef.current) {
+        setProfileIncomplete(true)
+      }
+
       setBooks((prev) => {
         const merged = pageNum === 0 ? list : [...prev, ...list]
         return merged
@@ -226,6 +236,8 @@ export default function RecommendPage() {
     pageRef.current = 0
     hasMoreRef.current = true
 
+    const triggerRefresh = useUiStore.getState().triggerRefreshRecommend
+
     const controller = generateRecommendationsStream(
       (data) => {
         setProgress(data)
@@ -235,6 +247,7 @@ export default function RecommendPage() {
         setProgress(null)
         abortRef.current = null
         loadPage(0)
+        triggerRefresh()
       },
       (error) => {
         console.error('推荐生成失败:', error)
@@ -321,7 +334,7 @@ export default function RecommendPage() {
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-warning to-warning transition-all duration-300 ease-out"
+                  className="h-full rounded-full bg-gradient-to-r from-warning to-warning transition-all duration-700 ease-out"
                   style={{ width: `${progress.progress}%` }}
                 />
               </div>
@@ -349,6 +362,29 @@ export default function RecommendPage() {
           </div>
         ) : books.length > 0 ? (
           <>
+            {profileIncomplete && (
+              <div className="mb-3 flex items-center gap-2 rounded-2xl bg-muted p-3 text-xs text-muted-foreground shadow-sm border border-border/50">
+                <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                <span className="flex-1">完善画像，获取更懂你的专属推荐</span>
+                <button
+                  onClick={() => navigate('/profile')}
+                  className="shrink-0 hover:text-foreground transition-colors"
+                >
+                  去完善
+                </button>
+                <button
+                  onClick={() => {
+                    localStorage.setItem('kbook_profile_hint_dismissed', '1')
+                    profileHintRef.current = true
+                    setProfileIncomplete(false)
+                  }}
+                  className="shrink-0 rounded-md p-0.5 hover:text-foreground transition-colors"
+                  aria-label="关闭"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             <div className="columns-1 sm:columns-2 lg:columns-3 gap-3 space-y-3">
               {books.map((book) => (
                 <SwipeableBookCard
