@@ -28,13 +28,13 @@ if not exist "..\package\dist" (
 echo OK
 
 REM 3. Build image
-echo [3/3] 构建镜像 kbook-app:1.0.8 ...
-docker build -t kbook-app:1.0.8 -f ..\Dockerfile ..
+echo [3/3] 构建镜像 kbook-app:1.1.0 ...
+docker build -t kbook-app:1.1.0 -f ..\Dockerfile ..
 if errorlevel 1 ( echo FAIL: 镜像构建失败 && pause && exit /b 1 )
 
 echo.
 echo ============================================
-echo   构建成功！kbook-app:1.0.8
+echo   构建成功！kbook-app:1.1.0
 echo ============================================
 echo   运行：start.bat
 echo.

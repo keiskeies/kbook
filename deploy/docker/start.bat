@@ -66,7 +66,7 @@ REM =====================================================
 REM 5. Build
 REM =====================================================
 echo [5/6] 构建镜像...
-docker build -t kbook-app:1.0.8 -f ..\Dockerfile ..
+docker build -t kbook-app:1.1.0 -f ..\Dockerfile ..
 if errorlevel 1 ( echo FAIL: 镜像构建失败 && pause && exit /b 1 )
 echo OK
 
@@ -144,7 +144,7 @@ docker run -d ^
     -v "!CHAT_DIR!:/data/chat" ^
     -v "!TTS_CACHE_DIR!:/data/tts_cache" ^
     -v "!AI_CONFIG_HOST!:/app/config/ai-config.json:ro" ^
-    kbook-app:1.0.8
+    kbook-app:1.1.0
 
 if errorlevel 1 ( echo FAIL: 容器启动失败 && pause && exit /b 1 )
 
