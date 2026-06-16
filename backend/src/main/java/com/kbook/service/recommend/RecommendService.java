@@ -1,5 +1,6 @@
 package com.kbook.service.recommend;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.annotation.LogAction;
@@ -21,7 +22,9 @@ import com.kbook.service.user.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +36,8 @@ import java.time.LocalDateTime;
 import static com.kbook.common.util.QueryBuilder.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.IntConsumer;
 import java.util.stream.Collectors;
 
@@ -91,6 +96,58 @@ public class RecommendService {
     private static final String SORTED_TEMP_SUFFIX = ":temp";
     /** 重算标识键前缀 */
     private static final String RESTART_KEY_PREFIX = "kbook:recommend:restart:";
+    /** 图书全量缓存键（Redis，30 分钟 TTL） */
+    private static final String BOOK_CACHE_KEY = "kbook:recommend:books:all";
+
+    // ==================== 图书缓存 & 预解析 ====================
+
+    /**
+     * 加载全部图书（优先从 Redis 缓存读取，缓存未命中时从 MySQL 加载并回填缓存）
+     */
+    @SuppressWarnings("unchecked")
+    private List<BookProjection> loadCachedBooks() {
+        try {
+            Object cached = redisTemplate.opsForValue().get(BOOK_CACHE_KEY);
+            if (cached instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof BookProjection) {
+                log.debug("命中图书缓存: count={}", list.size());
+                return (List<BookProjection>) cached;
+            }
+        } catch (Exception e) {
+            log.debug("读取图书Redis缓存失败: {}", e.getMessage());
+        }
+
+        List<BookProjection> books = bookRepository.findAllProjectedByOrderByIdAsc();
+        log.debug("从MySQL加载图书: count={}", books.size());
+
+        try {
+            redisTemplate.opsForValue().set(BOOK_CACHE_KEY, books, 30, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.debug("写入图书Redis缓存失败: {}", e.getMessage());
+        }
+
+        return books;
+    }
+
+    /**
+     * 预解析所有图书的 relevanceScores JSON，返回 bookId → JsonNode 映射
+     * <p>
+     * 避免在每本书的评分循环中重复调用 readTree()，可节省大量 CPU
+     */
+    private Map<Long, JsonNode> preParseScores(List<BookProjection> books) {
+        if (books == null || books.isEmpty()) return Map.of();
+        Map<Long, JsonNode> map = new ConcurrentHashMap<>(books.size());
+        books.parallelStream().forEach(book -> {
+            String json = book.getRelevanceScores();
+            if (json != null && !json.isBlank()) {
+                try {
+                    map.put(book.getId(), objectMapper.readTree(json));
+                } catch (Exception e) {
+                    // 单本书解析失败不影响其他书
+                }
+            }
+        });
+        return map;
+    }
 
     /**
      * 批量计算用户与多本书的匹配度得分（带缓存）
@@ -284,7 +341,7 @@ public class RecommendService {
             String restartKey = RESTART_KEY_PREFIX + userId;
             redisTemplate.delete(restartKey);
 
-            List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
+            List<BookProjection> allBooks = loadCachedBooks();
             int intTotalBooks = allBooks.size();
 
             int maxRestarts = 5;
@@ -434,7 +491,7 @@ public class RecommendService {
         String restartKey = RESTART_KEY_PREFIX + userId;
         redisTemplate.delete(restartKey);
 
-        List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
+        List<BookProjection> allBooks = loadCachedBooks();
         int total = allBooks.size();
 
         int maxRestarts = 5;
@@ -464,14 +521,14 @@ public class RecommendService {
 
     /**
      * 计算用户推荐评分（内部辅助方法）
-     * 从数据库加载全部图书，执行评分逻辑
+     * 从缓存/数据库加载全部图书，执行评分逻辑
      *
      * @param userId     用户ID
      * @param restartKey 重算标识key，用于检测画像变更
      * @return 评分结果列表
      */
     private List<ScoredBook> computeScoredBooksWithRestart(Long userId, String restartKey) {
-        List<BookProjection> allBooks = bookRepository.findAllProjectedByOrderByIdAsc();
+        List<BookProjection> allBooks = loadCachedBooks();
         return scoreAllBooks(userId, allBooks, restartKey, null);
     }
 
@@ -500,10 +557,13 @@ public class RecommendService {
 
         double ruleMinScore = coefficientService.getCoefficient("OTHER", "rule_min_score", -0.5);
 
+        // 预解析所有图书的 relevanceScores JSON，避免每本书重复解析
+        Map<Long, JsonNode> preParsedScores = preParseScores(allBooks);
+
         List<ScoredBook> scoredBooks = Collections.synchronizedList(new ArrayList<>());
         int total = allBooks.size();
 
-        int chunkSize = 2000;
+        int chunkSize = 5000;
         for (int offset = 0; offset < total; offset += chunkSize) {
             if (restartKey != null) {
                 Boolean hasRestart = redisTemplate.hasKey(restartKey);
@@ -519,7 +579,8 @@ public class RecommendService {
             List<ScoredBook> chunkResults = chunk.parallelStream()
                     .map(book -> scoreBook(user, book, excludeSet,
                             excludedTags, excludedAuthors, excludedFormats,
-                            includedTags, includedAuthors, includedFormats, ruleMinScore))
+                            includedTags, includedAuthors, includedFormats, ruleMinScore,
+                            preParsedScores))
                     .filter(Objects::nonNull)
                     .toList();
 
@@ -601,14 +662,17 @@ public class RecommendService {
      * @param scoredBooks 评分书籍列表
      */
     private void saveToSortedSetWithTemp(Long userId, List<ScoredBook> scoredBooks) {
+        if (scoredBooks == null || scoredBooks.isEmpty()) return;
         try {
             String tempKey = SORTED_KEY_PREFIX + userId + SORTED_TEMP_SUFFIX;
             String realKey = SORTED_KEY_PREFIX + userId;
 
             redisTemplate.delete(tempKey);
-            for (ScoredBook sb : scoredBooks) {
-                redisTemplate.opsForZSet().add(tempKey, sb.book.getId(), sb.finalScore);
-            }
+            // 批量 ZADD：将全部评分结果打包为 TypedTuple 集合，单次写入
+            Set<ZSetOperations.TypedTuple<Object>> tuples = scoredBooks.stream()
+                    .map(sb -> new DefaultTypedTuple<Object>(sb.book.getId(), sb.finalScore))
+                    .collect(Collectors.toSet());
+            redisTemplate.opsForZSet().add(tempKey, tuples);
             redisTemplate.delete(realKey);
             redisTemplate.rename(tempKey, realKey);
         } catch (Exception e) {
@@ -624,12 +688,15 @@ public class RecommendService {
      * @param scoredBooks 评分书籍列表
      */
     void saveToSortedSetDirect(Long userId, List<ScoredBook> scoredBooks) {
+        if (scoredBooks == null || scoredBooks.isEmpty()) return;
         try {
             String sortedKey = SORTED_KEY_PREFIX + userId;
             redisTemplate.delete(sortedKey);
-            for (ScoredBook sb : scoredBooks) {
-                redisTemplate.opsForZSet().add(sortedKey, sb.book.getId(), sb.finalScore);
-            }
+            // 批量 ZADD：单次写入全部评分结果
+            Set<ZSetOperations.TypedTuple<Object>> tuples = scoredBooks.stream()
+                    .map(sb -> new DefaultTypedTuple<Object>(sb.book.getId(), sb.finalScore))
+                    .collect(Collectors.toSet());
+            redisTemplate.opsForZSet().add(sortedKey, tuples);
         } catch (Exception e) {
             log.debug("写入推荐Sorted Set失败: {}", e.getMessage());
         }
@@ -664,7 +731,8 @@ public class RecommendService {
 
             ScoredBook sb = scoreBook(user, bp, excludeSet,
                     excludedTags, excludedAuthors, excludedFormats,
-                    includedTags, includedAuthors, includedFormats, ruleMinScore);
+                    includedTags, includedAuthors, includedFormats, ruleMinScore,
+                    null);
             if (sb == null) return;
 
             redisTemplate.opsForZSet().add(SORTED_KEY_PREFIX + userId, bookId, sb.finalScore);
@@ -715,17 +783,25 @@ public class RecommendService {
      * @param includedAuthors    偏好作者
      * @param includedFormats    偏好格式
      * @param ruleMinScore       规则召回最低匹配分阈值
+     * @param preParsedScores    预解析的 relevanceScores（bookId→JsonNode），null 时自动解析
      * @return 评分结果，不符合条件时返回null
      */
     private ScoredBook scoreBook(User user, BookProjection book,
                                   Set<Long> excludeSet,
                                   List<String> excludedTags, List<String> excludedAuthors, List<String> excludedFormats,
                                   List<String> includedTags, List<String> includedAuthors, List<String> includedFormats,
-                                  double ruleMinScore) {
+                                  double ruleMinScore,
+                                  Map<Long, JsonNode> preParsedScores) {
         if (excludeSet.contains(book.getId())) return null;
         if (isExcludedByPreference(book, excludedTags, excludedAuthors, excludedFormats)) return null;
 
-        double matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, objectMapper, dimensionStatsService);
+        double matchScore;
+        if (preParsedScores != null) {
+            JsonNode scores = preParsedScores.get(book.getId());
+            matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, scores, coefficientService, dimensionStatsService);
+        } else {
+            matchScore = RecommendMatchCalculator.calculateMatchScore(user, book, coefficientService, objectMapper, dimensionStatsService);
+        }
         if (matchScore <= ruleMinScore) return null;
 
         double freshnessBonus = calculateFreshnessBonus(book.getCreatedAt());
@@ -829,7 +905,9 @@ public class RecommendService {
         if (!excludedTags.isEmpty() && book.getFormatTags() != null) {
             Set<String> bookTags = parseTags(book.getFormatTags());
             for (String excludedTag : excludedTags) {
-                if (bookTags.stream().anyMatch(t -> t.equalsIgnoreCase(excludedTag))) return true;
+                String lowerExcluded = excludedTag.toLowerCase();
+                if (bookTags.stream().anyMatch(t -> t.toLowerCase().contains(lowerExcluded)
+                        || lowerExcluded.contains(t.toLowerCase()))) return true;
             }
         }
         return false;

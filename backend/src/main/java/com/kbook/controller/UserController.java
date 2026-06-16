@@ -5,8 +5,11 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.user.UpdateBioRequest;
 import com.kbook.dto.user.UpdateTraitsRequest;
+import com.kbook.dto.user.UpsertPreferenceRequest;
 import com.kbook.entity.User;
+import com.kbook.entity.UserBookPreference;
 import com.kbook.repository.UserRepository;
+import com.kbook.service.user.UserBookPreferenceService;
 import com.kbook.service.user.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,6 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/user")
@@ -30,6 +34,7 @@ public class UserController {
     private final UserService userService;
     private final BookStorageProperties storageProps;
     private final UserRepository userRepository;
+    private final UserBookPreferenceService preferenceService;
 
     @Operation(summary = "获取当前用户信息")
     @GetMapping("/me")
@@ -104,5 +109,64 @@ public class UserController {
         user.setBio(req.getBio());
         userRepository.save(user);
         return Result.ok(user);
+    }
+
+    // ==================== 阅读偏好 ====================
+
+    @Operation(summary = "获取所有偏好")
+    @GetMapping("/preferences")
+    public Result<List<UserBookPreference>> getAllPreferences(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(preferenceService.getAllPreferences(userId));
+    }
+
+    @Operation(summary = "获取排除偏好")
+    @GetMapping("/preferences/exclude")
+    public Result<List<UserBookPreference>> getExcludePreferences(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(preferenceService.getExcludePreferences(userId));
+    }
+
+    @Operation(summary = "添加排除偏好")
+    @PostMapping("/preferences/exclude")
+    public Result<UserBookPreference> addExcludePreference(Authentication authentication,
+                                                            @RequestBody UpsertPreferenceRequest req) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(preferenceService.addExcludePreference(userId, req.getCategory(), req.getValue()));
+    }
+
+    @Operation(summary = "取消排除偏好")
+    @DeleteMapping("/preferences/exclude")
+    public Result<Void> removeExcludePreference(Authentication authentication,
+                                                 @RequestParam String category,
+                                                 @RequestParam String value) {
+        Long userId = (Long) authentication.getPrincipal();
+        preferenceService.removeExcludePreference(userId, category, value);
+        return Result.ok();
+    }
+
+    @Operation(summary = "获取喜欢偏好")
+    @GetMapping("/preferences/include")
+    public Result<List<UserBookPreference>> getIncludePreferences(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(preferenceService.getIncludePreferences(userId));
+    }
+
+    @Operation(summary = "添加喜欢偏好")
+    @PostMapping("/preferences/include")
+    public Result<UserBookPreference> addIncludePreference(Authentication authentication,
+                                                            @RequestBody UpsertPreferenceRequest req) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(preferenceService.addIncludePreference(userId, req.getCategory(), req.getValue()));
+    }
+
+    @Operation(summary = "取消喜欢偏好")
+    @DeleteMapping("/preferences/include")
+    public Result<Void> removeIncludePreference(Authentication authentication,
+                                                 @RequestParam String category,
+                                                 @RequestParam String value) {
+        Long userId = (Long) authentication.getPrincipal();
+        preferenceService.removeIncludePreference(userId, category, value);
+        return Result.ok();
     }
 }

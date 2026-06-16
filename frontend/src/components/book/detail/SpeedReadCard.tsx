@@ -1,6 +1,46 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { Clock, ChevronDown, ChevronUp, Target, Users, UserX, Lightbulb, Gauge } from 'lucide-react'
 import type { BookSpeedRead } from '@/api/book'
+
+/**
+ * 解析文本中的简单 Markdown 格式，返回 React 节点数组。
+ * 支持：**粗体**、*斜体*、`代码`、《书名》书名号链接
+ */
+function parseSimpleMarkdown(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = []
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|《[^》]+》)/g
+  let lastIndex = 0
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    // 添加匹配前的纯文本
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+
+    const m = match[0]
+    if (m.startsWith('**') && m.endsWith('**')) {
+      parts.push(<strong key={match.index} className="font-bold text-foreground">{m.slice(2, -2)}</strong>)
+    } else if (m.startsWith('*') && m.endsWith('*')) {
+      parts.push(<em key={match.index} className="italic text-foreground/70">{m.slice(1, -1)}</em>)
+    } else if (m.startsWith('`') && m.endsWith('`')) {
+      parts.push(<code key={match.index} className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-foreground/80">{m.slice(1, -1)}</code>)
+    } else if (m.startsWith('《') && m.endsWith('》')) {
+      parts.push(<span key={match.index} className="text-primary font-medium">{m}</span>)
+    } else {
+      parts.push(m)
+    }
+
+    lastIndex = match.index + m.length
+  }
+
+  // 添加剩余文本
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : [text]
+}
 
 interface SpeedReadCardProps {
   data: BookSpeedRead | null
@@ -39,7 +79,7 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
                 <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                   {idx + 1}
                 </span>
-                <p className="text-sm text-muted-foreground leading-relaxed">{point}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{parseSimpleMarkdown(point)}</p>
               </div>
             ))}
           </div>
@@ -72,7 +112,7 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
                 key={idx}
                 className="rounded-full bg-success/10 border border-success/20 px-2.5 py-0.5 text-xs font-medium text-success dark:bg-success/20 dark:border-success/30 dark:text-success"
               >
-                {item}
+                {parseSimpleMarkdown(item)}
               </span>
             ))}
           </div>
@@ -103,7 +143,7 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
                 key={idx}
                 className="rounded-full bg-danger/10 border border-danger/20 px-2.5 py-0.5 text-xs font-medium text-danger dark:bg-danger/20 dark:border-danger/30 dark:text-danger"
               >
-                {item}
+                {parseSimpleMarkdown(item)}
               </span>
             ))}
           </div>
@@ -132,7 +172,7 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
             {data.takeaways.map((item, idx) => (
               <div key={idx} className="flex items-start gap-2">
                 <Gauge className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                <p className="text-sm text-muted-foreground">{item}</p>
+                <p className="text-sm text-muted-foreground">{parseSimpleMarkdown(item)}</p>
               </div>
             ))}
           </div>
@@ -201,7 +241,7 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
                     <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary animate-pulse">
                       {(section.key === 'corePoints' ? (data?.corePoints?.length || 0) : section.key === 'suitableFor' ? (data?.suitableFor?.length || 0) : section.key === 'notSuitableFor' ? (data?.notSuitableFor?.length || 0) : (data?.takeaways?.length || 0)) + 1}
                     </span>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{data.currentItem}<span className="animate-pulse">|</span></p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{parseSimpleMarkdown(data.currentItem)}<span className="animate-pulse">|</span></p>
                   </div>
                 )}
               </div>

@@ -144,6 +144,55 @@ public class RecommendMatchCalculator {
      * @param statsService       维度统计服务（可为 null，无统计服务时使用简单偏差 rawScore - 0.5）
      * @return 匹配度得分（0~1），0 表示无匹配数据
      */
+    /**
+     * 使用预解析的 JsonNode 计算匹配度（批量优化用，避免重复 JSON 解析）
+     *
+     * @param user               用户实体
+     * @param book               书籍投影
+     * @param scores             预解析的 relevanceScores JsonNode
+     * @param coefficientService 权重系数服务
+     * @param statsService       维度统计服务
+     * @return 匹配度得分（0~1），0 表示无匹配数据
+     */
+    public static double calculateMatchScore(User user, BookProjection book, JsonNode scores,
+                                             RecommendCoefficientService coefficientService,
+                                             DimensionStatsService statsService) {
+        if (scores == null) return 0.0;
+
+        List<DimensionContribution> contributions = collectContributions(user, book, scores, coefficientService, statsService);
+
+        double totalDeviation = 0;
+        double totalWeight = 0;
+        for (DimensionContribution c : contributions) {
+            totalDeviation += c.weightedDeviation();
+            totalWeight += c.weight();
+        }
+
+        int matchedDimensions = (int) contributions.stream()
+                .map(DimensionContribution::dimension)
+                .distinct()
+                .count();
+
+        if (totalWeight == 0) return 0.0;
+
+        double avgDeviation = totalDeviation / totalWeight;
+        double coverageFactor = getCoverageFactor(matchedDimensions);
+        return normalizeScore(avgDeviation * coverageFactor);
+    }
+
+    /**
+     * 计算用户与单本书籍的匹配度得分（标准入口）
+     * <p>
+     * 从 BookProjection.relevanceScores JSON 中解析出各维度得分，
+     * 与用户画像中的对应维度逐项比较，最终返回 0~1 的归一化匹配度。
+     *
+     * @param user               用户实体
+     * @param book               书籍投影
+     * @param coefficientService 权重系数服务
+     * @param objectMapper       JSON 解析器
+     * @param statsService       维度统计服务
+     * @return 匹配度得分（0~1），0 表示无匹配数据
+     */
     public static double calculateMatchScore(User user, BookProjection book,
                                              RecommendCoefficientService coefficientService,
                                              ObjectMapper objectMapper,
@@ -161,32 +210,7 @@ public class RecommendMatchCalculator {
         try {
             // 将 JSON 字符串解析为树状结构，后续按维度 key 取值
             JsonNode scores = objectMapper.readTree(book.getRelevanceScores());
-            // 收集所有画像维度对匹配度的贡献（主维度 + 邻近衰减 + 反向惩罚）
-            List<DimensionContribution> contributions = collectContributions(user, book, scores, coefficientService, statsService);
-
-            // 汇总加权偏差之和与权重之和，用于计算加权平均
-            double totalDeviation = 0;
-            double totalWeight = 0;
-            for (DimensionContribution c : contributions) {
-                totalDeviation += c.weightedDeviation();
-                totalWeight += c.weight();
-            }
-
-            // 统计真正匹配到的维度数量（去重），用于覆盖率因子
-            int matchedDimensions = (int) contributions.stream()
-                    .map(DimensionContribution::dimension)
-                    .distinct()
-                    .count();
-
-            // 如果没有任一维度有贡献（如用户完全没有画像），返回 0
-            if (totalWeight == 0) return 0.0;
-
-            // 加权平均偏差：综合各维度的偏离方向和强度
-            double avgDeviation = totalDeviation / totalWeight;
-            // 覆盖率因子：画像维度越完整，结果越可信，因子越高
-            double coverageFactor = getCoverageFactor(matchedDimensions);
-            // Sigmoid 归一化到 0~1 范围
-            return normalizeScore(avgDeviation * coverageFactor);
+            return calculateMatchScore(user, book, scores, coefficientService, statsService);
         } catch (Exception e) {
             log.debug("解析相关度得分失败: bookId={} - {}", book.getId(), e.getMessage());
             return 0.0;
@@ -284,21 +308,107 @@ public class RecommendMatchCalculator {
         List<DimensionContribution> list = new ArrayList<>();
         // 获取通用邻近衰减系数，多个维度共用
         double adjacentDecay = MatchWeight.ADJACENT_DECAY.resolve(coefficientService);
+        // 提取用户阅读意图（intent），后续用于调制各维度权重
+        String intentKey = extractIntent(user);
 
         // 按维度的"重要性"顺序调用：越重要的越靠前，便于调试阅读
         addRatingContribution(book, coefficientService, list);            // 图书评分（客观质量）
-        addAgeContributions(user, scores, statsService, coefficientService, adjacentDecay, list);         // 年龄（核心）
-        addGenderContributions(user, scores, statsService, coefficientService, list);                     // 性别
-        addMarriedContributions(user, scores, statsService, coefficientService, list);                    // 婚姻
-        addChildrenContributions(user, scores, statsService, coefficientService, list);                   // 子女
-        addMbtiContributions(user, scores, statsService, coefficientService, list);                       // MBTI
-        addOccupationContributions(user, scores, statsService, coefficientService, adjacentDecay, list);  // 职业
-        addEducationContributions(user, scores, statsService, coefficientService, adjacentDecay, list);   // 学历
-        addEntrepreneurshipContributions(user, scores, statsService, coefficientService, list);           // 创业意向
-        addIncomeContributions(user, scores, statsService, coefficientService, adjacentDecay, list);      // 收入
-        addMoodContributions(user, scores, statsService, coefficientService, adjacentDecay, list);        // 意图+心情
+        addAgeContributions(user, scores, statsService, coefficientService, adjacentDecay, list, intentKey);         // 年龄（核心）
+        addGenderContributions(user, scores, statsService, coefficientService, list, intentKey);                     // 性别
+        addMarriedContributions(user, scores, statsService, coefficientService, list, intentKey);                    // 婚姻
+        addChildrenContributions(user, scores, statsService, coefficientService, list, intentKey);                   // 子女
+        addMbtiContributions(user, scores, statsService, coefficientService, list);                                  // MBTI
+        addOccupationContributions(user, scores, statsService, coefficientService, adjacentDecay, list, intentKey);  // 职业
+        addEducationContributions(user, scores, statsService, coefficientService, adjacentDecay, list, intentKey);   // 学历
+        addEntrepreneurshipContributions(user, scores, statsService, coefficientService, list, intentKey);           // 创业意向
+        addIncomeContributions(user, scores, statsService, coefficientService, adjacentDecay, list, intentKey);      // 收入
+        addMoodContributions(user, scores, statsService, coefficientService, adjacentDecay, list, intentKey);        // 意图+心情
 
         return list;
+    }
+
+    /**
+     * 从用户 mood 字段中提取阅读意图（intent）。
+     * <p>
+     * mood 格式为 "intent|mood"（如 "growth|calm"），纯心情格式无 intent。
+     *
+     * @param user 用户实体，从 mood 字段解析
+     * @return 意图字符串（小写），无意图时返回 null
+     */
+    private static String extractIntent(User user) {
+        if (user == null || user.getMood() == null || user.getMood().isBlank()) return null;
+        int pipeIdx = user.getMood().indexOf('|');
+        if (pipeIdx > 0) {
+            return user.getMood().substring(0, pipeIdx).toLowerCase().trim();
+        }
+        return null;
+    }
+
+    /**
+     * 意图驱动的权重调制系数。
+     * <p>
+     * 核心思路：用户的阅读意图决定"这场推荐比赛比什么"。
+     * 当用户选择 growth（充电成长）时，人生状态维度（子女/婚姻）是噪音，应被压制；
+     * 当用户选择 comfort（共鸣陪伴）时，人生状态维度正是推荐信号的主角，应被放大。
+     * <p>
+     * 设计原则：
+     * <ul>
+     *   <li>growth/excite（发展型意图）→ 压制子女/婚姻/性别，放大职业/创业/意图</li>
+     *   <li>comfort（共情型意图）→ 放大子女/婚姻，大幅放大心情</li>
+     *   <li>escape（逃离型意图）→ 压制子女/婚姻，放大心情</li>
+     *   <li>insight（解惑型意图）→ 接近中性，保持所有维度的信息完整性</li>
+     * </ul>
+     *
+     * @param intentKey 用户意图（小写），null 或无意图时返回 1.0（不调制）
+     * @param dimension 匹配权重维度枚举
+     * @return 调制系数，乘以原始权重后使用
+     */
+    private static double getIntentModulation(String intentKey, MatchWeight dimension) {
+        if (intentKey == null || intentKey.isEmpty()) return 1.0;
+        return switch (intentKey) {
+            case "growth" -> switch (dimension) {
+                case CHILDREN -> 0.25;
+                case MARRIED -> 0.30;
+                case GENDER -> 0.50;
+                case AGE -> 0.70;
+                case INCOME -> 0.60;
+                case OCCUPATION -> 1.20;
+                case ENTREPRENEURSHIP -> 1.30;
+                case INTENT -> 1.30;
+                case MOOD -> 0.90;
+                default -> 1.0;
+            };
+            case "excite" -> switch (dimension) {
+                case CHILDREN -> 0.25;
+                case MARRIED -> 0.30;
+                case GENDER -> 0.50;
+                case AGE -> 0.70;
+                case INCOME -> 0.60;
+                case OCCUPATION -> 1.00;
+                case ENTREPRENEURSHIP -> 1.00;
+                case INTENT -> 1.20;
+                case MOOD -> 1.20;
+                default -> 1.0;
+            };
+            case "escape" -> switch (dimension) {
+                case CHILDREN -> 0.40;
+                case MARRIED -> 0.40;
+                case GENDER -> 0.60;
+                case AGE -> 0.80;
+                case INCOME -> 0.70;
+                case MOOD -> 1.30;
+                default -> 1.0;
+            };
+            case "comfort" -> switch (dimension) {
+                case CHILDREN -> 1.20;
+                case MARRIED -> 1.20;
+                case GENDER -> 0.80;
+                case MOOD -> 1.30;
+                default -> 1.0;
+            };
+            case "insight" -> 1.0;
+            default -> 1.0;
+        };
     }
 
     /**
@@ -339,10 +449,10 @@ public class RecommendMatchCalculator {
      */
     private static void addAgeContributions(User user, JsonNode scores, DimensionStatsService statsService,
                                             RecommendCoefficientService coefficientService, double adjacentDecay,
-                                            List<DimensionContribution> list) {
+                                            List<DimensionContribution> list, String intentKey) {
         if (user.getBirthday() == null) return;
 
-        double weight = MatchWeight.AGE.resolve(coefficientService);
+        double weight = MatchWeight.AGE.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.AGE);
         // 根据生日计算当前年龄
         int age = java.time.Period.between(user.getBirthday(), java.time.LocalDate.now()).getYears();
         // 映射到年龄组（如 25 岁 → "20-29"）
@@ -377,11 +487,11 @@ public class RecommendMatchCalculator {
      * 这是一个潜在的 bug/待改进点）。
      */
     private static void addGenderContributions(User user, JsonNode scores, DimensionStatsService statsService,
-                                               RecommendCoefficientService coefficientService,
-                                               List<DimensionContribution> list) {
+                                                RecommendCoefficientService coefficientService,
+                                                List<DimensionContribution> list, String intentKey) {
         if (user.getGender() == null) return;
 
-        double weight = MatchWeight.GENDER.resolve(coefficientService);
+        double weight = MatchWeight.GENDER.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.GENDER);
         double penalty = MatchWeight.OPPOSITE_PENALTY.resolve(coefficientService);
         // User.java:68-70 定义的性别值：MALE / FEMALE / OTHER，但这里只映射 male/female
         String genderKey = "MALE".equals(user.getGender()) ? "male" : "female";
@@ -408,11 +518,11 @@ public class RecommendMatchCalculator {
      * AI prompt key 见 AiPromptConstants.java 第 147 行（"married","unmarried"）。
      */
     private static void addMarriedContributions(User user, JsonNode scores, DimensionStatsService statsService,
-                                                RecommendCoefficientService coefficientService,
-                                                List<DimensionContribution> list) {
+                                                 RecommendCoefficientService coefficientService,
+                                                 List<DimensionContribution> list, String intentKey) {
         if (user.getMarried() == null) return;
 
-        double weight = MatchWeight.MARRIED.resolve(coefficientService);
+        double weight = MatchWeight.MARRIED.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.MARRIED);
         double penalty = MatchWeight.OPPOSITE_PENALTY.resolve(coefficientService);
         // User.java:72-74: Boolean married，true → married，false → unmarried
         String marryKey = user.getMarried() ? "married" : "unmarried";
@@ -441,11 +551,11 @@ public class RecommendMatchCalculator {
      */
     private static void addChildrenContributions(User user, JsonNode scores, DimensionStatsService statsService,
                                                  RecommendCoefficientService coefficientService,
-                                                 List<DimensionContribution> list) {
+                                                 List<DimensionContribution> list, String intentKey) {
         if (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank()) {
             // 新格式：多个子女年龄区间，每个区间独立计算贡献
             String[] ranges = user.getChildrenAgeRanges().split(",");
-            double weight = MatchWeight.CHILDREN.resolve(coefficientService);
+            double weight = MatchWeight.CHILDREN.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.CHILDREN);
             double childDecay = MatchWeight.CHILDREN_ADJACENT_DECAY.resolve(coefficientService);
 
             for (String range : ranges) {
@@ -467,7 +577,7 @@ public class RecommendMatchCalculator {
             }
         } else if (user.getHasChildren() != null) {
             // 旧格式：只有 hasChildren 布尔值，做二值判断 + 反向惩罚
-            double weight = MatchWeight.CHILDREN.resolve(coefficientService);
+            double weight = MatchWeight.CHILDREN.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.CHILDREN);
             double penalty = MatchWeight.OPPOSITE_PENALTY.resolve(coefficientService);
             String childKey = user.getHasChildren() ? "hasChildren" : "no_children";
             double rawScore = scores.has(childKey) ? scores.get(childKey).asDouble() : 0.0;
@@ -516,11 +626,11 @@ public class RecommendMatchCalculator {
      * AI prompt key 见 AiPromptConstants.java 第 150 行（小写形式）。
      */
     private static void addOccupationContributions(User user, JsonNode scores, DimensionStatsService statsService,
-                                                   RecommendCoefficientService coefficientService, double adjacentDecay,
-                                                   List<DimensionContribution> list) {
+                                                    RecommendCoefficientService coefficientService, double adjacentDecay,
+                                                    List<DimensionContribution> list, String intentKey) {
         if (user.getOccupation() == null || user.getOccupation().isBlank()) return;
 
-        double weight = MatchWeight.OCCUPATION.resolve(coefficientService);
+        double weight = MatchWeight.OCCUPATION.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.OCCUPATION);
 
         // 每个职业独立计算（一个用户可以有多个职业标签）
         for (String userOcc : user.getOccupation().split(",")) {
@@ -553,12 +663,12 @@ public class RecommendMatchCalculator {
      * 中匹配的是 "other"——如果 AI 生成的是 "other_edu" 则邻近衰减会 miss。
      */
     private static void addEducationContributions(User user, JsonNode scores, DimensionStatsService statsService,
-                                                  RecommendCoefficientService coefficientService, double adjacentDecay,
-                                                  List<DimensionContribution> list) {
+                                                   RecommendCoefficientService coefficientService, double adjacentDecay,
+                                                   List<DimensionContribution> list, String intentKey) {
         if (user.getAspirationEducation() == null) return;
 
         String eduKey = user.getAspirationEducation().toLowerCase();
-        double weight = MatchWeight.EDUCATION.resolve(coefficientService);
+        double weight = MatchWeight.EDUCATION.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.EDUCATION);
 
         // 主学历贡献
         double dev = getDeviation(statsService, eduKey, scores);
@@ -585,12 +695,12 @@ public class RecommendMatchCalculator {
      * 二者不匹配——如果 AI 生成的是 "notInterested" 则 getDeviation 会 miss。
      */
     private static void addEntrepreneurshipContributions(User user, JsonNode scores, DimensionStatsService statsService,
-                                                         RecommendCoefficientService coefficientService,
-                                                         List<DimensionContribution> list) {
+                                                          RecommendCoefficientService coefficientService,
+                                                          List<DimensionContribution> list, String intentKey) {
         if (user.getEntrepreneurship() == null || user.getEntrepreneurship().isBlank()) return;
 
         String entreKey = user.getEntrepreneurship().toLowerCase();
-        double weight = MatchWeight.ENTREPRENEURSHIP.resolve(coefficientService);
+        double weight = MatchWeight.ENTREPRENEURSHIP.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.ENTREPRENEURSHIP);
 
         double dev = getDeviation(statsService, entreKey, scores);
         double rawScore = scores.has(entreKey) ? scores.get(entreKey).asDouble() : 0.0;
@@ -608,13 +718,13 @@ public class RecommendMatchCalculator {
      * AI prompt key 见 AiPromptConstants.java 第 153 行。
      */
     private static void addIncomeContributions(User user, JsonNode scores, DimensionStatsService statsService,
-                                               RecommendCoefficientService coefficientService, double adjacentDecay,
-                                               List<DimensionContribution> list) {
+                                                RecommendCoefficientService coefficientService, double adjacentDecay,
+                                                List<DimensionContribution> list, String intentKey) {
         if (user.getAspirationIncome() == null || user.getAspirationIncome().isBlank()
                 || "PREFER_NOT_TO_SAY".equalsIgnoreCase(user.getAspirationIncome())) return;
 
         String incomeKey = user.getAspirationIncome().toLowerCase();
-        double weight = MatchWeight.INCOME.resolve(coefficientService);
+        double weight = MatchWeight.INCOME.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.INCOME);
 
         // 主收入区间贡献
         double dev = getDeviation(statsService, incomeKey, scores);
@@ -647,26 +757,23 @@ public class RecommendMatchCalculator {
      * 但后端 AiPromptConstants 未包含这两个值，属于前端多余定义。
      */
     private static void addMoodContributions(User user, JsonNode scores, DimensionStatsService statsService,
-                                             RecommendCoefficientService coefficientService, double adjacentDecay,
-                                             List<DimensionContribution> list) {
+                                              RecommendCoefficientService coefficientService, double adjacentDecay,
+                                              List<DimensionContribution> list, String intentKey) {
         if (user.getMood() == null || user.getMood().isBlank()) return;
 
+        // 从 mood 字段中提取心情部分（"intent|mood" 格式，或纯心情格式）
         String moodRaw = user.getMood();
-        String intentKey = null;
         String moodKey;
-
-        // 解析 "意图|心情" 格式，兼容纯心情的旧格式
         int pipeIdx = moodRaw.indexOf('|');
         if (pipeIdx > 0) {
-            intentKey = moodRaw.substring(0, pipeIdx).toLowerCase().trim();
             moodKey = moodRaw.substring(pipeIdx + 1).toLowerCase().trim();
         } else {
             moodKey = moodRaw.toLowerCase().trim();
         }
 
-        // 意图维度贡献 + 相关意图衰减
+        // 意图维度贡献 + 相关意图衰减（权重受 intentKey 调制）
         if (intentKey != null && !intentKey.isEmpty()) {
-            double weight = MatchWeight.INTENT.resolve(coefficientService);
+            double weight = MatchWeight.INTENT.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.INTENT);
             double dev = getDeviation(statsService, intentKey, scores);
             double rawScore = scores.has(intentKey) ? scores.get(intentKey).asDouble() : 0.0;
             list.add(new DimensionContribution("intent", "意图: " + getIntentLabel(intentKey), rawScore, dev, weight, dev * weight));
@@ -678,9 +785,9 @@ public class RecommendMatchCalculator {
             }
         }
 
-        // 心情维度贡献 + 相关心情衰减
+        // 心情维度贡献 + 相关心情衰减（权重受 intentKey 调制）
         if (!moodKey.isEmpty()) {
-            double weight = MatchWeight.MOOD.resolve(coefficientService);
+            double weight = MatchWeight.MOOD.resolve(coefficientService) * getIntentModulation(intentKey, MatchWeight.MOOD);
             double dev = getDeviation(statsService, moodKey, scores);
             double rawScore = scores.has(moodKey) ? scores.get(moodKey).asDouble() : 0.0;
             list.add(new DimensionContribution("mood", "心情: " + getMoodLabel(moodKey), rawScore, dev, weight, dev * weight));
