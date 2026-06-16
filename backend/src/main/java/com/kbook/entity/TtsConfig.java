@@ -87,7 +87,7 @@ public class TtsConfig extends BaseEntity {
     }
 
     public enum Provider {
-        XIAOMI, IFLYTEK, GPT_SOVITS, CUSTOM;
+        XIAOMI, IFLYTEK, GPT_SOVITS, AZURE, CUSTOM;
 
         @JsonCreator
         public static Provider from(String value) {

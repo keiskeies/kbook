@@ -4,7 +4,7 @@ export interface TtsConfig {
   id?: number
   name: string
   ttsType: 'LLM' | 'TRADITIONAL' | 'CLONE'
-  provider: 'XIAOMI' | 'IFLYTEK' | 'GPT_SOVITS' | 'CUSTOM'
+  provider: 'XIAOMI' | 'IFLYTEK' | 'GPT_SOVITS' | 'AZURE' | 'CUSTOM'
   baseUrl?: string
   modelName?: string
   apiKey?: string

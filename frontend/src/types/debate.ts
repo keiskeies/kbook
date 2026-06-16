@@ -283,15 +283,15 @@ export { getMessageRoleName as formatRoleName }
 
 /** TTS 音色配置（按位置键） */
 export const DEBATE_TTS_CONFIG: Record<string, { rate: number; pitch: number }> = {
-  HOST: { rate: 1.0, pitch: 1.1 },
-  PRO_1: { rate: 0.9, pitch: 0.9 },
-  PRO_2: { rate: 1.2, pitch: 0.8 },
-  PRO_3: { rate: 1.1, pitch: 1.2 },
-  PRO_4: { rate: 0.8, pitch: 1.0 },
-  CON_1: { rate: 0.9, pitch: 0.9 },
-  CON_2: { rate: 1.2, pitch: 0.8 },
-  CON_3: { rate: 1.1, pitch: 1.2 },
-  CON_4: { rate: 0.8, pitch: 1.0 },
+  HOST: { pitch: 1.0, rate: 1.0 },
+  PRO_1: { pitch: 0.85, rate: 1.0 },
+  PRO_2: { pitch: 0.9, rate: 1.0 },
+  PRO_3: { pitch: 1.05, rate: 1.0 },
+  PRO_4: { pitch: 1.0, rate: 1.0 },
+  CON_1: { pitch: 0.75, rate: 1.1 },
+  CON_2: { pitch: 1.1, rate: 1.1 },
+  CON_3: { pitch: 0.9, rate: 1.15 },
+  CON_4: { pitch: 0.8, rate: 0.95 },
 }
 
 /** 立场标签 */

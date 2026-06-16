@@ -1,5 +1,6 @@
 package com.kbook.service.embedding;
 
+import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
@@ -9,7 +10,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -48,6 +48,7 @@ public class RagHitStatisticsService {
     private final EmbeddingService embeddingService;
     private final BookParserService bookParserService;
     private final BookService bookService;
+    private final BookStorageProperties storageProps;
 
     private static final String HIT_KEY = "rag:hit:";
     private static final String MISS_KEY = "rag:miss:";
@@ -289,7 +290,7 @@ public class RagHitStatisticsService {
             // 就视为强烈的按需向量化信号，应触发重建。
 
             // 前置校验 2：图书文件是否存在
-            if (book.getFileUrl() == null || !Files.exists(Paths.get(book.getFileUrl()))) {
+            if (book.getFileUrl() == null || !Files.exists(storageProps.resolveBookPath(book.getFileUrl(), book.getFormat()))) {
                 log.warn("风控重建跳过（图书文件不存在）: bookId={}, fileUrl={}", bookId, book.getFileUrl());
                 return;
             }

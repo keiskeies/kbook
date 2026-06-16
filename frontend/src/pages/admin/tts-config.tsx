@@ -17,6 +17,7 @@ import {
 const PROVIDER_OPTIONS: { value: string; label: string; type: string }[] = [
   { value: 'XIAOMI', label: '小米 AI TTS', type: 'LLM' },
   { value: 'IFLYTEK', label: '科大讯飞', type: 'TRADITIONAL' },
+  { value: 'AZURE', label: 'Azure Speech', type: 'TRADITIONAL' },
   { value: 'GPT_SOVITS', label: 'GPT-SoVITS', type: 'CLONE' },
 ]
 
@@ -117,12 +118,15 @@ export default function TtsConfigPage() {
       ...f,
       provider: provider as TtsConfig['provider'],
       ttsType,
-      baseUrl: provider === 'XIAOMI' ? 'https://api.xiaomimimo.com/v1' : provider === 'GPT_SOVITS' ? 'http://127.0.0.1:9880' : '',
+      baseUrl: provider === 'XIAOMI' ? 'https://api.xiaomimimo.com/v1'
+        : provider === 'GPT_SOVITS' ? 'http://127.0.0.1:9880'
+        : provider === 'AZURE' ? 'eastus'
+        : '',
       modelName: provider === 'XIAOMI' ? 'mimo-v2.5-tts' : '',
       apiKey: '',
       apiSecret: '',
       appId: '',
-      voice: provider === 'XIAOMI' ? '冰糖' : 'xiaoyan',
+      voice: provider === 'XIAOMI' ? '冰糖' : provider === 'AZURE' ? 'zh-CN-XiaoxiaoNeural' : 'xiaoyan',
       voicePresetId: provider === 'GPT_SOVITS' ? '' : undefined,
     }))
     if (provider === 'GPT_SOVITS' && gptSovitsVoices.length === 0) {
@@ -479,6 +483,38 @@ export default function TtsConfigPage() {
                         <label className="mb-1.5 block text-sm font-medium">音调 ({form.pitch ?? 50})</label>
                         <input type="range" min="0" max="100" value={form.pitch ?? 50} onChange={(e) => setForm((f) => ({ ...f, pitch: parseInt(e.target.value) }))} className="w-full accent-primary" />
                       </div>
+                    </div>
+                  </>
+                )}
+
+                {form.provider === 'AZURE' && (
+                  <>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium">Region（区域）</label>
+                      <input
+                        type="text"
+                        value={form.baseUrl || ''}
+                        onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))}
+                        placeholder="eastus"
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">Azure Speech 区域，如 eastus / southeastasia</p>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium">Speech Key</label>
+                      <input
+                        type="text"
+                        value={form.apiKey || ''}
+                        onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
+                        placeholder="Azure Speech 订阅密钥"
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                      />
+                    </div>
+                    <div className="rounded-lg bg-brand-50/50 border border-brand-100 p-3">
+                      <p className="text-xs text-brand-700">
+                        Azure Speech 使用 Token 中转模式：后端用 Key 生成临时 Token，前端直连 Azure。
+                        配置后圆桌/辩论页将自动使用 Azure 多音色（晓晓、云希等 30+ 中文语音）。
+                      </p>
                     </div>
                   </>
                 )}

@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, Volume2, Square, Plus, ChevronDown, ChevronUp } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import MobileSheetHeader from '@/components/common/MobileSheetHeader'
 import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions, getBookChatHistory } from '@/api/bookChat'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import { BlinkingBot } from '@/components/BlinkingBot'
+import { ttsService } from '@/utils/tts'
+import { useTtsStore } from '@/store/tts'
+import { getActiveTtsConfig } from '@/api/adminTts'
 import { useAuthStore } from '@/store/auth'
 import { updateBookChatStyle } from '@/api/auth'
 import type { AiMessage } from '@/types/ai'
@@ -39,6 +42,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [sessionId, setSessionId] = useState<string>('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [chatTitle, setChatTitle] = useState<string>('')
   const [showHistory, setShowHistory] = useState(false)
   const [historySessions, setHistorySessions] = useState<AiSessionItem[]>([])
@@ -120,6 +124,13 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
   }, [open])
 
   useEffect(() => {
+    if (!open && speakingId) {
+      ttsService.cancel()
+      setSpeakingId(null)
+    }
+  }, [open, speakingId])
+
+  useEffect(() => {
     if (!input && textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
@@ -172,6 +183,10 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
       abortRef.current.abort()
       abortRef.current = null
     }
+    if (speakingId) {
+      ttsService.cancel()
+      setSpeakingId(null)
+    }
     setMessages([])
     setInput('')
     setLoading(false)
@@ -179,19 +194,23 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     setChatTitle('')
     setShowHistory(false)
     onOpenChange(false)
-  }, [onOpenChange])
+  }, [onOpenChange, speakingId])
 
   const handleNewChat = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort()
       abortRef.current = null
     }
+    if (speakingId) {
+      ttsService.cancel()
+      setSpeakingId(null)
+    }
     setMessages([])
     setSessionId('')
     setChatTitle('')
     setLoading(false)
     setShowHistory(false)
-  }, [])
+  }, [speakingId])
 
   const handleSend = useCallback(async (text?: string, isRegenerate?: boolean) => {
     const message = (text || input).trim()
@@ -340,6 +359,42 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     )
     abortRef.current = controller
   }, [input, loading, book.id, sessionId])
+
+  const handleToggleSpeak = useCallback(async (msgId: string, content: string) => {
+    if (speakingId === msgId) {
+      ttsService.cancel()
+      setSpeakingId(null)
+      return
+    }
+    if (!useTtsStore.getState().backendConfig) {
+      try {
+        const config = await getActiveTtsConfig()
+        if (config) {
+          useTtsStore.getState().setBackendConfig(config)
+          useTtsStore.getState().setBackendMode(true)
+        }
+      } catch { /* no backend TTS, use browser */ }
+    }
+    const plainText = content
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`[^`]+`/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/^(#{1,6})\s+/gm, '\n')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/^[-*]\s+/gm, '')
+      .replace(/^(\d+)\.\s+/gm, '$1、')
+      .replace(/^>\s+/gm, '')
+      .replace(/\|/g, ' ')
+      .replace(/---+/g, '\n')
+      .trim()
+    if (!plainText) return
+    ttsService.cancel()
+    setSpeakingId(msgId)
+    ttsService.speakLongText(plainText, () => {
+      setSpeakingId((prev) => prev === msgId ? null : prev)
+    })
+  }, [speakingId])
 
   const handleRegenerate = useCallback(() => {
     if (loading) return
@@ -610,6 +665,29 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                               </button>
                             )}
                           </div>
+                          {msg.content && (
+                            <button
+                              className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors active:scale-95 ${
+                                speakingId === msg.id
+                                  ? 'text-primary hover:bg-primary/10'
+                                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                              }`}
+                              onClick={() => handleToggleSpeak(msg.id, msg.content)}
+                              title={speakingId === msg.id ? '停止朗读' : '朗读'}
+                            >
+                              {speakingId === msg.id ? (
+                                <>
+                                  <Square className="h-3.5 w-3.5 fill-current" />
+                                  <span>停止</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="h-3.5 w-3.5" />
+                                  <span>朗读</span>
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
                       )}
                       {msg.role === 'assistant' && !msg.streaming && msg.followUpQuestions && msg.followUpQuestions.length > 0 && (

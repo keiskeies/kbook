@@ -2,6 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.service.book.BookService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,7 +20,6 @@ import java.io.File;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 public class BookFileController {
 
     private final BookService bookService;
+    private final BookStorageProperties storageProps;
 
     /**
      * 流式获取图书文件（支持 Range 请求）
@@ -48,7 +49,7 @@ public class BookFileController {
             throw new BusinessException("图书文件不存在");
         }
 
-        Path filePath = Paths.get(book.getFileUrl());
+        Path filePath = storageProps.resolveBookPath(book.getFileUrl(), book.getFormat());
         File file = filePath.toFile();
 
         if (!file.exists()) {

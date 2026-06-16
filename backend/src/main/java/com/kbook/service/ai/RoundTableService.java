@@ -49,12 +49,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.time.LocalDateTime;
 
 import static com.kbook.common.util.QueryBuilder.eq;
 import static com.kbook.common.util.QueryBuilder.in;
@@ -598,12 +598,11 @@ public class RoundTableService {
             var coverages = roundTableCoverageRepository.query()
                     .where(RoundTableCoverage::getSessionId, in(sessionIds))
                     .list();
-            coverages.stream()
+            coverageMap.putAll(coverages.stream()
                     .collect(Collectors.toMap(
                             RoundTableCoverage::getSessionId,
                             c -> c.getOverallScore() != null ? c.getOverallScore() : 0.0,
-                            (a, b) -> a))
-                    .forEach(coverageMap::put);
+                            (a, b) -> a)));
         }
 
         // 计算热度分数
@@ -612,10 +611,10 @@ public class RoundTableService {
         return sessions.map(session -> {
             var book = bookMap.get(session.getBookId());
             var coverageScore = coverageMap.getOrDefault(session.getSessionId(), 0.0);
-            
+
             // 计算热度分数
             double hotScore = calculateHotScore(coverageScore, session.getStatus(), session.getCreatedAt(), now);
-            
+
             return RoundTableSessionFeedVO.builder()
                     .id(session.getId())
                     .sessionId(session.getSessionId())
@@ -637,23 +636,24 @@ public class RoundTableService {
 
     /**
      * 计算热度分数
-     * @param score 评分（辩论用avgScore，圆桌用coverageScore）
-     * @param status 状态
+     *
+     * @param score     评分（辩论用avgScore，圆桌用coverageScore）
+     * @param status    状态
      * @param createdAt 创建时间
-     * @param now 当前时间
+     * @param now       当前时间
      * @return 热度分数
      */
     private double calculateHotScore(double score, String status, LocalDateTime createdAt, LocalDateTime now) {
         // 基础分：评分 * 100（归一化到0-100分）
         double baseScore = score * 100;
-        
+
         // 完成加分：已完成+50分，进行中+10分
         int completionBonus = "COMPLETED".equals(status) ? 50 : ("ACTIVE".equals(status) ? 10 : 0);
-        
+
         // 时间衰减：每天减2分，防止旧内容霸榜
         long daysSinceCreated = java.time.Duration.between(createdAt, now).toDays();
         double timeDecay = daysSinceCreated * 2.0;
-        
+
         return baseScore + completionBonus - timeDecay;
     }
 
@@ -686,7 +686,7 @@ public class RoundTableService {
      * @param userId    用户ID
      * @param sessionId 会话ID
      * @return 选中的角色 key
-      */
+     */
     @LogAction("纯LLM判断下一发言人")
     @RedisLock(key = "'rt:speaker:' + #sessionId", leaseTime = 30)
     public String getNextSpeakerOnlyLLM(Long userId, String sessionId) {
@@ -1468,23 +1468,8 @@ public class RoundTableService {
         try {
             List<RoundTableMessage> history = loadAndCompressHistory(userId, sessionId, currentOverhead);
             if (!history.isEmpty()) {
-                // 找到当前角色最近一条发言的索引（保留一条锚点，避免完全失去自我上下文）
-                int lastOwnIndex = -1;
-                for (int i = history.size() - 1; i >= 0; i--) {
-                    if (roleName.equals(history.get(i).getRoleName())) {
-                        lastOwnIndex = i;
-                        break;
-                    }
-                }
-
                 StringBuilder historyBuilder = new StringBuilder("【之前的讨论内容】\n");
-                int skippedOwn = 0;
-                for (int i = 0; i < history.size(); i++) {
-                    RoundTableMessage msg = history.get(i);
-                    if (roleName.equals(msg.getRoleName()) && i != lastOwnIndex) {
-                        skippedOwn++;
-                        continue;
-                    }
+                for (RoundTableMessage msg : history) {
                     String content = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
                             ? msg.getCompressedContent()
                             : msg.getContent();
@@ -1492,62 +1477,32 @@ public class RoundTableService {
                         historyBuilder.append(msg.getRoleName()).append("：").append(content).append("\n\n");
                     }
                 }
-                if (skippedOwn > 0) {
-                    log.debug("圆桌派历史过滤：跳过当前角色 {} 的 {} 条旧发言", roleName, skippedOwn);
-                }
 
                 // 3. 历史对话
                 messages.add(UserMessage.from(historyBuilder.toString()));
-
-                // 4. 角色设定（每个角色不同 — 角色内稳定，放在 RAG 前以复用缓存）
-                if (roleSetting != null && !roleSetting.isBlank()) {
-                    messages.add(UserMessage.from(roleSetting));
-                }
-
-                // 5. RAG 内容或覆盖度引导（每次变化，放在最后以最小化缓存失效）
-                if (ragContent != null && !ragContent.isBlank()) {
-                    messages.add(UserMessage.from("【书籍参考内容】\n" + ragContent));
-                }
-
-                // 6. 发言指令（含额外指令）
-                StringBuilder finalInstruction = new StringBuilder();
-                if (extraInstructions != null && !extraInstructions.isBlank()) {
-                    finalInstruction.append(extraInstructions).append("\n\n");
-                }
-                finalInstruction.append(speakInstruction);
-                messages.add(UserMessage.from(finalInstruction.toString()));
-
                 log.debug("加载圆桌派历史: sessionId={}, totalRecords={}", sessionId, history.size());
-            } else {
-                // 无历史：书籍信息 → 角色设定 → RAG → 发言指令
-                if (roleSetting != null && !roleSetting.isBlank()) {
-                    messages.add(UserMessage.from(roleSetting));
-                }
-                if (ragContent != null && !ragContent.isBlank()) {
-                    messages.add(UserMessage.from("【书籍参考内容】\n" + ragContent));
-                }
-                StringBuilder finalInstruction = new StringBuilder();
-                if (extraInstructions != null && !extraInstructions.isBlank()) {
-                    finalInstruction.append(extraInstructions).append("\n\n");
-                }
-                finalInstruction.append(speakInstruction);
-                messages.add(UserMessage.from(finalInstruction.toString()));
             }
         } catch (Exception e) {
             log.warn("加载圆桌派历史失败，继续无历史对话: {}", e.getMessage());
-            if (roleSetting != null && !roleSetting.isBlank()) {
-                messages.add(UserMessage.from(roleSetting));
-            }
-            if (ragContent != null && !ragContent.isBlank()) {
-                messages.add(UserMessage.from("【书籍参考内容】\n" + ragContent));
-            }
-            StringBuilder finalInstruction = new StringBuilder();
-            if (extraInstructions != null && !extraInstructions.isBlank()) {
-                finalInstruction.append(extraInstructions).append("\n\n");
-            }
-            finalInstruction.append(speakInstruction);
-            messages.add(UserMessage.from(finalInstruction.toString()));
+
         }
+        // 4. 角色设定（每个角色不同 — 角色内稳定，放在 RAG 前以复用缓存）
+        if (roleSetting != null && !roleSetting.isBlank()) {
+            messages.add(UserMessage.from(roleSetting));
+        }
+
+        // 5. RAG 内容或覆盖度引导（每次变化，放在最后以最小化缓存失效）
+        if (ragContent != null && !ragContent.isBlank()) {
+            messages.add(UserMessage.from("【书籍参考内容】\n" + ragContent));
+        }
+
+        // 6. 发言指令（含额外指令）
+        StringBuilder finalInstruction = new StringBuilder();
+        if (extraInstructions != null && !extraInstructions.isBlank()) {
+            finalInstruction.append(extraInstructions).append("\n\n");
+        }
+        finalInstruction.append(speakInstruction);
+        messages.add(UserMessage.from(finalInstruction.toString()));
 
         return messages;
     }

@@ -18,6 +18,9 @@ import {
 } from '@/types/roundTable'
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { getSortedChineseVoices, assignVoiceForRole } from '@/utils/browserTts'
+import { speechService } from '@/utils/speechService'
+import { getAzureVoiceForRole, ROUNDTABLE_AZURE_VOICE } from '@/utils/speechVoices'
 
 type Phase = 'loading' | 'discussing' | 'paused' | 'error'
 
@@ -365,6 +368,7 @@ export default function RoundTableSessionPage() {
   const roleVoiceMapRef = useRef<Map<string, SpeechSynthesisVoice>>(new Map())
   const ttsEnabledRef = useRef(false)
   const ttsLastReadIndexRef = useRef<number>(-1)
+  const speechEnabledRef = useRef(false)
 
   useEffect(() => { messagesRef.current = messages }, [messages])
 
@@ -372,12 +376,11 @@ export default function RoundTableSessionPage() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       const synth = window.speechSynthesis
       const loadVoices = () => {
-        const voices = synth.getVoices()
-        const zhVoices = voices.filter(v => {
-          const lang = (v.lang || '').toLowerCase()
-          return lang.startsWith('zh') || lang.startsWith('cmn')
+        const sorted = getSortedChineseVoices(synth)
+        if (sorted.length > 0) zhVoicesRef.current = sorted
+        speechService.init().then(() => {
+          speechEnabledRef.current = speechService.activeProvider !== 'browser'
         })
-        if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
       }
       loadVoices()
       window.setTimeout(loadVoices, 500)
@@ -560,6 +563,17 @@ export default function RoundTableSessionPage() {
     const { text, roleKey, msgIndex } = ttsQueueRef.current.shift()!
     ttsSpeakingRef.current = true
 
+    if (speechEnabledRef.current) {
+      const voiceName = getAzureVoiceForRole(roleKey, ROUNDTABLE_AZURE_VOICE)
+      const ttsCfg = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+      speechService.speak(text, voiceName, ttsCfg.rate, ttsCfg.pitch, () => {
+        if (msgIndex >= 0) ttsLastReadIndexRef.current = Math.max(ttsLastReadIndexRef.current, msgIndex)
+        ttsSpeakingRef.current = false
+        processTtsQueue()
+      })
+      return
+    }
+
     const utterance = new SpeechSynthesisUtterance(text)
     const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
     utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
@@ -570,24 +584,13 @@ export default function RoundTableSessionPage() {
     let zhVoices = zhVoicesRef.current
     if (zhVoices.length === 0 && window.speechSynthesis) {
       try {
-        const allVoices = window.speechSynthesis.getVoices()
-        zhVoices = allVoices.filter(v => {
-          const lang = (v.lang || '').toLowerCase()
-          return lang.startsWith('zh') || lang.startsWith('cmn')
-        })
+        zhVoices = getSortedChineseVoices(window.speechSynthesis)
         if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
       } catch {}
     }
     if (zhVoices.length > 0) {
-      let voice = roleVoiceMapRef.current.get(roleKey)
-      if (!voice) {
-        let hash = 0
-        for (let i = 0; i < roleKey.length; i++) hash = ((hash << 5) - hash + roleKey.charCodeAt(i)) | 0
-        voice = zhVoices[Math.abs(hash) % zhVoices.length]
-        roleVoiceMapRef.current.set(roleKey, voice)
-      }
-      const stillValid = zhVoices.some(v => v.name === voice!.name && v.lang === voice!.lang)
-      if (stillValid) {
+      const voice = assignVoiceForRole(roleKey, roleVoiceMapRef.current, zhVoices)
+      if (voice) {
         utterance.voice = voice
         utterance.lang = voice.lang
       }
@@ -623,15 +626,20 @@ export default function RoundTableSessionPage() {
     discussionLoopRef.current = false
     abortRef.current?.abort()
     abortRef.current = null
+    speechService.stop()
     try { window.speechSynthesis?.cancel() } catch {}
     ttsEnabledSpeakerRef.current = null
     ttsLastReadIndexRef.current = -1
-ttsEnabledRef.current = false
+    ttsEnabledRef.current = false
     ttsQueueRef.current = []
     ttsSpeakingRef.current = false
     speakingKeyRef.current = null
     setTtsEnabled(false)
     setSpeakingKey(null)
+    // 清理残留的流式占位消息（对齐辩论页 handleStop）
+    setMessages(prev => prev.map(m =>
+      m.streaming ? { ...m, streaming: undefined } : m
+    ))
   }, [])
 
   const pauseDiscussion = useCallback(() => {
@@ -784,6 +792,26 @@ ttsEnabledRef.current = false
   const handleToggleSpeak = useCallback((msgId: string, content: string, roleKey: string) => {
     const synth = window.speechSynthesis
     if (!synth) return
+
+    if (speechEnabledRef.current) {
+      const voiceName = getAzureVoiceForRole(roleKey, ROUNDTABLE_AZURE_VOICE)
+      if (speakingMsgId === msgId) {
+        speechService.stop()
+        setSpeakingMsgId(null)
+        return
+      }
+      synth.cancel()
+      setSpeakingMsgId(msgId)
+      const cleanText = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
+        .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
+        .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
+      if (!cleanText) return
+      const ttsCfg = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+      speechService.speak(cleanText, voiceName, ttsCfg.rate, ttsCfg.pitch, () => setSpeakingMsgId(null))
+      return
+    }
+
     if (speakingMsgId === msgId) { synth.cancel(); setSpeakingMsgId(null); return }
     synth.cancel()
     setSpeakingMsgId(msgId)
@@ -794,8 +822,8 @@ ttsEnabledRef.current = false
     if (!cleanText) return
     const chunks = splitLongText(cleanText)
     const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
-    const voices = synth.getVoices()
-    const zhVoice = voices.find(v => v.lang.startsWith('zh'))
+    const zhVoices = getSortedChineseVoices(synth)
+    const zhVoice = assignVoiceForRole(roleKey, roleVoiceMapRef.current, zhVoices)
 
     const speakChunk = (idx: number) => {
       if (idx >= chunks.length) { setSpeakingMsgId(null); return }
@@ -914,12 +942,8 @@ ttsEnabledRef.current = false
                     if (!ttsEnabled) {
                       ttsEnabledRef.current = true
                       try {
-                        const allVoices = window.speechSynthesis.getVoices()
-                        const zhVs = allVoices.filter(v => {
-                          const lang = (v.lang || '').toLowerCase()
-                          return lang.startsWith('zh') || lang.startsWith('cmn')
-                        })
-                        if (zhVs.length > 0) zhVoicesRef.current = zhVs
+                        const sorted = getSortedChineseVoices(window.speechSynthesis)
+                        if (sorted.length > 0) zhVoicesRef.current = sorted
                       } catch {}
 
                       const msgs = messagesRef.current
@@ -989,7 +1013,7 @@ ttsEnabledRef.current = false
 
                 {phase === 'discussing' && (
                   <button
-                    onClick={stopDiscussion}
+                    onClick={pauseDiscussion}
                     className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
                   >
                     <Square className="h-3 w-3 shrink-0" />

@@ -82,6 +82,11 @@ public interface BookRepository extends BaseRepository<Book, Long> {
     Optional<Book> findByFileUrl(String fileUrl);
 
     /**
+     * 根据文件名+格式查找（用于去重，新格式：fileUrl 仅存文件名）
+     */
+    Optional<Book> findByFileUrlAndFormat(String fileUrl, String format);
+
+    /**
      * 根据封面URL查找（用于封面回退查找）
      */
     Optional<Book> findByCoverUrl(String coverUrl);

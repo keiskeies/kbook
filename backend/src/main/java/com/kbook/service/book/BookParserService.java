@@ -1116,7 +1116,7 @@ public class BookParserService {
         if (book.getFileUrl() == null) {
             return null;
         }
-        Path filePath = Paths.get(book.getFileUrl());
+        Path filePath = storageProps.resolveBookPath(book.getFileUrl(), book.getFormat());
         if (!Files.exists(filePath)) {
             return null;
         }
@@ -1418,7 +1418,7 @@ public class BookParserService {
      */
     private String extractContentForRAG(Book book) {
         if (book.getFileUrl() == null) return null;
-        Path filePath = Paths.get(book.getFileUrl());
+        Path filePath = storageProps.resolveBookPath(book.getFileUrl(), book.getFormat());
         if (!Files.exists(filePath)) return null;
 
         try {
@@ -1547,7 +1547,7 @@ public class BookParserService {
 
         // 扫描版 PDF：使用大模型 OCR 逐页识别
         log.info("PDF 全文提取（扫描版，使用OCR）: bookId={}, pages={}", book.getId(), totalPages);
-        return ocrPdfWithVisionModel(book, Paths.get(book.getFileUrl()), totalPages);
+        return ocrPdfWithVisionModel(book, storageProps.resolveBookPath(book.getFileUrl(), book.getFormat()), totalPages);
     }
 
     /**

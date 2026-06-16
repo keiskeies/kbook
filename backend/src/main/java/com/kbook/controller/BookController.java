@@ -178,7 +178,7 @@ public class BookController {
                 .coverUrl(req.getCoverUrl())
                 .description(req.getDescription())
                 .format(req.getFormat())
-                .fileUrl(req.getFileUrl())
+                .fileUrl(req.getFileUrl() != null ? Paths.get(req.getFileUrl()).getFileName().toString() : null)
                 .fileSize(req.getFileSize())
                 .formatTags(req.getFormatTags())
                 .totalUnits(req.getTotalUnits())

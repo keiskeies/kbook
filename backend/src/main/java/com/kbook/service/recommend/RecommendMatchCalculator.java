@@ -84,8 +84,8 @@ public class RecommendMatchCalculator {
         EDUCATION("education_weight", 0.8),                    // 学历：中等权重，配合邻近衰减使用
         ENTREPRENEURSHIP("entrepreneurship_weight", 0.6),      // 创业意向：辅助权重，二值维度无邻近衰减
         INCOME("income_weight", 0.5),                          // 收入区间：辅助权重，配合邻近衰减使用
-        INTENT("intent_weight", 1.2),                          // 阅读意图：中等权重，瞬时状态辅助信号（充电成长/共鸣陪伴/逃离放松/新鲜刺激/答案解惑）
-        MOOD("mood_weight", 1.5),                              // 心情：中等权重，瞬时状态辅助信号（开心/平静/焦虑/低落/烦躁/疲惫）
+        INTENT("intent_weight", 1.8),                          // 阅读意图：中等权重，瞬时状态辅助信号（充电成长/共鸣陪伴/逃离放松/新鲜刺激/答案解惑）
+        MOOD("mood_weight", 1.6),                              // 心情：中等权重，瞬时状态辅助信号（开心/平静/焦虑/低落/烦躁/疲惫）
 
         // ---- 衰减/惩罚系数 ----
         ADJACENT_DECAY("adjacent_decay", 0.4),                 // 邻近维度衰减系数：邻近维度的权重 = 主权重 × 此值

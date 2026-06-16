@@ -23,6 +23,9 @@ import {
 } from '@/types/debate'
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { getSortedChineseVoices, assignVoiceForRole } from '@/utils/browserTts'
+import { speechService } from '@/utils/speechService'
+import { getAzureVoiceForRole, DEBATE_AZURE_VOICE } from '@/utils/speechVoices'
 
 type Phase = 'loading' | 'OPENING' | 'CROSS_EXAM' | 'REBUTTAL' | 'FREE' | 'CLOSING' | 'completed' | 'error'
 
@@ -460,6 +463,7 @@ export default function DebateSessionPage() {
   const ttsSpeakingRef = useRef(false)
   const roleVoiceMapRef = useRef<Map<string, SpeechSynthesisVoice>>(new Map())
   const zhVoicesRef = useRef<SpeechSynthesisVoice[]>([])
+  const speechEnabledRef = useRef(false)
 
   // 发言次数统计
   const speakCounts = messages.reduce<Record<string, number>>((acc, m) => {
@@ -518,6 +522,13 @@ export default function DebateSessionPage() {
         reportPollRef.current = null
       }
     }
+  }, [])
+
+  // 语音服务初始化
+  useEffect(() => {
+    speechService.init().then(() => {
+      speechEnabledRef.current = speechService.activeProvider !== 'browser'
+    })
   }, [])
 
   // 新内容到达时自动滚动到底部（仅当用户未手动离开时）
@@ -638,6 +649,16 @@ export default function DebateSessionPage() {
     const { text, roleKey } = ttsQueueRef.current.shift()!
     ttsSpeakingRef.current = true
 
+    if (speechEnabledRef.current) {
+      const voiceName = getAzureVoiceForRole(roleKey, DEBATE_AZURE_VOICE)
+      const ttsCfg = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+      speechService.speak(text, voiceName, ttsCfg.rate, ttsCfg.pitch, () => {
+        ttsSpeakingRef.current = false
+        processTtsQueue()
+      })
+      return
+    }
+
     const utterance = new SpeechSynthesisUtterance(text)
     const config = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
     utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
@@ -649,24 +670,13 @@ export default function DebateSessionPage() {
     let zhVoices = zhVoicesRef.current
     if (zhVoices.length === 0 && window.speechSynthesis) {
       try {
-        const allVoices = window.speechSynthesis.getVoices()
-        zhVoices = allVoices.filter(v => {
-          const lang = (v.lang || '').toLowerCase()
-          return lang.startsWith('zh') || lang.startsWith('cmn')
-        })
+        zhVoices = getSortedChineseVoices(window.speechSynthesis)
         if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
       } catch {}
     }
     if (zhVoices.length > 0) {
-      let voice = roleVoiceMapRef.current.get(roleKey)
-      if (!voice) {
-        let hash = 0
-        for (let i = 0; i < roleKey.length; i++) hash = ((hash << 5) - hash + roleKey.charCodeAt(i)) | 0
-        voice = zhVoices[Math.abs(hash) % zhVoices.length]
-        roleVoiceMapRef.current.set(roleKey, voice)
-      }
-      const stillValid = zhVoices.some(v => v.name === voice!.name && v.lang === voice!.lang)
-      if (stillValid) {
+      const voice = assignVoiceForRole(roleKey, roleVoiceMapRef.current, zhVoices)
+      if (voice) {
         utterance.voice = voice
         utterance.lang = voice.lang
       }
@@ -698,6 +708,7 @@ export default function DebateSessionPage() {
   }, [processTtsQueue])
 
   const stopTts = useCallback(() => {
+    speechService.stop()
     try { window.speechSynthesis?.cancel() } catch {}
     setSpeakingMsgId(null)
     ttsQueueRef.current = []
@@ -716,30 +727,25 @@ export default function DebateSessionPage() {
       .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
     if (!cleanText) return
     const chunks = splitLongText(cleanText)
+
+    if (speechEnabledRef.current) {
+      const voiceName = getAzureVoiceForRole(roleKey, DEBATE_AZURE_VOICE)
+      const ttsCfg = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+      speechService.speak(cleanText, voiceName, ttsCfg.rate, ttsCfg.pitch, () => setSpeakingMsgId(null))
+      return
+    }
+
     const config = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
 
     // 为角色选择不同的语音
     let zhVoices = zhVoicesRef.current
     if (zhVoices.length === 0) {
       try {
-        const allVoices = synth.getVoices()
-        zhVoices = allVoices.filter(v => {
-          const lang = (v.lang || '').toLowerCase()
-          return lang.startsWith('zh') || lang.startsWith('cmn')
-        })
+        zhVoices = getSortedChineseVoices(synth)
         if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
       } catch {}
     }
-    let roleVoice: SpeechSynthesisVoice | null = null
-    if (zhVoices.length > 0) {
-      roleVoice = roleVoiceMapRef.current.get(roleKey) ?? null
-      if (!roleVoice) {
-        let hash = 0
-        for (let i = 0; i < roleKey.length; i++) hash = ((hash << 5) - hash + roleKey.charCodeAt(i)) | 0
-        roleVoice = zhVoices[Math.abs(hash) % zhVoices.length]
-        roleVoiceMapRef.current.set(roleKey, roleVoice)
-      }
-    }
+    const roleVoice = assignVoiceForRole(roleKey, roleVoiceMapRef.current, zhVoices)
 
     const speakChunk = (idx: number) => {
       if (idx >= chunks.length) { setSpeakingMsgId(null); return }
@@ -1286,6 +1292,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
       abortRef.current.abort()
       abortRef.current = null
     }
+    speechService.stop()
     stopTts()
     setSpeakingKey(null)
     // 清理残留的流式占位消息

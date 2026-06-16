@@ -4,6 +4,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 /**
  * 图书存储与扫描配置属性
  */
@@ -92,5 +95,29 @@ public class BookStorageProperties {
             /** 音频编码器 */
             private String audioCodec = "aac";
         }
+    }
+
+    /**
+     * 根据文件名和格式解析完整的图书文件路径
+     * <p>
+     * 兼容旧数据：如果 fileName 已经是绝对路径（旧格式），直接返回；
+     * 如果是纯文件名（新格式），根据 format 从配置中获取基准目录并拼接。
+     *
+     * @param fileName 文件名（如 "book.epub"）或旧格式绝对路径
+     * @param format   图书格式（EPUB/PDF/TXT）
+     * @return 完整的文件路径
+     */
+    public Path resolveBookPath(String fileName, String format) {
+        Path path = Paths.get(fileName);
+        if (path.isAbsolute()) {
+            return path; // 旧格式兼容：直接返回绝对路径
+        }
+        String baseDir = switch (format != null ? format.toUpperCase() : "") {
+            case "EPUB" -> bookPaths.getEpub();
+            case "PDF" -> bookPaths.getPdf();
+            case "TXT" -> bookPaths.getTxt();
+            default -> throw new IllegalArgumentException("不支持的图书格式: " + format);
+        };
+        return Paths.get(baseDir, fileName);
     }
 }

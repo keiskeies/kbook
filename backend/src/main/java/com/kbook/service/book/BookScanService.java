@@ -264,8 +264,12 @@ public class BookScanService {
      * @return 处理后的 Book 实体
      */
     public Book processBookFile(Path filePath, String format, String title) {
-        String fileUrl = filePath.toAbsolutePath().toString();
-        Optional<Book> existing = bookRepository.findByFileUrl(fileUrl);
+        String fileName = filePath.getFileName().toString();
+        // 先用文件名+格式去重（新格式），兼容旧格式绝对路径回退
+        Optional<Book> existing = bookRepository.findByFileUrlAndFormat(fileName, format);
+        if (existing.isEmpty()) {
+            existing = bookRepository.findByFileUrl(filePath.toAbsolutePath().toString());
+        }
         try {
             if (existing.isPresent()) {
                 return processExistingBook(existing.get(), filePath);
@@ -283,6 +287,8 @@ public class BookScanService {
     private Book processExistingBook(Book book, Path filePath) throws Exception {
         book.setFileSize(Files.size(filePath));
         book.setDescription(null);
+        // 迁移旧绝对路径为纯文件名
+        book.setFileUrl(filePath.getFileName().toString());
         bookParserService.parseAndFill(book, filePath);
         bookParserService.finalizeCover(book);
         bookParserService.generateAllAiData(book);
@@ -299,7 +305,7 @@ public class BookScanService {
         Book newBook = Book.builder()
                 .title(title)
                 .format(format)
-                .fileUrl(filePath.toAbsolutePath().toString())
+                .fileUrl(filePath.getFileName().toString())
                 .fileSize(Files.size(filePath))
                 .build();
         bookParserService.parseAndFill(newBook, filePath);
@@ -321,8 +327,11 @@ public class BookScanService {
         String fileName = filePath.getFileName().toString();
         String title = extractTitleFromFilename(fileName);
 
-        String fileUrl = filePath.toAbsolutePath().toString();
-        Optional<Book> existing = bookRepository.findByFileUrl(fileUrl);
+        // 先用文件名+格式去重（新格式），兼容旧格式绝对路径回退
+        Optional<Book> existing = bookRepository.findByFileUrlAndFormat(fileName, format);
+        if (existing.isEmpty()) {
+            existing = bookRepository.findByFileUrl(filePath.toAbsolutePath().toString());
+        }
 
         if (existing.isPresent()) {
             Book book = existing.get();
