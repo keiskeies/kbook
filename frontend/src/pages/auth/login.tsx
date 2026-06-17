@@ -136,8 +136,8 @@ export default function LoginPage() {
             <BookOpen className="h-10 w-10 text-white" strokeWidth={2.5} />
           </div>
           <h2 className="text-h1 font-bold text-white mb-4">KBook</h2>
-          <p className="text-lg text-white/80 leading-relaxed">AI 驱动的智能阅读平台</p>
-          <p className="mt-3 text-sm text-white/60">个性化推荐 · AI 问答 · 沉浸式阅读</p>
+          <p className="text-lg text-white/80 leading-relaxed">赛博斗蛐蛐，读书也疯狂</p>
+          <p className="mt-3 text-sm text-white/60">16 种性格 AI · 圆桌激辩 · 立场交锋</p>
         </div>
       </div>
 
@@ -150,7 +150,7 @@ export default function LoginPage() {
               <BookOpen className="h-6 w-6 text-primary-foreground" strokeWidth={2.5} />
             </div>
             <h1 className="mb-2 text-h3 font-bold">欢迎回来</h1>
-            <p className="text-sm text-muted-foreground">登录 KBook，开启阅读之旅</p>
+            <p className="text-sm text-muted-foreground">登录 KBook，让读书变成一场真人秀</p>
           </div>
 
           {/* 登录方式切换 */}
