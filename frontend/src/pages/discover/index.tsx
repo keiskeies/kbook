@@ -686,33 +686,33 @@ export default function DiscoverPage() {
     { key: 'recent', label: '最新' },
   ]
 
-  const tabIndex = TABS.findIndex(t => t.key === activeTab)
-
   const renderTabBar = () => (
-    <div className="relative flex rounded-xl bg-muted/50 p-1 w-full max-w-xs mx-auto my-1.5">
-      {/* 滑块 */}
-      <div
-        className="absolute top-1 bottom-1 rounded-lg bg-primary shadow-sm shadow-primary/20 transition-all duration-300 ease-out"
-        style={{ width: `calc(${100 / TABS.length}% - 2px)`, left: `calc(${tabIndex * (100 / TABS.length)}% + 1px)` }}
-      />
-      {TABS.map(tab => {
-        const Icon = tab.icon
-        const isActive = activeTab === tab.key
-        return (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${
-              isActive
-                ? 'text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {tab.label}
-          </button>
-        )
-      })}
+    <div className="px-4 md:px-6 lg:px-8">
+      <div className="flex h-14 items-end gap-1 overflow-x-auto scrollbar-hide">
+        {TABS.map(tab => {
+          const Icon = tab.icon
+          const isActive = activeTab === tab.key
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`relative flex h-12 min-w-[72px] items-center justify-center gap-1.5 px-3 first:pl-0 first:pr-3 text-sm font-medium transition-colors duration-200 md:min-w-0 md:px-4 md:first:pl-0 md:first:pr-4 ${
+                isActive
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Icon className={`h-4 w-4 transition-colors ${isActive ? 'text-primary' : 'text-muted-foreground/80'}`} />
+              <span className="whitespace-nowrap">{tab.label}</span>
+              <span
+                className={`absolute inset-x-3 bottom-0 h-0.5 rounded-full transition-all duration-200 ${
+                  isActive ? 'bg-primary opacity-100' : 'bg-transparent opacity-0'
+                }`}
+              />
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 
@@ -775,7 +775,7 @@ export default function DiscoverPage() {
               )}
             </div>
             {categories.length > 0 && (
-              <div className="px-4 md:px-6 lg:px-8 pb-2">
+              <div className="pb-2">
                 <TagFilterBar
                   tags={categories.map(c => c.name)}
                   activeTag={activeTag}
