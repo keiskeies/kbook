@@ -238,10 +238,6 @@ public class BookChatService {
                 // 2. 懒生成 compressedSummary（首次问答时若为空，同步生成并持久化）
                 ensureCompressedSummary(book, emitter);
 
-                try {
-                    emitter.send(SseEmitter.event().name("thinking").data("在书里找找相关的部分…"));
-                } catch (Exception ignored) {
-                }
                 int ragTopK = Optional.ofNullable(aiProviderConfigService.getActiveRagTopK())
                         .orElse(qdrantProperties.getRagTopK());
                 int ragMaxChars = getRagMaxChars();
@@ -252,19 +248,16 @@ public class BookChatService {
                         ragContext = doRagRetrieval(book, question, lastAiAnswer, ragTopK, ragMaxChars, emitter);
                     } catch (Exception e) {
                         log.warn("RAG 检索异常: bookId={} - {}", book.getId(), e.getMessage());
+                        try {
+                            emitter.send(SseEmitter.event().name("thinking").data("没找到直接相关的内容，凭印象回答你…"));
+                        } catch (Exception ignored) {
+                        }
                     }
                 }
                 if (ragContext != null) {
                     log.debug("RAG 检索结果长度: {}", ragContext.length());
                 }
 
-                String thinkingText = (ragContext != null && !ragContext.isBlank())
-                        ? "找到了，让我整理一下思路…"
-                        : "没找到直接相关的内容，凭印象回答你…";
-                try {
-                    emitter.send(SseEmitter.event().name("thinking").data(thinkingText));
-                } catch (Exception ignored) {
-                }
 
                 // 构建图书基本信息（静态，跨会话共享 KV Cache）和 RAG+问题（每次变化）
                 String bookInfoPrompt = buildBookInfoPrompt(book);
@@ -962,13 +955,17 @@ public class BookChatService {
      * @return RAG 上下文字符串，不可用时返回 null
      */
     private String doRagRetrieval(Book book, String question, String lastAiAnswer, int ragTopK, int ragMaxChars,
-                                      SseEmitter emitter) {
+                                  SseEmitter emitter) {
+        try {
+            emitter.send(SseEmitter.event().name("thinking")
+                    .data("试试从不同角度理解的问题…"));
+        } catch (Exception ignored) {
+        }
         List<String> subQueries = chatModelManager.expandQuery(question, lastAiAnswer, book);
-        if (subQueries.size() > 2) {
-            try {
-                emitter.send(SseEmitter.event().name("thinking")
-                        .data("试试从不同角度理解你的问题…"));
-            } catch (Exception ignored) {}
+        try {
+            emitter.send(SseEmitter.event().name("thinking")
+                    .data("找找 [" + String.join("，", subQueries) + "] 相关内容…"));
+        } catch (Exception ignored) {
         }
         Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
         int rawCount = 0, rawChars = 0;
@@ -1052,6 +1049,14 @@ public class BookChatService {
                     book.getId(), questionMarkCount, ragContext.length());
             ragHitStatisticsService.recordMiss(book.getId());
         }
+
+        String thinkingText = (!merged.isEmpty())
+                ? "找到 " + merged.size() + " 条相关内容, 我整理一下思路…"
+                : "没找到直接相关的内容，凭印象回答你…";
+        try {
+            emitter.send(SseEmitter.event().name("thinking").data(thinkingText));
+        } catch (Exception ignored) {
+        }
         return ragContext;
     }
 
@@ -1067,17 +1072,21 @@ public class BookChatService {
         try {
             emitter.send(SseEmitter.event().name("thinking")
                     .data("这本书我第一次读，花点时间消化一下…"));
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         boolean done = false;
         long deadline = System.currentTimeMillis() + 3600_000L;
-        while (!done && System.currentTimeMillis() < deadline) {
+        while (System.currentTimeMillis() < deadline) {
             Boolean result = bookParserService.ensureContentEmbedded(bookId);
             if (result == null) {
-                try { Thread.sleep(2000); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             } else {
-                done = true;
                 if (result) {
                     book.setContentEmbedded(true);
                     log.info("按需生成内容向量成功: bookId={}", bookId);
@@ -1104,7 +1113,8 @@ public class BookChatService {
         try {
             emitter.send(SseEmitter.event().name("thinking")
                     .data("让我理一理这本书的脉络…"));
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         String compressed = chatModelManager.generateCompressedSummary(book);
         if (compressed != null && !compressed.isBlank()) {
             book.setCompressedSummary(compressed);

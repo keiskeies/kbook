@@ -108,7 +108,7 @@ public class AdminBookController extends BaseController {
 
             Book book = bookScanService.processBookFile(targetPath, extension, title);
             book.setContentEmbedded(false);
-            bookService.updateBook(book.getId(), book);
+            bookService.updateBookAll(book.getId(), book);
 
             log.info("上传图书成功: {} [{}]", title, extension);
             return Result.ok(book);

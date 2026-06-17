@@ -1,9 +1,5 @@
 package com.kbook.service.book;
 
-import com.kbook.service.ai.ChatModelManager;
-import com.kbook.service.embedding.EmbeddingService;
-import com.kbook.service.recommend.BookDimensionScoreService;
-
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.PageResult;
@@ -20,6 +16,9 @@ import com.kbook.dto.stats.TagStat;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.UserReadHistoryRepository;
+import com.kbook.service.ai.ChatModelManager;
+import com.kbook.service.embedding.EmbeddingService;
+import com.kbook.service.recommend.BookDimensionScoreService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
@@ -81,7 +80,7 @@ public class BookService {
                        @Lazy ChatModelManager chatModelManager,
                        StringRedisTemplate redisTemplate,
                        BookStorageProperties storageProps,
-                        ObjectMapper objectMapper,
+                       ObjectMapper objectMapper,
                        UserReadHistoryRepository userReadHistoryRepository,
                        BookDimensionScoreService bookDimensionScoreService) {
         this.bookRepository = bookRepository;
@@ -222,46 +221,68 @@ public class BookService {
     }
 
     /**
-     * 更新图书信息（JPA + ES 双写）
+     * 更新图书信息（JPA + ES 双写，不含统计字段）
+     * <p>
+     * 统计字段（rating/ratingCount/dimensionRatingCount/readCount）有专用业务流程，
+     * 不在此处更新，只交由 updateBookAll 全量覆盖。
      */
     @Transactional
     @LogAction("更新图书")
     public void updateBook(Long id, Book updates) {
         log.debug("更新图书: id={}", id);
         Book book = getBookById(id);
-        if (updates.getTitle() != null) book.setTitle(updates.getTitle());
-        if (updates.getAuthor() != null) book.setAuthor(updates.getAuthor());
-        if (updates.getCoverUrl() != null) book.setCoverUrl(updates.getCoverUrl());
-        if (updates.getDescription() != null) book.setDescription(updates.getDescription());
-        if (updates.getFormatTags() != null) book.setFormatTags(updates.getFormatTags());
-        if (updates.getConceptTags() != null) book.setConceptTags(updates.getConceptTags());
-        if (updates.getReaderNeedTags() != null) book.setReaderNeedTags(updates.getReaderNeedTags());
-        if (updates.getTargetReaderTags() != null) book.setTargetReaderTags(updates.getTargetReaderTags());
-        if (updates.getTotalUnits() != null) book.setTotalUnits(updates.getTotalUnits());
-        if (updates.getRelevanceScores() != null) {
-            book.setRelevanceScores(updates.getRelevanceScores());
-        }
-        // 注意：rating 和 ratingCount 不通过 updateBook 更新，必须使用 setAiRating 或 rateBook 方法
-        if (updates.getReadCount() != null) book.setReadCount(updates.getReadCount());
-        if (updates.getToc() != null) book.setToc(updates.getToc());
-        if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
-        if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
+        applyBookUpdates(book, updates);
         Book saved = bookRepository.save(book);
-        // sync 到 book_dimension_scores（供 SQL 批量评分使用）
         if (updates.getRelevanceScores() != null) {
             bookDimensionScoreService.syncFromBook(saved);
         }
         TransactionUtils.afterCommit(() -> evictBookCache(id));
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
+
     /**
-     * 更新图书信息（JPA + ES 双写）
+     * 全量更新图书（含所有统计字段）
+     * <p>
+     * 与 updateBook 的区别：允许直接覆盖以下统计字段
+     * rating / ratingCount / dimensionRatingCount / readCount
+     * 这些字段在普通业务流程中有专用更新方法，全量更新时可通过此方法整体覆盖。
      */
     @Transactional
     @LogAction("全量更新图书")
     public void updateBookAll(Long id, Book updates) {
-        log.debug("更新图书: id={}", id);
+        log.debug("全量更新图书: id={}", id);
         Book book = getBookById(id);
+        applyBookUpdates(book, updates);
+        // 统计字段：只在全量更新时允许覆盖
+        if (updates.getRating() != null) book.setRating(updates.getRating());
+        if (updates.getRatingCount() != null) book.setRatingCount(updates.getRatingCount());
+        if (updates.getDimensionRatingCount() != null) book.setDimensionRatingCount(updates.getDimensionRatingCount());
+        if (updates.getReadCount() != null) book.setReadCount(updates.getReadCount());
+        Book saved = bookRepository.save(book);
+        if (updates.getRelevanceScores() != null) {
+            bookDimensionScoreService.syncFromBook(saved);
+        }
+        TransactionUtils.afterCommit(() -> evictBookCache(id));
+        log.info("图书ALL更新成功: id={}, title={}", saved.getId(), saved.getTitle());
+    }
+
+    /**
+     * 公共字段赋值（忽略 null），新增 Book 字段只改此处
+     * <p>
+     * ==== 不在此赋值，有专用更新方法的字段 ====
+     * rating              → setAiRating() / rateBook()     — BookService
+     * ratingCount         → rateBook()                     — BookService
+     * dimensionRatingCount → BookTrashService              — 维度打分维护
+     * readCount           → incrementReadCount()           — BookService
+     * 以上字段只在 updateBookAll 中允许直接覆盖。
+     * <p>
+     * ==== 创建后不改的字段 ====
+     * format / fileUrl / fileSize
+     * <p>
+     * ==== 两边都保留的字段 ====
+     * relevanceScores — 有专用 updateRelevanceScores()，但管理后台需手动覆盖，所以保留
+     */
+    private void applyBookUpdates(Book book, Book updates) {
         if (updates.getTitle() != null) book.setTitle(updates.getTitle());
         if (updates.getAuthor() != null) book.setAuthor(updates.getAuthor());
         if (updates.getCoverUrl() != null) book.setCoverUrl(updates.getCoverUrl());
@@ -271,21 +292,11 @@ public class BookService {
         if (updates.getReaderNeedTags() != null) book.setReaderNeedTags(updates.getReaderNeedTags());
         if (updates.getTargetReaderTags() != null) book.setTargetReaderTags(updates.getTargetReaderTags());
         if (updates.getTotalUnits() != null) book.setTotalUnits(updates.getTotalUnits());
-        if (updates.getRelevanceScores() != null) {
-            book.setRelevanceScores(updates.getRelevanceScores());
-        }
-        if (updates.getRating() != null) book.setRating(updates.getRating());
-        if (updates.getReadCount() != null) book.setReadCount(updates.getReadCount());
+        if (updates.getRelevanceScores() != null) book.setRelevanceScores(updates.getRelevanceScores());
         if (updates.getToc() != null) book.setToc(updates.getToc());
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
-        Book saved = bookRepository.save(book);
-        // sync 到 book_dimension_scores（供 SQL 批量评分使用）
-        if (updates.getRelevanceScores() != null) {
-            bookDimensionScoreService.syncFromBook(saved);
-        }
-        TransactionUtils.afterCommit(() -> evictBookCache(id));
-        log.info("图书ALL更新成功: id={}, title={}", saved.getId(), saved.getTitle());
+        if (updates.getCompressedSummary() != null) book.setCompressedSummary(updates.getCompressedSummary());
     }
 
     /**
@@ -547,7 +558,6 @@ public class BookService {
         log.info("用户评分: bookId={}, newRating={}, userCount={}", bookId, saved.getRating(), saved.getRatingCount());
         return saved;
     }
-
 
 
     /**

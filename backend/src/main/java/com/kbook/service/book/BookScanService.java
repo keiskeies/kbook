@@ -186,12 +186,12 @@ public class BookScanService {
             // 定义格式优先级：EPUB=0, PDF=1, TXT=2
             int priorityA = getFormatPriority(a.format);
             int priorityB = getFormatPriority(b.format);
-            
+
             // 先按格式优先级排序
             if (priorityA != priorityB) {
                 return Integer.compare(priorityA, priorityB);
             }
-            
+
             // 同格式内按文件大小从小到大排序
             try {
                 return Long.compare(Files.size(a.path), Files.size(b.path));
@@ -313,7 +313,7 @@ public class BookScanService {
         bookParserService.finalizeCover(saved);
         bookParserService.generateAllAiData(saved);
         bookService.setAiRating(saved.getId(), saved.getRating());
-        bookService.updateBook(saved.getId(), saved);
+        bookService.updateBookAll(saved.getId(), saved);
         CompletableFuture.runAsync(() -> bookParserService.generateBookEmbedding(saved));
         return saved;
     }
