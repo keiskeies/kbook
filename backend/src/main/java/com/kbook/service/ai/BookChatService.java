@@ -583,14 +583,12 @@ public class BookChatService {
             int currentIndex = getChunkIndex(current);
             int nextIndex = getChunkIndex(next);
 
-            if (nextIndex <= currentIndex + 2 && nextIndex > currentIndex) {
+            if (nextIndex <= currentIndex + 1 && nextIndex > currentIndex) {
                 String nextText = next.embedded() != null ? next.embedded().text() : "";
-                if (mergedText.length() + nextText.length() <= 2000) {
-                    mergedText.append("\n\n").append(nextText);
-                    if (next.score() > bestScore) bestScore = next.score();
-                    current = next;
-                    continue;
-                }
+                mergedText.append("\n\n").append(nextText);
+                if (next.score() > bestScore) bestScore = next.score();
+                current = next;
+                continue;
             }
 
             merged.add(createMergedMatch(mergedText.toString(), current, bestScore));
@@ -974,8 +972,8 @@ public class BookChatService {
         }
         Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
         int rawCount = 0, rawChars = 0;
-        int maxResult = Math.max(10, Math.min(ragTopK,
-                !subQueries.isEmpty() ? ragTopK / subQueries.size() * 2 : ragTopK));
+        int maxResult = subQueries.isEmpty() ? ragTopK :
+                Math.min(ragTopK, Math.max(ragTopK / 2, ragTopK * 2 / subQueries.size()));
 
         for (String subQuery : subQueries) {
             try {
@@ -1105,7 +1103,7 @@ public class BookChatService {
 
         try {
             emitter.send(SseEmitter.event().name("thinking")
-                    .data("帮你理一理这本书的脉络…"));
+                    .data("让我理一理这本书的脉络…"));
         } catch (Exception ignored) {}
         String compressed = chatModelManager.generateCompressedSummary(book);
         if (compressed != null && !compressed.isBlank()) {

@@ -362,24 +362,24 @@ public class RecommendService {
     public void generateWithProgress(Long userId, SseEmitter emitter) {
         try {
             // ==================== 阶段 1：加载数据 ====================
-            sendProgress(emitter, "loading", "正在加载书籍数据...", 0, 0, 0);
+            sendProgress(emitter, "loading", "加载书籍数据...", 0, 0, 0);
 
             String restartKey = RESTART_KEY_PREFIX + userId;
             redisTemplate.delete(restartKey);
 
             List<BookProjection> allBooks = loadCachedBooks();
             int intTotalBooks = allBooks.size();
-            sendProgress(emitter, "loading", "已加载 " + intTotalBooks + " 本书籍", 10, intTotalBooks, intTotalBooks);
+            sendProgress(emitter, "loading", "已加载 " + intTotalBooks + " 本书籍", 50, intTotalBooks, intTotalBooks);
 
             int maxRestarts = 5;
             for (int restartCount = 0; restartCount <= maxRestarts; restartCount++) {
                 if (restartCount > 0) {
                     redisTemplate.delete(restartKey);
-                    sendProgress(emitter, "restarting", "检测到画像变更，正在重新计算...", 12, 0, intTotalBooks);
+                    sendProgress(emitter, "restarting", "检测到画像变更，正在重新计算...", 60, 0, intTotalBooks);
                 }
 
                 // ==================== 阶段 2：匹配度计算 ====================
-                sendProgress(emitter, "matching", "正在分析阅读画像...", 20, 0, intTotalBooks);
+                sendProgress(emitter, "matching", "正在分析阅读画像...", 80, 0, intTotalBooks);
                 // scoreAllBooks 内部的 onProgress 回调仅用于 Java 兜底路径（SQL 路径立即返回）
                 List<ScoredBook> scoredBooks = scoreAllBooks(userId, allBooks, restartKey, processed -> {
                     int progressPercent = 25 + (int) (30.0 * processed / Math.max(intTotalBooks, 1));
@@ -391,12 +391,12 @@ public class RecommendService {
                     continue;
                 }
 
-                sendProgress(emitter, "matching", "匹配度计算完成，共 " + scoredBooks.size() + " 本", 55, scoredBooks.size(), intTotalBooks);
+                sendProgress(emitter, "matching", "匹配度计算完成，共 " + scoredBooks.size() + " 本", 85, scoredBooks.size(), intTotalBooks);
 
                 // ==================== 阶段 3：保存结果 ====================
-                sendProgress(emitter, "saving", "正在生成推荐列表...", 70, 0, 0);
+                sendProgress(emitter, "saving", "正在生成推荐列表...", 90, 0, 0);
                 this.saveToSortedSetDirect(userId, scoredBooks);
-                sendProgress(emitter, "saving", "推荐列表已保存", 85, scoredBooks.size(), intTotalBooks);
+                sendProgress(emitter, "saving", "推荐列表已保存", 95, scoredBooks.size(), intTotalBooks);
 
                 // ==================== 完成 ====================
                 sendProgress(emitter, "done", "推荐刷新完成", 100, scoredBooks.size(), intTotalBooks);

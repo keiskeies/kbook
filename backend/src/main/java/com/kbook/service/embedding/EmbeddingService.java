@@ -1424,9 +1424,10 @@ public class EmbeddingService {
                         qVec.length, String.format("%.4f", qVecNorm), qVecSample,
                         currentEmbeddingModelName);
             } else {
-                log.debug("Qdrant filter 搜索完成: bookId={}, threshold={}, hits={}, topScore={}",
+                log.debug("Qdrant filter 搜索完成: bookId={}, threshold={}, hits={}, topScore={}, minScore={}",
                         bookId, scoreThreshold, matches.size(),
-                        matches.isEmpty() ? "N/A" : String.format("%.4f", matches.get(0).score()));
+                        matches.isEmpty() ? "N/A" : String.format("%.4f", matches.get(0).score()),
+                        matches.isEmpty() ? "N/A" : String.format("%.4f", matches.get(matches.size() - 1).score()));
             }
             return matches;
         } catch (Exception e) {
