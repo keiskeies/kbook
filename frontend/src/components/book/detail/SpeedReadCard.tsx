@@ -241,7 +241,7 @@ export function SpeedReadCard({ data, loading }: SpeedReadCardProps) {
                     <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary animate-pulse">
                       {(section.key === 'corePoints' ? (data?.corePoints?.length || 0) : section.key === 'suitableFor' ? (data?.suitableFor?.length || 0) : section.key === 'notSuitableFor' ? (data?.notSuitableFor?.length || 0) : (data?.takeaways?.length || 0)) + 1}
                     </span>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{parseSimpleMarkdown(data.currentItem)}<span className="animate-pulse">|</span></p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{parseSimpleMarkdown(data.currentItem ?? '')}<span className="animate-pulse">|</span></p>
                   </div>
                 )}
               </div>

@@ -239,6 +239,9 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
           )
         )
       },
+      () => {
+        // onBookMap — currently unused
+      },
       (sid) => {
         setSessionId(sid)
       },
