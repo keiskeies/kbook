@@ -143,6 +143,17 @@ public class BookController {
     }
 
     /**
+     * 热度排行（综合阅读量、AI问答、圆桌讨论、辩论、书架收藏等多维度评分）
+     */
+    @Operation(summary = "热度排行")
+    @GetMapping("/rank/hot")
+    public Result<PageResult<BookProjection>> getHotRank(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return Result.ok(rankService.getHotRank(page, size));
+    }
+
+    /**
      * 按格式筛选
      */
     @Operation(summary = "按格式筛选图书")

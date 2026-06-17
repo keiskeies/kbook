@@ -683,6 +683,20 @@ public class RecommendService {
     }
 
     /**
+     * 获取综合热度排行榜（全量，无排除）
+     * <p>
+     * 用于 RankService 缓存到 Redis，供发现页「全部」标签和推荐页无画像用户使用。
+     * 直接调用内部 scoreHotBooks，返回 BookProjection 列表（已按热度降序排列，最多 300 本）。
+     *
+     * @return 热度排行的 BookProjection 列表
+     */
+    public List<BookProjection> getHotBooks() {
+        List<ScoredBook> scored = scoreHotBooks(Collections.emptySet());
+        if (scored == null) return List.of();
+        return scored.stream().map(ScoredBook::book).toList();
+    }
+
+    /**
      * 热榜评分（无画像用户兜底）
      * <p>
      * 综合阅读量、AI问答、圆桌讨论、辩论、书架收藏，带时间衰减（半衰期 30 天）。

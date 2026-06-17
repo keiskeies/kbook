@@ -64,6 +64,11 @@ export function getNewBooksRank(page = 1, size = 20) {
   return request.get<PageResult<Book>>('/books/rank/new', { params: { page, size } })
 }
 
+/** 热度排行（综合阅读量、AI问答、圆桌讨论、辩论、书架收藏等多维度评分） */
+export function getHotRank(page = 1, size = 20) {
+  return request.get<PageResult<Book>>('/books/rank/hot', { params: { page, size } })
+}
+
 /** 搜索建议 */
 export function suggestBooks(keyword: string) {
   return request.get<string[]>('/books/suggest', { params: { keyword } })

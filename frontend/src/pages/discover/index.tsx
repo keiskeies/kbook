@@ -9,7 +9,7 @@ import {
 import { getGlobalDebateSessions } from '@/api/debate'
 import { getGlobalRoundTableSessions } from '@/api/roundTable'
 import { getHomeTags } from '@/api/home'
-import { searchBooks, getReadRank, getMatchScores } from '@/api/book'
+import { searchBooks, getHotRank, getMatchScores } from '@/api/book'
 import type { TagStat } from '@/api/home'
 import type { Book } from '@/types/book'
 import { DEBATE_PERSONALITY_NAMES, DEBATE_PERSONALITY_ICONS } from '@/types/debate'
@@ -571,9 +571,9 @@ export default function DiscoverPage() {
   const loadBooks = useCallback(async (tag: string, pageNum: number, query?: string) => {
     setBookLoading(true)
     try {
-      // 无筛选条件时用热门接口，保证"全部"标签下有数据
+      // 无筛选条件时用综合热度接口，保证"全部"标签下有数据
       if (!tag && !query) {
-        const res = await getReadRank(pageNum, 18)
+        const res = await getHotRank(pageNum, 18)
         const result = (res as any)?.data || (res as any)
         const list: Book[] = result?.list || []
         setBooks(prev => pageNum === 1 ? list : [...prev, ...list])

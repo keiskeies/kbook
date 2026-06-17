@@ -34,4 +34,5 @@ frontend_new/
 package/
 deploy/.env
 deploy/docker/.env
+reasonix.toml
 
