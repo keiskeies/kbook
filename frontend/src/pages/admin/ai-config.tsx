@@ -325,7 +325,7 @@ export default function AiConfigPage() {
 
         {/* 供应商 preset - only for CHAT */}
         {isChatForm && (
-          <section className="rounded-lg bg-muted/30 p-3">
+          <section className="rounded-lg bg-muted p-3">
             <button onClick={() => setShowPresets(!showPresets)} className="flex w-full items-center justify-between text-sm font-medium">
               <span>选择 AI 供应商（快捷预设）</span>
               {showPresets ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
@@ -343,7 +343,7 @@ export default function AiConfigPage() {
                 <div className="space-y-2 max-h-[300px] overflow-y-auto overscroll-y-contain">
                   {filteredPresets.map(preset => (
                     <button key={preset.id} onClick={() => handleSelectPreset(preset)}
-                      className={`w-full rounded-lg border p-3 text-left transition-colors ${form.baseUrl === preset.baseUrl ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/30'}`}>
+                      className={`w-full rounded-lg border p-3 text-left transition-colors ${form.baseUrl === preset.baseUrl ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted'}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
@@ -372,7 +372,7 @@ export default function AiConfigPage() {
           <div className="grid grid-cols-2 gap-2">
             {(['OLLAMA', 'OPENAI'] as const).map(p => (
               <button key={p} onClick={() => setForm(f => ({ ...f, provider: p, baseUrl: p === 'OLLAMA' ? 'http://localhost:11434' : 'https://api.deepseek.com/v1' }))}
-                className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${form.provider === p ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'}`}>
+                className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${form.provider === p ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}>
                 {p === 'OLLAMA' ? 'Ollama' : 'OpenAI 兼容'}
               </button>
             ))}
@@ -461,7 +461,7 @@ export default function AiConfigPage() {
             <div className="grid grid-cols-3 gap-2">
               {[{ value: null as boolean | null, label: '自动检测' }, { value: true, label: '支持' }, { value: false, label: '不支持' }].map(opt => (
                 <button key={String(opt.value)} onClick={() => setForm(f => ({ ...f, toolsEnabled: opt.value }))}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${form.toolsEnabled === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'}`}>{opt.label}</button>
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${form.toolsEnabled === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}>{opt.label}</button>
               ))}
             </div>
           </div>
@@ -476,7 +476,7 @@ export default function AiConfigPage() {
 
         <div className="flex gap-2 pt-2">
           <button onClick={handleSave} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"><Save className="h-4 w-4" />{expandedId === 'new' ? '创建' : '更新'}</button>
-          <button onClick={() => resetForm()} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted/50">取消</button>
+          <button onClick={() => resetForm()} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted">取消</button>
         </div>
       </div>
     )
@@ -490,13 +490,13 @@ export default function AiConfigPage() {
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background overscroll-contain">
-      <header className="shrink-0 flex items-center gap-3 border-b bg-background/95 px-4 md:px-6 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-20">
+      <header className="shrink-0 flex items-center gap-3 border-b bg-navbar/95 px-4 md:px-6 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-navbar/60 z-20">
         <button onClick={() => goBack()} className="rounded-full p-1.5 active:bg-muted"><ArrowLeft className="h-5 w-5" /></button>
         <h1 className="text-h3 font-bold flex-1">AI 配置管理</h1>
       </header>
 
       {/* 手机版 Tabs */}
-      <div className="md:hidden shrink-0 flex border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="md:hidden shrink-0 flex border-b bg-navbar/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-navbar/60">
         {[{ tab: 'CHAT' as const, icon: MessageSquare, label: '对话模型' }, { tab: 'EMBEDDING' as const, icon: Layers, label: '嵌入模型' }, { tab: 'ROLES' as const, icon: Users, label: '角色配置' }].map(t => (
           <button key={t.tab} onClick={() => setActiveTab(t.tab)}
             className={`flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === t.tab ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>

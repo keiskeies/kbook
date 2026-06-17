@@ -351,7 +351,7 @@ const markdownComponents = {
     </th>
   ),
   td: ({ children, node, ...props }: any) => (
-    <td {...props} className="border border-border/50 px-2 py-1 even:bg-muted/30">
+    <td {...props} className="border border-border/50 px-2 py-1 even:bg-muted/50">
       {children}
     </td>
   ),

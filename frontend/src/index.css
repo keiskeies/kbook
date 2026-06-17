@@ -32,25 +32,28 @@
     --gray-800: #1A1814;
 
     /* === shadcn 变量映射 === */
-    --background: 40 10% 93%;           /* gray-200 #E6E2DC */
-    --foreground: 36 10% 33%;           /* gray-500 */
+    /* 色彩层级：body 背景 < 导航层 navbar < 卡片 card/popover */
+    --background: 40 6% 94%;            /* #F0EEEA — 页面底色，比 navbar 稍深以形成分层 */
+    --foreground: 36 12% 22%;           /* 深色文字 */
+    --navbar: 0 0% 100%;                /* #FFFFFF — 顶部/底部/侧边栏导航层 */
+    --navbar-foreground: 36 12% 22%;
     --card: 0 0% 100%;                  /* pure white */
-    --card-foreground: 36 10% 33%;      /* gray-500 */
+    --card-foreground: 36 12% 22%;
     --popover: 0 0% 100%;
-    --popover-foreground: 36 10% 33%;
-    --primary: 119 24% 46%;             /* brand-400 #5B8C5A */
+    --popover-foreground: 36 12% 22%;
+    --primary: 119 24% 42%;             /* brand-400 #5B8C5A 加深 */
     --primary-foreground: 0 0% 100%;
-    --secondary: 40 14% 97%;            /* gray-50 */
-    --secondary-foreground: 36 10% 33%; /* gray-500 */
-    --muted: 40 14% 97%;
-    --muted-foreground: 36 8% 57%;      /* gray-400 */
-    --accent: 119 24% 90%;              /* brand-100 */
-    --accent-foreground: 119 24% 30%;
-    --destructive: 0 42% 56%;           /* danger */
+    --secondary: 40 8% 92%;             /* #ECEAE6 */
+    --secondary-foreground: 36 12% 22%;
+    --muted: 40 8% 90%;                 /* #E8E6E2 */
+    --muted-foreground: 36 6% 48%;      /* 中灰 */
+    --accent: 119 24% 88%;              /* brand-100 */
+    --accent-foreground: 119 24% 25%;
+    --destructive: 0 42% 52%;           /* danger */
     --destructive-foreground: 0 0% 100%;
-    --border: 36 14% 89%;               /* gray-200 */
-    --input: 36 14% 89%;
-    --ring: 119 24% 46%;
+    --border: 40 8% 84%;                /* #D8D6D2 */
+    --input: 40 8% 84%;
+    --ring: 119 24% 42%;
     --radius: 0.75rem;
 
     /* === 字体排印 Typography === */
@@ -100,45 +103,47 @@
     --easing-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 
     /* sidebar */
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 36 10% 33%;
-    --sidebar-primary: 119 24% 46%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 36 12% 22%;
+    --sidebar-primary: 119 24% 42%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 36 14% 94%;
-    --sidebar-accent-foreground: 36 10% 33%;
-    --sidebar-border: 36 14% 89%;
-    --sidebar-ring: 119 24% 46%;
+    --sidebar-accent: 40 8% 94%;
+    --sidebar-accent-foreground: 36 12% 22%;
+    --sidebar-border: 40 8% 90%;
+    --sidebar-ring: 119 24% 42%;
   }
 
   .dark {
-    --background: 36 18% 5%;            /* deeper dark #0F0E0C */
-    --foreground: 36 14% 94%;           /* gray-100 */
-    --card: 36 12% 16%;                 /* #262320 — 比背景亮一些 */
-    --card-foreground: 36 14% 94%;
-    --popover: 36 14% 10%;
-    --popover-foreground: 36 14% 94%;
-    --primary: 119 30% 61%;             /* brand-300 #7DBA7C — 深色模式提亮 */
-    --primary-foreground: 36 18% 9%;
-    --secondary: 36 10% 12%;
-    --secondary-foreground: 36 14% 94%;
-    --muted: 36 10% 12%;
-    --muted-foreground: 36 8% 57%;
+    --background: 0 0% 4%;              /* #0A0A0A — 更深的页面底色 */
+    --foreground: 40 10% 96%;           /* gray-100 */
+    --navbar: 36 10% 12%;               /* #201D1A — 导航层 */
+    --navbar-foreground: 40 10% 96%;
+    --card: 36 10% 14%;                 /* #25221F — 比背景亮一些 */
+    --card-foreground: 40 10% 96%;
+    --popover: 36 10% 12%;
+    --popover-foreground: 40 10% 96%;
+    --primary: 119 30% 58%;             /* brand-300 #7DBA7C — 深色模式提亮 */
+    --primary-foreground: 0 0% 4%;
+    --secondary: 36 8% 18%;
+    --secondary-foreground: 40 10% 96%;
+    --muted: 36 8% 18%;
+    --muted-foreground: 36 6% 55%;
     --accent: 119 24% 20%;
     --accent-foreground: 119 30% 70%;
-    --destructive: 0 42% 40%;
+    --destructive: 0 42% 45%;
     --destructive-foreground: 0 0% 100%;
-    --border: 36 10% 18%;
-    --input: 36 10% 18%;
-    --ring: 119 30% 61%;
+    --border: 36 8% 22%;                /* #3B3631 */
+    --input: 36 8% 22%;
+    --ring: 119 30% 58%;
 
-    --sidebar-background: 36 14% 7%;
-    --sidebar-foreground: 36 14% 94%;
-    --sidebar-primary: 119 30% 61%;
-    --sidebar-primary-foreground: 36 18% 9%;
-    --sidebar-accent: 36 10% 12%;
-    --sidebar-accent-foreground: 36 14% 94%;
-    --sidebar-border: 36 10% 18%;
-    --sidebar-ring: 119 30% 61%;
+    --sidebar-background: 36 10% 12%;
+    --sidebar-foreground: 40 10% 96%;
+    --sidebar-primary: 119 30% 58%;
+    --sidebar-primary-foreground: 0 0% 4%;
+    --sidebar-accent: 36 8% 18%;
+    --sidebar-accent-foreground: 40 10% 96%;
+    --sidebar-border: 36 8% 22%;
+    --sidebar-ring: 119 30% 58%;
   }
 }
 

@@ -47,7 +47,7 @@ function RoleBar({
   grabbingKey: string | null
 }) {
   return (
-    <div className="shrink-0 border-b border-border/20 bg-background/80 backdrop-blur-xl px-3 py-2">
+    <div className="shrink-0 border-b border-border/20 bg-navbar/95 backdrop-blur-xl px-3 py-2">
       <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
         {roles.map(role => {
           const color = ROLE_COLORS[role.key] || '#6B655C'
@@ -898,7 +898,7 @@ export default function RoundTableSessionPage() {
 
   return (
     <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter">
-      <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-background/80 px-4 py-2.5 backdrop-blur-xl z-20">
+      <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-navbar/95 px-4 py-2.5 backdrop-blur-xl z-20">
         <button
           onClick={() => navigate(-1)}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors"
@@ -968,7 +968,7 @@ export default function RoundTableSessionPage() {
           </div>
 
           <div
-            className="shrink-0 border-t border-border/20 bg-background/95 backdrop-blur-xl px-4 py-2.5"
+            className="shrink-0 border-t border-border/20 bg-navbar/95 backdrop-blur-xl px-4 py-2.5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
             {/* PC: 左右分布 + 文字标签；手机: 图标-only */}
@@ -1129,7 +1129,7 @@ export default function RoundTableSessionPage() {
         {/* 话题覆盖度面板：宽屏并排，窄屏覆盖 */}
         {useOverlay && showCoverage && (
           <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowCoverage(false)}>
-            <div className="h-full w-80 border-l border-border/20 bg-background/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="h-full w-80 border-l border-border/20 bg-navbar/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
               <CoveragePanel
                 sessionId={sessionId ?? null}
                 open={showCoverage}
@@ -1155,7 +1155,7 @@ export default function RoundTableSessionPage() {
         {/* 报告面板：始终覆盖弹出 */}
         {showReport && !isMobile && (
           <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowReport(false)}>
-            <div className="h-full w-[420px] max-w-[80vw] border-l border-border/20 bg-background/95 backdrop-blur-xl shadow-xl animate-in slide-in-from-right duration-200 flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="h-full w-[420px] max-w-[80vw] border-l border-border/20 bg-navbar/95 backdrop-blur-xl shadow-xl animate-in slide-in-from-right duration-200 flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
               <ReportPanel
                 report={report}
                 isGenerating={reportPolling || report?.status === 'GENERATING'}

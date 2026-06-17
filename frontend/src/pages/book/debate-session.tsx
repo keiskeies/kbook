@@ -1215,7 +1215,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
   return (
     <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background">
       {/* 顶部导航 — 整合角色状态 + 环节标签 */}
-      <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-background/80 px-4 py-2.5 backdrop-blur-xl z-20">
+      <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-navbar/95 px-4 py-2.5 backdrop-blur-xl z-20">
         <button
           onClick={() => navigate(-1)}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors"
@@ -1251,7 +1251,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
           </div>
         </div>
         {/* 环节标签页 */}
-        <div className="hidden md:flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
+        <div className="hidden md:flex items-center gap-1 bg-background rounded-lg p-0.5">
           {ROUND_SEQUENCE.map((r) => (
             <button
               key={r}
@@ -1577,7 +1577,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
 
           {/* 底部控制栏 — 1+1 原则：主操作唯一 + 次要操作折叠 */}
           <div
-            className="shrink-0 border-t border-border/20 bg-background/95 backdrop-blur-xl px-4 py-2.5"
+            className="shrink-0 border-t border-border/20 bg-navbar/95 backdrop-blur-xl px-4 py-2.5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
             <div className="flex items-center gap-2 max-w-3xl mx-auto">
@@ -1688,13 +1688,13 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
             {/* 评分面板：宽屏并排，窄屏覆盖 */}
             {useOverlay && showScorePanel && (
               <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowScorePanel(false)}>
-                <div className="h-full w-80 border-l border-border/20 bg-background/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
+                <div className="h-full w-80 border-l border-border/20 bg-navbar/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
                   <ScorePanel scores={scores} onClose={() => setShowScorePanel(false)} onRefresh={() => sessionId ? getDebateScores(sessionId).then(setScores) : null} isMobile={isMobile} />
                 </div>
               </div>
             )}
             {!useOverlay && (
-              <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out flex flex-col border-l border-border/20 bg-background/95 backdrop-blur-xl ${showScorePanel ? 'w-80' : 'w-0'}`}>
+              <div className={`shrink-0 overflow-hidden transition-all duration-300 ease-out flex flex-col border-l border-border/20 bg-navbar/95 backdrop-blur-xl ${showScorePanel ? 'w-80' : 'w-0'}`}>
                 {showScorePanel && (
                   <ScorePanel scores={scores} onClose={() => setShowScorePanel(false)} onRefresh={() => sessionId ? getDebateScores(sessionId).then(setScores) : null} isMobile={isMobile} />
                 )}
@@ -1703,7 +1703,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
             {/* 报告面板：始终覆盖 */}
             {showReportPanel && (
               <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowReportPanel(false)}>
-                <div className="h-full w-[420px] max-w-[80vw] border-l border-border/20 bg-background/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
+                <div className="h-full w-[420px] max-w-[80vw] border-l border-border/20 bg-navbar/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
                   <ReportPanel
                     report={report}
                     isGenerating={reportGenerating}

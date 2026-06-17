@@ -39,7 +39,7 @@ export function DesktopSidebar() {
 
   return (
     <aside className={cn(
-      'hidden md:flex md:flex-col md:border-r md:border-border/50 bg-sidebar text-sidebar-foreground h-full shrink-0 transition-all duration-300 ease-out',
+      'hidden md:flex md:flex-col md:border-r md:border-border/50 bg-navbar text-navbar-foreground h-full shrink-0 transition-all duration-300 ease-out',
       effectiveCollapsed ? 'md:w-[68px]' : 'md:w-60 lg:w-64'
     )}>
       {/* Logo */}

@@ -182,7 +182,7 @@ export default function FilePreviewModal({ open, onOpenChange, fileUrl, fileName
           )
         }
         return (
-          <div className="bg-muted/30 rounded-lg p-4 max-h-[60vh] overflow-auto">
+          <div className="bg-muted rounded-lg p-4 max-h-[60vh] overflow-auto">
             <pre className="text-sm whitespace-pre-wrap break-words font-mono">
               {textContent || '无法加载文件内容'}
             </pre>

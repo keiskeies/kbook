@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -580,7 +580,7 @@ export default function AdminBooksPage() {
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background">
       {/* 顶部 */}
-      <header className="shrink-0 z-10 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+      <header className="shrink-0 z-10 border-b border-border/50 bg-navbar/95 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-4 md:px-6 lg:px-8 py-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
@@ -822,7 +822,7 @@ export default function AdminBooksPage() {
             </section>
 
             {/* 说明 */}
-            <section className="rounded-xl bg-muted/50 p-4">
+            <section className="rounded-xl bg-muted p-4">
               <h3 className="mb-2 text-sm font-semibold">说明</h3>
               <ul className="space-y-1.5 text-xs text-muted-foreground">
                 <li className="flex items-center gap-2">
@@ -928,7 +928,7 @@ export default function AdminBooksPage() {
               {/* 统计信息 */}
               {embedStats && (
                 <div className="mb-3 grid grid-cols-3 gap-2 text-xs">
-                  <div className="rounded-lg bg-muted/50 p-2.5 text-center">
+                  <div className="rounded-lg bg-muted p-2.5 text-center">
                     <div className="text-lg font-bold text-foreground">{embedStats.totalBooks}</div>
                     <div className="text-muted-foreground">总书籍</div>
                   </div>
@@ -936,7 +936,7 @@ export default function AdminBooksPage() {
                     <div className="text-lg font-bold text-success">{embedStats.embeddedBooks}</div>
                     <div className="text-success/80">已嵌入</div>
                   </div>
-                  <div className="rounded-lg bg-muted/50 p-2.5 text-center">
+                  <div className="rounded-lg bg-muted p-2.5 text-center">
                     <div className="text-lg font-bold text-foreground">{embedStats.totalContentVectors.toLocaleString()}</div>
                     <div className="text-muted-foreground">向量总数</div>
                   </div>
@@ -1042,7 +1042,7 @@ export default function AdminBooksPage() {
                     {historySessions.map((session) => (
                       <button
                         key={session.id}
-                        className={`w-full px-4 py-3 text-left transition-colors hover:bg-muted/50 group ${
+                        className={`w-full px-4 py-3 text-left transition-colors hover:bg-muted group ${
                           session.sessionId === chatSessionId ? 'bg-muted' : ''
                         }`}
                         onClick={() => loadSessionHistory(session.sessionId)}
@@ -1095,7 +1095,7 @@ export default function AdminBooksPage() {
                       className={msg.role === 'user' ? 'flex justify-end' : ''}
                     >
                       <div
-                        className={`${msg.role === 'user' ? 'max-w-[85%] rounded-2xl bg-purple-500 text-white px-3.5 py-2.5' : 'w-full rounded-xl border border-border/50 bg-muted/50 px-3.5 py-2.5'} text-body leading-relaxed`}
+                        className={`${msg.role === 'user' ? 'max-w-[85%] rounded-2xl bg-purple-500 text-white px-3.5 py-2.5' : 'w-full rounded-xl border border-border/50 bg-muted px-3.5 py-2.5'} text-body leading-relaxed`}
                       >
                         {msg.role === 'user' ? (
                           <p className="whitespace-pre-wrap">{msg.content}</p>

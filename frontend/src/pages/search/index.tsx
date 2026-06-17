@@ -30,7 +30,7 @@ function TagFilterBar({
   }
 
   return (
-    <div className="border-b border-border/50 bg-card/30">
+    <div className="border-b border-border/50 bg-navbar">
       {/* 单行模式：前10个标签 + 展开按钮 */}
       {!expanded && (
         <div className="relative flex items-center">
@@ -44,7 +44,7 @@ function TagFilterBar({
                   className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 ${
                     isActive
                       ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-                      : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
                   }`}
                 >
                   {t}
@@ -55,7 +55,7 @@ function TagFilterBar({
           {needExpand && (
             <button
               onClick={() => setExpanded(true)}
-              className="absolute right-0 top-0 bottom-0 flex items-center gap-0.5 bg-gradient-to-l from-background via-background/95 to-transparent pl-8 pr-4 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+              className="absolute right-0 top-0 bottom-0 flex items-center gap-0.5 bg-gradient-to-l from-navbar via-navbar/95 to-transparent pl-8 pr-4 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
             >
               展开
               <ChevronDown className="h-3.5 w-3.5" />
@@ -77,7 +77,7 @@ function TagFilterBar({
                   className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 ${
                     isActive
                       ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-                      : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
                   }`}
                 >
                   {t}
@@ -291,12 +291,12 @@ export default function SearchPage() {
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter">
       {/* 顶部固定区域：搜索框 + 筛选标签 */}
-      <div className="shrink-0 z-10 bg-background/80 backdrop-blur-xl">
+      <div className="shrink-0 z-10 bg-navbar/95 backdrop-blur-xl">
         <header className="flex items-center gap-2 border-b border-border/50 px-4 md:px-6 lg:px-8 py-3">
           <button onClick={() => goBack()} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted">
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="relative flex flex-1 items-center gap-2 rounded-xl bg-muted px-3 py-2">
+          <div className="relative flex flex-1 items-center gap-2 rounded-xl border border-border bg-background px-3 py-2">
             <Search className="h-4 w-4 text-muted-foreground" />
             <input
               ref={searchInputRef}

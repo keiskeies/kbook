@@ -324,7 +324,7 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
   // PC: 右侧面板
   if (!isMobile) {
     return (
-      <div className="flex-1 min-h-0 w-80 border-l border-border/20 bg-background/95 backdrop-blur-xl animate-in slide-in-from-right duration-200 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 w-80 border-l border-border/20 bg-navbar/95 backdrop-blur-xl animate-in slide-in-from-right duration-200 flex flex-col overflow-hidden">
         {content}
       </div>
     )

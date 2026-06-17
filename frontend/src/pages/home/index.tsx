@@ -23,7 +23,7 @@ function Header() {
   const greeting = hour < 6 ? '夜深了' : hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好'
 
   return (
-    <header className="sticky top-0 z-50 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 pt-safe-top pb-2 bg-background/80 backdrop-blur-xl border-b border-border/30">
+    <header className="sticky top-0 z-50 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 pt-safe-top pb-2 bg-navbar/95 backdrop-blur-xl border-b border-border/30">
       <div className="flex items-center justify-between py-3">
         <div className="flex items-center gap-2 min-w-0">
           <div className="md:hidden flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary">
@@ -62,7 +62,7 @@ function HeroSection({ onSearchClick }: {
         </h2>
       </div>
       <div onClick={onSearchClick}>
-        <div className="flex items-center gap-2.5 rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 shadow-sm border border-border/30 text-muted-foreground cursor-pointer hover:border-brand-300/50 transition-colors">
+        <div className="flex items-center gap-2.5 rounded-2xl bg-card border border-border px-4 py-3 text-muted-foreground cursor-pointer hover:border-primary/50 transition-colors shadow-sm">
           <Search className="h-4 w-4" />
           <span className="text-sm">搜索书籍、作者...</span>
         </div>
@@ -104,6 +104,7 @@ function VerticalBookList({ books, onBookClick }: {
         <BookCard
           key={book.id}
           book={book}
+          variant="list"
           onClick={() => onBookClick(book.id)}
         />
       ))}
@@ -114,19 +115,16 @@ function VerticalBookList({ books, onBookClick }: {
 /** 竖向列表骨架屏 */
 function VerticalListSkeleton() {
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2.5 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
       {Array.from({ length: 3 }, (_, i) => (
-        <div key={i} className="rounded-2xl bg-card shadow-sm border border-border/50">
-          <div className="flex gap-3 p-3 pb-2">
+        <div key={i} className="rounded-xl bg-transparent border-b border-border/30 last:border-b-0 p-3">
+          <div className="flex gap-3">
             <div className="h-24 w-16 flex-shrink-0 rounded-lg skeleton" />
             <div className="flex-1 space-y-2">
               <div className="h-4 w-3/4 skeleton rounded" />
               <div className="h-3 w-1/2 skeleton rounded" />
               <div className="h-5 w-1/3 skeleton rounded" />
             </div>
-          </div>
-          <div className="border-t border-border/30 px-3 pb-2.5 pt-1.5">
-            <div className="h-3 w-full skeleton rounded" />
           </div>
         </div>
       ))}
@@ -215,7 +213,7 @@ export default function HomePage() {
               <VerticalBookList books={personalizedBooks.slice(0, 10)} onBookClick={goToBook} />
               <button
                 onClick={() => navigate(ROUTES.RECOMMEND)}
-                className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press"
+                className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl bg-muted border border-border/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press"
               >
                 查看更多推荐 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -258,7 +256,7 @@ export default function HomePage() {
                   <button
                     key={cat.name}
                     onClick={() => navigate(`${ROUTES.DISCOVER}?tab=books&tag=${encodeURIComponent(cat.name)}`)}
-                    className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-muted/50 px-3 py-2 btn-press transition-all duration-150 hover:bg-muted"
+                    className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-muted px-3 py-2 btn-press transition-all duration-150 hover:bg-muted/80"
                   >
                     <Tag className="h-3.5 w-3.5 text-primary" />
                     <span className="text-xs font-medium">{cat.name}</span>
@@ -303,7 +301,7 @@ export default function HomePage() {
                 <button
                   key={cat.name}
                   onClick={() => navigate(`${ROUTES.DISCOVER}?tab=books&tag=${encodeURIComponent(cat.name)}`)}
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-muted/50 px-3 py-2 btn-press transition-all duration-150"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-muted px-3 py-2 btn-press transition-all duration-150 hover:bg-muted/80"
                 >
                   <Tag className="h-3.5 w-3.5 text-primary" />
                   <span className="text-xs font-medium">{cat.name}</span>

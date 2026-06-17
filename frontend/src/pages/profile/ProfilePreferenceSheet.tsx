@@ -191,7 +191,7 @@ export default function ProfilePreferenceSheet({ open, onOpenChange, isMobile, s
               ) : (
                 <div className="max-h-60 overflow-y-auto overscroll-y-contain space-y-1.5">
                   {excludePrefs.map((pref) => (
-                    <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                    <div key={pref.id} className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${getCategoryColor(pref.category)}`}>
                         {getCategoryLabel(pref.category)}
                       </span>

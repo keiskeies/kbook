@@ -113,7 +113,7 @@ function TagFilterBar({
                   className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 ${
                     isActive
                       ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-                      : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
                   }`}
                 >
                   {t}
@@ -124,7 +124,7 @@ function TagFilterBar({
           {needExpand && (
             <button
               onClick={() => setExpanded(true)}
-              className="absolute right-0 top-0 bottom-0 flex items-center gap-0.5 bg-gradient-to-l from-background via-background/95 to-transparent pl-8 pr-4 md:pr-6 lg:pr-8 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+              className="absolute right-0 top-0 bottom-0 flex items-center gap-0.5 bg-gradient-to-l from-navbar via-navbar/95 to-transparent pl-8 pr-4 md:pr-6 lg:pr-8 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
             >
               展开
               <ChevronDown className="h-3.5 w-3.5" />
@@ -146,7 +146,7 @@ function TagFilterBar({
                   className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 ${
                     isActive
                       ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-                      : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
                   }`}
                 >
                   {t}
@@ -217,7 +217,7 @@ function RoundTableSkeleton() {
 
 function BookSkeleton() {
   return (
-    <div className="rounded-2xl bg-muted border border-border/50">
+    <div className="rounded-2xl bg-card border border-border/50">
       <div className="flex gap-3 p-3 pb-2">
         {/* 封面 h-24 w-16 */}
         <div className="w-16 shrink-0 h-24 skeleton rounded-none" />
@@ -719,16 +719,16 @@ export default function DiscoverPage() {
   return (
     <div className="flex flex-col h-full page-enter">
       {/* 固定头部 — 不滚动 */}
-      <div className="shrink-0 bg-background/80 backdrop-blur-xl border-b border-border/30 z-50">
+      <div className="shrink-0 bg-navbar border-b border-border/30 z-50">
         {renderTabBar()}
 
         {/* 奇葩说子栏 */}
         {activeTab === 'debate' && (
           <div className="flex items-center justify-between px-4 md:px-6 lg:px-8 py-2">
             <span className="text-xs text-muted-foreground">共 {debates.length} 场辩论</span>
-            <div className="flex gap-1 bg-muted/30 rounded-lg p-0.5">
+            <div className="flex gap-1 bg-background rounded-lg p-0.5">
               {SORT_OPTS.map(opt => (
-                <button key={opt.key} onClick={() => handleDebateSortChange(opt.key)} className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${debateSort === opt.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+                <button key={opt.key} onClick={() => handleDebateSortChange(opt.key)} className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${debateSort === opt.key ? 'bg-navbar text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
                   {opt.label}
                 </button>
               ))}
@@ -740,9 +740,9 @@ export default function DiscoverPage() {
         {activeTab === 'roundtable' && (
           <div className="flex items-center justify-between px-4 md:px-6 lg:px-8 py-2">
             <span className="text-xs text-muted-foreground">共 {roundTables.length} 场圆桌讨论</span>
-            <div className="flex gap-1 bg-muted/30 rounded-lg p-0.5">
+            <div className="flex gap-1 bg-background rounded-lg p-0.5">
               {SORT_OPTS.map(opt => (
-                <button key={opt.key} onClick={() => handleRtSortChange(opt.key)} className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${rtSort === opt.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+                <button key={opt.key} onClick={() => handleRtSortChange(opt.key)} className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${rtSort === opt.key ? 'bg-navbar text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
                   {opt.label}
                 </button>
               ))}
@@ -754,7 +754,7 @@ export default function DiscoverPage() {
         {activeTab === 'books' && (
           <>
             <div className="flex items-center gap-2 px-4 md:px-6 lg:px-8 py-2">
-              <div className={`flex-1 flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 transition-colors ${searchFocused ? 'border-primary/50 bg-background' : 'border-transparent'}`}>
+              <div className={`flex-1 flex items-center gap-2 rounded-lg border bg-background px-3 py-2 transition-colors ${searchFocused ? 'border-primary/50 ring-1 ring-primary/20' : 'border-border'}`}>
                 <Search className="h-4 w-4 text-muted-foreground shrink-0" />
                 <input
                   type="text"
@@ -803,7 +803,7 @@ export default function DiscoverPage() {
                   {debateLoading && Array.from({ length: 6 }, (_, i) => <DebateSkeleton key={`more-${i}`} />)}
                 </div>
                 {debateHasMore && !debateLoading && (
-                  <button onClick={() => loadDebates(debatePage + 1)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press">
+                  <button onClick={() => loadDebates(debatePage + 1)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-card border border-border/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors btn-press">
                     查看更多 <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -835,7 +835,7 @@ export default function DiscoverPage() {
                   {rtLoading && Array.from({ length: 6 }, (_, i) => <RoundTableSkeleton key={`more-${i}`} />)}
                 </div>
                 {rtHasMore && !rtLoading && (
-                  <button onClick={() => loadRoundTables(rtPage + 1)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press">
+                  <button onClick={() => loadRoundTables(rtPage + 1)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-card border border-border/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors btn-press">
                     查看更多 <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -867,7 +867,7 @@ export default function DiscoverPage() {
                   {bookLoading && Array.from({ length: 6 }, (_, i) => <BookSkeleton key={`more-${i}`} />)}
                 </div>
                 {bookHasMore && !bookLoading && (
-                  <button onClick={() => loadBooks(activeTag, bookPage + 1, searchQuery || undefined)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-muted/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press">
+                  <button onClick={() => loadBooks(activeTag, bookPage + 1, searchQuery || undefined)} className="mt-4 mb-20 flex w-full items-center justify-center gap-1 rounded-lg bg-card border border-border/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors btn-press">
                     查看更多 <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 )}

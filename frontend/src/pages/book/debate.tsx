@@ -321,7 +321,7 @@ export default function DebatePage() {
   return (
     <div className="flex h-dvh flex-col bg-gradient-to-b from-background to-muted/30">
       {/* 顶部导航 */}
-      <header className="shrink-0 flex items-center gap-3 border-b border-border/20 bg-background/80 backdrop-blur-xl px-4 py-3">
+      <header className="shrink-0 flex items-center gap-3 border-b border-border/20 bg-navbar/95 backdrop-blur-xl px-4 py-3">
         <button onClick={() => navigate(-1)} className="rounded-xl p-1.5 hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>

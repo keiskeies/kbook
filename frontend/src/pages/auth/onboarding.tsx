@@ -173,21 +173,21 @@ export default function OnboardingPage() {
               KBook 根据你的画像精准推荐书籍，<br />不再被算法绑架，每一本都值得读
             </p>
             <div className="mt-8 space-y-3 w-full max-w-[280px]">
-              <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-4 py-3">
+              <div className="flex items-center gap-3 rounded-xl bg-muted px-4 py-3">
                 <Target className="h-5 w-5 text-primary shrink-0" />
                 <div className="text-left">
                   <p className="text-sm font-medium">精准匹配</p>
                   <p className="text-xs text-muted-foreground">基于 10+ 维度计算匹配度</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-4 py-3">
+              <div className="flex items-center gap-3 rounded-xl bg-muted px-4 py-3">
                 <Sparkles className="h-5 w-5 text-warning shrink-0" />
                 <div className="text-left">
                   <p className="text-sm font-medium">3分钟速读</p>
                   <p className="text-xs text-muted-foreground">AI 提炼核心观点，快速判断</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-4 py-3">
+              <div className="flex items-center gap-3 rounded-xl bg-muted px-4 py-3">
                 <BrainCircuit className="h-5 w-5 text-success shrink-0" />
                 <div className="text-left">
                   <p className="text-sm font-medium">深度问答</p>
@@ -444,7 +444,7 @@ export default function OnboardingPage() {
             <p className="text-sm text-muted-foreground max-w-[260px] leading-relaxed">
               我们会根据你的画像为你推荐最合适的书籍。<br />随时可以回来更新。
             </p>
-            <div className="mt-6 w-full max-w-[280px] rounded-2xl bg-muted/50 p-4 text-left space-y-2">
+            <div className="mt-6 w-full max-w-[280px] rounded-2xl bg-muted p-4 text-left space-y-2">
               <div className="flex items-center gap-2 text-sm">
                 <Cake className="h-4 w-4 text-muted-foreground" />
                 <span>{birthday ? `${new Date().getFullYear() - new Date(birthday).getFullYear()}岁` : '未设置年龄'}</span>

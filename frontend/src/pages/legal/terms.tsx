@@ -6,7 +6,7 @@ export default function TermsPage() {
 
   return (
     <div className="h-full overflow-y-auto overscroll-contain bg-background">
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border/50 bg-navbar/95 px-4 py-3 backdrop-blur-xl">
         <button onClick={() => navigate(-1)} className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>

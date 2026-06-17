@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { ArrowLeft, Save, Trash2, Plus, Star, StarOff, Pencil, X, Volume2, Cpu, Mic, Zap } from 'lucide-react'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
@@ -195,7 +195,7 @@ export default function TtsConfigPage() {
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background overscroll-contain">
-      <header className="shrink-0 flex items-center gap-3 border-b bg-background/95 px-4 md:px-6 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-20">
+      <header className="shrink-0 flex items-center gap-3 border-b bg-navbar/95 px-4 md:px-6 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-navbar/60 z-20">
         <button onClick={() => goBack()} className="rounded-full p-1.5 active:bg-muted">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -294,7 +294,7 @@ export default function TtsConfigPage() {
               )}
             </section>
 
-            <section className="rounded-xl bg-muted/30 p-4 text-xs text-muted-foreground space-y-1.5">
+            <section className="rounded-xl bg-muted p-4 text-xs text-muted-foreground space-y-1.5">
               <p className="font-medium text-foreground">配置说明</p>
               <p>· 大模型 TTS：如小米 AI TTS，使用大模型生成自然语音</p>
               <p>· 传统 TTS：如科大讯飞，使用传统语音合成引擎</p>
@@ -336,7 +336,7 @@ export default function TtsConfigPage() {
                         className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                           form.provider === opt.value
                             ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border text-muted-foreground hover:bg-muted/50'
+                            : 'border-border text-muted-foreground hover:bg-muted'
                         }`}
                       >
                         {opt.value === 'XIAOMI' ? <Cpu className="h-4 w-4" /> : opt.value === 'GPT_SOVITS' ? <Volume2 className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
@@ -545,7 +545,7 @@ export default function TtsConfigPage() {
                               className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                                 form.voicePresetId === v.id
                                   ? 'border-primary bg-primary/10 text-primary'
-                                  : 'border-border text-muted-foreground hover:bg-muted/50'
+                                  : 'border-border text-muted-foreground hover:bg-muted'
                               }`}
                             >
                               <Volume2 className="h-4 w-4" />
@@ -592,7 +592,7 @@ export default function TtsConfigPage() {
                     <Save className="h-4 w-4" />
                     {editingId ? '更新' : '创建'}
                   </button>
-                  <button onClick={() => { setShowForm(false); resetForm(); }} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted/50">
+                  <button onClick={() => { setShowForm(false); resetForm(); }} className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted">
                     取消
                   </button>
                 </div>

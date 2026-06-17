@@ -283,7 +283,7 @@ export default function BookDetailPage() {
   if (loading || !book) {
     return (
       <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
-        <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
+        <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-navbar/95 px-4 py-3 backdrop-blur-xl z-20">
           <div className="h-9 w-9 shrink-0 animate-pulse rounded-xl bg-muted" />
           <div className="h-5 flex-1 animate-pulse rounded bg-muted" />
         </header>
@@ -338,7 +338,7 @@ export default function BookDetailPage() {
             </div>
           </div>
         </div>
-        <div className="shrink-0 border-t border-border/50 bg-background/80 backdrop-blur-xl px-3 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
+        <div className="shrink-0 border-t border-border/50 bg-navbar/95 backdrop-blur-xl px-3 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
           <div className="flex gap-2">
             <div className="h-11 flex-[2] animate-pulse rounded-2xl bg-muted" />
             <div className="h-11 flex-1 animate-pulse rounded-2xl bg-muted" />
@@ -355,7 +355,7 @@ export default function BookDetailPage() {
   return (
     <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       {/* 顶部导航 — 移动端 */}
-      <header className="md:hidden shrink-0 flex items-center gap-3 border-b border-border/50 bg-background/80 px-4 py-3 backdrop-blur-xl z-20">
+      <header className="md:hidden shrink-0 flex items-center gap-3 border-b border-border/50 bg-navbar/95 px-4 py-3 backdrop-blur-xl z-20">
         <button onClick={() => goBack()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -363,7 +363,7 @@ export default function BookDetailPage() {
       </header>
 
       {/* PC端顶部导航 */}
-      <header className="hidden md:flex shrink-0 items-center gap-3 border-b border-border/50 bg-background/80 px-4 md:px-6 lg:px-8 py-3 backdrop-blur-xl z-20">
+      <header className="hidden md:flex shrink-0 items-center gap-3 border-b border-border/50 bg-navbar/95 px-4 md:px-6 lg:px-8 py-3 backdrop-blur-xl z-20">
         <button onClick={() => goBack()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -586,7 +586,7 @@ export default function BookDetailPage() {
       </div>
 
       {/* 底部操作栏 — 仅移动端 */}
-      <div className="md:hidden shrink-0 border-t border-border/50 bg-background/95 backdrop-blur-xl px-3 pt-3 z-20" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
+      <div className="md:hidden shrink-0 border-t border-border/50 bg-navbar/95 backdrop-blur-xl px-3 pt-3 z-20" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
         <div className="flex gap-2">
           <button
             onClick={() => handleOpenChat()}

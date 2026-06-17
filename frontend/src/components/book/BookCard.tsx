@@ -13,6 +13,7 @@ interface BookCardProps {
   onStatusChange?: (status: string) => void
   activeTag?: string
   lastReadAt?: string
+  variant?: 'card' | 'list'
 }
 
 function fmtReadCount(n: number): string {
@@ -73,7 +74,8 @@ function formatTimeAgo(dateStr: string): string {
   return `${Math.floor(diffDay / 30)}个月前`
 }
 
-export function BookCard({ book, onClick, highlight, readingStatus, onStatusChange, activeTag, lastReadAt }: BookCardProps) {
+export function BookCard({ book, onClick, highlight, readingStatus, onStatusChange, activeTag, lastReadAt, variant = 'card' }: BookCardProps) {
+  const isList = variant === 'list'
   const [expandedDesc, setExpandedDesc] = useState(false)
   const rawTags = parseFormatTags(book.formatTags || '')
   const desc = book.description
@@ -110,10 +112,14 @@ export function BookCard({ book, onClick, highlight, readingStatus, onStatusChan
 
   return (
     <div
-      className="rounded-2xl bg-muted shadow-sm border border-border/50 cursor-pointer btn-press"
+      className={`cursor-pointer btn-press ${
+        isList
+          ? 'rounded-xl bg-transparent hover:bg-muted/50 border-b border-border/30 last:border-b-0'
+          : 'rounded-2xl bg-card shadow-sm border border-border/50'
+      }`}
       onClick={onClick}
     >
-      <div className="flex gap-3 p-3 pb-2">
+      <div className={`flex gap-3 p-3 pb-2 ${isList ? 'pb-3' : ''}`}>
         <BookCover
           coverUrl={book.coverUrl || null}
           title={book.title || ''}
@@ -157,7 +163,7 @@ export function BookCard({ book, onClick, highlight, readingStatus, onStatusChan
       {desc && (
         <button
           onClick={toggleDesc}
-          className="w-full border-t border-border/30 px-3 pb-2.5 pt-1.5 text-left"
+          className={`w-full px-3 pb-2.5 pt-1.5 text-left ${isList ? '' : 'border-t border-border/30'}`}
         >
           <p
             className={`text-xs text-foreground/70 leading-snug transition-all duration-200 ${
@@ -173,7 +179,7 @@ export function BookCard({ book, onClick, highlight, readingStatus, onStatusChan
       )}
 
       {readingStatus != null && onStatusChange && (
-        <div className="border-t border-border/30 px-3 py-2">
+        <div className={`px-3 py-2 ${isList ? '' : 'border-t border-border/30'}`}>
           <ReadingStatusButtons
             currentStatus={readingStatus}
             onStatusChange={(status) => {
@@ -183,7 +189,7 @@ export function BookCard({ book, onClick, highlight, readingStatus, onStatusChan
         </div>
       )}
 
-      <div className="flex items-center justify-between border-t border-border/30 px-3 py-2">
+      <div className={`flex items-center justify-between px-3 py-2 ${isList ? '' : 'border-t border-border/30'}`}>
         {lastReadAt && (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Clock className="h-3 w-3" />
