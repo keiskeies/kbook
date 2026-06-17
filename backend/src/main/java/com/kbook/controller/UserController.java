@@ -5,6 +5,7 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.user.UpdateBioRequest;
 import com.kbook.dto.user.UpdateTraitsRequest;
+import com.kbook.dto.user.UserInfo;
 import com.kbook.dto.user.UpsertPreferenceRequest;
 import com.kbook.entity.User;
 import com.kbook.entity.UserBookPreference;
@@ -38,54 +39,54 @@ public class UserController {
 
     @Operation(summary = "获取当前用户信息")
     @GetMapping("/me")
-    public Result<User> getCurrentUser(Authentication authentication) {
+    public Result<UserInfo> getCurrentUser(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        return Result.ok(userService.getUserById(userId));
+        return Result.ok(UserInfo.from(userService.getUserById(userId)));
     }
 
     @Operation(summary = "更新用户资料")
     @PutMapping("/profile")
-    public Result<User> updateProfile(Authentication authentication,
+    public Result<UserInfo> updateProfile(Authentication authentication,
                                        @RequestParam(required = false) String nickname,
                                        @RequestParam(required = false) String avatar,
                                        @RequestParam(required = false) String bio) {
         Long userId = (Long) authentication.getPrincipal();
-        return Result.ok(userService.updateProfile(userId, nickname, avatar, bio));
+        return Result.ok(UserInfo.from(userService.updateProfile(userId, nickname, avatar, bio)));
     }
 
     @Operation(summary = "更新用户特征")
     @PutMapping("/profile/traits")
-    public Result<User> updateTraits(Authentication authentication,
+    public Result<UserInfo> updateTraits(Authentication authentication,
                                       @RequestBody UpdateTraitsRequest req) {
         Long userId = (Long) authentication.getPrincipal();
-        return Result.ok(userService.updateTraits(userId, req.getBirthday(), req.getGender(),
+        return Result.ok(UserInfo.from(userService.updateTraits(userId, req.getBirthday(), req.getGender(),
                 req.getMarried(), req.getHasChildren(), req.getChildrenAgeRanges(),
                 req.getMbti(), req.getOccupation(),
-                req.getAspirationEducation(), req.getEntrepreneurship(), req.getAspirationIncome()));
+                req.getAspirationEducation(), req.getEntrepreneurship(), req.getAspirationIncome())));
     }
 
     @Operation(summary = "更新心情")
     @PutMapping("/profile/mood")
-    public Result<User> updateMood(Authentication authentication,
+    public Result<UserInfo> updateMood(Authentication authentication,
                                     @RequestParam(required = false) String mood) {
         Long userId = (Long) authentication.getPrincipal();
-        return Result.ok(userService.updateMood(userId, mood));
+        return Result.ok(UserInfo.from(userService.updateMood(userId, mood)));
     }
 
     @Operation(summary = "更新图书对话风格")
     @PutMapping("/profile/book-chat-style")
-    public Result<User> updateBookChatStyle(Authentication authentication,
+    public Result<UserInfo> updateBookChatStyle(Authentication authentication,
                                              @RequestParam(required = false) String style) {
         Long userId = (Long) authentication.getPrincipal();
-        return Result.ok(userService.updateBookChatStyle(userId, style));
+        return Result.ok(UserInfo.from(userService.updateBookChatStyle(userId, style)));
     }
 
     @Operation(summary = "上传头像")
     @PostMapping("/avatar")
-    public Result<User> uploadAvatar(Authentication authentication,
+    public Result<UserInfo> uploadAvatar(Authentication authentication,
                                       @RequestParam("file") MultipartFile file) {
         Long userId = (Long) authentication.getPrincipal();
-        return Result.ok(userService.uploadAvatar(userId, file));
+        return Result.ok(UserInfo.from(userService.uploadAvatar(userId, file)));
     }
 
     @Operation(summary = "获取头像")
@@ -103,12 +104,12 @@ public class UserController {
 
     @Operation(summary = "更新个人简介")
     @PutMapping("/profile/bio")
-    public Result<User> updateBio(Authentication auth, @RequestBody UpdateBioRequest req) {
+    public Result<UserInfo> updateBio(Authentication auth, @RequestBody UpdateBioRequest req) {
         Long userId = (Long) auth.getPrincipal();
         User user = userService.getUserById(userId);
         user.setBio(req.getBio());
         userRepository.save(user);
-        return Result.ok(user);
+        return Result.ok(UserInfo.from(user));
     }
 
     // ==================== 阅读偏好 ====================

@@ -581,27 +581,24 @@ public class BookService {
     public void deleteBook(Long id) {
         Book book = bookRepository.findOneById(id);
         if (null != book) {
-            // 1. 删除封面图片文件
             deleteCoverFile(book.getCoverUrl());
         }
 
-        // 2. 删除 Qdrant 向量数据（元数据向量 + 内容向量）
-        embeddingService.removeBookEmbedding(id);
-        embeddingService.removeContentEmbedding(id);
-
-        // 3. 删除 JPA 数据库记录
+        // 删除 JPA 数据库记录
         bookRepository.deleteById(id);
 
-        // 4. 删除 ES 索引
+        // 删除 ES 索引
         bookSearchService.deleteIndex(id);
 
-        // 5. 事务提交后清除相关 Redis 缓存（推荐/榜单/详情/匹配度）
+        // 事务提交后再删除 Qdrant 向量数据（避免长事务锁表）+ 清除 Redis 缓存
         TransactionUtils.afterCommit(() -> {
+            embeddingService.removeBookEmbedding(id);
+            embeddingService.removeContentEmbedding(id);
             clearBookRelatedCache();
             evictBookCache(id);
         });
 
-        log.info("图书删除成功(全链路): id={}, title={}", id, null == book ? "" : book.getTitle());
+        log.info("图书删除成功: id={}, title={}", id, null == book ? "" : book.getTitle());
     }
 
     /**
@@ -623,12 +620,7 @@ public class BookService {
         List<Long> deletedIds = new ArrayList<>();
         for (Book book : books) {
             try {
-                // 删除封面
                 deleteCoverFile(book.getCoverUrl());
-                // 删除向量
-                embeddingService.removeBookEmbedding(book.getId());
-                embeddingService.removeContentEmbedding(book.getId());
-                // 删除 JPA + ES
                 bookRepository.deleteById(book.getId());
                 bookSearchService.deleteIndex(book.getId());
                 deletedIds.add(book.getId());
@@ -638,9 +630,13 @@ public class BookService {
             }
         }
 
-        // 事务提交后清除缓存
+        // 事务提交后再删除 Qdrant 向量数据 + 清除缓存
         List<Long> ids = deletedIds;
         TransactionUtils.afterCommit(() -> {
+            for (Long bookId : ids) {
+                embeddingService.removeBookEmbedding(bookId);
+                embeddingService.removeContentEmbedding(bookId);
+            }
             clearBookRelatedCache();
             ids.forEach(this::evictBookCache);
         });
@@ -719,12 +715,10 @@ public class BookService {
         // 更新主书籍（JPA + ES）
         Book savedMain = bookRepository.save(mainBook);
 
-        // 删除被合并的其他格式书籍（全链路）
+        // 删除被合并的其他格式书籍
         StringBuilder mergedInfo = new StringBuilder();
         for (Book other : toMerge) {
-            // 不删除封面（因为主书籍可能已引用）
-            embeddingService.removeBookEmbedding(other.getId());
-            embeddingService.removeContentEmbedding(other.getId());
+            deleteCoverFile(other.getCoverUrl());
             bookRepository.deleteById(other.getId());
             bookSearchService.deleteIndex(other.getId());
             mergedInfo.append(String.format("  合并: [id=%d] %s (%s) → [id=%d] %s (%s)\n",
@@ -732,12 +726,15 @@ public class BookService {
                     savedMain.getId(), savedMain.getTitle(), savedMain.getFormat()));
         }
 
-        // 重新生成主书籍的向量（合并后数据已变）
-        embeddingService.removeBookEmbedding(savedMain.getId());
-        embeddingService.generateBookEmbedding(savedMain);
-
-        // 事务提交成功后再清除缓存，防止事务回滚导致缓存与数据库不一致
+        // 事务提交后再操作 Qdrant 向量 + 重新生成主书籍向量 + 清除缓存
+        List<Long> mergedIds = toMerge.stream().map(Book::getId).toList();
         TransactionUtils.afterCommit(() -> {
+            for (Long mergedId : mergedIds) {
+                embeddingService.removeBookEmbedding(mergedId);
+                embeddingService.removeContentEmbedding(mergedId);
+            }
+            embeddingService.removeBookEmbedding(savedMain.getId());
+            embeddingService.generateBookEmbedding(savedMain);
             bookSearchService.indexBook(savedMain);
             evictBookCache(savedMain.getId());
         });
@@ -770,8 +767,15 @@ public class BookService {
      */
     private void clearBookRelatedCache() {
         try {
-            // 清除所有推荐缓存
-            var recommendKeys = redisTemplate.keys("kbook:recommend:*");
+            // 使用 SCAN 代替 KEYS 避免阻塞 Redis
+            var cursor = redisTemplate.scan(
+                    org.springframework.data.redis.core.ScanOptions.scanOptions()
+                            .match("kbook:recommend:*")
+                            .count(100)
+                            .build());
+            List<String> recommendKeys = new ArrayList<>();
+            cursor.forEachRemaining(recommendKeys::add);
+            cursor.close();
             if (!recommendKeys.isEmpty()) {
                 redisTemplate.delete(recommendKeys);
             }

@@ -300,12 +300,6 @@ export default function DebateSessionPage() {
   const zhVoicesRef = useRef<SpeechSynthesisVoice[]>([])
   const speechEnabledRef = useRef(false)
 
-  // 发言次数统计（调试用）
-  useMemo(() => messages.reduce<Record<string, number>>((acc, m) => {
-    acc[m.roleKey] = (acc[m.roleKey] || 0) + 1
-    return acc
-  }, {}), [messages])
-
   // 加载图书信息
   useEffect(() => {
     if (!bookIdNum) return

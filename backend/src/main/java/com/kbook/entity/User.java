@@ -1,5 +1,6 @@
 package com.kbook.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.kbook.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -38,8 +39,9 @@ public class User extends BaseEntity {
     @Column(nullable = false, length = 100)
     private String email;
 
-    /** 密码（BCrypt 加密） */
+    /** 密码（BCrypt 加密）— 序列化时排除，仅接收写入 */
     @Column(length = 100)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String password;
 
     /** 昵称 */

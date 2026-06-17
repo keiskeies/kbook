@@ -180,8 +180,9 @@ public class BookController {
     /**
      * 图书入库（管理员）
      */
-    @Operation(summary = "图书入库")
+    @Operation(summary = "图书入库（仅管理员）")
     @PostMapping
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public Result<Book> createBook(@RequestBody CreateBookRequest req) {
         Book book = Book.builder()
                 .title(req.getTitle())

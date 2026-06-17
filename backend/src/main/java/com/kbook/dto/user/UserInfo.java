@@ -55,6 +55,8 @@ public class UserInfo {
     private String mood;
     /** 个人简介 */
     private String bio;
+    /** AI 图书问答对话风格 */
+    private String bookChatStyle;
     /** 粉丝数 */
     private Integer followerCount;
     /** 关注数 */
@@ -86,6 +88,7 @@ public class UserInfo {
                 .aspirationIncome(user.getAspirationIncome())
                 .mood(user.getMood())
                 .bio(user.getBio())
+                .bookChatStyle(user.getBookChatStyle())
                 .followerCount(user.getFollowerCount())
                 .followingCount(user.getFollowingCount())
                 .build();

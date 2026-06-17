@@ -24,7 +24,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.*;
 
@@ -183,22 +184,18 @@ public class CommentService {
             }
         }
 
-        // 删除关联的点赞和收藏记录
-        // 批量删除子评论的关联数据（简单处理：子评论也一并删除）
-        List<Comment> replies = commentRepository.findByParentIdOrderByCreatedAtAsc(commentId); // 查询所有子评论
-        for (Comment reply : replies) {
-            // 删除子评论的点赞记录
+        // 删除关联的点赞和收藏记录（批量）
+        List<Comment> replies = commentRepository.findByParentIdOrderByCreatedAtAsc(commentId);
+        if (!replies.isEmpty()) {
+            Set<Long> replyIds = replies.stream().map(Comment::getId).collect(Collectors.toSet());
             commentLikeRepository.deleteAll(commentLikeRepository.query()
-                    .where(CommentLike::getCommentId, eq(reply.getId()))
-                    .and(CommentLike::getUserId, eq(reply.getUserId()))
+                    .where(CommentLike::getCommentId, in(replyIds))
                     .list());
-            // 删除子评论的收藏记录
             commentFavoriteRepository.deleteAll(commentFavoriteRepository.query()
-                    .where(CommentFavorite::getCommentId, eq(reply.getId()))
-                    .and(CommentFavorite::getUserId, eq(reply.getUserId()))
+                    .where(CommentFavorite::getCommentId, in(replyIds))
                     .list());
         }
-        commentRepository.deleteAllById(replies.stream().map(Comment::getId).toList()); // 批量删除所有子评论
+        commentRepository.deleteAllById(replies.stream().map(Comment::getId).toList());
 
         // 删除本评论的点赞和收藏记录
         commentLikeRepository.deleteAll(commentLikeRepository.query()
@@ -220,75 +217,32 @@ public class CommentService {
      */
     @LogAction("获取书籍评论列表")
     public PageResult<CommentVO> getBookComments(Long bookId, int page, int size, Long currentUserId) {
-        // 构建分页请求：按点赞数降序，点赞数相同则按创建时间降序
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "likeCount").and(Sort.by(Sort.Direction.DESC, "createdAt")));
-        // 查询书籍的顶级评论（不包括章节评论和回复）
         Page<Comment> pageData = commentRepository.findBookTopComments(bookId, pageable);
-        // 将评论实体转换为视图对象
-        List<CommentVO> vos = pageData.getContent().stream()
-                .map(c -> toVO(c, currentUserId)) // 转换每个评论为VO，传入当前用户ID
-                .toList();
-        return PageResult.of(vos, pageData.getTotalElements(), page, size); // 构建分页结果返回
+        List<CommentVO> vos = batchToVO(pageData.getContent(), currentUserId);
+        return PageResult.of(vos, pageData.getTotalElements(), page, size);
     }
 
-    /**
-     * 获取章节的顶级评论列表（分页）
-     * 按点赞数降序、创建时间降序排序，只包含指定章节的评论
-     * @param bookId 书籍ID
-     * @param chapterId 章节ID
-     * @param page 页码（从1开始）
-     * @param size 每页大小
-     * @param currentUserId 当前用户ID（用于判断点赞和收藏状态）
-     * @return 分页的评论视图对象列表
-     */
     @LogAction("获取章节评论列表")
     public PageResult<CommentVO> getChapterComments(Long bookId, String chapterId, int page, int size, Long currentUserId) {
-        // 构建分页请求：按点赞数降序，点赞数相同则按创建时间降序
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "likeCount").and(Sort.by(Sort.Direction.DESC, "createdAt")));
-        // 查询指定章节的顶级评论
         Page<Comment> pageData = commentRepository.findChapterTopComments(bookId, chapterId, pageable);
-        // 将评论实体转换为视图对象
-        List<CommentVO> vos = pageData.getContent().stream()
-                .map(c -> toVO(c, currentUserId)) // 转换每个评论为VO，传入当前用户ID
-                .toList();
-        return PageResult.of(vos, pageData.getTotalElements(), page, size); // 构建分页结果返回
+        List<CommentVO> vos = batchToVO(pageData.getContent(), currentUserId);
+        return PageResult.of(vos, pageData.getTotalElements(), page, size);
     }
 
-    /**
-     * 获取评论的所有回复列表
-     * 按创建时间升序排列，返回指定父评论下的所有直接回复
-     * @param parentId 父评论ID
-     * @param currentUserId 当前用户ID（用于判断点赞和收藏状态）
-     * @return 回复评论的视图对象列表
-     */
     @LogAction("获取评论回复列表")
     public List<CommentVO> getReplies(Long parentId, Long currentUserId) {
-        // 查询父评论下的所有回复，按创建时间升序排列
         List<Comment> replies = commentRepository.findByParentIdOrderByCreatedAtAsc(parentId);
-        // 将回复评论转换为视图对象
-        return replies.stream().map(c -> toVO(c, currentUserId)).toList();
+        return batchToVO(replies, currentUserId);
     }
 
-    /**
-     * 获取高赞书评列表（分页）
-     * 筛选点赞数达到指定最小值的评论，按点赞数降序、创建时间降序排序
-     * @param minLikes 最小点赞数阈值
-     * @param page 页码（从1开始）
-     * @param size 每页大小
-     * @param currentUserId 当前用户ID（用于判断点赞和收藏状态）
-     * @return 分页的高赞评论视图对象列表
-     */
     @LogAction("获取高赞书评列表")
     public PageResult<CommentVO> getTopRatedComments(int minLikes, int page, int size, Long currentUserId) {
-        // 构建分页请求：按点赞数降序，点赞数相同则按创建时间降序
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "likeCount").and(Sort.by(Sort.Direction.DESC, "createdAt")));
-        // 查询点赞数大于等于最小值的评论
         Page<Comment> pageData = commentRepository.findTopRatedComments(minLikes, pageable);
-        // 将评论实体转换为视图对象
-        List<CommentVO> vos = pageData.getContent().stream()
-                .map(c -> toVO(c, currentUserId)) // 转换每个评论为VO，传入当前用户ID
-                .toList();
-        return PageResult.of(vos, pageData.getTotalElements(), page, size); // 构建分页结果返回
+        List<CommentVO> vos = batchToVO(pageData.getContent(), currentUserId);
+        return PageResult.of(vos, pageData.getTotalElements(), page, size);
     }
 
     /**
@@ -485,15 +439,10 @@ public class CommentService {
      */
     @LogAction("获取用户评论列表")
     public PageResult<CommentVO> getUserComments(Long userId, int page, int size, Long currentUserId) {
-        // 构建分页请求：按创建时间降序
         Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        // 查询用户发表的评论
         Page<Comment> pageData = commentRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable);
-        // 将评论实体转换为视图对象
-        List<CommentVO> vos = pageData.getContent().stream()
-                .map(c -> toVO(c, currentUserId)) // 转换每个评论为VO，传入当前用户ID
-                .toList();
-        return PageResult.of(vos, pageData.getTotalElements(), page, size); // 构建分页结果返回
+        List<CommentVO> vos = batchToVO(pageData.getContent(), currentUserId);
+        return PageResult.of(vos, pageData.getTotalElements(), page, size);
     }
 
     /**
@@ -511,39 +460,81 @@ public class CommentService {
     // ==================== VO 转换 ====================
 
     /**
-     * 将评论实体转换为视图对象
-     * 包含评论基本信息和当前用户的交互状态（是否点赞、是否收藏）
-     * @param comment 评论实体对象
-     * @param currentUserId 当前用户ID（用于判断交互状态，可为null）
-     * @return 评论视图对象
+     * 批量将评论实体转换为视图对象（解决 N+1 查询问题）
+     * 预先批量查询当前用户对所有评论的点赞/收藏状态，避免逐条查询
+     */
+    private List<CommentVO> batchToVO(List<Comment> comments, Long currentUserId) {
+        Set<Long> commentIds = comments.stream().map(Comment::getId).collect(Collectors.toSet());
+
+        Set<Long> likedIds = Set.of();
+        Set<Long> favoritedIds = Set.of();
+
+        if (currentUserId != null && !commentIds.isEmpty()) {
+            likedIds = commentLikeRepository.query()
+                    .where(CommentLike::getCommentId, in(commentIds))
+                    .and(CommentLike::getUserId, eq(currentUserId))
+                    .list().stream()
+                    .map(CommentLike::getCommentId)
+                    .collect(Collectors.toSet());
+
+            favoritedIds = commentFavoriteRepository.query()
+                    .where(CommentFavorite::getCommentId, in(commentIds))
+                    .and(CommentFavorite::getUserId, eq(currentUserId))
+                    .list().stream()
+                    .map(CommentFavorite::getCommentId)
+                    .collect(Collectors.toSet());
+        }
+
+        final Set<Long> finalLikedIds = likedIds;
+        final Set<Long> finalFavoritedIds = favoritedIds;
+
+        return comments.stream().map(comment -> {
+            CommentVO vo = new CommentVO();
+            vo.setId(comment.getId());
+            vo.setUserId(comment.getUserId());
+            vo.setBookId(comment.getBookId());
+            vo.setChapterId(comment.getChapterId());
+            vo.setParentId(comment.getParentId());
+            vo.setContent(comment.getContent());
+            vo.setLikeCount(comment.getLikeCount());
+            vo.setReplyCount(comment.getReplyCount());
+            vo.setFavoriteCount(comment.getFavoriteCount());
+            vo.setCreatedAt(comment.getCreatedAt() != null ? comment.getCreatedAt().toString() : null);
+            if (currentUserId != null) {
+                vo.setLiked(finalLikedIds.contains(comment.getId()));
+                vo.setFavorited(finalFavoritedIds.contains(comment.getId()));
+            }
+            return vo;
+        }).toList();
+    }
+
+    /**
+     * 单条评论转 VO（用于 createComment 等单条场景）
      */
     private CommentVO toVO(Comment comment, Long currentUserId) {
-        CommentVO vo = new CommentVO(); // 创建视图对象
-        vo.setId(comment.getId()); // 设置评论ID
-        vo.setUserId(comment.getUserId()); // 设置评论者ID
-        vo.setBookId(comment.getBookId()); // 设置书籍ID
-        vo.setChapterId(comment.getChapterId()); // 设置章节ID
-        vo.setParentId(comment.getParentId()); // 设置父评论ID
-        vo.setContent(comment.getContent()); // 设置评论内容
-        vo.setLikeCount(comment.getLikeCount()); // 设置点赞数
-        vo.setReplyCount(comment.getReplyCount()); // 设置回复数
-        vo.setFavoriteCount(comment.getFavoriteCount()); // 设置收藏数
-        vo.setCreatedAt(comment.getCreatedAt() != null ? comment.getCreatedAt().toString() : null); // 设置创建时间字符串
+        CommentVO vo = new CommentVO();
+        vo.setId(comment.getId());
+        vo.setUserId(comment.getUserId());
+        vo.setBookId(comment.getBookId());
+        vo.setChapterId(comment.getChapterId());
+        vo.setParentId(comment.getParentId());
+        vo.setContent(comment.getContent());
+        vo.setLikeCount(comment.getLikeCount());
+        vo.setReplyCount(comment.getReplyCount());
+        vo.setFavoriteCount(comment.getFavoriteCount());
+        vo.setCreatedAt(comment.getCreatedAt() != null ? comment.getCreatedAt().toString() : null);
 
-        // 如果提供了当前用户ID，则查询该用户对评论的交互状态
         if (currentUserId != null) {
-            // 检查当前用户是否已点赞该评论
             vo.setLiked(commentLikeRepository.query()
                     .where(CommentLike::getCommentId, eq(comment.getId()))
                     .and(CommentLike::getUserId, eq(currentUserId))
                     .exists());
-            // 检查当前用户是否已收藏该评论
             vo.setFavorited(commentFavoriteRepository.query()
                     .where(CommentFavorite::getCommentId, eq(comment.getId()))
                     .and(CommentFavorite::getUserId, eq(currentUserId))
                     .exists());
         }
-        return vo; // 返回转换后的视图对象
+        return vo;
     }
 
 }

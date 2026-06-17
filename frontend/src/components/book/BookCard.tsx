@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Tag, Clock } from 'lucide-react'
+import DOMPurify from 'dompurify'
 import { parseFormatTags } from '@/types/book'
 import BookCover from './BookCover'
 import { BookActionButtons } from './BookActionButtons'
@@ -97,7 +98,7 @@ export function BookCard({ book, onClick, highlight, readingStatus, onStatusChan
   const renderTitle = () => {
     const title = book.title || ''
     if (highlight) {
-      return <span dangerouslySetInnerHTML={{ __html: highlight(title) }} />
+      return <span dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(highlight(title), { ADD_TAGS: ['mark'] }) }} />
     }
     return title || '未知书名'
   }
@@ -105,7 +106,7 @@ export function BookCard({ book, onClick, highlight, readingStatus, onStatusChan
   const renderAuthor = () => {
     const author = book.author || '未知作者'
     if (highlight && book.author) {
-      return <span dangerouslySetInnerHTML={{ __html: highlight(book.author) }} />
+      return <span dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(highlight(book.author), { ADD_TAGS: ['mark'] }) }} />
     }
     return author
   }
