@@ -149,8 +149,14 @@ public class ChatController {
     @Operation(summary = "获取聊天文件")
     @GetMapping("/files/{conversationId}/{filename:.+}")
     public ResponseEntity<Resource> serveFile(
+            Authentication authentication,
             @PathVariable Long conversationId,
             @PathVariable String filename) throws IOException {
+
+        Long userId = (Long) authentication.getPrincipal();
+        if (!chatService.isUserInConversation(userId, conversationId)) {
+            return ResponseEntity.status(403).build();
+        }
 
         Path chatDir = Paths.get(storageProps.getUpload().getChatDir());
         Path convDir = chatDir.resolve(conversationId.toString());

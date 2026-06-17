@@ -52,7 +52,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = extractToken(request);
 
         if (StringUtils.hasText(token) && jwtUtil.validateToken(token)) {
-            // 检查黑名单（Redis 异常时放行，避免因 Redis 不可用导致全部 403）
+            // 检查黑名单（Redis 异常时拒绝，防止注销 Token 失效后仍可用）
             try {
                 if (isTokenBlacklisted(token)) {
                     log.debug("Token 已在黑名单中: uri={}", request.getRequestURI());
@@ -60,7 +60,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
             } catch (Exception e) {
-                log.warn("Redis 黑名单检查失败，放行请求: {}", e.getMessage());
+                log.warn("Redis 黑名单检查失败，拒绝请求: {}", e.getMessage());
+                sendErrorResponse(response, "服务暂时不可用，请稍后重试");
+                return;
             }
 
             try {
@@ -166,8 +168,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 path.equals("/api/auth/refresh") ||
                 path.equals("/api/auth/reset-password") ||
                 path.startsWith("/api/captcha/") ||
-                path.equals("/api/health") ||
-                path.startsWith("/swagger") ||
-                path.startsWith("/actuator");
+                path.equals("/api/health");
     }
 }

@@ -1,5 +1,6 @@
 package com.kbook.dto.book;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 /**
@@ -9,6 +10,7 @@ import lombok.Data;
 @Data
 public class CreateBookRequest {
     /** 书名 */
+    @NotBlank(message = "书名不能为空")
     private String title;
     
     /** 作者 */
@@ -21,6 +23,7 @@ public class CreateBookRequest {
     private String description;
     
     /** 图书格式：EPUB/PDF/TXT */
+    @NotBlank(message = "图书格式不能为空")
     private String format;
     
     /** 文件路径 */

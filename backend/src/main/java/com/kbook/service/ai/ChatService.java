@@ -319,6 +319,15 @@ public class ChatService {
     }
 
     /**
+     * 判断用户是否属于指定会话
+     */
+    public boolean isUserInConversation(Long userId, Long conversationId) {
+        Conversation conversation = conversationRepository.findOneById(conversationId);
+        if (conversation == null) return false;
+        return conversation.getUser1Id().equals(userId) || conversation.getUser2Id().equals(userId);
+    }
+
+    /**
      * 上传聊天文件（图片自动压缩为JPEG，视频可选转码）
      * @param userId 上传者ID
      * @param conversationId 会话ID

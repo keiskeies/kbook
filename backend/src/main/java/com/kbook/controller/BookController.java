@@ -183,7 +183,7 @@ public class BookController {
     @Operation(summary = "图书入库（仅管理员）")
     @PostMapping
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
-    public Result<Book> createBook(@RequestBody CreateBookRequest req) {
+    public Result<Book> createBook(@Valid @RequestBody CreateBookRequest req) {
         Book book = Book.builder()
                 .title(req.getTitle())
                 .author(req.getAuthor())

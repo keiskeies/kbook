@@ -822,6 +822,7 @@ public class BookService {
      * @param book 书籍实体
      * @return 摘要文本；锁被占用时为 null；两者都为空时为 null
      */
+    @Transactional
     @RedisLock(key = "'book:summary:compress:' + #book.id", leaseTime = 300, timeUnit = TimeUnit.SECONDS)
     public String resolveBookSummary(Book book) {
         // 1. 压缩摘要已存在，直接返回

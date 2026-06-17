@@ -89,6 +89,10 @@ public class SecurityConfig {
                         // WebSocket STOMP 握手（认证在协议层进行）
                         .requestMatchers("/api/ws/**").permitAll()
                         
+                        // ===== 内部端点（需 ADMIN 角色）=====
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
+                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").hasRole("ADMIN")
+                        
                         // ===== 管理员接口（需 ADMIN 角色）=====
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         

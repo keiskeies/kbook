@@ -168,7 +168,6 @@ public class DataInitializer implements CommandLineRunner {
             log.info("============================================");
             log.info("  初始管理员账号已创建");
             log.info("  邮箱: {}", adminEmail);
-            log.info("  密码: {}", adminPassword);
             log.info("  ⚠️  请尽快登录并绑定邮箱、修改密码！");
             log.info("============================================");
         } else {
