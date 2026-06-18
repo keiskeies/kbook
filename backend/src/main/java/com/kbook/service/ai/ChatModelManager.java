@@ -306,13 +306,11 @@ public class ChatModelManager {
 
                     【宏观问题】当用户问全书性问题（"讲了什么""核心观点"等）：
                     - 从目录中提取每个章节的核心主题词
-                    - 最多8个
 
                     【具体问题】当用户问具体问题时：
-                    - 问题中的核心概念 → 1-2个短语
-                    - 问题涉及的书中相关章节主题 → 1-2个短语
-                    - 问题的上位/下位概念 → 1个短语
-                    - 共3-5个
+                    - 问题中的核心概念
+                    - 问题涉及的书中相关章节主题
+                    - 问题的上位/下位概念
 
                     只输出短语，每行一个，不带序号、引号、解释。""";
 
@@ -338,7 +336,6 @@ public class ChatModelManager {
                     // 过滤：非空、不过长、不重复
                     if (!line.isBlank() && line.length() <= 15 && !queries.contains(line)) {
                         queries.add(line);
-                        if (queries.size() >= 9) break;
                     }
                 }
             }

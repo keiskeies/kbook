@@ -226,7 +226,7 @@ public class BookChatService {
         }
 
         try {
-            emitter.send(SseEmitter.event().name("thinking").data("让我先翻翻这本书…"));
+            emitter.send(SseEmitter.event().name("thinking_content").data("让我先翻翻这本书…\n"));
         } catch (Exception ignored) {
         }
 
@@ -249,7 +249,7 @@ public class BookChatService {
                     } catch (Exception e) {
                         log.warn("RAG 检索异常: bookId={} - {}", book.getId(), e.getMessage());
                         try {
-                            emitter.send(SseEmitter.event().name("thinking").data("没找到直接相关的内容，凭印象回答你…"));
+                            emitter.send(SseEmitter.event().name("thinking_content").data("没找到直接相关的内容，凭印象回答你…\n"));
                         } catch (Exception ignored) {
                         }
                     }
@@ -957,14 +957,14 @@ public class BookChatService {
     private String doRagRetrieval(Book book, String question, String lastAiAnswer, int ragTopK, int ragMaxChars,
                                   SseEmitter emitter) {
         try {
-            emitter.send(SseEmitter.event().name("thinking")
-                    .data("试试从不同角度理解的问题…"));
+            emitter.send(SseEmitter.event().name("thinking_content")
+                    .data("我好好分析一下这个问题…\n"));
         } catch (Exception ignored) {
         }
         List<String> subQueries = chatModelManager.expandQuery(question, lastAiAnswer, book);
         try {
-            emitter.send(SseEmitter.event().name("thinking")
-                    .data("找找 [" + String.join("，", subQueries) + "] 相关内容…"));
+            emitter.send(SseEmitter.event().name("thinking_content")
+                    .data("找找 [" + String.join("，", subQueries) + "] 相关内容…\n"));
         } catch (Exception ignored) {
         }
         Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
@@ -1051,10 +1051,10 @@ public class BookChatService {
         }
 
         String thinkingText = (!merged.isEmpty())
-                ? "找到 " + merged.size() + " 条相关内容, 我整理一下思路…"
-                : "没找到直接相关的内容，凭印象回答你…";
+                ? "找到 " + merged.size() + " 条相关内容, 我整理一下思路…\n"
+                : "没找到直接相关的内容，凭印象回答你…\n";
         try {
-            emitter.send(SseEmitter.event().name("thinking").data(thinkingText));
+            emitter.send(SseEmitter.event().name("thinking_content").data(thinkingText));
         } catch (Exception ignored) {
         }
         return ragContext;
@@ -1070,8 +1070,8 @@ public class BookChatService {
 
         log.info("图书未生成内容向量，尝试按需生成: bookId={}", bookId);
         try {
-            emitter.send(SseEmitter.event().name("thinking")
-                    .data("这本书我第一次读，花点时间消化一下…"));
+            emitter.send(SseEmitter.event().name("thinking_content")
+                    .data("这本书我第一次读，花点时间消化一下…\n"));
         } catch (Exception ignored) {
         }
 
@@ -1111,8 +1111,8 @@ public class BookChatService {
         if (book.getChapterSummary() == null || book.getChapterSummary().isBlank()) return;
 
         try {
-            emitter.send(SseEmitter.event().name("thinking")
-                    .data("让我理一理这本书的脉络…"));
+            emitter.send(SseEmitter.event().name("thinking_content")
+                    .data("让我理一理这本书的脉络…\n"));
         } catch (Exception ignored) {
         }
         String compressed = chatModelManager.generateCompressedSummary(book);

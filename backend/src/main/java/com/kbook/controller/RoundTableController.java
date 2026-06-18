@@ -113,6 +113,39 @@ public class RoundTableController extends BaseController {
     }
 
     /**
+     * 获取圆桌派会话详情
+     *
+     * @param sessionId 会话ID
+     * @return 会话详情
+     */
+    @Operation(summary = "获取圆桌派会话详情")
+    @GetMapping("/sessions/{sessionId}")
+    public Result<RoundTableSession> getSession(@PathVariable String sessionId) {
+        return Result.ok(roundTableService.getSession(sessionId));
+    }
+
+    /**
+     * 更新圆桌派会话状态
+     *
+     * @param sessionId 会话ID
+     * @param body      请求体（status: ACTIVE / COMPLETED / ABANDONED）
+     * @return 更新后的会话
+     */
+    @Operation(summary = "更新圆桌派会话状态")
+    @PutMapping("/sessions/{sessionId}/status")
+    public Result<RoundTableSession> updateSessionStatus(
+            @PathVariable String sessionId,
+            @RequestBody Map<String, Object> body) {
+        Long userId = extractUserId();
+        String status = (String) body.get("status");
+        if (status == null || status.isBlank()) {
+            return Result.fail("状态不能为空");
+        }
+        roundTableService.updateSessionStatus(userId, sessionId, status);
+        return Result.ok(roundTableService.getSession(sessionId));
+    }
+
+    /**
      * 获取圆桌派会话历史消息
      *
      * @param sessionId 会话ID

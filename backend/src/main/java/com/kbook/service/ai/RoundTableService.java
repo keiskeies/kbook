@@ -515,17 +515,28 @@ public class RoundTableService {
     }
 
     /**
+     * 获取圆桌派会话
+     *
+     * @param sessionId 会话ID
+     * @return 会话实体
+     */
+    @LogAction("获取圆桌派会话")
+    public RoundTableSession getSession(String sessionId) {
+        return sessionRepository.query()
+                .where(RoundTableSession::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst()
+                .orElseThrow(() -> new BusinessException("会话不存在"));
+    }
+
+    /**
      * 验证会话归属当前用户，不属于则抛出 BusinessException
      *
      * @param userId    用户ID
      * @param sessionId 会话ID
      */
     public void verifySessionOwnership(Long userId, String sessionId) {
-        RoundTableSession session = sessionRepository.query()
-                .where(RoundTableSession::getSessionId, eq(sessionId))
-                .list(1)
-                .stream().findFirst()
-                .orElseThrow(() -> new BusinessException("会话不存在"));
+        RoundTableSession session = getSession(sessionId);
         if (!session.getUserId().equals(userId)) {
             throw new BusinessException("无权访问该会话");
         }
@@ -543,6 +554,23 @@ public class RoundTableService {
         return messageRepository.query()
                 .where(RoundTableMessage::getSessionId, eq(sessionId))
                 .list();
+    }
+
+    /**
+     * 更新圆桌派会话状态
+     *
+     * @param userId    用户ID
+     * @param sessionId 会话ID
+     * @param status    新状态（ACTIVE / COMPLETED / ABANDONED）
+     */
+    @LogAction("更新圆桌派会话状态")
+    public void updateSessionStatus(Long userId, String sessionId, String status) {
+        RoundTableSession session = getSession(sessionId);
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException("无权访问该会话");
+        }
+        session.setStatus(status);
+        sessionRepository.save(session);
     }
 
     /**
