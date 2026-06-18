@@ -29,6 +29,16 @@ export function getGlobalRoundTableSessions(page = 0, size = 20, sort = 'recent'
   return request.get<any>(`/round-table/sessions`, { params: { page, size, sort, mine } })
 }
 
+/** 获取会话详情 */
+export function getRoundTableSession(sessionId: string) {
+  return request.get<RoundTableSession>(`/round-table/sessions/${sessionId}`)
+}
+
+/** 更新会话状态 */
+export function updateRoundTableSessionStatus(sessionId: string, status: string) {
+  return request.put<RoundTableSession>(`/round-table/sessions/${sessionId}/status`, { status })
+}
+
 /** 获取会话历史消息 */
 export function getRoundTableMessages(sessionId: string) {
   return request.get<RoundTableMessage[]>(`/round-table/sessions/${sessionId}/messages`)

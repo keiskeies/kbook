@@ -492,7 +492,9 @@ export default function DiscoverPage() {
   const initialTag = searchParams.get('tag') || ''
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab)
   const [debateSort, setDebateSort] = useState<SortKey>('mine')
+  const debateSortRef = useRef<SortKey>('mine')
   const [rtSort, setRtSort] = useState<SortKey>('mine')
+  const rtSortRef = useRef<SortKey>('mine')
 
   // 搜索
   const [searchQuery, setSearchQuery] = useState('')
@@ -532,14 +534,15 @@ export default function DiscoverPage() {
   }, [searchParams])
 
   // 加载辩论
-  const loadDebates = useCallback(async (pageNum: number, sort: SortKey = debateSort) => {
+  const loadDebates = useCallback(async (pageNum: number, sort?: SortKey) => {
+    const currentSort = sort ?? debateSortRef.current
     setDebateLoading(true)
     try {
-      const res = await getGlobalDebateSessions(pageNum, 18, sort === 'mine' ? 'recent' : sort, sort === 'mine')
+      const res = await getGlobalDebateSessions(pageNum, 18, currentSort === 'mine' ? 'recent' : currentSort, currentSort === 'mine')
       const data = (res as any)?.data || (res as any)
       const content: DebateFeedItem[] = data?.content || []
       // 最热/最新不展示未结束的辩论（ACTIVE）
-      const filtered = sort !== 'mine' ? content.filter(i => i.status === 'COMPLETED' || i.status === 'ABANDONED') : content
+      const filtered = currentSort !== 'mine' ? content.filter(i => i.status === 'COMPLETED' || i.status === 'ABANDONED') : content
       setDebates(prev => pageNum === 0 ? filtered : [...prev, ...filtered])
       setDebateHasMore(!(data?.last ?? true))
       setDebatePage(pageNum)
@@ -551,10 +554,11 @@ export default function DiscoverPage() {
   }, [])
 
   // 加载圆桌
-  const loadRoundTables = useCallback(async (pageNum: number, sort: SortKey = rtSort) => {
+  const loadRoundTables = useCallback(async (pageNum: number, sort?: SortKey) => {
+    const currentSort = sort ?? rtSortRef.current
     setRtLoading(true)
     try {
-      const res = await getGlobalRoundTableSessions(pageNum, 18, sort === 'mine' ? 'recent' : sort, sort === 'mine')
+      const res = await getGlobalRoundTableSessions(pageNum, 18, currentSort === 'mine' ? 'recent' : currentSort, currentSort === 'mine')
       const data = (res as any)?.data || (res as any)
       const content: RoundTableFeedItem[] = data?.content || []
       setRoundTables(prev => pageNum === 0 ? content : [...prev, ...content])
@@ -651,12 +655,14 @@ export default function DiscoverPage() {
 
   const handleDebateSortChange = (sort: SortKey) => {
     setDebateSort(sort)
+    debateSortRef.current = sort
     setDebatePage(0)
     loadDebates(0, sort)
   }
 
   const handleRtSortChange = (sort: SortKey) => {
     setRtSort(sort)
+    rtSortRef.current = sort
     setRtPage(0)
     loadRoundTables(0, sort)
   }

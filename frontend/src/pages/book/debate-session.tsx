@@ -296,6 +296,9 @@ export default function DebateSessionPage() {
   // TTS refs
   const ttsQueueRef = useRef<{ text: string; roleKey: string; msgIndex: number }[]>([])
   const ttsSpeakingRef = useRef(false)
+  const ttsHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const ttsSafetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ttsGenerationRef = useRef(0)
   const roleVoiceMapRef = useRef<Map<string, SpeechSynthesisVoice>>(new Map())
   const zhVoicesRef = useRef<SpeechSynthesisVoice[]>([])
   const speechEnabledRef = useRef(false)
@@ -375,6 +378,15 @@ export default function DebateSessionPage() {
         clearInterval(reportPollRef.current)
         reportPollRef.current = null
       }
+      if (ttsHeartbeatRef.current) {
+        clearInterval(ttsHeartbeatRef.current)
+        ttsHeartbeatRef.current = null
+      }
+      if (ttsSafetyTimeoutRef.current) {
+        clearTimeout(ttsSafetyTimeoutRef.current)
+        ttsSafetyTimeoutRef.current = null
+      }
+      try { window.speechSynthesis?.cancel() } catch {}
     }
   }, [])
 
@@ -387,6 +399,8 @@ export default function DebateSessionPage() {
 
   // 新内容到达时自动滚动到底部（仅当用户未手动离开时）
   useEffect(() => {
+    // 已结束会话不再自动滚动
+    if (phase === 'completed') return
     if (isMobile) {
       if (userScrolledAwayRef.current) return
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -401,12 +415,12 @@ export default function DebateSessionPage() {
         ;(col as HTMLElement).scrollTop = (col as HTMLElement).scrollHeight
       }
     })
-  }, [messages, isMobile])
+  }, [messages, isMobile, phase])
 
-  // 初始加载完成后，滚动到底部（有历史消息时）
+  // 初始加载完成后，滚动到底部（有历史消息时）；已结束会话保持原位
   const initialScrollDone = useRef(false)
   useEffect(() => {
-    if (phase === 'loading' || initialScrollDone.current) return
+    if (phase === 'loading' || phase === 'completed' || initialScrollDone.current) return
     if (messages.length === 0) return
     initialScrollDone.current = true
 
@@ -501,19 +515,53 @@ export default function DebateSessionPage() {
   const processTtsQueue = useCallback(() => {
     const synth = window.speechSynthesis
     if (!synth) return
-    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
+
+    // 队列空或正在播放时不再启动；队列为空时清理心跳
+    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) {
+      if (ttsQueueRef.current.length === 0) {
+        if (ttsHeartbeatRef.current) {
+          clearInterval(ttsHeartbeatRef.current)
+          ttsHeartbeatRef.current = null
+        }
+      }
+      return
+    }
+
+    // 清理旧心跳/兜底定时器
+    if (ttsHeartbeatRef.current) {
+      clearInterval(ttsHeartbeatRef.current)
+      ttsHeartbeatRef.current = null
+    }
+    if (ttsSafetyTimeoutRef.current) {
+      clearTimeout(ttsSafetyTimeoutRef.current)
+      ttsSafetyTimeoutRef.current = null
+    }
+
+    // 代际计数：防止 stopTts 后旧 utterance 的回调误启动新语音
+    ttsGenerationRef.current += 1
+    const generation = ttsGenerationRef.current
+    ttsSpeakingRef.current = true
 
     try { synth.resume() } catch {}
-    try { if (synth.speaking) synth.cancel() } catch {}
-    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
 
     const { text, roleKey } = ttsQueueRef.current.shift()!
-    ttsSpeakingRef.current = true
+
+    // 安全兜底：若 30s 内没有收到 onend/onerror，强制恢复队列
+    ttsSafetyTimeoutRef.current = setTimeout(() => {
+      if (generation !== ttsGenerationRef.current) return
+      ttsSpeakingRef.current = false
+      processTtsQueue()
+    }, 30000)
 
     if (speechEnabledRef.current) {
       const voiceName = getAzureVoiceForRole(roleKey, DEBATE_AZURE_VOICE)
       const ttsCfg = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
       speechService.speak(text, voiceName, ttsCfg.rate, ttsCfg.pitch, () => {
+        if (generation !== ttsGenerationRef.current) return
+        if (ttsSafetyTimeoutRef.current) {
+          clearTimeout(ttsSafetyTimeoutRef.current)
+          ttsSafetyTimeoutRef.current = null
+        }
         ttsSpeakingRef.current = false
         processTtsQueue()
       })
@@ -544,15 +592,43 @@ export default function DebateSessionPage() {
     }
 
     utterance.onend = () => {
+      if (generation !== ttsGenerationRef.current) return
+      if (ttsSafetyTimeoutRef.current) {
+        clearTimeout(ttsSafetyTimeoutRef.current)
+        ttsSafetyTimeoutRef.current = null
+      }
       ttsSpeakingRef.current = false
       processTtsQueue()
     }
-    utterance.onerror = () => {
+    utterance.onerror = (event) => {
+      if (generation !== ttsGenerationRef.current) return
+      if (ttsSafetyTimeoutRef.current) {
+        clearTimeout(ttsSafetyTimeoutRef.current)
+        ttsSafetyTimeoutRef.current = null
+      }
+      // 被 cancel() 中断时不再递归，避免旧回调把已经清空的队列又启动起来
+      if (event.error === 'canceled' || event.error === 'interrupted') {
+        ttsSpeakingRef.current = false
+        return
+      }
       ttsSpeakingRef.current = false
       processTtsQueue()
     }
 
-    try { synth.speak(utterance) } catch { ttsSpeakingRef.current = false }
+    // Chrome speechSynthesis 长时间播放可能自动挂起，定时唤醒
+    ttsHeartbeatRef.current = setInterval(() => {
+      try { synth.resume() } catch {}
+    }, 5000)
+
+    try { synth.speak(utterance) } catch {
+      if (generation !== ttsGenerationRef.current) return
+      if (ttsSafetyTimeoutRef.current) {
+        clearTimeout(ttsSafetyTimeoutRef.current)
+        ttsSafetyTimeoutRef.current = null
+      }
+      ttsSpeakingRef.current = false
+      processTtsQueue()
+    }
   }, [])
 
   const enqueueTts = useCallback((text: string, roleKey: string, msgIndex: number) => {
@@ -569,7 +645,16 @@ export default function DebateSessionPage() {
   }, [processTtsQueue])
 
   const stopTts = useCallback(() => {
+    ttsGenerationRef.current += 1
     speechService.stop()
+    if (ttsHeartbeatRef.current) {
+      clearInterval(ttsHeartbeatRef.current)
+      ttsHeartbeatRef.current = null
+    }
+    if (ttsSafetyTimeoutRef.current) {
+      clearTimeout(ttsSafetyTimeoutRef.current)
+      ttsSafetyTimeoutRef.current = null
+    }
     try { window.speechSynthesis?.cancel() } catch {}
     setSpeakingMsgId(null)
     ttsQueueRef.current = []
@@ -1584,10 +1669,15 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                       stopTts()
                       setTtsEnabled(false)
                     } else {
+                      stopTts()
                       setTtsEnabled(true)
+                      // Enqueue all existing non-streaming messages in chronological order
+                      messages.filter(m => !m.streaming && m.content.trim()).forEach(m => {
+                        enqueueTts(m.content, m.roleKey, -1)
+                      })
                     }
                   }}
-                  className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition-all duration-200 ${
+                  className={`flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 h-10 w-10 sm:h-auto sm:w-auto text-xs font-medium transition-all duration-200 ${
                     ttsEnabled
                       ? 'bg-brand-100 text-brand-500 border border-brand-200'
                       : 'bg-muted text-muted-foreground hover:text-foreground'
@@ -1602,18 +1692,18 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                 {isOwner && phase !== 'completed' && (speakingKey || isChainActiveRef.current) ? (
                   <button
                     onClick={pauseDiscussion}
-                    className="flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border border-amber-200/50 transition-colors"
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-4 py-2 h-10 w-10 sm:h-auto sm:w-auto text-xs font-semibold bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border border-amber-200/50 transition-colors"
                   >
                     <Pause className="h-3.5 w-3.5 shrink-0" />
-                    <span>暂停辩论</span>
+                    <span className="hidden sm:inline">暂停辩论</span>
                   </button>
                 ) : isOwner && isStarted && sessionStatus !== 'COMPLETED' ? (
                   <button
                     onClick={handleContinue}
-                    className="flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
+                    className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-4 py-2 h-10 w-10 sm:h-auto sm:w-auto text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
                   >
                     <Play className="h-3.5 w-3.5 shrink-0" />
-                    <span>继续辩论</span>
+                    <span className="hidden sm:inline">继续辩论</span>
                   </button>
                 ) : !isOwner && sessionStatus !== 'COMPLETED' ? (
                   <span className="text-xs text-muted-foreground italic">观摩模式</span>
@@ -1634,7 +1724,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                         }
                         setShowScorePanel(true)
                       }}
-                      className={`flex items-center justify-center gap-1 rounded-xl px-2.5 py-2 text-xs transition-colors ${
+                      className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 h-10 w-10 sm:h-auto sm:w-auto text-xs transition-colors ${
                         showScorePanel ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
                       }`}
                       title="评分面板"
@@ -1652,7 +1742,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                             getDebateReport(sessionId).then(setReport).catch(() => {})
                           }
                         }}
-                        className={`flex items-center justify-center gap-1 rounded-xl px-2.5 py-2 text-xs transition-colors ${
+                        className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 h-10 w-10 sm:h-auto sm:w-auto text-xs transition-colors ${
                           showReportPanel ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
                         }`}
                         title="辩论报告"

@@ -7,11 +7,12 @@ import { Sheet, SheetContent } from '@/components/ui/sheet'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import CoveragePanel from '@/components/round-table/CoveragePanel'
 import {
-  getRoundTableRoles, getRoundTableMessages, getNextSpeaker, streamCharacterSpeak,
+  getRoundTableRoles, getRoundTableMessages, getRoundTableSession, updateRoundTableSessionStatus,
+  getNextSpeaker, streamCharacterSpeak,
   triggerRoundTableReport, getRoundTableReport,
 } from '@/api/roundTable'
 import { getBook } from '@/api/book'
-import type { RoundTableRole, RoundTableMessage, RoundTableReport } from '@/types/roundTable'
+import type { RoundTableRole, RoundTableMessage, RoundTableReport, RoundTableSession } from '@/types/roundTable'
 import {
   ROLE_COLORS, ROLE_NAMES, ROLE_ICONS, ROLE_TTS_CONFIG,
   hexToRgba,
@@ -23,7 +24,7 @@ import { getSortedChineseVoices, assignVoiceForRole } from '@/utils/browserTts'
 import { speechService } from '@/utils/speechService'
 import { getAzureVoiceForRole, ROUNDTABLE_AZURE_VOICE } from '@/utils/speechVoices'
 
-type Phase = 'loading' | 'discussing' | 'paused' | 'error'
+type Phase = 'loading' | 'discussing' | 'paused' | 'completed' | 'error'
 
 interface DisplayMessage {
   id: string
@@ -390,6 +391,7 @@ export default function RoundTableSessionPage() {
   const ttsLastReadIndexRef = useRef<number>(-1)
   const speechEnabledRef = useRef(false)
   const mainLayoutRef = useRef<HTMLDivElement>(null)
+  const initialScrollDoneRef = useRef(false)
 
   useEffect(() => { messagesRef.current = messages }, [messages])
 
@@ -498,11 +500,14 @@ export default function RoundTableSessionPage() {
   const loadSession = useCallback(async () => {
     setPhase('loading')
     try {
-      const [messagesRes, rolesRes, bookRes] = await Promise.all([
+      const [messagesRes, rolesRes, bookRes, sessionRes] = await Promise.all([
         getRoundTableMessages(sessionId!),
         getRoundTableRoles(bookIdNum!),
         getBook(bookIdNum!),
+        getRoundTableSession(sessionId!).catch(() => null),
       ])
+
+      const sessionData = (sessionRes as { data?: RoundTableSession })?.data ?? sessionRes as RoundTableSession | null
 
       const data = (messagesRes as { data?: RoundTableMessage[] })?.data ?? messagesRes as RoundTableMessage[]
       if (Array.isArray(data)) {
@@ -532,11 +537,18 @@ export default function RoundTableSessionPage() {
         setBookTitle(bookData.title)
       }
 
-      // 判断是否为会话创建者（从消息的 userId 获取）
+      // 判断是否为会话创建者
       const currentUserId = useAuthStore.getState().userInfo?.id
-      const sessionOwnerId = (data as RoundTableMessage[])?.[0]?.userId
+      const sessionOwnerId = sessionData?.userId ?? (data as RoundTableMessage[])?.[0]?.userId
       const owner = sessionOwnerId != null && currentUserId != null && sessionOwnerId === currentUserId
       setIsOwner(owner)
+
+      // 已结束会话进入页面后保持结束状态，不自动滚动到底
+      const isCompleted = sessionData?.status === 'COMPLETED'
+      if (isCompleted) {
+        setPhase('completed')
+        return
+      }
 
       // 有历史消息 → 暂停等待用户点继续；新建会话（无消息）→ 自动开始（仅主人）
       const hasHistory = Array.isArray(data) && data.length > 0
@@ -553,10 +565,24 @@ export default function RoundTableSessionPage() {
   }, [bookIdNum, sessionId])
 
   useEffect(() => {
-    if (!userScrollingRef.current && messages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages])
+    if (messages.length === 0) return
+    if (userScrollingRef.current) return
+    // 已结束会话进入页面时不自动滚动到底
+    if (phase === 'completed') return
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    requestAnimationFrame(() => {
+      if (initialScrollDoneRef.current) {
+        // 讨论过程中新增消息：平滑滚到底
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+      } else {
+        // 首次加载：直接滚到底，避免从顶部滑下来的跳动
+        container.scrollTop = container.scrollHeight
+        initialScrollDoneRef.current = true
+      }
+    })
+  }, [messages, phase])
 
   const handleUserScroll = () => {
     const container = scrollContainerRef.current
@@ -685,6 +711,17 @@ export default function RoundTableSessionPage() {
     setPhase('paused')
   }, [stopDiscussion])
 
+  const endDiscussion = useCallback(async () => {
+    if (!sessionId) return
+    stopDiscussion()
+    try {
+      await updateRoundTableSessionStatus(sessionId, 'COMPLETED')
+      setPhase('completed')
+    } catch {
+      toast.error('结束讨论失败')
+    }
+  }, [sessionId, stopDiscussion])
+
   const grabMicAndSpeak = useCallback(async (lastSpeakerKey: string | undefined) => {
     if (!discussionLoopRef.current) return
     if (speakingKeyRef.current !== null) return
@@ -785,12 +822,18 @@ export default function RoundTableSessionPage() {
     }
   }, [bookIdNum, sessionId])
 
-  const resumeDiscussion = useCallback(() => {
-    discussionLoopRef.current = true
-    setPhase('discussing')
-    const lastMsg = messagesRef.current[messagesRef.current.length - 1]
-    setTimeout(() => grabMicAndSpeak(lastMsg?.roleKey), 1000)
-  }, [grabMicAndSpeak])
+  const continueDiscussion = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      await updateRoundTableSessionStatus(sessionId, 'ACTIVE')
+      discussionLoopRef.current = true
+      setPhase('discussing')
+      const lastMsg = messagesRef.current[messagesRef.current.length - 1]
+      setTimeout(() => grabMicAndSpeak(lastMsg?.roleKey), 1000)
+    } catch {
+      toast.error('继续讨论失败')
+    }
+  }, [sessionId, grabMicAndSpeak])
 
   const handleTriggerReport = useCallback(async () => {
     if (!sessionId) return
@@ -897,8 +940,8 @@ export default function RoundTableSessionPage() {
   }, [isMobile])
 
   return (
-    <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter">
-      <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-navbar/95 px-4 py-2.5 backdrop-blur-xl z-20">
+    <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background">
+          <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-navbar/95 px-4 py-2.5 backdrop-blur-xl z-20 pt-safe-top">
         <button
           onClick={() => navigate(-1)}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl hover:bg-muted transition-colors"
@@ -913,6 +956,7 @@ export default function RoundTableSessionPage() {
             {phase === 'loading' ? '加载中...' :
              phase === 'discussing' ? '讨论进行中' :
              phase === 'paused' ? '讨论已暂停' :
+             phase === 'completed' ? '讨论已结束' :
              phase === 'error' ? '加载出错' : ''}
           </p>
         </div>
@@ -954,7 +998,7 @@ export default function RoundTableSessionPage() {
                 <p className="text-sm font-medium mt-4">加载讨论记录...</p>
               </div>
             )}
-            <div className="space-y-1 p-4 max-w-3xl mx-auto">
+            <div className="min-h-full flex flex-col justify-end p-4 max-w-3xl mx-auto">
               {messages.map(msg => (
                 <MessageBubble
                   key={msg.id}
@@ -963,6 +1007,28 @@ export default function RoundTableSessionPage() {
                   onToggleSpeak={() => handleToggleSpeak(msg.id, msg.content, msg.roleKey)}
                 />
               ))}
+
+              {/* 讨论结束标识：点击继续可删除并恢复讨论 */}
+              {phase === 'completed' && (
+                <div className="flex justify-center my-6">
+                  <div className="inline-flex flex-col items-center gap-3 rounded-2xl border border-border/40 bg-muted/50 px-6 py-4 backdrop-blur-sm">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                      <Square className="h-4 w-4 text-red-400" />
+                      <span>圆桌派讨论已结束</span>
+                    </div>
+                    {isOwner && (
+                      <button
+                        onClick={continueDiscussion}
+                        className="flex items-center gap-1.5 rounded-full bg-brand-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-600 transition-colors"
+                      >
+                        <Play className="h-3 w-3" />
+                        继续讨论
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
           </div>
@@ -1029,9 +1095,9 @@ export default function RoundTableSessionPage() {
                   </button>
                 )}
 
-                {isOwner && phase === 'paused' && messages.some(m => m.streaming === undefined) && (
+                {isOwner && (phase === 'paused' || phase === 'completed') && messages.some(m => m.streaming === undefined) && (
                   <button
-                    onClick={resumeDiscussion}
+                    onClick={continueDiscussion}
                     className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-semibold bg-gradient-to-r from-brand-400 to-brand-500 text-white shadow-md shadow-brand-400/20 active:scale-[0.97] transition-transform"
                   >
                     <Play className="h-3 w-3 shrink-0" />
@@ -1051,7 +1117,7 @@ export default function RoundTableSessionPage() {
 
                 {isOwner && phase === 'discussing' && (
                   <button
-                    onClick={pauseDiscussion}
+                    onClick={endDiscussion}
                     className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
                   >
                     <Square className="h-3 w-3 shrink-0" />
