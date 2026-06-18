@@ -30,8 +30,6 @@ docs/
 Thumbs.db
 
 # 主机端工具/配置（不需要进镜像）
-../package/package.sh
-../package/package.bat
 .env
 .env.example
 *.md

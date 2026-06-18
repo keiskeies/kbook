@@ -26,7 +26,7 @@ COPY ai-config.json /app/config/ai-config.json
 # ---- COPY 运行时配置 ----
 COPY compose/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker-entrypoint.sh /app/start.sh
-RUN chmod +x /app/start.sh
+RUN sed -i 's/\r$//' /app/start.sh && chmod +x /app/start.sh
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \

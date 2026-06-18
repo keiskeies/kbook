@@ -105,6 +105,14 @@ if "!TZ!"=="" set TZ=Asia/Shanghai
 if "!SPRING_PROFILE!"=="" set SPRING_PROFILE=prod
 
 REM ---- Volume 路径转绝对路径 ----
+if "!BOOK_PATH_EPUB!"==""    set BOOK_PATH_EPUB=../data/books/epub
+if "!BOOK_PATH_PDF!"==""     set BOOK_PATH_PDF=../data/books/pdf
+if "!BOOK_PATH_TXT!"==""     set BOOK_PATH_TXT=../data/books/txt
+if "!BOOK_COVER_PATH!"==""   set BOOK_COVER_PATH=../data/covers
+if "!AVATAR_DIR!"==""        set AVATAR_DIR=../data/avatars
+if "!CHAT_DIR!"==""          set CHAT_DIR=../data/chat
+if "!TTS_CACHE_DIR!"==""     set TTS_CACHE_DIR=../data/tts_cache
+if "!AI_CONFIG_HOST!"==""    set AI_CONFIG_HOST=../ai-config.json
 for %%p in ("!BOOK_PATH_EPUB!") do set "BOOK_PATH_EPUB=%%~fp"
 for %%p in ("!BOOK_PATH_PDF!") do set "BOOK_PATH_PDF=%%~fp"
 for %%p in ("!BOOK_PATH_TXT!") do set "BOOK_PATH_TXT=%%~fp"
