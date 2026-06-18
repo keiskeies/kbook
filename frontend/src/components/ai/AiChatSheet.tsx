@@ -443,7 +443,7 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
                                   streaming={msg.streaming && !msg.content}
                                 />
                               )}
-                              <MarkdownRenderer content={msg.content} className="text-body text-justify" />
+                              <MarkdownRenderer content={msg.content} className="text-detail text-justify" />
                             </>
                           )}
                           {msg.streaming && !msg.content && (

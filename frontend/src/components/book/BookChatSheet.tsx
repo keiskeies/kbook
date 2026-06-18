@@ -605,7 +605,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                                 streaming={msg.streaming && !msg.content}
                               />
                             )}
-                            <MarkdownRenderer content={msg.content} className="text-body text-justify" />
+                            <MarkdownRenderer content={msg.content} className="text-detail text-justify" />
                           </>
                         )}
                         {msg.streaming && !msg.content && (
