@@ -1155,7 +1155,8 @@ public class RoundTableService {
 
                 // 消息顺序：SystemMessage(规则) → UserMessage(书籍信息) → History → UserMessage(RAG) → UserMessage(角色设定) → UserMessage(发言指令)
                 List<ChatMessage> messages = buildChatMessages(
-                        request.getSessionId(), userId, systemPrompt, bookInfo, ragContent, roleSetting, extraInstructions, role.getName());
+                        request.getSessionId(), userId, systemPrompt, bookInfo, ragContent, roleSetting, extraInstructions, role.getName(),
+                        role, book);
 
                 // 构建流式模型（不使用 thinking 模式）
                 StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
@@ -1474,7 +1475,8 @@ public class RoundTableService {
      */
     private List<ChatMessage> buildChatMessages(String sessionId, Long userId,
                                                 String systemPrompt, String bookInfo, String ragContent,
-                                                String roleSetting, String extraInstructions, String roleName) {
+                                                String roleSetting, String extraInstructions, String roleName,
+                                                RoundTableRole role, Book book) {
         List<ChatMessage> messages = new ArrayList<>();
 
         // 1. 系统提示词（仅共享规则）
@@ -1501,8 +1503,9 @@ public class RoundTableService {
                 + (extraInstructions != null ? extraInstructions.length() : 0)
                 + speakInstruction.length()
                 + 2000;
+        List<RoundTableMessage> history = new ArrayList<>();
         try {
-            List<RoundTableMessage> history = loadAndCompressHistory(userId, sessionId, currentOverhead);
+            history = loadAndCompressHistory(userId, sessionId, currentOverhead);
             if (!history.isEmpty()) {
                 StringBuilder historyBuilder = new StringBuilder("【之前的讨论内容】\n");
                 for (RoundTableMessage msg : history) {
@@ -1532,7 +1535,13 @@ public class RoundTableService {
             messages.add(UserMessage.from("【书籍参考内容】\n" + ragContent));
         }
 
-        // 6. 发言指令（含额外指令）
+        // 6. 外部知识（每次变化，根据角色专业领域生成）
+        String externalKnowledge = generateExternalKnowledgeForRole(role, book, history);
+        if (externalKnowledge != null && !externalKnowledge.isBlank()) {
+            messages.add(UserMessage.from("【外部参考知识】\n以下知识可帮助你从专业视角评价讨论话题：\n" + externalKnowledge));
+        }
+
+        // 7. 发言指令（含额外指令）
         StringBuilder finalInstruction = new StringBuilder();
         if (extraInstructions != null && !extraInstructions.isBlank()) {
             finalInstruction.append(extraInstructions).append("\n\n");
@@ -1544,6 +1553,81 @@ public class RoundTableService {
     }
 
     // ==================== 消息持久化 ====================
+
+    /**
+     * 为角色生成外部知识
+     */
+    private String generateExternalKnowledgeForRole(RoundTableRole role, Book book, List<RoundTableMessage> history) {
+        try {
+            String domain = getRoleDomain(role);
+            String topic = buildDiscussionTopic(book, history);
+            return chatModelManager.generateExternalKnowledge(domain, topic);
+        } catch (Exception e) {
+            log.debug("生成外部知识失败: role={}, error={}", role.getKey(), e.getMessage());
+            return "";
+        }
+    }
+
+    private String getRoleDomain(RoundTableRole role) {
+        return switch (role) {
+            case SOCIOLOGIST -> "社会学：社会结构、权力关系、阶级差异、社会不平等";
+            case HISTORIAN -> "历史学：历史先例、时代背景、历史规律、跨时代比较";
+            case PSYCHOLOGIST -> "心理学：动机分析、防御机制、情感需求、认知偏差";
+            case PHILOSOPHER -> "哲学：逻辑推演、概念辨析、伦理框架、存在主义";
+            case SCIENTIST -> "科学：实证方法、可证伪性、控制变量、统计显著性";
+            case ENTREPRENEUR -> "商业：商业模式、市场分析、用户需求、竞争策略";
+            case INVESTOR -> "投资：风险评估、概率思维、长期价值、反向思考";
+            case ECONOMIST -> "经济学：激励机制、成本收益、博弈论、制度设计";
+            case LAWYER -> "法律：逻辑推演、规则边界、案例法、程序正义";
+            case JOURNALIST -> "新闻：事实核查、信源追溯、利益链条、叙事拆解";
+            case CRITIC -> "文学批评：叙事技巧、修辞策略、美学价值、文本分析";
+            case WRITER -> "创作：写作技法、叙事策略、文本结构、创作过程";
+            case EDUCATOR -> "教育：学习理论、认知科学、知识传递、教学方法";
+            case STUDENT -> "求知：批判性思维、常识检验、盲点探测、独立思考";
+            case COMEDIAN -> "幽默：荒诞类比、解构主义、市井智慧、常识捍卫";
+            case ACTOR -> "表演：情感体验、角色共情、身体感知、叙事代入";
+            case DIRECTOR -> "导演：画面构建、节奏控制、情绪曲线、视觉叙事";
+            case ARTIST -> "艺术：美学感知、通感体验、创造力、感官直觉";
+            case MUSICIAN -> "音乐：节奏感知、韵律分析、情绪声学、听觉逻辑";
+            case POET -> "诗歌：意象运用、语言凝练、反逻辑表达、留白艺术";
+            case TRANSLATOR -> "翻译：跨文化转换、语义损耗、文化折中、文本再生";
+            case DOCTOR -> "医学：临床思维、生命伦理、健康视角、人文关怀";
+            case FARMER -> "农业：自然规律、季节循环、生存智慧、务实哲学";
+            case FIREFIGHTER -> "消防：危机应对、优先级判断、风险管理、团队协作";
+            case NURSE -> "护理：关怀伦理、情感支持、生命尊严、日常照护";
+            case MEDITATION_TEACHER -> "冥想：内心觉察、当下意识、情绪管理、自我认知";
+            case PARENT -> "家庭：代际关系、教育焦虑、亲子沟通、家庭伦理";
+            case TRAVELER -> "旅行：跨文化视角、多元经验、全球视野、文化碰撞";
+            case TECH_EXPERT -> "技术：系统设计、底层逻辑、技术伦理、创新思维";
+            case ENGINEER -> "工程：系统冗余、故障分析、效率优化、可靠性设计";
+            case EDITOR -> "出版：文本打磨、市场判断、品质把控、读者需求";
+            case BOOK_REVIEWER -> "书评：阅读体验、推荐价值、批判分析、比较阅读";
+            case DIPLOMAT -> "外交：利益平衡、共识构建、谈判策略、国际关系";
+            case LIBRARIAN -> "图书管理：知识体系、文献分类、信息检索、学术资源";
+            case SOCIAL_WORKER -> "社会工作：弱势群体、社会公平、社区资源、权益倡导";
+            case SPORTS_COACH -> "体育：训练方法、团队激励、竞争策略、突破极限";
+            case ANTHROPOLOGIST -> "人类学：文化仪式、符号解读、部落思维、跨文化比较";
+            case FEMINIST -> "女性主义：性别权力、身体政治、隐形劳动、性别平等";
+            case ECOLOGIST -> "生态学：生态伦理、环境系统、可持续发展、人与自然";
+            default -> "跨学科：综合分析视角";
+        };
+    }
+
+    private String buildDiscussionTopic(Book book, List<RoundTableMessage> history) {
+        StringBuilder topic = new StringBuilder();
+        topic.append("关于《").append(book.getTitle()).append("》的讨论");
+        if (history != null && !history.isEmpty()) {
+            int start = Math.max(0, history.size() - 2);
+            for (int i = start; i < history.size(); i++) {
+                RoundTableMessage msg = history.get(i);
+                String content = msg.getCompressedContent() != null ? msg.getCompressedContent() : msg.getContent();
+                if (content != null && !content.isBlank()) {
+                    topic.append("，最近讨论到：").append(content, 0, Math.min(100, content.length()));
+                }
+            }
+        }
+        return topic.toString();
+    }
 
     /**
      * 保存角色发言消息

@@ -920,6 +920,38 @@ public class ChatModelManager {
      *
      * @return AI 原始响应文本（JSON 数组），由调用方解析
      */
+    // ================================================================
+    // 外部知识生成
+    // ================================================================
+
+    /**
+     * 为圆桌派角色生成外部知识
+     */
+    public String generateExternalKnowledge(String roleDomain, String topic) {
+        String logName = "外部知识生成";
+        String logDetail = "领域=" + roleDomain + ", 话题=" + topic;
+
+        List<ChatMessage> messages = List.of(
+                SystemMessage.from(AiPromptConstants.EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT),
+                UserMessage.from("角色专业领域：" + roleDomain + "\n讨论话题：" + topic));
+
+        return callAiWithoutThinking(logName, logDetail, messages);
+    }
+
+    /**
+     * 为奇葩说辩手生成外部知识
+     */
+    public String generateDebateExternalKnowledge(String topic, String side, String stance) {
+        String logName = "辩论外部知识生成";
+        String logDetail = "辩题=" + topic + ", 立场=" + side;
+
+        List<ChatMessage> messages = List.of(
+                SystemMessage.from(AiPromptConstants.DEBATE_EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT),
+                UserMessage.from("辩题：" + topic + "\n立场：" + side + "\n辩手视角：" + stance));
+
+        return callAiWithoutThinking(logName, logDetail, messages);
+    }
+
     public String callAiForLlmOutline(String contentInfo, int minBlocks, int maxBlocks) {
         String systemPrompt = String.format("""
                 你是一个书籍内容分析专家。请根据提供的图书信息，生成该书的内容大纲。

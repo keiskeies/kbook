@@ -300,7 +300,7 @@ function ReportPanel({
                   <FileText className="h-3 w-3" />
                   生成解读报告
                 </button>
-                <p className="text-xs text-muted-foreground/60 mt-2">预计 2-3 分钟，完成后站内信通知</p>
+                <p className="text-xs text-muted-foreground/60 mt-2">预计 2-3 分钟，完成后页面自动刷新</p>
               </>
             ) : (
               <p className="text-xs text-muted-foreground">报告尚未生成</p>
@@ -312,7 +312,7 @@ function ReportPanel({
           <div className="text-center py-6">
             <Loader2 className="h-6 w-6 animate-spin text-brand-500 mx-auto mb-2" />
             <p className="text-xs text-muted-foreground">AI 正在深度解读讨论内容...</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">预计 2-3 分钟，完成后站内信通知</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">预计 2-3 分钟，完成后页面自动刷新</p>
           </div>
         )}
 
@@ -550,11 +550,11 @@ export default function RoundTableSessionPage() {
         return
       }
 
-      // 有历史消息 → 暂停等待用户点继续；新建会话（无消息）→ 自动开始（仅主人）
+      // 数据加载完成后：有消息 → 暂停；无消息 + 是主人 → 自动开始
       const hasHistory = Array.isArray(data) && data.length > 0
-      setPhase(hasHistory ? 'paused' : owner ? 'discussing' : 'paused')
-      if (!hasHistory && owner) {
-        // 新建会话，立即开始讨论循环（仅主人）
+      const canAutoStart = !hasHistory && owner
+      setPhase(hasHistory ? 'paused' : canAutoStart ? 'discussing' : 'paused')
+      if (canAutoStart) {
         discussionLoopRef.current = true
         setTimeout(() => grabMicAndSpeak(undefined), 1000)
       }
@@ -843,7 +843,7 @@ export default function RoundTableSessionPage() {
       setReport(data)
       if (data.status === 'GENERATING') {
         setReportPolling(true)
-        toast.success('解读报告生成中，预计 2-3 分钟，完成后站内信通知')
+        toast.success('解读报告生成中，预计 2-3 分钟，完成后页面自动刷新')
       } else if (data.status === 'COMPLETED') {
         toast.success('解读报告已就绪')
       }
@@ -952,11 +952,13 @@ export default function RoundTableSessionPage() {
           <h1 className="text-sm font-bold text-foreground truncate">
             {bookTitle ? `《${bookTitle}》圆桌派讨论` : '圆桌派讨论'}
           </h1>
-          <p className="text-xs text-muted-foreground truncate">
+          <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
             {phase === 'loading' ? '加载中...' :
              phase === 'discussing' ? '讨论进行中' :
              phase === 'paused' ? '讨论已暂停' :
-             phase === 'completed' ? '讨论已结束' :
+             phase === 'completed' ? (
+               <><span className="inline-block h-1.5 w-1.5 rounded-full bg-red-400" />讨论已结束</>
+             ) :
              phase === 'error' ? '加载出错' : ''}
           </p>
         </div>
@@ -1115,7 +1117,7 @@ export default function RoundTableSessionPage() {
                   </button>
                 )}
 
-                {isOwner && phase === 'discussing' && (
+                {isOwner && phase !== 'completed' && phase !== 'loading' && phase !== 'error' && (
                   <button
                     onClick={endDiscussion}
                     className="flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"

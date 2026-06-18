@@ -896,12 +896,16 @@ public class DebateService {
         // 1. 系统提示词（仅共享规则）
         messages.add(SystemMessage.from(systemPrompt));
 
-        // 2. 书籍上下文 + 辩题（共享）
+        // 2. 辩题 + 立场 + 外部知识（替代原书籍上下文 RAG）
         StringBuilder topicInfo = new StringBuilder();
-        if (session.getBookContext() != null && !session.getBookContext().isBlank()) {
-            topicInfo.append("【书籍上下文】\n").append(session.getBookContext()).append("\n\n");
+        topicInfo.append("【当前辩题】\n").append(session.getTopic()).append("\n");
+        topicInfo.append("【你的立场】\n").append(sideFull).append("\n");
+
+        String externalKnowledge = generateExternalKnowledgeForDebate(session, personality, side);
+        if (externalKnowledge != null && !externalKnowledge.isBlank()) {
+            topicInfo.append("【外部参考知识】\n以下知识可帮助你论证：\n").append(externalKnowledge).append("\n");
         }
-        topicInfo.append("【当前辩题】\n").append(session.getTopic());
+
         messages.add(UserMessage.from(topicInfo.toString()));
 
         // 3. 对话记录（共享）
@@ -1293,6 +1297,21 @@ public class DebateService {
         return sb.length() > SUMMARY_MAX_LENGTH
                 ? sb.substring(0, SUMMARY_MAX_LENGTH) + "..."
                 : sb.toString();
+    }
+
+    /**
+     * 为辩论生成外部知识
+     */
+    private String generateExternalKnowledgeForDebate(DebateSession session, DebateRole personality, String side) {
+        try {
+            String topic = session.getTopic();
+            String stance = "PRO".equals(side) ? "支持该观点" : "反对该观点";
+            String personalityContext = personality.getTitle() + "：" + personality.getPrompt().substring(0, Math.min(200, personality.getPrompt().length()));
+            return chatModelManager.generateDebateExternalKnowledge(topic, stance, personalityContext);
+        } catch (Exception e) {
+            log.debug("生成辩论外部知识失败: session={}, error={}", session.getSessionId(), e.getMessage());
+            return "";
+        }
     }
 
 }

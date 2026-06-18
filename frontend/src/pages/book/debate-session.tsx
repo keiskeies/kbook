@@ -1171,7 +1171,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
     return map
   }, [messages, sessionProKeys, sessionConKeys])
 
-  // 无消息时自动开始辩论（预写开场白，不用 LLM）
+  // 无消息时自动开始辩论（预写开场白，不用 LLM）——数据加载完成后，无消息 + 是主人
   const autoStartTriggered = useRef(false)
   useEffect(() => {
     if (phase !== 'OPENING' || messages.length > 0 || autoStartTriggered.current || !isOwner) return
