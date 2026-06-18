@@ -1,7 +1,7 @@
 ﻿export default function FooterVersion() {
   return (
     <div className="mt-6 text-center">
-      <span className="text-xs text-muted-foreground/60">@VERSION - KEISKEIES 1.1.1</span>
+      <span className="text-xs text-muted-foreground/60">@VERSION - KEISKEIES 1.1.2</span>
     </div>
   )
 }
