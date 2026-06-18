@@ -4,6 +4,7 @@ export interface RoundTableRole {
   name: string
   title: string
   color: string
+  icon: string
   roleGroup: string
   grabWeight: number
   verbosity: number

@@ -26,7 +26,7 @@ function RoleCard({
   isHost: boolean
   onToggle: () => void
 }) {
-  const color = ROLE_COLORS[role.key] || '#6B655C'
+  const color = role.color || ROLE_COLORS[role.key] || '#6B655C'
   const traits = describePersonality(role)
 
   return (
@@ -58,7 +58,7 @@ function RoleCard({
           border: `1.5px solid ${hexToRgba(color, 0.25)}`,
         }}
       >
-        {ROLE_ICONS[role.key] || '👤'}
+        {role.icon || ROLE_ICONS[role.key] || '👤'}
       </div>
 
       <div className="text-center">

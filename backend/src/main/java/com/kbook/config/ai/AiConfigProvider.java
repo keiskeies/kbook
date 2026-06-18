@@ -115,11 +115,31 @@ public class AiConfigProvider {
         return rt.getRoles() != null ? rt.getRoles() : List.of();
     }
 
-    /** 根据 key 查找角色 */
+    /** 根据 key 查找角色（HOST 在单独字段，需特殊处理） */
     public AiConfig.RoundTableRole getRoundTableRole(String key) {
+        if ("HOST".equalsIgnoreCase(key)) {
+            return hostToRole(config.getRoundTable() != null ? config.getRoundTable().getHost() : null);
+        }
         return getRoundTableRoles().stream()
                 .filter(r -> r.getKey().equalsIgnoreCase(key))
                 .findFirst().orElse(null);
+    }
+
+    /** 将 RoundTableHost 转为 RoundTableRole（统一接口） */
+    private AiConfig.RoundTableRole hostToRole(AiConfig.RoundTableHost host) {
+        if (host == null) return null;
+        AiConfig.RoundTableRole r = new AiConfig.RoundTableRole();
+        r.setKey(host.getKey());
+        r.setName(host.getName());
+        r.setTitle(host.getTitle());
+        r.setGroup(host.getGroup());
+        r.setColor(host.getColor());
+        r.setIcon(host.getIcon());
+        r.setTts(host.getTts());
+        r.setPrompt(host.getPrompt());
+        r.setCatchphrase(host.getCatchphrase());
+        r.setParams(host.getParams());
+        return r;
     }
 
     /** 获取默认选中角色列表（含主持人） */

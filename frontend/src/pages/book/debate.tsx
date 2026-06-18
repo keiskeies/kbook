@@ -379,11 +379,11 @@ export default function DebatePage() {
                     <div className="space-y-1.5">
                       <div className="flex items-start gap-1.5">
                         <span className={`text-xs font-semibold shrink-0 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/80' : 'text-[#4A7C6F]'}`}>正方</span>
-                        <p className={`text-xs line-clamp-1 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.proArgument}</p>
+                        <p className={`text-xs leading-relaxed line-clamp-3 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.proArgument}</p>
                       </div>
                       <div className="flex items-start gap-1.5">
                         <span className={`text-xs font-semibold shrink-0 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/80' : 'text-[#B8704A]'}`}>反方</span>
-                        <p className={`text-xs line-clamp-1 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.conArgument}</p>
+                        <p className={`text-xs leading-relaxed line-clamp-3 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.conArgument}</p>
                       </div>
                     </div>
                   </button>
@@ -417,11 +417,11 @@ export default function DebatePage() {
                     <div className="space-y-2">
                       <div className={`rounded-lg border px-3 py-2 ${selectedTopic?.topic === t.topic ? 'border-primary-foreground/20 bg-primary-foreground/10' : 'border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/20'}`}>
                         <span className={`text-xs font-semibold block mb-0.5 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/80' : 'text-[#4A7C6F]'}`}>正方</span>
-                        <span className={`text-xs line-clamp-2 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.proArgument}</span>
+                        <span className={`text-xs leading-relaxed line-clamp-4 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.proArgument}</span>
                       </div>
                       <div className={`rounded-lg border px-3 py-2 ${selectedTopic?.topic === t.topic ? 'border-primary-foreground/20 bg-primary-foreground/10' : 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20'}`}>
                         <span className={`text-xs font-semibold block mb-0.5 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/80' : 'text-[#B8704A]'}`}>反方</span>
-                        <span className={`text-xs line-clamp-2 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.conArgument}</span>
+                        <span className={`text-xs leading-relaxed line-clamp-4 ${selectedTopic?.topic === t.topic ? 'text-primary-foreground/90' : 'text-foreground'}`}>{t.conArgument}</span>
                       </div>
                     </div>
                   </button>

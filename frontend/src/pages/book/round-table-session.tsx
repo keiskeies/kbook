@@ -31,6 +31,7 @@ interface DisplayMessage {
   roleKey: string
   roleName: string
   roleColor: string
+  roleIcon: string
   content: string
   timestamp: number
   streaming?: boolean
@@ -51,7 +52,7 @@ function RoleBar({
     <div className="shrink-0 border-b border-border/20 bg-navbar/95 backdrop-blur-xl px-3 py-2">
       <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
         {roles.map(role => {
-          const color = ROLE_COLORS[role.key] || '#6B655C'
+          const color = role.color || ROLE_COLORS[role.key] || '#6B655C'
           const count = speakCounts[role.key] || 0
           const isActive = speakingKey === role.key || grabbingKey === role.key
           return (
@@ -72,7 +73,7 @@ function RoleBar({
                   boxShadow: isActive ? `0 0 12px ${hexToRgba(color, 0.25)}` : undefined,
                 }}
               >
-                {ROLE_ICONS[role.key] || '👤'}
+                {role.icon || ROLE_ICONS[role.key] || '👤'}
               </div>
               <div className="flex flex-col">
                 <span
@@ -129,7 +130,7 @@ function MessageBubble({
             border: `1.5px solid ${hexToRgba(color, 0.25)}`,
           }}
         >
-          {ROLE_ICONS[msg.roleKey] || '👤'}
+          {msg.roleIcon}
         </div>
         <div
           className="w-[2px] flex-1 rounded-full min-h-[20px]"
@@ -237,7 +238,7 @@ function SpeakStatsPanel({
       <div className="px-4 py-3 shrink-0">
         <div className="space-y-2 overflow-y-auto">
           {stats.map(({ role, count, totalChars }) => {
-            const color = ROLE_COLORS[role.key] || '#6B655C'
+          const color = role.color || ROLE_COLORS[role.key] || '#6B655C'
             const pct = (count / maxCount) * 100
             return (
               <div key={role.key} className="flex items-center gap-2">
@@ -511,25 +512,44 @@ export default function RoundTableSessionPage() {
 
       const data = (messagesRes as { data?: RoundTableMessage[] })?.data ?? messagesRes as RoundTableMessage[]
       if (Array.isArray(data)) {
-        const displayMessages: DisplayMessage[] = data.map(msg => ({
-          id: String(msg.id),
-          roleKey: msg.roleKey,
-          roleName: ROLE_NAMES[msg.roleKey] || msg.roleKey,
-          roleColor: ROLE_COLORS[msg.roleKey] || '#6B655C',
-          content: msg.content,
-          timestamp: new Date(msg.createdAt).getTime(),
-        }))
+        const displayMessages: DisplayMessage[] = data.map(msg => {
+          const role = activeRolesRef.current.find(r => r.key === msg.roleKey)
+          return {
+            id: String(msg.id),
+            roleKey: msg.roleKey,
+            roleName: msg.roleName || role?.name || ROLE_NAMES[msg.roleKey] || msg.roleKey,
+            roleColor: role?.color || ROLE_COLORS[msg.roleKey] || '#6B655C',
+            roleIcon: role?.icon || ROLE_ICONS[msg.roleKey] || '👤',
+            content: msg.content,
+            timestamp: new Date(msg.createdAt).getTime(),
+          }
+        })
         setMessages(displayMessages)
         messagesRef.current = displayMessages
       }
 
       const rolesData = (rolesRes as { data?: RoundTableRole[] })?.data ?? rolesRes as RoundTableRole[]
       if (Array.isArray(rolesData) && rolesData.length > 0) {
-        activeRolesRef.current = rolesData.filter(r => r.selected)
+        // 用会话的 roleKeys 过滤，而不是用后端的 selected 标记
+        const sessionRoleKeys = sessionData?.roleKeys?.split(',').map(k => k.trim()) || []
+        activeRolesRef.current = sessionRoleKeys.length > 0
+          ? rolesData.filter(r => sessionRoleKeys.includes(r.key))
+          : rolesData.filter(r => r.selected)
         const roleCount = activeRolesRef.current.length
         if (roleCount > 0) {
           setCurrentRound(Math.floor(messagesRef.current.length / roleCount) + 1)
         }
+        // 角色加载后，用后端数据补全消息的 icon/name/color
+        setMessages(prev => prev.map(msg => {
+          const role = activeRolesRef.current.find(r => r.key === msg.roleKey)
+          if (!role) return msg
+          return {
+            ...msg,
+            roleName: msg.roleName || role.name,
+            roleColor: role.color || msg.roleColor,
+            roleIcon: role.icon || msg.roleIcon,
+          }
+        }))
       }
 
       const bookData = (bookRes as { data?: { title?: string } })?.data ?? bookRes as { title?: string }
@@ -754,11 +774,13 @@ export default function RoundTableSessionPage() {
       currentMsgIdRef.current = msgId
       currentContentRef.current = ''
 
+      const nextRole = activeRolesRef.current.find(r => r.key === nextSpeaker)
       const displayMsg: DisplayMessage = {
         id: msgId,
         roleKey: nextSpeaker,
-        roleName: ROLE_NAMES[nextSpeaker] || nextSpeaker,
-        roleColor: ROLE_COLORS[nextSpeaker] || '#6B655C',
+        roleName: nextRole?.name || ROLE_NAMES[nextSpeaker] || nextSpeaker,
+        roleColor: nextRole?.color || ROLE_COLORS[nextSpeaker] || '#6B655C',
+        roleIcon: nextRole?.icon || ROLE_ICONS[nextSpeaker] || '👤',
         content: '',
         timestamp: Date.now(),
         streaming: true,

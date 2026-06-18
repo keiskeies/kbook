@@ -18,7 +18,6 @@ import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
 import com.kbook.entity.RoundTableSession;
-import com.kbook.enums.RoundTableRole;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.RoundTableCoverageRepository;
 import com.kbook.repository.RoundTableMessageRepository;
@@ -176,8 +175,8 @@ public class RoundTableService {
         if (!refresh) {
             List<RoleVO> zsetRoles = getTopSelectedRolesFromZSet(scoreKey);
             if (zsetRoles.size() >= 4) {
-                List<RoundTableRole> selectedEnums = zsetRoles.stream()
-                        .map(vo -> RoundTableRole.fromKey(vo.getKey()))
+                List<AiConfig.RoundTableRole> selectedEnums = zsetRoles.stream()
+                        .map(vo -> aiConfigProvider.getRoundTableRole(vo.getKey()))
                         .filter(Objects::nonNull)
                         .toList();
                 log.debug("ZSet 角色推荐命中: bookId={}, roles={}", bookId, zsetRoles.stream().map(RoleVO::getKey).toList());
@@ -198,8 +197,8 @@ public class RoundTableService {
                     for (RoleVO vo : llmSelectedRoles) {
                         stringRedisTemplate.opsForZSet().incrementScore(scoreKey, vo.getKey(), 1);
                     }
-                    List<RoundTableRole> selectedEnums = llmSelectedRoles.stream()
-                            .map(vo -> RoundTableRole.fromKey(vo.getKey()))
+                    List<AiConfig.RoundTableRole> selectedEnums = llmSelectedRoles.stream()
+                            .map(vo -> aiConfigProvider.getRoundTableRole(vo.getKey()))
                             .filter(Objects::nonNull)
                             .toList();
                     return buildRoleListFromSelected(selectedEnums);
@@ -231,9 +230,9 @@ public class RoundTableService {
         List<RoleVO> result = new ArrayList<>();
         for (String key : topKeys) {
             if ("HOST".equals(key)) continue;
-            RoundTableRole role = RoundTableRole.fromKey(key);
+            AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
             if (role != null) {
-                RoleVO vo = RoleVO.from(role);
+                RoleVO vo = RoleVO.fromConfig(role);
                 vo.setSelected(true);
                 result.add(vo);
             }
@@ -258,10 +257,10 @@ public class RoundTableService {
                 int domainRelevance = node.has("domainRelevance") ? node.get("domainRelevance").asInt() : 5;
 
                 if (key == null) continue;
-                RoundTableRole role = RoundTableRole.fromKey(key);
-                if (role == null || role == RoundTableRole.HOST) continue; // HOST 单独添加
+                AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
+                if (role == null || "HOST".equals(role.getKey())) continue;
 
-                RoleVO vo = RoleVO.from(role);
+                RoleVO vo = RoleVO.fromConfig(role);
                 vo.setDomainRelevance(domainRelevance);
                 String languageStyle = node.has("languageStyle") ? node.get("languageStyle").asText() : "";
                 vo.setLanguageStyle(languageStyle);
@@ -317,7 +316,7 @@ public class RoundTableService {
         // 尝试轻量 LLM 调用（比主流程 prompt 更简单，容忍度更高）
         try {
             String bookInfo = buildBookInfoForRoleSelection(book);
-            String roleList = Arrays.stream(RoundTableRole.values())
+            String roleList = aiConfigProvider.getRoundTableRoles().stream()
                     .map(r -> r.getKey() + "(" + r.getName() + ")")
                     .collect(Collectors.joining(", "));
 
@@ -332,10 +331,10 @@ public class RoundTableService {
                         .map(String::toUpperCase)
                         .distinct()
                         .toList();
-                List<RoundTableRole> llmRoles = keys.stream()
-                        .map(RoundTableRole::fromKey)
+                List<AiConfig.RoundTableRole> llmRoles = keys.stream()
+                        .map(aiConfigProvider::getRoundTableRole)
                         .filter(Objects::nonNull)
-                        .filter(r -> r != RoundTableRole.HOST)
+                        .filter(r -> !"HOST".equals(r.getKey()))
                         .toList();
                 if (llmRoles.size() >= 3) {
                     return buildRoleListFromSelected(llmRoles);
@@ -347,38 +346,53 @@ public class RoundTableService {
 
         // 最终回退：标签硬匹配
         List<String> tags = parseTags(book.getFormatTags());
-        List<RoundTableRole> matchedRoles = selectRolesByTags(tags);
+        List<AiConfig.RoundTableRole> matchedRoles = selectRolesByTags(tags);
         return buildRoleListFromSelected(matchedRoles);
     }
 
     /**
      * 从已选角色列表构建 20 人名单（HOST 始终包含且选中）
      */
-    private List<RoleVO> buildRoleListFromSelected(List<RoundTableRole> selectedRoles) {
+    private List<RoleVO> buildRoleListFromSelected(List<AiConfig.RoundTableRole> selectedRoles) {
         List<RoleVO> result = new ArrayList<>();
         Set<String> addedKeys = new HashSet<>();
 
-        // HOST 始终选中
-        RoleVO hostVo = RoleVO.from(RoundTableRole.HOST);
-        hostVo.setSelected(true);
-        result.add(hostVo);
-        addedKeys.add("HOST");
+        // HOST 始终选中（HOST 在单独的 host 字段，不在 roles[] 中）
+        AiConfig.RoundTableHost hostConfig = aiConfigProvider.getRoundTableHost();
+        if (hostConfig != null) {
+            RoleVO hostVo = RoleVO.builder()
+                    .key(hostConfig.getKey())
+                    .name(hostConfig.getName())
+                    .title(hostConfig.getTitle())
+                    .color(hostConfig.getColor())
+                    .icon(hostConfig.getIcon())
+                    .roleGroup(hostConfig.getGroup())
+                    .grabWeight(hostConfig.getParams() != null ? hostConfig.getParams().getGrabWeight() : 10)
+                    .verbosity(hostConfig.getParams() != null ? hostConfig.getParams().getVerbosity() : 3)
+                    .opinionated(hostConfig.getParams() != null ? hostConfig.getParams().getOpinionated() : 2)
+                    .challenge(hostConfig.getParams() != null ? hostConfig.getParams().getChallenge() : 1)
+                    .empathy(hostConfig.getParams() != null ? hostConfig.getParams().getEmpathy() : 5)
+                    .humor(hostConfig.getParams() != null ? hostConfig.getParams().getHumor() : 3)
+                    .selected(true)
+                    .build();
+            result.add(hostVo);
+            addedKeys.add("HOST");
+        }
 
-        for (RoundTableRole role : selectedRoles) {
-            if (role == RoundTableRole.HOST || addedKeys.contains(role.getKey())) continue;
-            RoleVO vo = RoleVO.from(role);
+        for (AiConfig.RoundTableRole role : selectedRoles) {
+            if ("HOST".equals(role.getKey()) || addedKeys.contains(role.getKey())) continue;
+            RoleVO vo = RoleVO.fromConfig(role);
             vo.setSelected(true);
             result.add(vo);
             addedKeys.add(role.getKey());
         }
 
-        List<RoundTableRole> remaining = Arrays.stream(RoundTableRole.values())
+        List<AiConfig.RoundTableRole> remaining = aiConfigProvider.getRoundTableRoles().stream()
                 .filter(r -> !addedKeys.contains(r.getKey()))
                 .collect(Collectors.toList());
-        Collections.shuffle(remaining);
-        for (RoundTableRole role : remaining) {
-            if (result.size() >= 20) break;
-            RoleVO vo = RoleVO.from(role);
+        Collections.reverse(remaining);
+        for (AiConfig.RoundTableRole role : remaining) {
+            RoleVO vo = RoleVO.fromConfig(role);
             vo.setSelected(false);
             result.add(vo);
             addedKeys.add(role.getKey());
@@ -400,34 +414,47 @@ public class RoundTableService {
         int maxRoles = aiConfigProvider.getRoundTableMaxRoles();
 
         for (String key : defaultSelectedKeys) {
+            if ("HOST".equals(key)) {
+                // HOST 在单独的 host 字段
+                AiConfig.RoundTableHost hostConfig = aiConfigProvider.getRoundTableHost();
+                if (hostConfig != null) {
+                    RoleVO vo = RoleVO.builder()
+                            .key(hostConfig.getKey())
+                            .name(hostConfig.getName())
+                            .title(hostConfig.getTitle())
+                            .color(hostConfig.getColor())
+                            .icon(hostConfig.getIcon())
+                            .roleGroup(hostConfig.getGroup())
+                            .grabWeight(hostConfig.getParams() != null ? hostConfig.getParams().getGrabWeight() : 10)
+                            .verbosity(hostConfig.getParams() != null ? hostConfig.getParams().getVerbosity() : 3)
+                            .opinionated(hostConfig.getParams() != null ? hostConfig.getParams().getOpinionated() : 2)
+                            .challenge(hostConfig.getParams() != null ? hostConfig.getParams().getChallenge() : 1)
+                            .empathy(hostConfig.getParams() != null ? hostConfig.getParams().getEmpathy() : 5)
+                            .humor(hostConfig.getParams() != null ? hostConfig.getParams().getHumor() : 3)
+                            .selected(true)
+                            .build();
+                    result.add(vo);
+                    addedKeys.add(key);
+                }
+                continue;
+            }
             AiConfig.RoundTableRole configRole = aiConfigProvider.getRoundTableRole(key);
             if (configRole != null) {
                 RoleVO vo = RoleVO.fromConfig(configRole);
                 vo.setSelected(true);
                 result.add(vo);
                 addedKeys.add(key);
-            } else {
-                // 配置中找不到则回退到枚举
-                RoundTableRole enumRole = RoundTableRole.fromKey(key);
-                if (enumRole != null) {
-                    RoleVO vo = RoleVO.from(enumRole);
-                    vo.setSelected(true);
-                    result.add(vo);
-                    addedKeys.add(key);
-                }
             }
         }
 
         // 补充剩余角色到上限
-        List<RoundTableRole> remainingRoles = Arrays.stream(RoundTableRole.values())
+        List<AiConfig.RoundTableRole> remainingRoles = aiConfigProvider.getRoundTableRoles().stream()
                 .filter(r -> !addedKeys.contains(r.getKey()))
                 .collect(Collectors.toList());
-        Collections.shuffle(remainingRoles);
-        for (RoundTableRole role : remainingRoles) {
+        Collections.reverse(remainingRoles);
+        for (AiConfig.RoundTableRole role : remainingRoles) {
             if (result.size() >= maxRoles) break;
-            // 优先从配置取颜色等数据
-            AiConfig.RoundTableRole configRole = aiConfigProvider.getRoundTableRole(role.getKey());
-            RoleVO vo = configRole != null ? RoleVO.fromConfig(configRole) : RoleVO.from(role);
+            RoleVO vo = RoleVO.fromConfig(role);
             vo.setSelected(false);
             result.add(vo);
         }
@@ -832,9 +859,9 @@ public class RoundTableService {
      * <p>
      * 以 session.roleKeys（后端已自动补全 HOST + 默认角色）为准遍历，
      * 从 roleConfigs JSON 中匹配各角色的 session 专属参数（domainRelevance 等），
-     * 未在 roleConfigs 中找到的角色使用 RoundTableRole 枚举默认值。
+     * 未在 roleConfigs 中找到的角色使用 AiConfig.RoundTableRole 默认值。
      * <p>
-     * 包含角色完整人设描述（从 RoundTableRole 枚举读取），
+     * 包含角色完整人设描述（从 AiConfig.RoundTableRole 读取），
      * 让 LLM 理解每个角色的身份、社交倾向、与谁冲突/共鸣，
      * 从而能根据【社交直觉与张力】中的「天然警惕」「天然共鸣」「接话直觉」
      * 来判断谁最适合接当前发言。
@@ -870,7 +897,7 @@ public class RoundTableService {
             key = key.trim();
             if (key.isBlank()) continue;
 
-            RoundTableRole role = RoundTableRole.fromKey(key);
+            AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
             if (role == null) {
                 log.warn("未知角色 key: {}, 跳过", key);
                 continue;
@@ -883,9 +910,12 @@ public class RoundTableService {
             String languageStyle = (config != null && config.has("languageStyle")) ? config.get("languageStyle").asText() : "";
 
             sb.append("### ").append(key).append("（").append(name).append("，").append(title).append("）\n");
-            // 完整角色人设：身份视角 + 语言指纹 + 社交直觉与张力（天然警惕/天然共鸣/接话直觉） + 输出铁律
-            // 注意：社交直觉与张力 是 LLM 判断"谁适合接话"的核心依据
-            sb.append(role.getPrompt()).append("\n");
+            // 角色人设截断到 1500 字，保留核心身份+社交倾向+说话风格，去掉决策启发式/时间线等冗余内容
+            String prompt = role.getPrompt();
+            if (prompt != null && prompt.length() > 1500) {
+                prompt = prompt.substring(0, 1500) + "……（已截断）";
+            }
+            sb.append(prompt).append("\n");
             // 本次讨论专属参数
             sb.append("【本次讨论专属】专业相关度=").append(domainRelevance);
             if (!languageStyle.isBlank()) {
@@ -948,7 +978,8 @@ public class RoundTableService {
         // 1. 禁止连续发言
         if (!allMessages.isEmpty()) {
             String lastSpeaker = allMessages.get(allMessages.size() - 1).getRoleKey();
-            sb.append("- 绝对禁止：").append(RoundTableRole.fromKey(lastSpeaker).getName())
+            AiConfig.RoundTableRole lastRole = aiConfigProvider.getRoundTableRole(lastSpeaker);
+            sb.append("- 绝对禁止：").append(lastRole != null ? lastRole.getName() : lastSpeaker)
                     .append("刚发过言，不能连续发言\n");
         }
 
@@ -960,7 +991,7 @@ public class RoundTableService {
         if (!neverSpoken.isEmpty()) {
             sb.append("- 【强制优先】以下角色至今一次都没发言，必须在下一轮选其中一位：");
             for (String key : neverSpoken) {
-                RoundTableRole role = RoundTableRole.fromKey(key);
+                AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
                 if (role != null) sb.append(role.getName()).append("(").append(key).append(") ");
             }
             sb.append("\n");
@@ -972,7 +1003,7 @@ public class RoundTableService {
                 .map(String::trim)
                 .sorted(Comparator.comparingLong(k -> speakCounts.getOrDefault(k, 0L)))
                 .forEach(key -> {
-                    RoundTableRole role = RoundTableRole.fromKey(key);
+                    AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
                     long count = speakCounts.getOrDefault(key, 0L);
                     sb.append(role != null ? role.getName() : key).append("=").append(count).append(" ");
                 });
@@ -1002,7 +1033,7 @@ public class RoundTableService {
             if (!starved.isEmpty()) {
                 sb.append("- 【强制优先】以下角色发言严重不足（与最活跃者差距3倍以上）：");
                 for (String key : starved) {
-                    RoundTableRole role = RoundTableRole.fromKey(key);
+                    AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
                     if (role != null) sb.append(role.getName()).append("(").append(key).append(") ");
                 }
                 sb.append("\n");
@@ -1064,7 +1095,7 @@ public class RoundTableService {
         SseEmitter emitter = new SseEmitter(3600_000L);
 
         // 解析角色
-        RoundTableRole role = RoundTableRole.fromKey(request.getRoleKey());
+        AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(request.getRoleKey());
         if (role == null) {
             SseHelper.sendErrorAndComplete(emitter, "未知角色: " + request.getRoleKey());
             return emitter;
@@ -1121,7 +1152,7 @@ public class RoundTableService {
                 String bookInfo = book != null ? buildBookInfo(book) : "";
                 String ragContent = "";
                 if (book != null) {
-                    if (role != RoundTableRole.HOST) {
+                    if (!"HOST".equals(role.getKey())) {
                         // 嘉宾：RAG 检索原著内容
                         if (!Boolean.TRUE.equals(book.getContentEmbedded())) {
                             boolean embedded = waitForContentEmbedding(bookId);
@@ -1254,7 +1285,7 @@ public class RoundTableService {
 
                                 // 异步更新覆盖度（非 HOST 发言后也更新，确保 HOST 下次发言时数据最新）
                                 // 放在 done 之后，避免阻塞 SSE 完成
-                                if (role != RoundTableRole.HOST && !content.isBlank()) {
+                                if (!"HOST".equals(role.getKey()) && !content.isBlank()) {
                                     try {
                                         coverageService.updateCoverage(request.getSessionId(), false);
                                     } catch (Exception e) {
@@ -1305,8 +1336,8 @@ public class RoundTableService {
     /**
      * 构建单角色系统提示词（含语言风格、性格维度和 domainRelevance）
      */
-    private String buildCharacterSystemPrompt(RoundTableRole role, int domainRelevance, String topic, String languageStyle, boolean isOpening) {
-        if (role == RoundTableRole.HOST) {
+    private String buildCharacterSystemPrompt(AiConfig.RoundTableRole role, int domainRelevance, String topic, String languageStyle, boolean isOpening) {
+        if ("HOST".equals(role.getKey())) {
             return AiPromptConstants.ROUND_TABLE_HOST_PROMPT;
         } else {
             return AiPromptConstants.ROUND_TABLE_CHARACTER_PROMPT;
@@ -1317,35 +1348,30 @@ public class RoundTableService {
      * 构建角色设定 UserMessage（包含人设核心、说话方式、风格、性格参数）
      * 此部分每个角色不同，KV 缓存在此处分叉
      */
-    private String buildRoleSettingPrompt(RoundTableRole role, int domainRelevance, String languageStyle) {
-        // 优先从外部配置获取角色数据（提示词、金句）
-        AiConfig.RoundTableRole configRole = aiConfigProvider.getRoundTableRole(role.getKey());
-
-        if (role == RoundTableRole.HOST) {
+    private String buildRoleSettingPrompt(AiConfig.RoundTableRole role, int domainRelevance, String languageStyle) {
+        if ("HOST".equals(role.getKey())) {
             String hostStyle = (languageStyle != null && !languageStyle.isBlank()) ? languageStyle : "沉稳大方，善于引导和总结";
             return String.format(AiPromptConstants.ROUND_TABLE_ROLE_SETTING_HOST,
                     hostStyle,
-                    role.getChallenge(), describeChallenge(role.getChallenge()),
-                    role.getEmpathy(), describeEmpathy(role.getEmpathy()),
-                    role.getOpinionated(), describeOpinionated(role.getOpinionated()),
-                    role.getVerbosity(), describeVerbosity(role.getVerbosity()));
+                    role.getParams().getChallenge(), describeChallenge(role.getParams().getChallenge()),
+                    role.getParams().getEmpathy(), describeEmpathy(role.getParams().getEmpathy()),
+                    role.getParams().getOpinionated(), describeOpinionated(role.getParams().getOpinionated()),
+                    role.getParams().getVerbosity(), describeVerbosity(role.getParams().getVerbosity()));
         } else {
             String charStyle = (languageStyle != null && !languageStyle.isBlank()) ? languageStyle : "自然流畅，符合你的专业身份";
 
-            // 优先从配置获取提示词和金句，配置不存在则回退到枚举
-            String rolePrompt = (configRole != null) ? configRole.getPrompt() : role.getPrompt();
-            String catchphrase = (configRole != null) ? configRole.getCatchphrase() :
-                    (role.getCatchphrase() != null ? role.getCatchphrase() : "用你自己的方式表达，保持自然");
+            String rolePrompt = role.getPrompt();
+            String catchphrase = role.getCatchphrase() != null ? role.getCatchphrase() : "用你自己的方式表达，保持自然";
 
             return String.format(AiPromptConstants.ROUND_TABLE_ROLE_SETTING_GUEST,
                     rolePrompt,
                     catchphrase,
                     charStyle,
-                    role.getChallenge(), describeChallenge(role.getChallenge()),
-                    role.getEmpathy(), describeEmpathy(role.getEmpathy()),
-                    role.getOpinionated(), describeOpinionated(role.getOpinionated()),
-                    role.getVerbosity(), describeVerbosity(role.getVerbosity()),
-                    role.getHumor(), describeHumor(role.getHumor()),
+                    role.getParams().getChallenge(), describeChallenge(role.getParams().getChallenge()),
+                    role.getParams().getEmpathy(), describeEmpathy(role.getParams().getEmpathy()),
+                    role.getParams().getOpinionated(), describeOpinionated(role.getParams().getOpinionated()),
+                    role.getParams().getVerbosity(), describeVerbosity(role.getParams().getVerbosity()),
+                    role.getParams().getHumor(), describeHumor(role.getParams().getHumor()),
                     domainRelevance, describeDomainRelevance(domainRelevance));
         }
     }
@@ -1353,8 +1379,8 @@ public class RoundTableService {
     /**
      * 构建额外指令（话题方向 / 开场引导 / 覆盖度），作为发言指令的前缀
      */
-    private String buildExtraInstructions(RoundTableRole role, String topic, boolean isOpening) {
-        if (role == RoundTableRole.HOST) {
+    private String buildExtraInstructions(AiConfig.RoundTableRole role, String topic, boolean isOpening) {
+        if ("HOST".equals(role.getKey())) {
             if (topic != null && !topic.isBlank()) {
                 return "【话题方向】\n请围绕以下方向引导讨论：" + topic;
             } else if (isOpening) {
@@ -1425,7 +1451,7 @@ public class RoundTableService {
     /**
      * 从 roleConfigs JSON 中解析角色的 domainRelevance
      */
-    private int resolveDomainRelevance(RoundTableRole role, String roleConfigs) {
+    private int resolveDomainRelevance(AiConfig.RoundTableRole role, String roleConfigs) {
         if (roleConfigs == null || roleConfigs.isBlank()) {
             return 0;
         }
@@ -1447,7 +1473,7 @@ public class RoundTableService {
     /**
      * 从 roleConfigs JSON 中解析角色的 languageStyle
      */
-    private String resolveLanguageStyle(RoundTableRole role, String roleConfigs) {
+    private String resolveLanguageStyle(AiConfig.RoundTableRole role, String roleConfigs) {
         if (roleConfigs == null || roleConfigs.isBlank()) {
             return "";
         }
@@ -1476,7 +1502,7 @@ public class RoundTableService {
     private List<ChatMessage> buildChatMessages(String sessionId, Long userId,
                                                 String systemPrompt, String bookInfo, String ragContent,
                                                 String roleSetting, String extraInstructions, String roleName,
-                                                RoundTableRole role, Book book) {
+                                                AiConfig.RoundTableRole role, Book book) {
         List<ChatMessage> messages = new ArrayList<>();
 
         // 1. 系统提示词（仅共享规则）
@@ -1557,7 +1583,7 @@ public class RoundTableService {
     /**
      * 为角色生成外部知识
      */
-    private String generateExternalKnowledgeForRole(RoundTableRole role, Book book, List<RoundTableMessage> history) {
+    private String generateExternalKnowledgeForRole(AiConfig.RoundTableRole role, Book book, List<RoundTableMessage> history) {
         try {
             String domain = getRoleDomain(role);
             String topic = buildDiscussionTopic(book, history);
@@ -1568,47 +1594,48 @@ public class RoundTableService {
         }
     }
 
-    private String getRoleDomain(RoundTableRole role) {
-        return switch (role) {
-            case SOCIOLOGIST -> "社会学：社会结构、权力关系、阶级差异、社会不平等";
-            case HISTORIAN -> "历史学：历史先例、时代背景、历史规律、跨时代比较";
-            case PSYCHOLOGIST -> "心理学：动机分析、防御机制、情感需求、认知偏差";
-            case PHILOSOPHER -> "哲学：逻辑推演、概念辨析、伦理框架、存在主义";
-            case SCIENTIST -> "科学：实证方法、可证伪性、控制变量、统计显著性";
-            case ENTREPRENEUR -> "商业：商业模式、市场分析、用户需求、竞争策略";
-            case INVESTOR -> "投资：风险评估、概率思维、长期价值、反向思考";
-            case ECONOMIST -> "经济学：激励机制、成本收益、博弈论、制度设计";
-            case LAWYER -> "法律：逻辑推演、规则边界、案例法、程序正义";
-            case JOURNALIST -> "新闻：事实核查、信源追溯、利益链条、叙事拆解";
-            case CRITIC -> "文学批评：叙事技巧、修辞策略、美学价值、文本分析";
-            case WRITER -> "创作：写作技法、叙事策略、文本结构、创作过程";
-            case EDUCATOR -> "教育：学习理论、认知科学、知识传递、教学方法";
-            case STUDENT -> "求知：批判性思维、常识检验、盲点探测、独立思考";
-            case COMEDIAN -> "幽默：荒诞类比、解构主义、市井智慧、常识捍卫";
-            case ACTOR -> "表演：情感体验、角色共情、身体感知、叙事代入";
-            case DIRECTOR -> "导演：画面构建、节奏控制、情绪曲线、视觉叙事";
-            case ARTIST -> "艺术：美学感知、通感体验、创造力、感官直觉";
-            case MUSICIAN -> "音乐：节奏感知、韵律分析、情绪声学、听觉逻辑";
-            case POET -> "诗歌：意象运用、语言凝练、反逻辑表达、留白艺术";
-            case TRANSLATOR -> "翻译：跨文化转换、语义损耗、文化折中、文本再生";
-            case DOCTOR -> "医学：临床思维、生命伦理、健康视角、人文关怀";
-            case FARMER -> "农业：自然规律、季节循环、生存智慧、务实哲学";
-            case FIREFIGHTER -> "消防：危机应对、优先级判断、风险管理、团队协作";
-            case NURSE -> "护理：关怀伦理、情感支持、生命尊严、日常照护";
-            case MEDITATION_TEACHER -> "冥想：内心觉察、当下意识、情绪管理、自我认知";
-            case PARENT -> "家庭：代际关系、教育焦虑、亲子沟通、家庭伦理";
-            case TRAVELER -> "旅行：跨文化视角、多元经验、全球视野、文化碰撞";
-            case TECH_EXPERT -> "技术：系统设计、底层逻辑、技术伦理、创新思维";
-            case ENGINEER -> "工程：系统冗余、故障分析、效率优化、可靠性设计";
-            case EDITOR -> "出版：文本打磨、市场判断、品质把控、读者需求";
-            case BOOK_REVIEWER -> "书评：阅读体验、推荐价值、批判分析、比较阅读";
-            case DIPLOMAT -> "外交：利益平衡、共识构建、谈判策略、国际关系";
-            case LIBRARIAN -> "图书管理：知识体系、文献分类、信息检索、学术资源";
-            case SOCIAL_WORKER -> "社会工作：弱势群体、社会公平、社区资源、权益倡导";
-            case SPORTS_COACH -> "体育：训练方法、团队激励、竞争策略、突破极限";
-            case ANTHROPOLOGIST -> "人类学：文化仪式、符号解读、部落思维、跨文化比较";
-            case FEMINIST -> "女性主义：性别权力、身体政治、隐形劳动、性别平等";
-            case ECOLOGIST -> "生态学：生态伦理、环境系统、可持续发展、人与自然";
+    private String getRoleDomain(AiConfig.RoundTableRole role) {
+        return switch (role.getKey()) {
+            case "SOCIOLOGIST" -> "社会学：社会结构、权力关系、阶级差异、社会不平等";
+            case "HISTORIAN" -> "历史学：历史先例、时代背景、历史规律、跨时代比较";
+            case "PSYCHOLOGIST" -> "心理学：动机分析、防御机制、情感需求、认知偏差";
+            case "PHILOSOPHER" -> "哲学：逻辑推演、概念辨析、伦理框架、存在主义";
+            case "SCIENTIST" -> "科学：实证方法、可证伪性、控制变量、统计显著性";
+            case "ENTREPRENEUR" -> "商业：商业模式、市场分析、用户需求、竞争策略";
+            case "INVESTOR" -> "投资：风险评估、概率思维、长期价值、反向思考";
+            case "ECONOMIST" -> "经济学：激励机制、成本收益、博弈论、制度设计";
+            case "LAWYER" -> "法律：逻辑推演、规则边界、案例法、程序正义";
+            case "JOURNALIST" -> "新闻：事实核查、信源追溯、利益链条、叙事拆解";
+            case "CRITIC" -> "文学批评：叙事技巧、修辞策略、美学价值、文本分析";
+            case "WRITER" -> "创作：写作技法、叙事策略、文本结构、创作过程";
+            case "EDUCATOR" -> "教育：学习理论、认知科学、知识传递、教学方法";
+            case "STUDENT" -> "求知：批判性思维、常识检验、盲点探测、独立思考";
+            case "COMEDIAN" -> "幽默：荒诞类比、解构主义、市井智慧、常识捍卫";
+            case "ACTOR" -> "表演：情感体验、角色共情、身体感知、叙事代入";
+            case "DIRECTOR" -> "导演：画面构建、节奏控制、情绪曲线、视觉叙事";
+            case "ARTIST" -> "艺术：美学感知、通感体验、创造力、感官直觉";
+            case "MUSICIAN" -> "音乐：节奏感知、韵律分析、情绪声学、听觉逻辑";
+            case "POET" -> "诗歌：意象运用、语言凝练、反逻辑表达、留白艺术";
+            case "TRANSLATOR" -> "翻译：跨文化转换、语义损耗、文化折中、文本再生";
+            case "DOCTOR" -> "医学：临床思维、生命伦理、健康视角、人文关怀";
+            case "FARMER" -> "农业：自然规律、季节循环、生存智慧、务实哲学";
+            case "FIREFIGHTER" -> "消防：危机应对、优先级判断、风险管理、团队协作";
+            case "NURSE" -> "护理：关怀伦理、情感支持、生命尊严、日常照护";
+            case "MEDITATION_TEACHER" -> "冥想：内心觉察、当下意识、情绪管理、自我认知";
+            case "PARENT" -> "家庭：代际关系、教育焦虑、亲子沟通、家庭伦理";
+            case "TRAVELER" -> "旅行：跨文化视角、多元经验、全球视野、文化碰撞";
+            case "TECH_EXPERT" -> "技术：系统设计、底层逻辑、技术伦理、创新思维";
+            case "ENGINEER" -> "工程：系统冗余、故障分析、效率优化、可靠性设计";
+            case "EDITOR" -> "出版：文本打磨、市场判断、品质把控、读者需求";
+            case "BOOK_REVIEWER" -> "书评：阅读体验、推荐价值、批判分析、比较阅读";
+            case "DIPLOMAT" -> "外交：利益平衡、共识构建、谈判策略、国际关系";
+            case "LIBRARIAN" -> "图书管理：知识体系、文献分类、信息检索、学术资源";
+            case "SOCIAL_WORKER" -> "社会工作：弱势群体、社会公平、社区资源、权益倡导";
+            case "SPORTS_COACH" -> "体育：训练方法、团队激励、竞争策略、突破极限";
+            case "ANTHROPOLOGIST" -> "人类学：文化仪式、符号解读、部落思维、跨文化比较";
+            case "FEMINIST" -> "女性主义：性别权力、身体政治、隐形劳动、性别平等";
+            case "ECOLOGIST" -> "生态学：生态伦理、环境系统、可持续发展、人与自然";
+            case "STRATEGIST" -> "战略：博弈论、决策分析、威慑理论、长期规划";
             default -> "跨学科：综合分析视角";
         };
     }
@@ -1812,7 +1839,7 @@ public class RoundTableService {
      * <p>
      * 同时结合当前讨论的最新话题，让检索更精准
      */
-    private String retrieveRagContextForRole(Book book, RoundTableRole role, List<RoundTableMessage> history) {
+    private String retrieveRagContextForRole(Book book, AiConfig.RoundTableRole role, List<RoundTableMessage> history) {
         if (!embeddingService.isAvailable()) {
             log.debug("Embedding 不可用，跳过角色视角 RAG 检索");
             return "";
@@ -1862,10 +1889,9 @@ public class RoundTableService {
      * 输入：角色信息 + 角色专业关键词 + 前两轮发言 + 图书基础信息
      * 输出：一段精准的检索查询文本，用于向量检索
      */
-    private String buildRoleSpecificQuery(Book book, RoundTableRole role, List<RoundTableMessage> history) {
+    private String buildRoleSpecificQuery(Book book, AiConfig.RoundTableRole role, List<RoundTableMessage> history) {
         try {
-            // HOST 专用：反向查询——从未讨论的概念中选题，引导新话题
-            if (role == RoundTableRole.HOST) {
+            if ("HOST".equals(role.getKey())) {
                 return buildHostSearchQuery(book, history);
             }
 
@@ -2007,50 +2033,11 @@ public class RoundTableService {
      * 获取角色的专业检索关键词
      * 不同角色在搜索书中内容时，关注的关键词不同
      */
-    private String getRoleSearchKeywords(RoundTableRole role) {
-        return switch (role) {
-            case HOST -> "核心观点 主题思想 主要内容";
-            case PHILOSOPHER -> "意义 本质 伦理 价值 存在 道德 哲学 思辨";
-            case PSYCHOLOGIST -> "心理 情感 动机 行为 人格 认知 潜意识 情绪";
-            case SOCIOLOGIST -> "社会 权力 阶级 制度 文化 结构 不平等 群体";
-            case SCIENTIST -> "证据 数据 实验 逻辑 推理 假设 验证 方法";
-            case CRITIC -> "叙事 修辞 隐喻 象征 风格 美学 结构 技巧";
-            case HISTORIAN -> "历史 时代 背景 演变 传统 变革 文化 传承";
-            case STUDENT -> "学习 疑问 理解 启发 知识 成长 困惑 思考";
-            case ACTOR -> "角色 情感 体验 冲突 表演 人物 性格 内心";
-            case COMEDIAN -> "幽默 讽刺 矛盾 荒诞 反差 趣味 比喻 夸张";
-            case DIRECTOR -> "画面 场景 节奏 悬念 转折 高潮 结构 视觉";
-            case JOURNALIST -> "事实 真相 细节 证据 调查 报道 内幕 背景";
-            case LAWYER -> "权利 义务 公平 正义 法律 规则 合同 责任";
-            case DOCTOR -> "生命 健康 疾病 心理 精神 生死 临床 治疗 症状 创伤";
-            case ARTIST -> "美 创造 灵感 色彩 情感 想象 表达 形式";
-            case WRITER -> "写作 叙事 文字 语言 表达 故事 人物 情节";
-            case EDUCATOR -> "教育 学习 教学 启发 知识 成长 培养 方法";
-            case ENTREPRENEUR -> "创新 机会 创业 市场 突破 变革 风险 价值";
-            case INVESTOR -> "价值 投资 回报 风险 趋势 判断 长期 增长";
-            case MUSICIAN -> "节奏 旋律 和声 韵律 情感 乐章 变奏 共鸣";
-            case DIPLOMAT -> "外交 平衡 共识 妥协 对话 冲突 谈判 和平";
-            case ECONOMIST -> "经济 成本 收益 供需 激励 市场 资源 分配";
-            case FARMER -> "土地 自然 季节 生长 收获 农事 朴实 耐心";
-            case FIREFIGHTER -> "危机 风险 应急 优先 安全 冷静 救援 防范";
-            case LIBRARIAN -> "知识 书籍 分类 体系 传统 影响 阅读 推荐";
-            case MEDITATION_TEACHER -> "冥想 正念 觉察 内心 平静 精神 成长 禅";
-            case NURSE -> "关怀 照顾 痛苦 弱势 细节 温暖 护理 同理心";
-            case POET -> "诗意 意象 隐喻 情感 语言 韵律 灵感 表达";
-            case SOCIAL_WORKER -> "弱势 公平 权益 社区 援助 倡导 边缘 同理";
-            case SPORTS_COACH -> "毅力 团队 训练 极限 竞技 逆境 斗志 潜力";
-            case TRAVELER -> "旅行 文化 差异 见闻 世界 视角 跨文化 体验";
-            case TECH_EXPERT -> "逻辑 系统 架构 底层 产品 需求 模式 规则";
-            case ENGINEER -> "系统 效率 故障 冗余 容错 工程 设计 可靠性";
-            case EDITOR -> "出版 编辑 文本 打磨 市场 读者 定位 筛选";
-            case BOOK_REVIEWER -> "书评 推荐 阅读体验 品鉴 评分 畅销 口碑";
-            case PARENT -> "育儿 家庭 代际 教育 亲子 焦虑 孩子 成长";
-            case STRATEGIST -> "战略 博弈 决策 威慑 情报 战术 长期 布局";
-            case ANTHROPOLOGIST -> "文化 仪式 符号 部落 他者 田野 民族志 习俗";
-            case FEMINIST -> "性别 权力 女性 身体政治 隐形劳动 平权 父权 凝视";
-            case ECOLOGIST -> "生态 自然 环境 可持续 末日 生物多样性 气候 伦理";
-            case TRANSLATOR -> "翻译 译文 不可译 文化损耗 原文 语境 语言转换";
-        };
+    private String getRoleSearchKeywords(AiConfig.RoundTableRole role) {
+        if (role.getSearchKeywords() != null && !role.getSearchKeywords().isEmpty()) {
+            return String.join(" ", role.getSearchKeywords());
+        }
+        return role.getName();
     }
 
     /**
@@ -2102,136 +2089,28 @@ public class RoundTableService {
     /**
      * 根据标签选择推荐角色（回退方案）
      */
-    private List<RoundTableRole> selectRolesByTags(List<String> tags) {
-        List<RoundTableRole> result = new ArrayList<>();
-        result.add(RoundTableRole.HOST);
+    private List<AiConfig.RoundTableRole> selectRolesByTags(List<String> tags) {
+        List<AiConfig.RoundTableRole> result = new ArrayList<>();
 
-        Set<RoundTableRole> candidates = new LinkedHashSet<>();
+        Set<AiConfig.RoundTableRole> candidates = new LinkedHashSet<>();
         String allTags = tags.stream().map(String::toLowerCase).collect(Collectors.joining(" "));
 
-        if (containsAny(allTags, "心理学", "心理", "精神", "情感", "成长", "亲子", "育儿", "教育")) {
-            candidates.add(RoundTableRole.PSYCHOLOGIST);
-        }
-        if (containsAny(allTags, "哲学", "伦理", "存在", "逻辑", "国学", "儒学", "道家", "佛学")) {
-            candidates.add(RoundTableRole.PHILOSOPHER);
-        }
-        if (containsAny(allTags, "社会", "政治", "权力", "阶级", "文化", "人类学", "历史", "中国历史", "世界历史")) {
-            candidates.add(RoundTableRole.SOCIOLOGIST);
-        }
-        if (containsAny(allTags, "科学", "科普", "物理", "数学", "化学", "生物", "医学", "计算机", "编程", "人工智能")) {
-            candidates.add(RoundTableRole.SCIENTIST);
-            candidates.add(RoundTableRole.TECH_EXPERT);
-        }
-        if (containsAny(allTags, "商业", "创业", "管理", "经济", "金融", "投资", "职场", "营销")) {
-            candidates.add(RoundTableRole.ENTREPRENEUR);
-        }
-        if (containsAny(allTags, "小说", "文学", "散文", "诗歌", "叙事", "长篇", "短篇", "推理", "悬疑", "科幻", "奇幻")) {
-            candidates.add(RoundTableRole.CRITIC);
-            candidates.add(RoundTableRole.ACTOR);
-            candidates.add(RoundTableRole.WRITER);
-        }
-        if (containsAny(allTags, "历史", "古代", "近代", "战争", "革命", "传记", "回忆录")) {
-            candidates.add(RoundTableRole.HISTORIAN);
-        }
-        if (containsAny(allTags, "学术", "教育", "学习", "大学", "研究")) {
-            candidates.add(RoundTableRole.EDUCATOR);
-            candidates.add(RoundTableRole.STUDENT);
-        }
-        if (containsAny(allTags, "法律", "刑侦", "犯罪", "正义", "权利")) {
-            candidates.add(RoundTableRole.LAWYER);
-        }
-        if (containsAny(allTags, "医学", "健康", "中医", "营养", "生命", "精神", "临床", "心理")) {
-            candidates.add(RoundTableRole.DOCTOR);
-        }
-        if (containsAny(allTags, "艺术", "音乐", "电影", "摄影", "设计")) {
-            candidates.add(RoundTableRole.ARTIST);
-            candidates.add(RoundTableRole.DIRECTOR);
-        }
-        if (containsAny(allTags, "新闻", "传播", "媒体", "记者", "调查", "深度")) {
-            candidates.add(RoundTableRole.JOURNALIST);
-        }
-        if (containsAny(allTags, "外交", "国际", "地缘", "谈判", "和平", "冲突")) {
-            candidates.add(RoundTableRole.DIPLOMAT);
-        }
-        if (containsAny(allTags, "经济", "金融", "市场", "货币", "贸易", "供需")) {
-            candidates.add(RoundTableRole.ECONOMIST);
-        }
-        if (containsAny(allTags, "农业", "自然", "生态", "环保", "乡村", "田园")) {
-            candidates.add(RoundTableRole.FARMER);
-        }
-        if (containsAny(allTags, "危机", "应急", "安全", "风险", "消防", "救援")) {
-            candidates.add(RoundTableRole.FIREFIGHTER);
-        }
-        if (containsAny(allTags, "图书馆", "阅读", "书籍", "知识", "文献", "分类")) {
-            candidates.add(RoundTableRole.LIBRARIAN);
-        }
-        if (containsAny(allTags, "冥想", "正念", "禅", "灵修", "瑜伽", "修行")) {
-            candidates.add(RoundTableRole.MEDITATION_TEACHER);
-        }
-        if (containsAny(allTags, "护理", "关怀", "照顾", "康复", "养老", "助人")) {
-            candidates.add(RoundTableRole.NURSE);
-        }
-        if (containsAny(allTags, "政治", "治理", "政策", "公共", "行政", "政府")) {
-            candidates.add(RoundTableRole.STRATEGIST);
-            candidates.add(RoundTableRole.DIPLOMAT);
-        }
-        if (containsAny(allTags, "诗歌", "诗意", "意象", "抒情", "文学")) {
-            candidates.add(RoundTableRole.POET);
-        }
-        if (containsAny(allTags, "公益", "社工", "弱势", "公平", "社区", "慈善", "权益")) {
-            candidates.add(RoundTableRole.SOCIAL_WORKER);
-        }
-        if (containsAny(allTags, "体育", "运动", "竞技", "训练", "团队", "比赛", "健身")) {
-            candidates.add(RoundTableRole.SPORTS_COACH);
-        }
-        if (containsAny(allTags, "旅行", "游记", "文化", "地理", "世界", "探险", "跨文化")) {
-            candidates.add(RoundTableRole.TRAVELER);
-        }
-        if (containsAny(allTags, "基金", "风投", "创投", "VC", "PE", "二级市场", "宏观", "周期", "行业", "趋势", "基本面", "估值", "非共识", "尽调")) {
-            candidates.add(RoundTableRole.INVESTOR);
-        }
-        if (containsAny(allTags, "科技", "互联网", "技术", "产品", "架构", "系统设计", "底层", "代码", "扩展性")) {
-            candidates.add(RoundTableRole.TECH_EXPERT);
-        }
-        if (containsAny(allTags, "人类学", "民族志", "田野", "仪式", "部落", "他者", "文化比较")) {
-            candidates.add(RoundTableRole.ANTHROPOLOGIST);
-        }
-        if (containsAny(allTags, "女性", "性别", "女权", "平权", "父权", "身体政治", "隐形劳动", "凝视")) {
-            candidates.add(RoundTableRole.FEMINIST);
-        }
-        if (containsAny(allTags, "生态", "环保", "自然", "可持续", "气候", "生物多样性", "末日")) {
-            candidates.add(RoundTableRole.ECOLOGIST);
-        }
-        if (containsAny(allTags, "翻译", "译本", "外语", "译文", "不可译", "文化损耗", "原文", "语境")) {
-            candidates.add(RoundTableRole.TRANSLATOR);
-        }
-        if (containsAny(allTags, "出版", "编辑", "文本打磨", "市场定位", "读者")) {
-            candidates.add(RoundTableRole.EDITOR);
-        }
-        if (containsAny(allTags, "书评", "推荐", "阅读体验", "品鉴", "评分", "畅销", "口碑")) {
-            candidates.add(RoundTableRole.BOOK_REVIEWER);
-        }
-        if (containsAny(allTags, "育儿", "亲子", "家庭", "代际", "孩子", "教育焦虑")) {
-            candidates.add(RoundTableRole.PARENT);
-        }
-        if (containsAny(allTags, "军事", "战略", "博弈", "威慑", "战术", "情报", "决策")) {
-            candidates.add(RoundTableRole.STRATEGIST);
-        }
-        if (containsAny(allTags, "工程", "系统", "效率", "容错", "冗余", "可靠性", "设计")) {
-            candidates.add(RoundTableRole.ENGINEER);
+        for (AiConfig.RoundTableRole role : aiConfigProvider.getRoundTableRoles()) {
+            if (role.getTags() != null) {
+                for (String tag : role.getTags()) {
+                    if (allTags.contains(tag.toLowerCase())) {
+                        candidates.add(role);
+                        break;
+                    }
+                }
+            }
         }
 
         if (candidates.size() < 3) {
-            List<RoundTableRole> defaults = List.of(
-                    RoundTableRole.PHILOSOPHER,
-                    RoundTableRole.PSYCHOLOGIST,
-                    RoundTableRole.SOCIOLOGIST,
-                    RoundTableRole.EDUCATOR,
-                    RoundTableRole.COMEDIAN
-            );
-            for (RoundTableRole def : defaults) {
+            for (String defaultKey : List.of("PHILOSOPHER", "PSYCHOLOGIST", "SOCIOLOGIST", "EDUCATOR", "COMEDIAN")) {
                 if (candidates.size() >= 3) break;
-                candidates.add(def);
+                AiConfig.RoundTableRole r = aiConfigProvider.getRoundTableRole(defaultKey);
+                if (r != null) candidates.add(r);
             }
         }
 
@@ -2239,10 +2118,4 @@ public class RoundTableService {
         return result;
     }
 
-    private boolean containsAny(String text, String... keywords) {
-        for (String kw : keywords) {
-            if (text.contains(kw)) return true;
-        }
-        return false;
-    }
 }

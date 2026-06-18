@@ -69,6 +69,8 @@ public class AiConfig {
         private String prompt;
         private String catchphrase;
         private RoleParams params;
+        private List<String> searchKeywords;
+        private List<String> tags;
     }
 
     @Data

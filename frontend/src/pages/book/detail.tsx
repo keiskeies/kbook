@@ -4,7 +4,7 @@ import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, Star, Eye, MessageSquare, Users } from 'lucide-react'
 import { getBook, rateBook } from '@/api/book'
 import type { BookSpeedRead } from '@/api/book'
-import { getProgress, reportProgress } from '@/api/progress'
+import { getProgress } from '@/api/progress'
 import type { Book } from '@/types/book'
 import { parseFormatTags } from '@/types/book'
 import BookChatSheet from '@/components/book/BookChatSheet'
@@ -33,38 +33,6 @@ interface DetailCache {
   userRating: number
   speedReadData: BookSpeedRead | null
   timestamp: number
-}
-
-function getReadingStatus(progress: number | null): string | null {
-  if (progress == null) return null
-  if (progress <= 0) return 'WANT'
-  if (progress >= 1) return 'READ'
-  return 'READING'
-}
-
-function ReadingStatusButtons({ currentStatus, onStatusChange }: { currentStatus: string | null; onStatusChange: (status: string) => void }) {
-  const statuses = [
-    { key: 'WANT', label: '想读' },
-    { key: 'READING', label: '在读' },
-    { key: 'READ', label: '已读' },
-  ]
-  return (
-    <div className="flex items-center gap-1.5">
-      {statuses.map(s => (
-        <button
-          key={s.key}
-          onClick={() => onStatusChange(s.key)}
-          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-            currentStatus === s.key
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-muted text-muted-foreground hover:bg-muted/80'
-          }`}
-        >
-          {s.label}
-        </button>
-      ))}
-    </div>
-  )
 }
 
 export default function BookDetailPage() {
@@ -249,31 +217,7 @@ export default function BookDetailPage() {
     }
   }
 
-  const handleStatusChange = async (status: string) => {
-    if (!book) return
-    let newProgress: number
-    switch (status) {
-      case 'WANT':
-        newProgress = 0
-        break
-      case 'READING':
-        newProgress = progress && progress > 0 && progress < 1 ? progress : 0.01
-        break
-      case 'READ':
-        newProgress = 1.0
-        break
-      default:
-        return
-    }
-    try {
-      await reportProgress({ bookId: book.id, progress: newProgress, currentPosition: null })
-      setProgress(newProgress)
-      const labels: Record<string, string> = { WANT: '想读', READING: '在读', READ: '已读' }
-      toast.success(`已标记为「${labels[status]}」`)
-    } catch {
-      toast.error('操作失败')
-    }
-  }
+
 
   const handleOpenChat = useCallback((initialQuestion?: string) => {
     setChatInitialQuestion(initialQuestion)
@@ -350,8 +294,6 @@ export default function BookDetailPage() {
   }
 
   const tags = parseFormatTags(book.formatTags)
-  const readingStatus = getReadingStatus(progress)
-
   return (
     <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       {/* 顶部导航 — 移动端 */}
@@ -407,9 +349,6 @@ export default function BookDetailPage() {
             <div>
               <h2 className="text-lg font-bold leading-tight">{book.title}</h2>
               {book.author && <p className="text-body text-muted-foreground">{book.author}</p>}
-            </div>
-            <div className="mt-2">
-              <ReadingStatusButtons currentStatus={readingStatus} onStatusChange={handleStatusChange} />
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <button
@@ -513,11 +452,6 @@ export default function BookDetailPage() {
                 <div className="text-center mb-4">
                   <h2 className="text-h2 font-bold leading-tight">{book.title}</h2>
                   {book.author && <p className="text-base text-muted-foreground mt-1">{book.author}</p>}
-                </div>
-
-                {/* 阅读状态 */}
-                <div className="flex justify-center mb-4">
-                  <ReadingStatusButtons currentStatus={readingStatus} onStatusChange={handleStatusChange} />
                 </div>
 
                 {/* 元信息 */}

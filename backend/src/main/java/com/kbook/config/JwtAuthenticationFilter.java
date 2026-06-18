@@ -46,8 +46,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
-        // MDC: 记录客户端真实 IP
-        MDC.put("clientIp", getClientIp(request));
+        // MDC: 记录客户端真实 IP（已由 ClientIpFilter 统一处理）
 
         String token = extractToken(request);
 
@@ -92,7 +91,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             filterChain.doFilter(request, response);
         } finally {
-            MDC.clear();
+            MDC.remove("userId");
         }
     }
 
@@ -137,22 +136,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write(objectMapper.writeValueAsString(Result.fail(HttpServletResponse.SC_UNAUTHORIZED, message)));
-    }
-
-    /**
-     * 获取客户端真实 IP（支持反向代理）
-     */
-    private String getClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            // X-Forwarded-For 可能包含多个 IP，取第一个
-            return ip.split(",")[0].trim();
-        }
-        ip = request.getHeader("X-Real-IP");
-        if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            return ip.trim();
-        }
-        return request.getRemoteAddr();
     }
 
     /**
