@@ -33,17 +33,11 @@ if [ ! -f ".env" ]; then
 fi
 echo -e "${GREEN}✓${NC}"
 
-# 3. Check package artifacts
+# 3. Check package (auto-download if missing)
 echo -e "${YELLOW}[3/6] 检查构建产物...${NC}"
-if [ ! -f "../package/app.jar" ]; then
-    echo -e "${RED}未找到 ../package/app.jar${NC}"
-    echo "请先运行 package.sh 打包后端"
-    exit 1
-fi
-if [ ! -d "../package/dist" ]; then
-    echo -e "${RED}未找到 ../package/dist/${NC}"
-    echo "请先运行 package.sh 打包前端"
-    exit 1
+if [ ! -f "../package/app.jar" ] || [ ! -d "../package/dist" ]; then
+    echo -e "${YELLOW}本地未找到构建产物，从远程下载...${NC}"
+    bash ../download.sh
 fi
 echo -e "${GREEN}✓${NC}"
 

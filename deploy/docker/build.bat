@@ -17,17 +17,17 @@ echo [1/3] 检查 Docker...
 docker --version >nul 2>&1 || ( echo FAIL: 请先安装 Docker && pause && exit /b 1 )
 echo OK
 
-REM 2. Check package artifacts
+REM 2. Check package (auto-download if missing)
 echo [2/3] 检查构建产物...
 if not exist "..\package\app.jar" (
-    echo FAIL: 未找到 ..\package\app.jar
-    echo   请先运行根目录的 package.bat 打包后端
-    pause && exit /b 1
+    echo 本地未找到 app.jar，从远程下载...
+    call ..\download.bat
+    if errorlevel 1 ( pause && exit /b 1 )
 )
 if not exist "..\package\dist" (
-    echo FAIL: 未找到 ..\package\dist\
-    echo   请先运行根目录的 package.bat 打包前端
-    pause && exit /b 1
+    echo 本地未找到 dist/，从远程下载...
+    call ..\download.bat
+    if errorlevel 1 ( pause && exit /b 1 )
 )
 echo OK
 

@@ -29,7 +29,7 @@ REM 3. package (download from remote)
 echo [3/5] Downloading package/...
 if not exist "..\package\app.jar" (
     echo Downloading package from remote...
-    call download.bat
+    call ..\download.bat
 )
 echo OK
 
