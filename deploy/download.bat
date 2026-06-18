@@ -49,4 +49,5 @@ echo   Download complete!
 echo ============================================
 dir /a-d "package\"
 echo.
+popd
 endlocal

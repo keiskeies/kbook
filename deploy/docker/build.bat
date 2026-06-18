@@ -19,21 +19,21 @@ echo OK
 
 REM 2. Check package (auto-download if missing)
 echo [2/3] 检查构建产物...
-if not exist "..\package\app.jar" (
-    echo 本地未找到 app.jar，从远程下载...
-    call ..\download.bat
-    if errorlevel 1 ( pause && exit /b 1 )
-)
-if not exist "..\package\dist" (
-    echo 本地未找到 dist/，从远程下载...
-    call ..\download.bat
-    if errorlevel 1 ( pause && exit /b 1 )
-)
+if not exist "..\package\app.jar" goto :need_download
+if not exist "..\package\dist" goto :need_download
+goto :package_ok
+
+:need_download
+echo 本地未找到构建产物，从远程下载...
+call ..\download.bat
+if errorlevel 1 ( pause && exit /b 1 )
+
+:package_ok
 echo OK
 
 REM 3. Build image
 echo [3/3] 构建镜像 kbook-app:%VERSION% ...
-docker build -t kbook-app:%VERSION% -f ..\Dockerfile ..
+for %%I in ("%~dp0..") do docker build -t "kbook-app:%VERSION%" -f "%%~fI\Dockerfile" "%%~fI"
 if errorlevel 1 ( echo FAIL: 镜像构建失败 && pause && exit /b 1 )
 
 echo.
