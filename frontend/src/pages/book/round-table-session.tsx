@@ -20,9 +20,10 @@ import {
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuthStore } from '@/store/auth'
-import { getSortedChineseVoices, assignVoiceForRole } from '@/utils/browserTts'
+import { getSortedChineseVoices, assignVoiceForRole, assignVoiceForRoleSafe } from '@/utils/browserTts'
 import { speechService } from '@/utils/speechService'
 import { getAzureVoiceForRole, ROUNDTABLE_AZURE_VOICE } from '@/utils/speechVoices'
+import { voiceTester } from '@/utils/voiceTester'
 
 type Phase = 'loading' | 'discussing' | 'paused' | 'completed' | 'error'
 
@@ -665,42 +666,94 @@ export default function RoundTableSessionPage() {
       return
     }
 
-    const utterance = new SpeechSynthesisUtterance(text)
-    const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
-    utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
-    utterance.rate = config.rate
-    utterance.lang = 'zh-CN'
-    utterance.volume = 1.0
+    // ── 浏览器 TTS 路径 ──
+    const speakBrowserChunk = (chunkText: string, triedVoices: string[] = []) => {
+      const utterance = new SpeechSynthesisUtterance(chunkText)
+      const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+      utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
+      utterance.rate = config.rate
+      utterance.lang = 'zh-CN'
+      utterance.volume = 1.0
 
-    let zhVoices = zhVoicesRef.current
-    if (zhVoices.length === 0 && window.speechSynthesis) {
-      try {
-        zhVoices = getSortedChineseVoices(window.speechSynthesis)
-        if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
-      } catch {}
-    }
-    if (zhVoices.length > 0) {
-      const voice = assignVoiceForRole(roleKey, roleVoiceMapRef.current, zhVoices)
-      if (voice) {
-        utterance.voice = voice
-        utterance.lang = voice.lang
-        console.log('[TTS] Browser voice:', voice.name, '| lang:', voice.lang, '| role:', roleKey)
+      let zhVoices = zhVoicesRef.current
+      if (zhVoices.length === 0 && window.speechSynthesis) {
+        try {
+          zhVoices = getSortedChineseVoices(window.speechSynthesis)
+          if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
+        } catch {}
       }
+      if (zhVoices.length > 0) {
+        // 排除已尝试失败的语音
+        const available = triedVoices.length > 0
+          ? zhVoices.filter(v => !triedVoices.includes(v.name))
+          : zhVoices
+
+        const voice = available.length > 0
+          ? assignVoiceForRoleSafe(roleKey, roleVoiceMapRef.current, available)
+          : null
+
+        if (voice) {
+          utterance.voice = voice
+          utterance.lang = voice.lang
+          console.log('[TTS] Browser voice:', voice.name, '| lang:', voice.lang, '| role:', roleKey)
+        } else if (zhVoices.length > 0) {
+          // 所有已知语音都静音或被排除 → 用第一个非静音试试
+          const fallback = zhVoices.find(v => voiceTester.getStatus(v.name) !== 'silent')
+          if (fallback) {
+            utterance.voice = fallback
+            utterance.lang = fallback.lang
+            console.log('[TTS] Browser voice (fallback):', fallback.name)
+          }
+        }
+      }
+
+      // ── 无声检测 ──
+      const voiceName = utterance.voice?.name ?? '(default)'
+      const startTime = performance.now()
+
+      utterance.onend = () => {
+        const duration = performance.now() - startTime
+        // 每字符正常耗时约 200-400ms，静音时几乎瞬间 onend（< 文本长度×40ms）
+        const silentThreshold = Math.max(120, chunkText.length * 40)
+        const isSilent = duration < silentThreshold
+
+        if (isSilent && voiceName !== '(default)') {
+          console.warn('[TTS] 无声语音:', voiceName, '耗时:', Math.round(duration), 'ms → 标记静音并换音色')
+          voiceTester.markSilent(voiceName)
+          // 清除该角色的语音缓存，强制重分配
+          roleVoiceMapRef.current.delete(roleKey)
+
+          // 重试：从未尝试过的语音中再选
+          const nextTried = [...triedVoices, voiceName]
+          const zhVoices = zhVoicesRef.current
+          const remaining = zhVoices.filter(v => !nextTried.includes(v.name) && voiceTester.getStatus(v.name) !== 'silent')
+          if (remaining.length > 0) {
+            // 放回队首重试
+            ttsQueueRef.current.unshift({ text: chunkText, roleKey, msgIndex })
+            ttsSpeakingRef.current = false
+            processTtsQueue()
+            return
+          }
+          console.warn('[TTS] 所有语音均已尝试或静音，放弃本条:', { text: chunkText.slice(0, 30) })
+        }
+
+        // 正常结束 or 无声且无更多可选语音
+        if (msgIndex >= 0) ttsLastReadIndexRef.current = Math.max(ttsLastReadIndexRef.current, msgIndex)
+        ttsSpeakingRef.current = false
+        if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
+        processTtsQueue()
+      }
+
+      utterance.onerror = () => {
+        ttsSpeakingRef.current = false
+        if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
+        processTtsQueue()
+      }
+
+      try { synth.speak(utterance) } catch { ttsSpeakingRef.current = false }
     }
 
-    utterance.onend = () => {
-      if (msgIndex >= 0) ttsLastReadIndexRef.current = Math.max(ttsLastReadIndexRef.current, msgIndex)
-      ttsSpeakingRef.current = false
-      if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
-      processTtsQueue()
-    }
-    utterance.onerror = () => {
-      ttsSpeakingRef.current = false
-      if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
-      processTtsQueue()
-    }
-
-    try { synth.speak(utterance) } catch { ttsSpeakingRef.current = false }
+    speakBrowserChunk(text)
   }, [])
 
   const enqueueTtsRef = useRef<(text: string, roleKey: string, msgIndex: number) => void>((text, roleKey, msgIndex) => {
