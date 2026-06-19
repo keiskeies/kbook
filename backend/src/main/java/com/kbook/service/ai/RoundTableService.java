@@ -373,6 +373,8 @@ public class RoundTableService {
                     .challenge(hostConfig.getParams() != null ? hostConfig.getParams().getChallenge() : 1)
                     .empathy(hostConfig.getParams() != null ? hostConfig.getParams().getEmpathy() : 5)
                     .humor(hostConfig.getParams() != null ? hostConfig.getParams().getHumor() : 3)
+                    .pitch(hostConfig.getTts() != null ? hostConfig.getTts().getPitch() : 1.0)
+                    .rate(hostConfig.getTts() != null ? hostConfig.getTts().getRate() : 1.0)
                     .selected(true)
                     .build();
             result.add(hostVo);

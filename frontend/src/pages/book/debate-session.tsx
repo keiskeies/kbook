@@ -53,26 +53,6 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${c}, ${alpha})`
 }
 
-/** 将长文本分块，TTS 逐块朗读 */
-function splitLongText(text: string, maxLen = 180): string[] {
-  const chunks: string[] = []
-  let i = 0
-  while (i < text.length) {
-    let end = Math.min(i + maxLen, text.length)
-    if (end < text.length) {
-      const nextPeriod = text.indexOf('。', i + Math.floor(maxLen * 0.6))
-      if (nextPeriod > 0 && nextPeriod < end + 20) end = nextPeriod + 1
-      else {
-        const nextNewline = text.indexOf('\n', i + Math.floor(maxLen * 0.6))
-        if (nextNewline > 0 && nextNewline < end + 10) end = nextNewline + 1
-      }
-    }
-    chunks.push(text.slice(i, end).trim())
-    i = end
-  }
-  return chunks.filter(Boolean)
-}
-
 const ROUND_SEQUENCE = ['OPENING', 'CROSS_EXAM', 'REBUTTAL', 'FREE', 'CLOSING'] as const
 const ROUND_LABELS: Record<string, string> = {
   OPENING: '开篇立论',
@@ -441,6 +421,15 @@ export default function DebateSessionPage() {
     })
   }, [phase, isMobile, messages.length])
 
+  // 朗读到某条消息时自动滚动到该消息
+  useEffect(() => {
+    if (!speakingMsgId || userScrolledAwayRef.current) return
+    const el = document.querySelector(`[data-msg-id="${speakingMsgId}"]`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [speakingMsgId])
+
   // 初始化：加载已保存消息 + 会话状态
   useEffect(() => {
     if (!sessionId) return
@@ -555,13 +544,6 @@ export default function DebateSessionPage() {
       setSpeakingMsgId(msgs[msgIndex].id)
     }
 
-    // 安全兜底：若 30s 内没有收到 onend/onerror，强制恢复队列
-    ttsSafetyTimeoutRef.current = setTimeout(() => {
-      if (generation !== ttsGenerationRef.current) return
-      ttsSpeakingRef.current = false
-      processTtsQueue()
-    }, 30000)
-
     if (speechEnabledRef.current) {
       const voiceName = getAzureVoiceForRole(roleKey, DEBATE_AZURE_VOICE)
       const ttsCfg = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
@@ -584,6 +566,13 @@ export default function DebateSessionPage() {
     utterance.rate = config.rate
     utterance.lang = 'zh-CN'
     utterance.volume = 1.0
+
+    // 安全兜底：若 30s 内没有收到 onend/onerror，强制恢复队列
+    ttsSafetyTimeoutRef.current = setTimeout(() => {
+      if (generation !== ttsGenerationRef.current) return
+      ttsSpeakingRef.current = false
+      processTtsQueue()
+    }, 30000)
 
     // 为不同角色分配不同语音
     let zhVoices = zhVoicesRef.current
@@ -651,10 +640,7 @@ export default function DebateSessionPage() {
       .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
     if (!cleanText) return
-    const chunks = splitLongText(cleanText)
-    chunks.forEach(chunk => {
-      ttsQueueRef.current.push({ text: chunk, roleKey, msgIndex })
-    })
+    ttsQueueRef.current.push({ text: cleanText, roleKey, msgIndex })
     processTtsQueue()
   }, [processTtsQueue])
 
@@ -1582,7 +1568,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                       }
 
                       return (
-                        <div key={m.id} className={`rounded-xl border p-3 group transition-all duration-300 bg-card border-border/50 hover:border-border`}
+                        <div key={m.id} data-msg-id={m.id} className={`rounded-xl border p-3 group transition-all duration-300 bg-card border-border/50 hover:border-border`}
                           style={isPro ? { borderLeft: `3px solid #4A7C6F` } : { borderRight: `3px solid #B8704A` }}
                         >
                           <div className={`flex items-center gap-1.5 mb-1.5 ${isCon ? 'flex-row-reverse' : ''}`}>

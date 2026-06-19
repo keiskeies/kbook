@@ -15,6 +15,8 @@ export interface RoundTableRole {
   domainRelevance: number
   languageStyle: string
   selected?: boolean
+  pitch?: number
+  rate?: number
 }
 
 /** 圆桌派讨论消息 */

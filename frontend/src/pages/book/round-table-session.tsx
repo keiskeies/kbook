@@ -20,7 +20,7 @@ import {
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuthStore } from '@/store/auth'
-import { getSortedChineseVoices, assignVoiceForRole, assignVoiceForRoleSafe } from '@/utils/browserTts'
+import { getSortedChineseVoices, assignVoiceForRoleSafe } from '@/utils/browserTts'
 import { speechService } from '@/utils/speechService'
 import { getAzureVoiceForRole, ROUNDTABLE_AZURE_VOICE } from '@/utils/speechVoices'
 import { voiceTester } from '@/utils/voiceTester'
@@ -122,7 +122,7 @@ function MessageBubble({
   const color = msg.roleColor
 
   return (
-    <div className="group flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div id={`msg-${msg.id}`} className="group flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div className="flex flex-col items-center gap-1 shrink-0">
         <div
           className="flex h-9 w-9 items-center justify-center rounded-full text-base"
@@ -605,6 +605,15 @@ export default function RoundTableSessionPage() {
     })
   }, [messages, phase])
 
+  // 朗读到某条消息时自动滚动到该消息
+  useEffect(() => {
+    if (!speakingMsgId || userScrollingRef.current) return
+    const el = document.getElementById(`msg-${speakingMsgId}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [speakingMsgId])
+
   const handleUserScroll = () => {
     const container = scrollContainerRef.current
     if (!container) return
@@ -612,41 +621,46 @@ export default function RoundTableSessionPage() {
     userScrollingRef.current = scrollHeight - scrollTop - clientHeight > 50
   }
 
-  const splitLongText = (text: string, maxLen = 180): string[] => {
-    if (text.length <= maxLen) return [text]
-    const chunks: string[] = []
-    let start = 0
-    while (start < text.length) {
-      if (start + maxLen >= text.length) { chunks.push(text.slice(start)); break }
-      let end = start + maxLen
-      let found = false
-      for (let i = end; i > start; i--) {
-        if (/[。！？!?.]/.test(text[i - 1])) { chunks.push(text.slice(start, i)); start = i; found = true; break }
-      }
-      if (found) continue
-      for (let i = end; i > start; i--) {
-        if (/[，；,;、\n]/.test(text[i - 1])) { chunks.push(text.slice(start, i)); start = i; found = true; break }
-      }
-      if (!found) { chunks.push(text.slice(start, end)); start = end }
-    }
-    return chunks
-  }
-
   const ttsQueueRef = useRef<{ text: string; roleKey: string; msgIndex: number }[]>([])
   const ttsSpeakingRef = useRef(false)
+  const ttsGenerationRef = useRef(0)
+  const ttsSafetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ttsHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const processTtsQueue = useCallback(() => {
     const synth = window.speechSynthesis
     if (!synth) return
-    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
+
+    // 队列空或正在播放时不再启动；队列为空时清理心跳
+    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) {
+      if (ttsQueueRef.current.length === 0) {
+        console.log('[TTS queue] blocked: speaking=', ttsSpeakingRef.current, 'queueLen=', ttsQueueRef.current.length)
+        if (ttsHeartbeatRef.current) {
+          clearInterval(ttsHeartbeatRef.current)
+          ttsHeartbeatRef.current = null
+        }
+      }
+      return
+    }
+
+    // 清理旧心跳/兜底定时器
+    if (ttsHeartbeatRef.current) {
+      clearInterval(ttsHeartbeatRef.current)
+      ttsHeartbeatRef.current = null
+    }
+    if (ttsSafetyTimeoutRef.current) {
+      clearTimeout(ttsSafetyTimeoutRef.current)
+      ttsSafetyTimeoutRef.current = null
+    }
+
+    // 代际计数：防止 stopTts 后旧 utterance 的回调误启动新语音
+    ttsGenerationRef.current += 1
+    const generation = ttsGenerationRef.current
+    ttsSpeakingRef.current = true
 
     try { synth.resume() } catch {}
-    try { if (synth.speaking) synth.cancel() } catch {}
-
-    if (ttsSpeakingRef.current || ttsQueueRef.current.length === 0) return
 
     const { text, roleKey, msgIndex } = ttsQueueRef.current.shift()!
-    ttsSpeakingRef.current = true
 
     // 更新当前朗读的消息 ID
     const msgs = messagesRef.current
@@ -655,9 +669,18 @@ export default function RoundTableSessionPage() {
     }
 
     if (speechEnabledRef.current) {
+      console.log('[TTS queue] starting speech, role:', roleKey, 'queue remaining:', ttsQueueRef.current.length)
+      const role = activeRolesRef.current.find(r => r.key === roleKey)
+      const rate = role?.rate ?? ROLE_TTS_CONFIG[roleKey]?.rate ?? 1.0
+      const pitch = role?.pitch ?? ROLE_TTS_CONFIG[roleKey]?.pitch ?? 1.0
       const voiceName = getAzureVoiceForRole(roleKey, ROUNDTABLE_AZURE_VOICE)
-      const ttsCfg = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
-      speechService.speak(text, voiceName, ttsCfg.rate, ttsCfg.pitch, () => {
+      speechService.speak(text, voiceName, rate, pitch, () => {
+        if (generation !== ttsGenerationRef.current) return
+        console.log('[TTS queue] callback fired, releasing component lock')
+        if (ttsSafetyTimeoutRef.current) {
+          clearTimeout(ttsSafetyTimeoutRef.current)
+          ttsSafetyTimeoutRef.current = null
+        }
         if (msgIndex >= 0) ttsLastReadIndexRef.current = Math.max(ttsLastReadIndexRef.current, msgIndex)
         ttsSpeakingRef.current = false
         if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
@@ -668,8 +691,21 @@ export default function RoundTableSessionPage() {
 
     // ── 浏览器 TTS 路径 ──
     const speakBrowserChunk = (chunkText: string, triedVoices: string[] = []) => {
+      // 代际过期检查
+      if (generation !== ttsGenerationRef.current) return
+
+      // 安全兜底：若 30s 内没有收到 onend/onerror，强制恢复队列
+      ttsSafetyTimeoutRef.current = setTimeout(() => {
+        if (generation !== ttsGenerationRef.current) return
+        ttsSpeakingRef.current = false
+        processTtsQueue()
+      }, 30000)
+
       const utterance = new SpeechSynthesisUtterance(chunkText)
-      const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+      const role = activeRolesRef.current.find(r => r.key === roleKey)
+      const configRate = role?.rate ?? ROLE_TTS_CONFIG[roleKey]?.rate ?? 1.0
+      const configPitch = role?.pitch ?? ROLE_TTS_CONFIG[roleKey]?.pitch ?? 1.0
+      const config = { pitch: configPitch, rate: configRate }
       utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
       utterance.rate = config.rate
       utterance.lang = 'zh-CN'
@@ -712,6 +748,11 @@ export default function RoundTableSessionPage() {
       const startTime = performance.now()
 
       utterance.onend = () => {
+        if (generation !== ttsGenerationRef.current) return
+        if (ttsSafetyTimeoutRef.current) {
+          clearTimeout(ttsSafetyTimeoutRef.current)
+          ttsSafetyTimeoutRef.current = null
+        }
         const duration = performance.now() - startTime
         // 每字符正常耗时约 200-400ms，静音时几乎瞬间 onend（< 文本长度×40ms）
         const silentThreshold = Math.max(120, chunkText.length * 40)
@@ -744,13 +785,39 @@ export default function RoundTableSessionPage() {
         processTtsQueue()
       }
 
-      utterance.onerror = () => {
+      utterance.onerror = (event) => {
+        if (generation !== ttsGenerationRef.current) return
+        if (ttsSafetyTimeoutRef.current) {
+          clearTimeout(ttsSafetyTimeoutRef.current)
+          ttsSafetyTimeoutRef.current = null
+        }
+        // 被 cancel() 中断时不再递归，避免旧回调把已经清空的队列又启动起来
+        if (event.error === 'canceled' || event.error === 'interrupted') {
+          ttsSpeakingRef.current = false
+          setSpeakingMsgId(null)
+          return
+        }
         ttsSpeakingRef.current = false
         if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
         processTtsQueue()
       }
 
-      try { synth.speak(utterance) } catch { ttsSpeakingRef.current = false }
+      // Chrome speechSynthesis 长时间播放可能自动挂起，定时唤醒
+      ttsHeartbeatRef.current = setInterval(() => {
+        try { synth.resume() } catch {}
+      }, 5000)
+
+      try {
+        synth.speak(utterance)
+      } catch {
+        if (generation !== ttsGenerationRef.current) return
+        if (ttsSafetyTimeoutRef.current) {
+          clearTimeout(ttsSafetyTimeoutRef.current)
+          ttsSafetyTimeoutRef.current = null
+        }
+        ttsSpeakingRef.current = false
+        processTtsQueue()
+      }
     }
 
     speakBrowserChunk(text)
@@ -762,10 +829,7 @@ export default function RoundTableSessionPage() {
       .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
     if (!cleanText) return
-    const chunks = splitLongText(cleanText)
-    chunks.forEach(chunk => {
-      ttsQueueRef.current.push({ text: chunk, roleKey, msgIndex })
-    })
+    ttsQueueRef.current.push({ text: cleanText, roleKey, msgIndex })
     processTtsQueue()
   })
 
@@ -773,7 +837,16 @@ export default function RoundTableSessionPage() {
     discussionLoopRef.current = false
     abortRef.current?.abort()
     abortRef.current = null
+    ttsGenerationRef.current += 1
     speechService.stop()
+    if (ttsHeartbeatRef.current) {
+      clearInterval(ttsHeartbeatRef.current)
+      ttsHeartbeatRef.current = null
+    }
+    if (ttsSafetyTimeoutRef.current) {
+      clearTimeout(ttsSafetyTimeoutRef.current)
+      ttsSafetyTimeoutRef.current = null
+    }
     try { window.speechSynthesis?.cancel() } catch {}
     ttsEnabledSpeakerRef.current = null
     ttsLastReadIndexRef.current = -1
@@ -961,7 +1034,16 @@ export default function RoundTableSessionPage() {
 
     // 如果正在朗读同一条，停止
     if (speakingMsgId === msgId) {
+      ttsGenerationRef.current += 1
       speechService.stop()
+      if (ttsHeartbeatRef.current) {
+        clearInterval(ttsHeartbeatRef.current)
+        ttsHeartbeatRef.current = null
+      }
+      if (ttsSafetyTimeoutRef.current) {
+        clearTimeout(ttsSafetyTimeoutRef.current)
+        ttsSafetyTimeoutRef.current = null
+      }
       try { synth.cancel() } catch {}
       setSpeakingMsgId(null)
       ttsSpeakingRef.current = false
@@ -970,7 +1052,16 @@ export default function RoundTableSessionPage() {
     }
 
     // 停止当前朗读，从点击的这条开始往后顺序朗读
+    ttsGenerationRef.current += 1
     speechService.stop()
+    if (ttsHeartbeatRef.current) {
+      clearInterval(ttsHeartbeatRef.current)
+      ttsHeartbeatRef.current = null
+    }
+    if (ttsSafetyTimeoutRef.current) {
+      clearTimeout(ttsSafetyTimeoutRef.current)
+      ttsSafetyTimeoutRef.current = null
+    }
     try { synth.cancel() } catch {}
     ttsSpeakingRef.current = false
     ttsQueueRef.current = []
@@ -1135,10 +1226,21 @@ export default function RoundTableSessionPage() {
                         }
                       }
                     } else {
+                      ttsGenerationRef.current += 1
                       ttsEnabledRef.current = false
                       ttsQueueRef.current = []
                       ttsSpeakingRef.current = false
+                      if (ttsHeartbeatRef.current) {
+                        clearInterval(ttsHeartbeatRef.current)
+                        ttsHeartbeatRef.current = null
+                      }
+                      if (ttsSafetyTimeoutRef.current) {
+                        clearTimeout(ttsSafetyTimeoutRef.current)
+                        ttsSafetyTimeoutRef.current = null
+                      }
+                      speechService.stop()
                       try { window.speechSynthesis?.cancel() } catch {}
+                      setSpeakingMsgId(null)
                       if (phase === 'discussing') {
                         ttsLastReadIndexRef.current = -1
                       }

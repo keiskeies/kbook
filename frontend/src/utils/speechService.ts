@@ -54,6 +54,8 @@ export class SpeechService {
   private currentWs: WebSocket | null = null
   private currentAudioCtx: AudioContext | null = null
   private onEndCallback: SpeakCallback | null = null
+  private azureCloseIntentional = false
+  private activeAudio: HTMLAudioElement | null = null
 
   // ─── 初始化 ──────────────────────────────────────────────────
 
@@ -155,8 +157,14 @@ export class SpeechService {
   /** 停止朗读 */
   stop(): void {
     if (this.currentSynthesizer) {
+      this.azureCloseIntentional = true
       try { this.currentSynthesizer.close() } catch {}
       this.currentSynthesizer = null
+      this.azureCloseIntentional = false
+    }
+    if (this.activeAudio) {
+      try { this.activeAudio.pause(); this.activeAudio.src = '' } catch {}
+      this.activeAudio = null
     }
     if (this.currentWs) {
       this.currentWs.close()
@@ -188,29 +196,77 @@ export class SpeechService {
       return
     }
 
+    // 关闭上一个尚未完成的合成器，防止音频叠加
+    if (this.currentSynthesizer) {
+      this.azureCloseIntentional = true
+      try { this.currentSynthesizer.close() } catch {}
+      this.currentSynthesizer = null
+      this.azureCloseIntentional = false
+    }
+
     this.status = 'speaking'
 
-    const SpeechConfig = this.azureSdk.SpeechConfig
-    const SpeechSynthesizer = this.azureSdk.SpeechSynthesizer
-
-    const speechConfig = SpeechConfig.fromAuthorizationToken(this.azureToken, this.azureRegion)
+    const sdk = this.azureSdk
+    const speechConfig = sdk.SpeechConfig.fromAuthorizationToken(this.azureToken, this.azureRegion)
     speechConfig.speechSynthesisVoiceName = voiceName || 'zh-CN-XiaoxiaoNeural'
-    console.log('[TTS] Azure voice:', speechConfig.speechSynthesisVoiceName)
+    // TODO: SSML prosody 方式应用 rate/pitch 在某些版本返回空音频，待排查
+    console.log('[TTS] Azure voice:', speechConfig.speechSynthesisVoiceName, 'rate:', rate, 'pitch:', pitch)
 
-    this.currentSynthesizer = new SpeechSynthesizer(speechConfig)
+    const synthesizer = new sdk.SpeechSynthesizer(speechConfig)
+    this.currentSynthesizer = synthesizer
+    this.azureCloseIntentional = false
+    let handled = false
 
-    this.currentSynthesizer.speakTextAsync(
+    const done = () => {
+      console.log('[TTS] done, triggering next speech')
+      this.onEndCallback?.()
+    }
+
+    const t0 = Date.now()
+    synthesizer.speakTextAsync(
       text,
-      () => {
-        this.currentSynthesizer?.close()
-        this.currentSynthesizer = null
+      (result: any) => {
+        if (handled) return
+        handled = true
+        if (this.currentSynthesizer === synthesizer) {
+          this.currentSynthesizer = null
+        }
         this.status = 'idle'
-        this.onEndCallback?.()
+
+        // audioDuration: 合成音频精确时长 (100ns ticks → ms)
+        // elapsed: 从 speakTextAsync 到回调的已过时间
+        // remaining: 音频还剩多少没播完
+        const audioDurationMs: number = result?.audioDuration
+          ? result.audioDuration / 10000
+          : 0
+        // audioDuration === 0 意味着 WebSocket 失败或合成无输出，回退浏览器 TTS
+        if (audioDurationMs === 0) {
+          console.warn('[Speech] Azure 返回空音频 (WebSocket 可能失败)，回退浏览器 TTS')
+          try { synthesizer.close() } catch {}
+          if (this.currentSynthesizer === synthesizer) {
+            this.currentSynthesizer = null
+          }
+          this.speakBrowser(text, rate, pitch)
+          return
+        }
+        const elapsed = Date.now() - t0
+        const remaining = Math.max(0, audioDurationMs - elapsed)
+        const delay = remaining + 2500
+        console.log('[TTS] audioDuration:', audioDurationMs, 'elapsed:', elapsed, 'remaining:', remaining, '→ delay:', delay)
+        setTimeout(done, delay)
       },
       (err: any) => {
+        if (handled) return
+        handled = true
+        if (this.azureCloseIntentional) {
+          this.azureCloseIntentional = false
+          return
+        }
         console.warn('[Speech] Azure 合成失败:', err)
-        this.currentSynthesizer?.close()
-        this.currentSynthesizer = null
+        try { synthesizer.close() } catch {}
+        if (this.currentSynthesizer === synthesizer) {
+          this.currentSynthesizer = null
+        }
         this.speakBrowser(text, rate, pitch)
       },
     )
@@ -236,9 +292,9 @@ export class SpeechService {
           aue: 'raw',
           auf: 'audio/L16;rate=16000',
           vcn: voiceName || 'xiaoyan',
-          speed: 50,
+          speed: Math.round(rate * 50),   // rate 0.5~2.0 → 25~100
           volume: 50,
-          pitch: 50,
+          pitch: Math.round(pitch * 50),  // pitch 0.5~2.0 → 25~100
           tte: 'utf8',
         },
         data: {

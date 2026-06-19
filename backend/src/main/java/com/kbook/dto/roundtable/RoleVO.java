@@ -60,6 +60,12 @@ public class RoleVO {
     /** 是否默认选中（后端根据 LLM 推荐标记，前端据此初始化勾选状态） */
     private boolean selected;
 
+    /** TTS 音调 0.5~2.0 */
+    private double pitch;
+
+    /** TTS 语速 0.5~2.0 */
+    private double rate;
+
     /**
      * 从外部配置构建视图对象（颜色/参数优先使用配置值）
      *
@@ -82,6 +88,8 @@ public class RoleVO {
                 .humor(configRole.getParams().getHumor())
                 .domainRelevance(0)
                 .languageStyle("")
+                .pitch(configRole.getTts() != null ? configRole.getTts().getPitch() : 1.0)
+                .rate(configRole.getTts() != null ? configRole.getTts().getRate() : 1.0)
                 .build();
     }
 }
