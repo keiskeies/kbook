@@ -50,6 +50,9 @@ interface TtsState {
   /** 后端 TTS 配置 */
   backendConfig: TtsConfig | null
 
+  /** 语音轮询是否激活 */
+  voicePollingActive: boolean
+
   setStatus: (status: TtsStatus) => void
   startReading: (bookId: number, bookTitle: string, segments: string[], startSegment?: number) => void
   startReadingAsync: (bookId: number, bookTitle: string, startSegment?: number) => void
@@ -67,6 +70,9 @@ interface TtsState {
   /** 设置后端 TTS */
   setBackendConfig: (config: TtsConfig | null) => void
   setBackendMode: (mode: boolean) => void
+
+  /** 启动/停止语音轮询 */
+  setVoicePollingActive: (active: boolean) => void
 }
 
 export const useTtsStore = create<TtsState>((set, get) => ({
@@ -82,6 +88,7 @@ export const useTtsStore = create<TtsState>((set, get) => ({
   playerExpanded: false,
   backendMode: false,
   backendConfig: null,
+  voicePollingActive: false,
 
   setStatus: (status) => set({ status }),
 
@@ -162,11 +169,14 @@ export const useTtsStore = create<TtsState>((set, get) => ({
 
   setBackendConfig: (config) => set({ backendConfig: config }),
   setBackendMode: (mode) => set({ backendMode: mode }),
+  setVoicePollingActive: (active) => set({ voicePollingActive: active }),
 }))
 
 if (typeof window !== 'undefined' && window.speechSynthesis) {
+  const synth = window.speechSynthesis
+
   const loadVoices = () => {
-    const sv = window.speechSynthesis.getVoices()
+    const sv = synth.getVoices()
     if (sv.length > 0) {
       useTtsStore.getState().setVoices(
         sv.map((v) => ({
@@ -178,6 +188,45 @@ if (typeof window !== 'undefined' && window.speechSynthesis) {
       )
     }
   }
+
+  // 初始加载
   loadVoices()
-  window.speechSynthesis.onvoiceschanged = loadVoices
+
+  // 浏览器事件通知
+  synth.onvoiceschanged = loadVoices
+
+  // 补充轮询：某些场景下 onvoiceschanged 延迟触发或未触发
+  // 前 30 秒每 3 秒轮询一次（10 次），之后每 60 秒检查一次变化
+  let lastVoiceHash = ''
+
+  const getVoiceHash = (): string => {
+    const voices = synth.getVoices()
+    return voices.map(v => `${v.name}:${v.localService}`).join('|')
+  }
+
+  // 快速轮询阶段：组件挂载后密集检测
+  let quickPollCount = 0
+  const quickPollTimer = setInterval(() => {
+    if (quickPollCount >= 10) {
+      clearInterval(quickPollTimer)
+      return
+    }
+    quickPollCount++
+    const hash = getVoiceHash()
+    if (hash && hash !== lastVoiceHash) {
+      lastVoiceHash = hash
+      loadVoices()
+    }
+  }, 3000)
+
+  // 慢速轮询阶段：持续监听语音列表变化（如 Edge 云语音迟到）
+  setInterval(() => {
+    // 只有 store 中 voicePollingActive 为 true 时才继续
+    if (!useTtsStore.getState().voicePollingActive) return
+    const hash = getVoiceHash()
+    if (hash && hash !== lastVoiceHash) {
+      lastVoiceHash = hash
+      loadVoices()
+    }
+  }, 60000)
 }

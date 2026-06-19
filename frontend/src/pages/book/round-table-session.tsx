@@ -647,12 +647,19 @@ export default function RoundTableSessionPage() {
     const { text, roleKey, msgIndex } = ttsQueueRef.current.shift()!
     ttsSpeakingRef.current = true
 
+    // 更新当前朗读的消息 ID
+    const msgs = messagesRef.current
+    if (msgIndex >= 0 && msgIndex < msgs.length) {
+      setSpeakingMsgId(msgs[msgIndex].id)
+    }
+
     if (speechEnabledRef.current) {
       const voiceName = getAzureVoiceForRole(roleKey, ROUNDTABLE_AZURE_VOICE)
       const ttsCfg = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
       speechService.speak(text, voiceName, ttsCfg.rate, ttsCfg.pitch, () => {
         if (msgIndex >= 0) ttsLastReadIndexRef.current = Math.max(ttsLastReadIndexRef.current, msgIndex)
         ttsSpeakingRef.current = false
+        if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
         processTtsQueue()
       })
       return
@@ -677,16 +684,19 @@ export default function RoundTableSessionPage() {
       if (voice) {
         utterance.voice = voice
         utterance.lang = voice.lang
+        console.log('[TTS] Browser voice:', voice.name, '| lang:', voice.lang, '| role:', roleKey)
       }
     }
 
     utterance.onend = () => {
       if (msgIndex >= 0) ttsLastReadIndexRef.current = Math.max(ttsLastReadIndexRef.current, msgIndex)
       ttsSpeakingRef.current = false
+      if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
       processTtsQueue()
     }
     utterance.onerror = () => {
       ttsSpeakingRef.current = false
+      if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
       processTtsQueue()
     }
 
@@ -892,56 +902,41 @@ export default function RoundTableSessionPage() {
     }
   }, [showReport, report, reportPolling, sessionId, loadReport])
 
-  const handleToggleSpeak = useCallback((msgId: string, content: string, roleKey: string) => {
+  const handleToggleSpeak = useCallback((msgId: string) => {
     const synth = window.speechSynthesis
     if (!synth) return
 
-    if (speechEnabledRef.current) {
-      const voiceName = getAzureVoiceForRole(roleKey, ROUNDTABLE_AZURE_VOICE)
-      if (speakingMsgId === msgId) {
-        speechService.stop()
-        setSpeakingMsgId(null)
-        return
-      }
-      synth.cancel()
-      setSpeakingMsgId(msgId)
-      const cleanText = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
-        .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
-        .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
-      if (!cleanText) return
-      const ttsCfg = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
-      speechService.speak(cleanText, voiceName, ttsCfg.rate, ttsCfg.pitch, () => setSpeakingMsgId(null))
+    // 如果正在朗读同一条，停止
+    if (speakingMsgId === msgId) {
+      speechService.stop()
+      try { synth.cancel() } catch {}
+      setSpeakingMsgId(null)
+      ttsSpeakingRef.current = false
+      ttsQueueRef.current = []
       return
     }
 
-    if (speakingMsgId === msgId) { synth.cancel(); setSpeakingMsgId(null); return }
-    synth.cancel()
+    // 停止当前朗读，从点击的这条开始往后顺序朗读
+    speechService.stop()
+    try { synth.cancel() } catch {}
+    ttsSpeakingRef.current = false
+    ttsQueueRef.current = []
+
+    // 找到点击消息在列表中的索引
+    const msgs = messagesRef.current
+    const startIdx = msgs.findIndex(m => m.id === msgId)
+    if (startIdx < 0) return
+
     setSpeakingMsgId(msgId)
-    const cleanText = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
-      .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
-      .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
-    if (!cleanText) return
-    const chunks = splitLongText(cleanText)
-    const config = ROLE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
-    const zhVoices = getSortedChineseVoices(synth)
-    const zhVoice = assignVoiceForRole(roleKey, roleVoiceMapRef.current, zhVoices)
+    ttsLastReadIndexRef.current = startIdx - 1
 
-    const speakChunk = (idx: number) => {
-      if (idx >= chunks.length) { setSpeakingMsgId(null); return }
-      const utterance = new SpeechSynthesisUtterance(chunks[idx])
-      utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
-      utterance.rate = config.rate
-      utterance.lang = 'zh-CN'
-      if (zhVoice) utterance.voice = zhVoice
-      utterance.onend = () => speakChunk(idx + 1)
-      utterance.onerror = () => setSpeakingMsgId(null)
-      try { synth.speak(utterance) } catch { setSpeakingMsgId(null) }
+    // 从点击的消息开始，把后面所有消息加入朗读队列
+    for (let i = startIdx; i < msgs.length; i++) {
+      const m = msgs[i]
+      if (!m.streaming && m.content) {
+        enqueueTtsRef.current(m.content, m.roleKey, i)
+      }
     }
-
-    try { synth.resume() } catch {}
-    speakChunk(0)
   }, [speakingMsgId])
 
   const speakCounts = messages.reduce<Record<string, number>>((acc, msg) => {
@@ -1028,7 +1023,7 @@ export default function RoundTableSessionPage() {
                   key={msg.id}
                   msg={msg}
                   isSpeaking={speakingMsgId === msg.id}
-                  onToggleSpeak={() => handleToggleSpeak(msg.id, msg.content, msg.roleKey)}
+                  onToggleSpeak={() => handleToggleSpeak(msg.id)}
                 />
               ))}
 
@@ -1075,17 +1070,15 @@ export default function RoundTableSessionPage() {
                       } catch {}
 
                       const msgs = messagesRef.current
-                      let startIdx = -1
-                      for (let i = msgs.length - 1; i >= 0; i--) {
+                      let startIdx = 0
+                      for (let i = 0; i < msgs.length; i++) {
                         if (!msgs[i].streaming && msgs[i].content) { startIdx = i; break }
                       }
-                      if (startIdx >= 0) {
-                        ttsLastReadIndexRef.current = startIdx - 1
-                        for (let i = startIdx; i < msgs.length; i++) {
-                          const m = msgs[i]
-                          if (!m.streaming && m.content) {
-                            enqueueTtsRef.current(m.content, m.roleKey, i)
-                          }
+                      ttsLastReadIndexRef.current = startIdx - 1
+                      for (let i = startIdx; i < msgs.length; i++) {
+                        const m = msgs[i]
+                        if (!m.streaming && m.content) {
+                          enqueueTtsRef.current(m.content, m.roleKey, i)
                         }
                       }
                     } else {

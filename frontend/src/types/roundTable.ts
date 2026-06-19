@@ -323,21 +323,20 @@ export const ROLE_TTS_CONFIG: Record<string, { pitch: number; rate: number }> = 
 /** 性格维度描述 */
 export function describePersonality(role: RoundTableRole): string[] {
   const traits: string[] = []
-  if (role.grabWeight >= 5) traits.push('爱抢话')
+  if (role.grabWeight >= 8) traits.push('爱抢话')
   else if (role.grabWeight <= 3) traits.push('沉默寡言')
 
-  if (role.challenge >= 6) traits.push('挑战型')
+  if (role.challenge >= 8) traits.push('挑战型')
   if (role.empathy >= 5) traits.push('共情型')
 
-  if (role.opinionated >= 8) traits.push('有主见')
-  else if (role.opinionated <= 4) traits.push('立场灵活')
+  if (role.opinionated >= 9) traits.push('有主见')
 
-  if (role.humor >= 4) traits.push('幽默达人')
+  if (role.humor >= 5) traits.push('幽默达人')
 
   if (role.domainRelevance >= 7) traits.push('专业主场')
   else if (role.domainRelevance >= 4) traits.push('领域相关')
 
-  return traits.slice(0, 3)
+  return traits.slice(0, 2)
 }
 
 /** 将 HEX 颜色转为 RGBA 字符串 */

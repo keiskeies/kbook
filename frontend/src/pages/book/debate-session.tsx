@@ -300,6 +300,9 @@ export default function DebateSessionPage() {
   const ttsSafetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const ttsGenerationRef = useRef(0)
   const roleVoiceMapRef = useRef<Map<string, SpeechSynthesisVoice>>(new Map())
+  const messagesRef = useRef<DisplayMessage[]>([])
+
+  useEffect(() => { messagesRef.current = messages }, [messages])
   const zhVoicesRef = useRef<SpeechSynthesisVoice[]>([])
   const speechEnabledRef = useRef(false)
 
@@ -544,7 +547,13 @@ export default function DebateSessionPage() {
 
     try { synth.resume() } catch {}
 
-    const { text, roleKey } = ttsQueueRef.current.shift()!
+    const { text, roleKey, msgIndex } = ttsQueueRef.current.shift()!
+
+    // 更新当前朗读的消息 ID
+    const msgs = messagesRef.current
+    if (msgIndex >= 0 && msgIndex < msgs.length) {
+      setSpeakingMsgId(msgs[msgIndex].id)
+    }
 
     // 安全兜底：若 30s 内没有收到 onend/onerror，强制恢复队列
     ttsSafetyTimeoutRef.current = setTimeout(() => {
@@ -563,6 +572,7 @@ export default function DebateSessionPage() {
           ttsSafetyTimeoutRef.current = null
         }
         ttsSpeakingRef.current = false
+        if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
         processTtsQueue()
       })
       return
@@ -588,6 +598,7 @@ export default function DebateSessionPage() {
       if (voice) {
         utterance.voice = voice
         utterance.lang = voice.lang
+        console.log('[TTS] Browser voice:', voice.name, '| lang:', voice.lang, '| role:', roleKey)
       }
     }
 
@@ -598,6 +609,7 @@ export default function DebateSessionPage() {
         ttsSafetyTimeoutRef.current = null
       }
       ttsSpeakingRef.current = false
+      if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
       processTtsQueue()
     }
     utterance.onerror = (event) => {
@@ -609,9 +621,11 @@ export default function DebateSessionPage() {
       // 被 cancel() 中断时不再递归，避免旧回调把已经清空的队列又启动起来
       if (event.error === 'canceled' || event.error === 'interrupted') {
         ttsSpeakingRef.current = false
+        setSpeakingMsgId(null)
         return
       }
       ttsSpeakingRef.current = false
+      if (ttsQueueRef.current.length === 0) setSpeakingMsgId(null)
       processTtsQueue()
     }
 
@@ -661,53 +675,33 @@ export default function DebateSessionPage() {
     ttsSpeakingRef.current = false
   }, [])
 
-  const handleToggleSpeak = useCallback((msgId: string, content: string, roleKey: string) => {
+  const handleToggleSpeak = useCallback((msgId: string) => {
     const synth = window.speechSynthesis
     if (!synth) return
-    if (speakingMsgId === msgId) { synth.cancel(); setSpeakingMsgId(null); return }
-    synth.cancel()
-    setSpeakingMsgId(msgId)
-    const cleanText = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]+`/g, '')
-      .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
-      .replace(/^#{1,6}\s+/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/^[-*]\s+/gm, '').replace(/^>\s+/gm, '').trim()
-    if (!cleanText) return
-    const chunks = splitLongText(cleanText)
 
-    if (speechEnabledRef.current) {
-      const voiceName = getAzureVoiceForRole(roleKey, DEBATE_AZURE_VOICE)
-      const ttsCfg = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
-      speechService.speak(cleanText, voiceName, ttsCfg.rate, ttsCfg.pitch, () => setSpeakingMsgId(null))
+    // 如果正在朗读同一条，停止
+    if (speakingMsgId === msgId) {
+      stopTts()
       return
     }
 
-    const config = DEBATE_TTS_CONFIG[roleKey] || { pitch: 1.0, rate: 1.0 }
+    // 停止当前朗读，从点击的这条开始往后顺序朗读
+    stopTts()
 
-    // 为角色选择不同的语音
-    let zhVoices = zhVoicesRef.current
-    if (zhVoices.length === 0) {
-      try {
-        zhVoices = getSortedChineseVoices(synth)
-        if (zhVoices.length > 0) zhVoicesRef.current = zhVoices
-      } catch {}
+    // 找到点击消息在列表中的索引
+    const startIdx = messages.findIndex(m => m.id === msgId)
+    if (startIdx < 0) return
+
+    setSpeakingMsgId(msgId)
+
+    // 从点击的消息开始，把后面所有消息加入朗读队列
+    for (let i = startIdx; i < messages.length; i++) {
+      const m = messages[i]
+      if (!m.streaming && m.content.trim()) {
+        enqueueTts(m.content, m.roleKey, i)
+      }
     }
-    const roleVoice = assignVoiceForRole(roleKey, roleVoiceMapRef.current, zhVoices)
-
-    const speakChunk = (idx: number) => {
-      if (idx >= chunks.length) { setSpeakingMsgId(null); return }
-      const utterance = new SpeechSynthesisUtterance(chunks[idx])
-      utterance.pitch = Math.max(0.5, Math.min(2.0, config.pitch))
-      utterance.rate = config.rate
-      utterance.lang = 'zh-CN'
-      if (roleVoice) utterance.voice = roleVoice
-      utterance.onend = () => speakChunk(idx + 1)
-      utterance.onerror = () => setSpeakingMsgId(null)
-      try { synth.speak(utterance) } catch { setSpeakingMsgId(null) }
-    }
-
-    try { synth.resume() } catch {}
-    speakChunk(0)
-  }, [speakingMsgId])
+  }, [speakingMsgId, messages, enqueueTts, stopTts])
 
   // personalityMap 的 ref 版本，供 startStreaming 使用（避免依赖顺序问题）
   const personalityMapRef = useRef<Record<string, string>>({})
@@ -1467,7 +1461,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                             )}
                             {!m.streaming && m.content && (
                               <button
-                                onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
+                                onClick={() => handleToggleSpeak(m.id)}
                                 className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
                                   speakingMsgId === m.id
                                     ? 'text-primary bg-primary/10 opacity-100'
@@ -1550,7 +1544,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                             )}
                             {!m.streaming && m.content && (
                               <button
-                                onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
+                                onClick={() => handleToggleSpeak(m.id)}
                                 className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
                                   speakingMsgId === m.id
                                     ? 'text-primary bg-primary/10 opacity-100'
@@ -1632,7 +1626,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                           )}
                           {!m.streaming && m.content && (
                             <button
-                              onClick={() => handleToggleSpeak(m.id, m.content, m.roleKey)}
+                              onClick={() => handleToggleSpeak(m.id)}
                               className={`mt-1.5 flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition-all duration-200 opacity-0 group-hover:opacity-100 ${
                                 speakingMsgId === m.id
                                   ? 'text-primary bg-primary/10 opacity-100'
@@ -1671,10 +1665,17 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                     } else {
                       stopTts()
                       setTtsEnabled(true)
-                      // Enqueue all existing non-streaming messages in chronological order
-                      messages.filter(m => !m.streaming && m.content.trim()).forEach(m => {
-                        enqueueTts(m.content, m.roleKey, -1)
-                      })
+                      // 从第一条消息开始顺序朗读
+                      let startIdx = 0
+                      for (let i = 0; i < messages.length; i++) {
+                        if (!messages[i].streaming && messages[i].content.trim()) { startIdx = i; break }
+                      }
+                      for (let i = startIdx; i < messages.length; i++) {
+                        const m = messages[i]
+                        if (!m.streaming && m.content.trim()) {
+                          enqueueTts(m.content, m.roleKey, i)
+                        }
+                      }
                     }
                   }}
                   className={`flex items-center justify-center gap-1.5 rounded-full sm:rounded-xl p-0 sm:px-3 py-2 h-10 w-10 sm:h-auto sm:w-auto text-xs font-medium transition-all duration-200 ${

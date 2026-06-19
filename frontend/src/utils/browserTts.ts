@@ -12,6 +12,10 @@
  *   3. 每个角色通过 key hash 映射到不同的云端语音 → 真实音色差异
  *
  * 非 Edge 回退：hash 分配到全部中文语音（云端 + 本地），行为同原有逻辑。
+ *
+ * ⚠️ 无声语音检测：
+ *   部分语音（尤其是 localService=true 的本地语音）可能未安装语音包而无法发声。
+ *   使用 voiceTester 模块通过"时长试探法"自动检测并排除无声语音。
  */
 
 /** 检测是否为 Edge 浏览器（含桌面版/Android/iOS） */
@@ -43,7 +47,10 @@ export function getSortedChineseVoices(synth: SpeechSynthesis): SpeechSynthesisV
   const allVoices = synth.getVoices()
   const chineseVoices = allVoices.filter(v => {
     const lang = (v.lang || '').toLowerCase()
-    return lang.startsWith('zh') || lang.startsWith('cmn')
+    if (!(lang.startsWith('zh') || lang.startsWith('cmn'))) return false
+    // 排除粤语/台湾腔
+    if (lang.includes('-hk') || lang.includes('-tw') || lang.includes('-yue')) return false
+    return true
   })
   if (chineseVoices.length === 0) return []
 
@@ -90,3 +97,119 @@ function hashStr(s: string): number {
     hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0
   return Math.abs(hash)
 }
+
+// ─── 无声语音检测集成 ──────────────────────────────────────────
+
+import { voiceTester } from './voiceTester'
+
+/**
+ * 返回有声音的中文语音列表
+ *
+ * 在 getSortedChineseVoices 的基础上，进一步用 VoiceTester 过滤掉
+ * 实际不会发声的静音语音（如未安装语言包的本地语音）。
+ *
+ * @param synth - window.speechSynthesis 实例
+ * @returns 经过声音测试过滤的中文语音列表
+ */
+export async function getWorkingChineseVoices(
+  synth: SpeechSynthesis,
+): Promise<SpeechSynthesisVoice[]> {
+  const sorted = getSortedChineseVoices(synth)
+  if (sorted.length === 0) return []
+
+  // 先用 getVoices 的最新状态给 voiceTester 预热
+  return voiceTester.filterWorking(sorted)
+}
+
+/**
+ * 角色分配语音时优先排除已知静音语音
+ *
+ * 在 assignVoiceForRole 的基础上，确保不会被分配到 silent 的语音。
+ * 如果可用语音列表中有部分语音已标记为 silent，会将其排除后重新分配。
+ *
+ * @param roleKey - 角色 key
+ * @param voiceCache - 角色→语音 缓存 Map
+ * @param zhVoices - 来自 getSortedChineseVoices() 的列表
+ * @param excludeSilent - 是否排除已知静音语音（默认 true）
+ */
+export function assignVoiceForRoleSafe(
+  roleKey: string,
+  voiceCache: Map<string, SpeechSynthesisVoice>,
+  zhVoices: SpeechSynthesisVoice[],
+  excludeSilent = true,
+): SpeechSynthesisVoice | null {
+  if (zhVoices.length === 0) return null
+
+  if (!excludeSilent) {
+    return assignVoiceForRole(roleKey, voiceCache, zhVoices)
+  }
+
+  // 过滤掉已知静音的语音
+  const working = zhVoices.filter(v => voiceTester.getStatus(v.name) !== 'silent')
+  if (working.length === 0) {
+    // 全都未知 → 用原列表（至少尝试发声）
+    return assignVoiceForRole(roleKey, voiceCache, zhVoices)
+  }
+  return assignVoiceForRole(roleKey, voiceCache, working)
+}
+
+/**
+ * 轮询获取浏览器语音列表
+ *
+ * 浏览器提供的 SpeechSynthesis.onvoiceschanged 事件在各平台可靠性不一，
+ * 某些情况下语音列表加载较慢或需要反复调用 getVoices() 才能获取完整列表。
+ * 本函数提供一个可取消的轮询机制。
+ *
+ * @param onVoices - 每次获取到语音列表时的回调
+ * @param intervalMs - 轮询间隔（默认 3 秒）
+ * @param maxRetries - 最大轮询次数（默认 10 次 = 30 秒，0=不限）
+ * @returns 取消函数
+ */
+export function startVoicePolling(
+  onVoices: (voices: SpeechSynthesisVoice[]) => void,
+  intervalMs = 3000,
+  maxRetries = 10,
+): () => void {
+  let retries = 0
+  let timer: ReturnType<typeof setInterval> | null = null
+  let stopped = false
+
+  const poll = () => {
+    if (stopped) return
+    if (maxRetries > 0 && retries >= maxRetries) {
+      stop()
+      return
+    }
+    retries++
+
+    const synth = window.speechSynthesis
+    if (!synth) return
+
+    const voices = synth.getVoices()
+    if (voices.length > 0) {
+      onVoices(voices)
+      // 一旦拿到语音就停止轮询（除非语音为空才会继续）
+      stop()
+    }
+  }
+
+  const stop = () => {
+    stopped = true
+    if (timer !== null) {
+      clearInterval(timer)
+      timer = null
+    }
+  }
+
+  // 立即执行一次
+  poll()
+
+  // 如果没有拿到语音，启动定时轮询
+  if (!stopped) {
+    timer = setInterval(poll, intervalMs)
+  }
+
+  return stop
+}
+
+export type { VoiceTestStatus } from './voiceTester'

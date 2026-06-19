@@ -195,6 +195,7 @@ export class SpeechService {
 
     const speechConfig = SpeechConfig.fromAuthorizationToken(this.azureToken, this.azureRegion)
     speechConfig.speechSynthesisVoiceName = voiceName || 'zh-CN-XiaoxiaoNeural'
+    console.log('[TTS] Azure voice:', speechConfig.speechSynthesisVoiceName)
 
     this.currentSynthesizer = new SpeechSynthesizer(speechConfig)
 
@@ -297,6 +298,22 @@ export class SpeechService {
     utterance.lang = 'zh-CN'
     utterance.rate = rate
     utterance.pitch = pitch
+
+    // Edge 浏览器需要显式设置 voice，否则可能无声
+    const voices = synth.getVoices()
+    const zhVoice = voices.find(v => {
+      const lang = (v.lang || '').toLowerCase()
+      return (lang.startsWith('zh-cn') || lang.startsWith('cmn')) && !v.localService
+    }) || voices.find(v => {
+      const lang = (v.lang || '').toLowerCase()
+      return lang.startsWith('zh-cn') || lang.startsWith('cmn')
+    })
+    if (zhVoice) {
+      utterance.voice = zhVoice
+      console.log('[TTS] Browser voice:', zhVoice.name, '| lang:', zhVoice.lang, '| local:', zhVoice.localService)
+    } else {
+      console.log('[TTS] Browser: 未找到中文语音, 用系统默认')
+    }
 
     utterance.onend = () => {
       this.status = 'idle'
