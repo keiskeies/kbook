@@ -63,8 +63,10 @@ public class DebateController extends BaseController {
 
     @Operation(summary = "获取LLM推荐辩题")
     @GetMapping("/books/{bookId}/topics")
-    public Result<List<DebateTopicVO>> getTopics(@PathVariable Long bookId) {
-        return Result.ok(debateService.generateTopics(bookId));
+    public Result<List<DebateTopicVO>> getTopics(
+            @PathVariable Long bookId,
+            @RequestParam(defaultValue = "false") boolean refresh) {
+        return Result.ok(debateService.generateTopics(bookId, refresh));
     }
 
     // ==================== 辩题优化 ====================
@@ -250,6 +252,19 @@ public class DebateController extends BaseController {
     public Result<DebateSessionVO> advanceRound(@PathVariable String sessionId) {
         Long userId = extractUserId();
         return Result.ok(debateService.advanceRound(userId, sessionId));
+    }
+
+    // ==================== 主持人即兴点评 ====================
+
+    @Operation(summary = "主持人即兴点评（SSE）— 异步、非阻塞，允许失败")
+    @PostMapping(value = "/sessions/{sessionId}/host-commentary", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter hostCommentary(
+            @PathVariable String sessionId,
+            @RequestBody Map<String, String> body) {
+        Long userId = extractUserId();
+        String type = body.getOrDefault("type", "TRANSITION");
+        String context = body.getOrDefault("context", "");
+        return debateService.streamHostCommentary(userId, sessionId, type, context);
     }
 
     // ==================== 评分 ====================

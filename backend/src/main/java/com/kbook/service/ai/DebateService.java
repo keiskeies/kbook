@@ -116,21 +116,26 @@ public class DebateService {
     /**
      * 从书籍内容生成争议辩题（LLM 驱动），结果缓存 24h
      */
-    public List<DebateTopicVO> generateTopics(Long bookId) {
+    public List<DebateTopicVO> generateTopics(Long bookId, boolean forceRefresh) {
         String cacheKey = DEBATE_TOPICS_KEY_PREFIX + bookId;
-        try {
-            String cached = stringRedisTemplate.opsForValue().get(cacheKey);
-            if (cached != null && !cached.isBlank()) {
-                List<DebateTopicVO> topics = objectMapper.readValue(cached,
-                        new TypeReference<>() {
-                        });
-                if (topics != null && !topics.isEmpty()) {
-                    log.debug("辩题缓存命中: bookId={}", bookId);
-                    return topics;
+
+        if (!forceRefresh) {
+            try {
+                String cached = stringRedisTemplate.opsForValue().get(cacheKey);
+                if (cached != null && !cached.isBlank()) {
+                    List<DebateTopicVO> topics = objectMapper.readValue(cached,
+                            new TypeReference<>() {
+                            });
+                    if (topics != null && !topics.isEmpty()) {
+                        log.debug("辩题缓存命中: bookId={}", bookId);
+                        return topics;
+                    }
                 }
+            } catch (Exception e) {
+                log.debug("辩题缓存读取失败: {}", e.getMessage());
             }
-        } catch (Exception e) {
-            log.debug("辩题缓存读取失败: {}", e.getMessage());
+        } else {
+            log.info("强制刷新辩题，跳过缓存: bookId={}", bookId);
         }
 
         Book book = bookService.getBookById(bookId);
@@ -862,6 +867,139 @@ public class DebateService {
                         personality, positionKey, request);
             } catch (Exception e) {
                 log.error("总结陈词发言失败: {}", e.getMessage(), e);
+                SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
+            }
+        });
+
+        return emitter;
+    }
+
+    // ==================== 主持人即兴点评 ====================
+
+    /**
+     * 主持人即兴点评 SSE — 异步、非阻塞、允许失败
+     * <p>
+     * 提示词顺序设计（最大化缓存命中）：
+     * 1. SystemMessage: 静态点评规则（DEBATE_HOST_COMMENTARY_SYSTEM_PROMPT）
+     * 2. SystemMessage: 静态 HOST 人设（DebateRole.HOST.prompt）
+     * 3. UserMessage: 动态上下文（点评类型 + 辩论近期发言）
+     * <p>
+     * 前两条在每次调用中完全相同，LLM 提供商可缓存 KV，大幅降低延迟和成本。
+     *
+     * @param sessionId  会话 ID
+     * @param type       点评类型：TRANSITION / FREE_MID / WRAPUP
+     * @param context    动态上下文（环节过渡说明、近期交锋摘要等）
+     */
+    public SseEmitter streamHostCommentary(Long userId, String sessionId, String type, String context) {
+        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
+        DebateSession session = getSessionBySessionId(sessionId);
+        if (session == null) {
+            SseHelper.sendErrorAndComplete(emitter, "会话不存在: " + sessionId);
+            return emitter;
+        }
+        if (!session.getUserId().equals(userId)) {
+            SseHelper.sendErrorAndComplete(emitter, "无权操作该会话");
+            return emitter;
+        }
+
+        sseExecutor.submit(() -> {
+            try {
+                // 按缓存命中率排序：静态规则 → 静态人设 → 动态上下文
+                List<ChatMessage> messages = new ArrayList<>();
+                messages.add(SystemMessage.from(AiPromptConstants.DEBATE_HOST_COMMENTARY_SYSTEM_PROMPT));
+                messages.add(SystemMessage.from(DebateRole.HOST.getPrompt()));
+
+                StringBuilder userCtx = new StringBuilder();
+                userCtx.append("【点评类型】").append(type).append("\n");
+                userCtx.append("【辩题】").append(session.getTopic()).append("\n");
+                if (context != null && !context.isBlank()) {
+                    userCtx.append("【点评上下文】\n").append(context);
+                }
+                messages.add(UserMessage.from(userCtx.toString()));
+
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
+                if (streamingChatModel == null) {
+                    SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
+                    return;
+                }
+
+                final boolean[] connectionClosed = {false};
+                StringBuilder fullResponse = new StringBuilder();
+
+                streamingChatModel.chat(messages, new StreamingChatResponseHandler() {
+                    StreamingHandle streamingHandle;
+
+                    @Override
+                    public void onPartialThinking(PartialThinking partialThinking) {}
+
+                    @Override
+                    public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
+                        if (streamingHandle == null) {
+                            streamingHandle = context.streamingHandle();
+                        }
+                        if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
+                            return;
+
+                        String text = partialResponse.text();
+                        if (text == null || text.isEmpty()) return;
+
+                        fullResponse.append(text);
+                        try {
+                            String json = objectMapper.writeValueAsString(
+                                    Map.of("roleKey", "HOST", "text", text));
+                            if (!SseHelper.safeSendEvent(emitter, "message", json)) {
+                                connectionClosed[0] = true;
+                                if (streamingHandle != null) streamingHandle.cancel();
+                            }
+                        } catch (Exception e) {
+                            connectionClosed[0] = true;
+                            if (streamingHandle != null) streamingHandle.cancel();
+                        }
+                    }
+
+                    @Override
+                    public void onCompleteResponse(ChatResponse completeResponse) {
+                        if (connectionClosed[0]) return;
+                        if (Thread.currentThread().isInterrupted()) return;
+
+                        String content = fullResponse.toString().trim();
+                        if (!content.isBlank()) {
+                            try {
+                                DebateMessage record = DebateMessage.builder()
+                                        .userId(userId)
+                                        .sessionId(sessionId)
+                                        .bookId(session.getBookId())
+                                        .roleKey("HOST")
+                                        .roleName("主持人")
+                                        .positionKey("HOST")
+                                        .side("NEUTRAL")
+                                        .content(content)
+                                        .roundNumber(session.getCurrentRound())
+                                        .roundType("HOST_" + type)
+                                        .phaseOrder(0)
+                                        .build();
+                                messageRepository.save(record);
+                            } catch (Exception e) {
+                                log.warn("保存主持人点评失败: {}", e.getMessage());
+                            }
+                        }
+
+                        try {
+                            emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                            emitter.complete();
+                        } catch (Exception e) {
+                            log.warn("发送 SSE done 事件失败: {}", e.getMessage());
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        log.warn("主持人点评 SSE 流错误: type={} - {}", type, error.getMessage());
+                        SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(error));
+                    }
+                });
+            } catch (Exception e) {
+                log.error("主持人点评失败: type={} - {}", type, e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
             }
         });

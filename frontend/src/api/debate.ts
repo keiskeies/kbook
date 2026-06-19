@@ -29,8 +29,8 @@ export function optimizeDebateTopic(
 }
 
 /** 获取LLM推荐辩题 */
-export function getDebateTopics(bookId: number) {
-  return request.get<DebateTopic[]>(`/debate/books/${bookId}/topics`)
+export function getDebateTopics(bookId: number, refresh = false) {
+  return request.get<DebateTopic[]>(`/debate/books/${bookId}/topics`, { params: { refresh } })
 }
 
 /** 创建辩论会话 */
@@ -231,6 +231,18 @@ export function streamDebateRebuttalSpeech(
   return createSseSpeakConnection(
     `/debate/books/${bookId}/speak/rebuttal`,
     { roleKey, sessionId, roundType: 'REBUTTAL', roundNumber, opponentOpening, crossExamContext },
+  )
+}
+
+/** 主持人即兴点评 SSE — 异步非阻塞，允许失败 */
+export function streamHostCommentary(
+  sessionId: string,
+  type: 'TRANSITION' | 'FREE_MID' | 'WRAPUP',
+  context?: string,
+) {
+  return createSseSpeakConnection(
+    `/debate/sessions/${sessionId}/host-commentary`,
+    { sessionId, type, context: context || '' },
   )
 }
 

@@ -13,6 +13,7 @@ import {
   getDebateSession,
   streamDebateOpeningSpeech, streamDebateCrossExamSpeech, streamDebateRebuttalSpeech,
   streamDebateFreeSpeech, streamDebateClosingSpeech,
+  streamHostCommentary,
   getDebateScores, getDebateReport, triggerDebateReport,
 } from '@/api/debate'
 import { getBook } from '@/api/book'
@@ -93,6 +94,24 @@ function insertHostMessages(msgs: DisplayMessage[], bookTitle: string): DisplayM
     side: 'NEUTRAL', positionKey: 'HOST', content, timestamp: 0,
   })
 
+  // 预扫描：找出已有 LLM 主持人点评覆盖的环节过渡
+  const hostTransitionRounds = new Set<string>()
+  const hostMsgs = msgs.filter(m => m.roundType?.startsWith('HOST_'))
+  for (const hm of hostMsgs) {
+    if (hm.roundType === 'HOST_TRANSITION') {
+      // 找到该点评之后第一条非 HOST 消息的 roundType，即为过渡目标
+      const hmIdx = msgs.indexOf(hm)
+      for (let j = hmIdx + 1; j < msgs.length; j++) {
+        const rt = msgs[j].roundType
+        if (rt && !rt.startsWith('HOST_')) {
+          hostTransitionRounds.add(rt)
+          break
+        }
+      }
+    }
+  }
+  const hasHostWrapup = hostMsgs.some(m => m.roundType === 'HOST_WRAPUP')
+
   // INTRO 开场
   result.push(host('intro', bookTitle
     ? `欢迎来到奇葩说辩论。今天讨论的书籍是《${bookTitle}》。有请正方一辩开篇立论。`
@@ -103,14 +122,22 @@ function insertHostMessages(msgs: DisplayMessage[], bookTitle: string): DisplayM
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i]
 
-    // 环节过渡
+    // DB 持久化的主持人 LLM 点评消息：原样通过，不触发骨架
+    if (m.roundType?.startsWith('HOST_')) {
+      result.push(m)
+      continue
+    }
+
+    // 环节过渡 — 已有 LLM 点评则跳过骨架
     if (m.roundType && m.roundType !== prevRound && prevRound !== '') {
-      const toLabel = ROUND_LABELS[m.roundType] || m.roundType
-      const next = m.roundType === 'CROSS_EXAM' ? '正方二辩' :
-                   m.roundType === 'REBUTTAL' ? '正方二辩' :
-                   m.roundType === 'FREE' ? '正方' :
-                   m.roundType === 'CLOSING' ? '反方四辩' : '双方辩手'
-      result.push(host(`trans-${m.roundType}`, `下面进入${toLabel}环节。请${next}准备。`))
+      if (!hostTransitionRounds.has(m.roundType)) {
+        const toLabel = ROUND_LABELS[m.roundType] || m.roundType
+        const next = m.roundType === 'CROSS_EXAM' ? '正方二辩' :
+                     m.roundType === 'REBUTTAL' ? '正方二辩' :
+                     m.roundType === 'FREE' ? '正方' :
+                     m.roundType === 'CLOSING' ? '反方四辩' : '双方辩手'
+        result.push(host(`trans-${m.roundType}`, `下面进入${toLabel}环节。请${next}准备。`))
+      }
       if (m.roundType === 'CROSS_EXAM') crossExamIdx = 0
     }
     prevRound = m.roundType || prevRound
@@ -141,6 +168,11 @@ function insertHostMessages(msgs: DisplayMessage[], bookTitle: string): DisplayM
     }
 
     result.push(m)
+  }
+
+  // 无 LLM 收尾 → 插入骨架结束语
+  if (!hasHostWrapup) {
+    result.push(host('wrapup', '本场辩论到此结束。感谢双方辩手的精彩表现！'))
   }
 
   return result
@@ -262,6 +294,7 @@ export default function DebateSessionPage() {
   const currentPhaseRef = useRef<string>('OPENING')
   const allRoleKeys = useRef(['HOST', 'PRO_1', 'PRO_2', 'PRO_3', 'PRO_4', 'CON_1', 'CON_2', 'CON_3', 'CON_4'])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const hostScrollRef = useRef<HTMLDivElement>(null)
   const currentMsgIdRef = useRef<string | null>(null)
   const currentContentRef = useRef<string>('')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -430,6 +463,17 @@ export default function DebateSessionPage() {
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
   }, [speakingMsgId])
+
+  // PC 端主持人消息横条自动滚到底部
+  const prevHostMsgCount = useRef(0)
+  useEffect(() => {
+    if (isMobile) return
+    const hostMsgs = messages.filter(m => m.side === 'NEUTRAL')
+    if (hostMsgs.length > prevHostMsgCount.current && hostScrollRef.current) {
+      hostScrollRef.current.scrollTop = hostScrollRef.current.scrollHeight
+    }
+    prevHostMsgCount.current = hostMsgs.length
+  }, [messages, isMobile])
 
   // 初始化：加载已保存消息 + 会话状态
   useEffect(() => {
@@ -724,6 +768,47 @@ export default function DebateSessionPage() {
     }
     setMessages(prev => [...prev, placeholder])
 
+    // 安全兜底：若 60s 内 SSE 既没 done 也没 error，自动推进链
+    // 关键：用 streamCompleted 标志防双重触发——safety / done / error 三者仅第一个生效
+    let streamCompleted = false
+    const finish = () => {
+      if (streamCompleted) return
+      streamCompleted = true
+      clearTimeout(safetyTimer)
+      setSpeakingKey(null)
+      if (currentContentRef.current.trim()) {
+        setMessages(prev => prev.map(m =>
+          m.id === msgId ? { ...m, streaming: false, personalityTitle: roleKey !== 'HOST' ? personalityMapRef.current[roleKey] : undefined } : m
+        ))
+        if (ttsEnabled) {
+          setSpeakingMsgId(roleKey + Date.now())
+          enqueueTts(currentContentRef.current.trim(), roleKey, -1)
+        }
+        if (sessionId) {
+          getDebateScores(sessionId).then(setScores).catch(() => {})
+        }
+      } else {
+        setMessages(prev => prev.filter(m => m.id !== msgId))
+      }
+      lastStreamedContentRef.current = currentContentRef.current.trim()
+      currentMsgIdRef.current = null
+      currentContentRef.current = ''
+      if (!discussionLoopRef.current && !isChainActiveRef.current) return
+      onDone()
+    }
+
+    const safetyTimer = setTimeout(() => {
+      if (currentMsgIdRef.current === msgId) {
+        setMessages(prev => prev.filter(m => m.id !== msgId))
+        currentMsgIdRef.current = null
+        currentContentRef.current = ''
+        streamCompleted = true
+        setSpeakingKey(null)
+        if (!discussionLoopRef.current && !isChainActiveRef.current) return
+        onDone()
+      }
+    }, 60000)
+
     onMessage((text: string) => {
       currentContentRef.current += text
       // 实时更新消息内容
@@ -733,36 +818,13 @@ export default function DebateSessionPage() {
     })
 
     onStreamDone(() => {
-      setSpeakingKey(null)
-      if (currentContentRef.current.trim()) {
-        // 标记流式结束
-        setMessages(prev => prev.map(m =>
-          m.id === msgId ? { ...m, streaming: false, personalityTitle: roleKey !== 'HOST' ? personalityMap[roleKey] : undefined } : m
-        ))
-
-        if (ttsEnabled) {
-          setSpeakingMsgId(roleKey + Date.now())
-          enqueueTts(currentContentRef.current.trim(), roleKey, -1)
-        }
-
-        // 刷新评分
-        if (sessionId) {
-          getDebateScores(sessionId).then(setScores).catch(() => {})
-        }
-      } else {
-        // 无内容，移除占位
-        setMessages(prev => prev.filter(m => m.id !== msgId))
-      }
-      // 保存最近一次发言内容到 ref，供后续回调链读取（解决闭包陷阱）
-      lastStreamedContentRef.current = currentContentRef.current.trim()
-      currentMsgIdRef.current = null
-      currentContentRef.current = ''
-      // 页面已退出/链已停止，不再触发回调链
-      if (!discussionLoopRef.current && !isChainActiveRef.current) return
-      onDone()
+      finish()
     })
 
     onError((_: unknown) => {
+      if (streamCompleted) return
+      clearTimeout(safetyTimer)
+      streamCompleted = true
       setSpeakingKey(null)
       // 移除占位消息
       setMessages(prev => prev.filter(m => m.id !== msgId))
@@ -777,6 +839,64 @@ export default function DebateSessionPage() {
       onDone()
     })
   }, [ttsEnabled, sessionId, enqueueTts])
+
+  // ==================== 主持人即兴点评（异步、非阻塞、允许失败） ====================
+
+  /**
+   * 骨架先行，血肉后补：发起 LLM 主持点评，到达后插入/替换消息。
+   * 失败或超时静默丢弃——骨架消息已在屏幕上。
+   */
+  const fireHostCommentary = useCallback((
+    type: 'TRANSITION' | 'FREE_MID' | 'WRAPUP',
+    context: string,
+    skeletonMsgId?: string, // 成功时移除此骨架消息，用 LLM 版本替换
+  ) => {
+    if (!sessionId) return
+
+    let content = ''
+    const placeholderId = `host-llm-${Date.now()}`
+
+    const placeholder: DisplayMessage = {
+      id: placeholderId, roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL',
+      positionKey: 'HOST', content: '', timestamp: Date.now(), streaming: true,
+    }
+    setMessages(prev => [...prev, placeholder])
+
+    try {
+      const { onMessage, onDone, onError } = streamHostCommentary(sessionId, type, context)
+
+      onMessage((text: string) => {
+        content += text
+        setMessages(prev => prev.map(m =>
+          m.id === placeholderId ? { ...m, content } : m
+        ))
+      })
+
+      onDone(() => {
+        setMessages(prev => {
+          // LLM 返回空内容 → 移除占位，骨架保留（与 startStreaming 行为一致）
+          if (!content.trim()) {
+            return prev.filter(m => m.id !== placeholderId)
+          }
+          let next = prev.map(m =>
+            m.id === placeholderId ? { ...m, streaming: false } : m
+          )
+          // LLM 成功生成 → 移除骨架消息，避免重复
+          if (skeletonMsgId) {
+            next = next.filter(m => m.id !== skeletonMsgId)
+          }
+          return next
+        })
+      })
+
+      onError(() => {
+        // 静默失败，移除占位消息，骨架消息保留
+        setMessages(prev => prev.filter(m => m.id !== placeholderId))
+      })
+    } catch {
+      setMessages(prev => prev.filter(m => m.id !== placeholderId))
+    }
+  }, [sessionId])
 
   // ==================== 辩论流程控制 ====================
 
@@ -816,21 +936,32 @@ export default function DebateSessionPage() {
   const speakHostTransition = useCallback((_fromPhase: string, toPhase: string): Promise<void> => {
     return new Promise<void>(resolve => {
       if (!sessionId) { resolve(); return }
-      // 预写过渡串场词——不靠 LLM，杜绝编造
+      // 预写过渡串场词——骨架先行，保证流程不中断
       const toLabel = ROUND_LABELS[toPhase] || toPhase
-const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
+      const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                            toPhase === 'REBUTTAL' ? '正方二辩' :
                            toPhase === 'FREE' ? '正方' :
                            toPhase === 'CLOSING' ? '反方四辩' : '双方辩手'
+      const skeletonId = `host-trans-${toPhase}`
       setMessages(prev => [...prev, {
-        id: `host-trans-${toPhase}`,
+        id: skeletonId,
         roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
         content: `下面进入${toLabel}环节。请${nextSpeaker}准备。`,
         timestamp: Date.now(),
       }])
+
+      // 异步请求 LLM 回顾点评上一轮（骨架已到位，不阻塞流程）
+      const fromLabel = ROUND_LABELS[_fromPhase] || _fromPhase
+      const recentMsgs = messagesRef.current.slice(-10).filter(m => m.roleKey !== 'HOST')
+      const context = `即将从【${fromLabel}】进入【${toLabel}】。\n近期发言摘要：\n` +
+        recentMsgs.map(m =>
+          `[${m.side === 'PRO' ? '正方' : m.side === 'CON' ? '反方' : ''}] ${m.roleName}：${m.content.slice(0, 80)}`
+        ).join('\n')
+      fireHostCommentary('TRANSITION', context, skeletonId)
+
       setTimeout(resolve, 800)
     })
-  }, [sessionId])
+  }, [sessionId, fireHostCommentary])
 
   // ==================== 交叉质询 (CROSS_EXAM) ====================
 
@@ -995,6 +1126,16 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
             // 从 ref 更新上下文，确保下一位辩手能看到上一位的发言内容
             lastContext = lastStreamedContentRef.current || lastContext
             freeCount++
+
+            // 每 3 轮交锋，异步请求主持人吐槽（骨架流程已自驱动，不阻塞）
+            if (freeCount > 0 && freeCount % 3 === 0 && freeCount < MAX_FREE_EXCHANGES - 1) {
+              const recent6 = messagesRef.current.slice(-6).filter(m => m.roleKey !== 'HOST')
+              const ctx = recent6.map(m =>
+                `[${m.side === 'PRO' ? '正方' : m.side === 'CON' ? '反方' : ''}] ${m.roleName}：${m.content.slice(0, 60)}`
+              ).join('\n')
+              fireHostCommentary('FREE_MID', ctx)
+            }
+
             getNextDebateSpeaker(sessionId)
               .then(nextRaw => {
                 const next = typeof nextRaw === 'string' ? nextRaw : (nextRaw as { data?: string })?.data ?? nextRaw as string
@@ -1014,7 +1155,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
     } catch {
       handleAdvanceRoundRef.current()
     }
-  }, [bookIdNum, sessionId, messages, startStreaming])
+  }, [bookIdNum, sessionId, messages, startStreaming, fireHostCommentary])
 
   const startClosingRound = useCallback(() => {
     if (!sessionId) return
@@ -1037,13 +1178,20 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
         // 先通知后端辩论结束，持久化 COMPLETED 状态
         advanceDebateRound(sessionId).catch(() => {})
         if (!isChainActiveRef.current) return
-        // 预写结束语
+        // 预写结束语（骨架先行），同时异步请求 LLM 版收尾
+        const wrapupId = `host-wrapup`
         setMessages(prev => [...prev, {
-          id: `host-wrapup`,
+          id: wrapupId,
           roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
           content: '本场辩论到此结束。感谢双方辩手的精彩表现！',
           timestamp: Date.now(),
         }])
+        // 用全场消息摘要请求 LLM 生成有个性的收尾
+        const allMsgs = messagesRef.current.filter(m => m.roleKey !== 'HOST')
+        const summary = allMsgs.slice(-12).map(m =>
+          `[${m.side === 'PRO' ? '正方' : m.side === 'CON' ? '反方' : ''}] ${m.roleName}（${m.roundType}）：${m.content.slice(0, 80)}`
+        ).join('\n')
+        fireHostCommentary('WRAPUP', `全场辩论结束。辩题：${bookTitle ? '《' + bookTitle + '》' : ''}\n发言摘要：\n${summary}`, wrapupId)
         setPhase('completed')
         setSessionStatus('COMPLETED')
         isChainActiveRef.current = false
@@ -1153,6 +1301,9 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
   }, [messages, sessionProKeys, sessionConKeys])
 
   // 无消息时自动开始辩论（预写开场白，不用 LLM）——数据加载完成后，无消息 + 是主人
+  // 注意：bookTitle 异步加载，用 ref 避免它在 600ms 定时器内变化时清理掉定时器
+  const bookTitleRef = useRef(bookTitle)
+  bookTitleRef.current = bookTitle
   const autoStartTriggered = useRef(false)
   useEffect(() => {
     if (phase !== 'OPENING' || messages.length > 0 || autoStartTriggered.current || !isOwner) return
@@ -1161,8 +1312,9 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
     const timer = setTimeout(() => {
       isChainActiveRef.current = true
       // 预写主持人开场——绝不编造观点
-      const introText = bookTitle
-        ? `欢迎来到奇葩说辩论。今天讨论的书籍是《${bookTitle}》。有请正方一辩开篇立论。`
+      const title = bookTitleRef.current
+      const introText = title
+        ? `欢迎来到奇葩说辩论。今天讨论的书籍是《${title}》。有请正方一辩开篇立论。`
         : `欢迎来到奇葩说辩论。有请正方一辩开篇立论。`
       setMessages(prev => [...prev, {
         id: `host-intro`,
@@ -1172,7 +1324,7 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
       setTimeout(() => speakOpening(0), 600)
     }, 600)
     return () => clearTimeout(timer)
-  }, [phase, messages.length, sessionId, bookIdNum, speakOpening, bookTitle, isOwner])
+  }, [phase, messages.length, sessionId, bookIdNum, speakOpening, isOwner])
 
   // 始终同步最新版到 ref，供内部闭包使用（避开 useCallback 闭包过期）
   handleAdvanceRoundRef.current = handleAdvanceRound
@@ -1222,10 +1374,11 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
     speechService.stop()
     stopTts()
     setSpeakingKey(null)
-    // 清理残留的流式占位消息
-    setMessages(prev => prev.map(m =>
-      m.streaming ? { ...m, streaming: false } : m
-    ))
+    // 清理残留的流式占位消息 — 标记结束 + 移除空消息
+    setMessages(prev => prev
+      .map(m => m.streaming ? { ...m, streaming: false } : m)
+      .filter(m => m.content || m.streaming)  // 空内容+非流式 = 删掉
+    )
   }, [stopTts])
 
   const pauseDiscussion = useCallback(() => {
@@ -1378,9 +1531,26 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
               </div>
             ) : (
               <>
-                {/* PC端双栏对抗 — 正方左 / 反方右 / 主持人全宽穿插 */}
+                {/* PC端双栏对抗 — 正方左 / 反方右 / 主持人横条穿插 */}
                 {!isMobile && (
-                  <div className="flex-1 min-h-0 flex overflow-hidden">
+                  <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                    {/* 主持人消息横条 */}
+                    {messages.filter(m => m.side === 'NEUTRAL').length > 0 && (
+                      <div ref={hostScrollRef} className="shrink-0 px-3 pt-2 pb-1 space-y-1 max-h-24 overflow-y-auto scroll-smooth border-b border-border/20">
+                        {messages.filter(m => m.side === 'NEUTRAL').map(m => (
+                          <div key={m.id} className="flex items-center justify-center py-0.5">
+                            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-muted/60 border border-border/30 max-w-2xl">
+                              <span className="text-[10px] shrink-0">🎙️</span>
+                              <span className={`text-xs text-foreground/70 ${m.streaming ? 'italic' : ''}`}>
+                                {m.streaming && !m.content ? '...' : m.content}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* 正反方双栏 */}
+                    <div className="flex-1 min-h-0 flex overflow-hidden">
                     {/* 正方区（左） */}
                     <div onScroll={handleScroll} className="debate-column flex-1 min-w-0 border-r border-border/10 p-3 space-y-3 overflow-y-auto">
                       <div className="flex items-center justify-between mb-2">
@@ -1389,10 +1559,10 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                           <span className="text-xs font-bold text-[#4A7C6F] uppercase tracking-wider">正方</span>
                         </div>
                         <span className="text-[10px] text-muted-foreground/50">
-                          {messages.filter(m => m.side === 'PRO').length} 条发言
+                          {messages.filter(m => m.side === 'PRO' && (m.content || m.streaming)).length} 条发言
                         </span>
                       </div>
-                      {messages.filter(m => m.side === 'PRO').map(m => {
+                      {messages.filter(m => m.side === 'PRO' && (m.content || m.streaming)).map(m => {
                         const isActive = speakingKey === m.roleKey && m.streaming
                         return (
                           <div
@@ -1472,10 +1642,10 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                           <span className="text-xs font-bold text-[#B8704A] uppercase tracking-wider">反方</span>
                         </div>
                         <span className="text-[10px] text-muted-foreground/50">
-                          {messages.filter(m => m.side === 'CON').length} 条发言
+                          {messages.filter(m => m.side === 'CON' && (m.content || m.streaming)).length} 条发言
                         </span>
                       </div>
-                      {messages.filter(m => m.side === 'CON').map(m => {
+                      {messages.filter(m => m.side === 'CON' && (m.content || m.streaming)).map(m => {
                         const isActive = speakingKey === m.roleKey && m.streaming
                         return (
                           <div
@@ -1547,12 +1717,13 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                       })}
                     </div>
                   </div>
+                  </div>
                 )}
 
                 {/* 移动端上下排列 — 主持人全宽穿插 */}
                 {isMobile && (
                   <div onScroll={handleScroll} className="p-3 space-y-3">
-                    {messages.map(m => {
+                    {messages.filter(m => m.content || m.streaming).map(m => {
                       const isPro = m.side === 'PRO'
                       const isCon = m.side === 'CON'
                       const isHost = m.side === 'NEUTRAL'
@@ -1561,9 +1732,9 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                       if (isHost) {
                         return (
                           <div key={m.id} className="flex items-center justify-center py-2">
-                            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-muted border border-border/50">
+                            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-muted border border-border/50 max-w-[90%]">
                               <span className="text-xs">🎙️</span>
-                              <span className="text-xs text-muted-foreground">{m.content}</span>
+                              <span className="text-xs text-foreground/70">{m.content}</span>
                             </div>
                           </div>
                         )

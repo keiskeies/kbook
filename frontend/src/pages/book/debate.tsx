@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Sparkles, MessageSquare, Swords, Trash2, Loader2, History, X,
+  ArrowLeft, Sparkles, MessageSquare, Swords, Trash2, Loader2, History, X, RefreshCw,
 } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import {
@@ -151,6 +151,7 @@ export default function DebatePage() {
   const [topics, setTopics] = useState<DebateTopic[]>([])
   const [sessions, setSessions] = useState<DebateSession[]>([])
   const [loadingTopics, setLoadingTopics] = useState(false)
+  const [refreshingTopics, setRefreshingTopics] = useState(false)
   const [selectedTopic, setSelectedTopic] = useState<DebateTopic | null>(null)
   const [showManualInput, setShowManualInput] = useState(false)
   const [manualTopic, setManualTopic] = useState('')
@@ -163,6 +164,31 @@ export default function DebatePage() {
   const [expandedSlot, setExpandedSlot] = useState<{ side: 'PRO' | 'CON'; index: number } | null>(null)
   const cacheKey = `${CACHE_PREFIX}${bookIdNum}`
   const loadedRef = useRef(false)
+
+  /** 刷新辩题：清除缓存，重新从后端获取 */
+  const handleRefreshTopics = useCallback(async () => {
+    if (!bookIdNum || refreshingTopics) return
+    setRefreshingTopics(true)
+    try {
+      // 清除 localStorage 缓存
+      localStorage.removeItem(cacheKey)
+      // 重新从后端加载（跳过 Redis 缓存）
+      const data = await getDebateTopics(bookIdNum, true)
+      setTopics(data)
+      // 重新写入缓存
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({
+          data,
+          expiry: Date.now() + CACHE_TTL,
+        }))
+      } catch { /* ignore */ }
+      toast.success(`已刷新，共 ${data.length} 个辩题`)
+    } catch {
+      toast.error('刷新辩题失败，请稍后重试')
+    } finally {
+      setRefreshingTopics(false)
+    }
+  }, [bookIdNum, cacheKey, refreshingTopics])
 
   useEffect(() => {
     if (!bookIdNum) return
@@ -352,7 +378,18 @@ export default function DebatePage() {
               <MessageSquare className="h-4 w-4 text-brand-500" />
               选择辩题
             </h2>
-            <span className="text-xs text-muted-foreground">{topics.length} 个推荐</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{topics.length} 个推荐</span>
+              <button
+                onClick={handleRefreshTopics}
+                disabled={refreshingTopics}
+                className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/20 disabled:opacity-50 transition-colors"
+                title="刷新辩题列表"
+              >
+                <RefreshCw className={`h-3 w-3 ${refreshingTopics ? 'animate-spin' : ''}`} />
+                <span>{refreshingTopics ? '刷新中' : '换一批'}</span>
+              </button>
+            </div>
           </div>
 
           {/* 辩题列表：PC纵向紧凑列表 + 移动端横向滑动卡片 */}
