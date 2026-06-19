@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Volume2, Square, Loader2, BarChart3, FileText, Play, Pause, Mic,
+  ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import ScorePanel from '@/components/debate/ScorePanel'
@@ -1368,7 +1369,8 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
           </div>
 
           {/* 消息列表 */}
-          <div ref={scrollContainerRef} className={`flex-1 ${isMobile ? 'overflow-y-auto overscroll-y-contain' : 'min-h-0 flex flex-col'}`}>
+          <div className="relative flex-1 overflow-hidden">
+          <div ref={scrollContainerRef} className={`h-full ${isMobile ? 'overflow-y-auto overscroll-y-contain' : 'min-h-0 flex flex-col'}`}>
             {!isStarted ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-brand-400" />
@@ -1632,6 +1634,51 @@ const nextSpeaker = toPhase === 'CROSS_EXAM' ? '正方二辩' :
                 )}
               </>
             )}
+          </div>
+
+          {/* 浮动滚动按钮 */}
+          <div className={`absolute right-3 flex flex-col gap-1 z-10 ${isMobile ? 'bottom-24' : 'bottom-4'}`}>
+            <button
+              onClick={() => {
+                if (isMobile) {
+                  scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+                } else {
+                  const cols = scrollContainerRef.current?.querySelectorAll('.debate-column')
+                  cols?.forEach(c => { (c as HTMLElement).scrollTo({ top: 0, behavior: 'smooth' }) })
+                }
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-card/90 border border-border/50 shadow-sm backdrop-blur text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+              title="回到顶部"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+            {speakingMsgId && (
+              <button
+                onClick={() => {
+                  const el = document.querySelector(`[data-msg-id="${speakingMsgId}"]`)
+                  el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 border border-brand-200 shadow-sm backdrop-blur text-brand-600 hover:bg-brand-200 transition-colors"
+                title="定位到当前朗读"
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button
+              onClick={() => {
+                if (isMobile) {
+                  scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
+                } else {
+                  const cols = scrollContainerRef.current?.querySelectorAll('.debate-column')
+                  cols?.forEach(c => { (c as HTMLElement).scrollTo({ top: (c as HTMLElement).scrollHeight, behavior: 'smooth' }) })
+                }
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-card/90 border border-border/50 shadow-sm backdrop-blur text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+              title="回到底部"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          </div>
           </div>
 
           {/* 底部控制栏 — 1+1 原则：主操作唯一 + 次要操作折叠 */}

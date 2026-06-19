@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Volume2, Square, Loader2, Play, Pause, BarChart3, Target, RefreshCw, FileText, X,
+  ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
@@ -1154,7 +1155,8 @@ export default function RoundTableSessionPage() {
             grabbingKey={grabbingAnimation}
           />
 
-          <div ref={scrollContainerRef} onScroll={handleUserScroll} className="flex-1 overflow-y-auto overscroll-y-contain">
+          <div className="relative flex-1 overflow-hidden">
+          <div ref={scrollContainerRef} onScroll={handleUserScroll} className="h-full overflow-y-auto overscroll-y-contain">
             {messages.length === 0 && phase === 'loading' && (
               <div className="flex flex-1 flex-col items-center justify-center py-12 text-muted-foreground">
                 <Loader2 className="h-8 w-8 animate-spin" />
@@ -1194,6 +1196,40 @@ export default function RoundTableSessionPage() {
 
               <div ref={messagesEndRef} />
             </div>
+          </div>
+
+          {/* 浮动滚动按钮 */}
+          <div className={`absolute right-3 flex flex-col gap-1 z-10 ${isMobile ? 'bottom-24' : 'bottom-4'}`}>
+            {/* 滚到顶部 */}
+            <button
+              onClick={() => scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-card/90 border border-border/50 shadow-sm backdrop-blur text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+              title="回到顶部"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+            {/* 滚到当前朗读 */}
+            {speakingMsgId && (
+              <button
+                onClick={() => {
+                  const el = document.getElementById(`msg-${speakingMsgId}`)
+                  el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 border border-brand-200 shadow-sm backdrop-blur text-brand-600 hover:bg-brand-200 transition-colors"
+                title="定位到当前朗读"
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {/* 滚到底部 */}
+            <button
+              onClick={() => scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-card/90 border border-border/50 shadow-sm backdrop-blur text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+              title="回到底部"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          </div>
           </div>
 
           <div
