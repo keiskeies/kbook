@@ -1,0 +1,30 @@
+/* theme: kbook-emerald — KBook 品牌色：翡翠绿 + 暖黑 */
+:root{
+  --bg:#0A0A0A;--bg-soft:#111010;--surface:#1A1814;--surface-2:#25221F;
+  --border:rgba(125,186,124,.18);--border-strong:rgba(125,186,124,.4);
+  --text-1:#F5F3EF;--text-2:#C4BFBA;--text-3:#9A948A;
+  --accent:#7DBA7C;--accent-2:#5B8C5A;--accent-3:#A8D1A7;
+  --good:#7DBA7C;--warn:#D4A574;--bad:#C75B5B;
+  --grad:linear-gradient(135deg,#3A5A39,#5B8C5A 40%,#7DBA7C);
+  --grad-soft:linear-gradient(135deg,rgba(58,90,57,.25),rgba(125,186,124,.15));
+  --radius:12px;--radius-sm:8px;--radius-lg:16px;
+  --shadow:0 2px 8px rgba(0,0,0,.4),0 0 0 1px rgba(125,186,124,.12);
+  --shadow-lg:0 8px 24px rgba(0,0,0,.5),0 0 0 1px rgba(125,186,124,.18);
+  --font-sans:'Inter','Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-display:'Inter','Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;
+}
+body{background:
+  radial-gradient(ellipse at 20% 10%,rgba(58,90,57,.3),transparent 55%),
+  radial-gradient(ellipse at 80% 90%,rgba(91,140,90,.18),transparent 55%),
+  #0A0A0A}
+h1.title,h2.title,.h1,.h2{color:#F5F3EF}
+.kicker{color:#7DBA7C}
+.card{background:#1A1814;border:1px solid rgba(125,186,124,.15);border-radius:var(--radius)}
+.card:hover{border-color:rgba(125,186,124,.3);box-shadow:var(--shadow)}
+.divider-accent{background:var(--grad);box-shadow:0 0 12px rgba(125,186,124,.35)}
+.gradient-text{
+  background:var(--grad);-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent
+}
+.pill{border:1.5px solid rgba(125,186,124,.35);background:rgba(125,186,124,.08);color:#A8D1A7;border-radius:999px}
+code,.mono{background:#25221F;color:#A8D1A7;border:1px solid rgba(125,186,124,.12);border-radius:6px}
