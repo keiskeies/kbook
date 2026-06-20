@@ -5,278 +5,433 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KBook AI 调用流程</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap');
-:root{--g50:#FAFAF8;--g100:#F2F0EC;--g200:#E6E2DC;--g300:#C9C3BA;--g400:#9A948A;--g500:#6B655C;--g600:#4A453E;--g700:#2E2A24;--g800:#1A1814;--g900:#0E0D0B;--b200:#A8D1A7;--b300:#7DBA7C;--b400:#5B8C5A;--b500:#4A7249;--warn:#D4A574;--info:#6B8FA8;--danger:#C75B5B;--accent:#8B6914;--purple:#9B6B8A}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap');
+
+:root{
+  --g50:#FAFAF8;--g100:#F2F0EC;--g200:#E6E2DC;--g300:#C9C3BA;--g400:#9A948A;
+  --g500:#6B655C;--g600:#4A453E;--g700:#2E2A24;--g800:#1A1814;--g900:#0E0D0B;
+  --b200:#A8D1A7;--b300:#7DBA7C;--b400:#5B8C5A;--b500:#4A7249;
+  --warn:#D4A574;--info:#6B8FA8;--danger:#C75B5B;--accent:#8B6914;
+  --glass:rgba(46,42,36,.5);--glass-border:rgba(255,255,255,.06);
+}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Inter','Noto Sans SC',sans-serif;background:var(--g900);color:var(--g100);overflow:hidden;height:100vh}
-.slides{position:relative;width:100vw;height:100vh}
-.slide{position:absolute;inset:0;display:none;flex-direction:column;padding:36px 52px;overflow-y:auto;opacity:0}
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background-image:radial-gradient(circle,rgba(255,255,255,.02) 1px,transparent 1px);background-size:36px 36px}
+body::after{content:'';position:fixed;z-index:0;pointer-events:none;width:600px;height:600px;background:radial-gradient(circle,rgba(91,140,90,.04),transparent 70%);border-radius:50%;top:-200px;right:-100px;animation:orbFloat 24s ease-in-out infinite}
+@keyframes orbFloat{0%,100%{transform:translate(0,0)}33%{transform:translate(-60px,40px)}66%{transform:translate(30px,-30px)}}
+
+.slides{position:relative;width:100vw;height:100vh;z-index:1}
+.slide{position:absolute;inset:0;display:none;flex-direction:column;padding:48px 64px;overflow-y:auto;opacity:0}
 .slide.active{display:flex;opacity:1;animation:slideIn .5s cubic-bezier(.22,1,.36,1)}
 @keyframes slideIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
-@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.nav{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:rgba(14,13,11,.9);backdrop-filter:blur(14px);padding:8px 20px;border-radius:40px;border:1px solid var(--g700);z-index:100}
-.nav button{background:none;border:none;color:var(--g400);font-size:18px;cursor:pointer;padding:4px 12px;border-radius:6px;transition:all .2s}
-.nav button:hover{background:var(--g700);color:#fff}
-.nav .c{font-size:13px;color:var(--g500);min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
-.prog{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--b400),var(--b300));transition:width .3s;z-index:100}
-.hint{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--g600)}
-h2{font-size:26px;font-weight:700;color:var(--b300);margin-bottom:16px;letter-spacing:-.3px}
+.reveal{opacity:0;transform:translateY(16px);animation:revealUp .5s cubic-bezier(.22,1,.36,1) forwards}
+.reveal.d1{animation-delay:.04s}.reveal.d2{animation-delay:.1s}.reveal.d3{animation-delay:.16s}.reveal.d4{animation-delay:.22s}.reveal.d5{animation-delay:.28s}
+@keyframes revealUp{to{opacity:1;transform:translateY(0)}}
 
-/* Step Block */
-.step-block{background:linear-gradient(135deg,var(--g700),var(--g800));border:1px solid var(--g600);border-left:4px solid var(--b400);border-radius:16px;padding:16px 20px;box-shadow:0 4px 24px rgba(0,0,0,.25);transition:all .35s cubic-bezier(.22,1,.36,1);display:flex;gap:14px;align-items:flex-start;cursor:default;min-width:0}
-.step-block:hover{transform:translateY(-4px) scale(1.01);box-shadow:0 14px 40px rgba(0,0,0,.45);border-color:var(--b300)}
-.step-num{flex-shrink:0;width:40px;height:40px;background:var(--b500);color:#fff;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:800;box-shadow:0 0 20px rgba(91,140,90,.25);transition:all .3s}
-.step-block:hover .step-num{transform:scale(1.08);box-shadow:0 0 28px rgba(91,140,90,.35)}
-.step-num.blue{background:rgba(107,143,168,.8);box-shadow:0 0 20px rgba(107,143,168,.25)}.step-num.orange{background:rgba(212,165,116,.8);box-shadow:0 0 20px rgba(212,165,116,.25)}.step-num.red{background:rgba(199,91,91,.75);box-shadow:0 0 20px rgba(199,91,91,.25)}.step-num.purple{background:rgba(155,107,138,.8);box-shadow:0 0 20px rgba(155,107,138,.25)}.step-num.dark{background:var(--g600)}
-.step-main{flex:1;min-width:0}
-.step-title{font-size:17px;font-weight:700;color:var(--g100);margin-bottom:4px;letter-spacing:-.2px}
-.step-desc{font-size:13px;color:var(--g300);line-height:1.5}
+.nav{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100;display:flex;align-items:center;gap:16px;background:rgba(14,13,11,.85);backdrop-filter:blur(20px);padding:10px 24px;border-radius:44px;border:1px solid var(--glass-border)}
+.nav button{background:none;border:none;color:var(--g400);font-size:18px;cursor:pointer;padding:4px 14px;border-radius:8px;transition:all .2s}
+.nav button:hover{background:rgba(255,255,255,.06);color:#fff}
+.nav .c{font-size:13px;color:var(--g500);min-width:48px;text-align:center;font-variant-numeric:tabular-nums}
+.prog{position:fixed;top:0;left:0;height:3px;z-index:100;background:linear-gradient(90deg,var(--b400),var(--b300),var(--b200));transition:width .4s cubic-bezier(.22,1,.36,1)}
+.hint{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--g600);z-index:99}
 
-/* Message detail inside step */
-.msg-detail{margin-top:8px;padding:8px 10px;background:var(--g800);border-radius:9px;border:1px solid var(--g700)}
-.msg-row{display:flex;gap:8px;align-items:flex-start;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}
-.msg-row:last-child{border-bottom:none}
-.msg-label{flex-shrink:0;min-width:52px;font-size:11px;font-weight:700;padding:2px 6px;border-radius:5px;text-align:center}
-.msg-label.sys{background:rgba(91,140,90,.2);color:var(--b300)}.msg-label.usr{background:rgba(107,143,168,.15);color:var(--info)}.msg-label.rag{background:rgba(212,165,116,.15);color:var(--warn)}.msg-label.role{background:rgba(139,105,20,.15);color:var(--accent)}
-.msg-content{font-size:12px;color:var(--g300);line-height:1.4;min-width:0;overflow-wrap:break-word}.msg-content strong{color:var(--g200)}
+/* TITLE */
+.slide-title{justify-content:center;align-items:center;text-align:center;background:radial-gradient(ellipse at 30% 30%,rgba(91,140,90,.1),transparent 60%)}
+.slide-title .t-icon{font-size:56px;margin-bottom:16px;animation:revealUp .6s cubic-bezier(.22,1,.36,1) .05s both;filter:drop-shadow(0 0 20px rgba(125,186,124,.3))}
+.slide-title .badge{display:inline-block;margin-bottom:20px;padding:7px 22px;border-radius:30px;background:rgba(91,140,90,.1);border:1px solid rgba(91,140,90,.25);color:var(--b300);font-size:14px;font-weight:500;letter-spacing:1px}
+.slide-title h1{font-size:58px;font-weight:900;letter-spacing:-1px;background:linear-gradient(135deg,var(--b300) 0%,#A8D1A7 50%,var(--b300) 100%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 3s linear infinite}
+@keyframes shimmer{to{background-position:200% center}}
+.slide-title .sub{font-size:22px;color:var(--g400);margin-top:16px;font-weight:300}
+.slide-title .tags{margin-top:32px;font-size:13px;color:var(--g600);letter-spacing:2px}
 
-/* Edge / OK boxes */
-.detail-box{margin-top:6px;padding:6px 9px;background:var(--g800);border-radius:7px;border:1px solid var(--g700);font-size:12px;color:var(--g300);line-height:1.5}
-.detail-box strong{color:var(--g200)}
-.detail-box .edge{margin-top:4px;padding:3px 7px;background:rgba(199,91,91,.08);border-radius:5px;border:1px solid rgba(199,91,91,.15);font-size:11px;color:var(--danger)}
-.detail-box .ok{margin-top:4px;padding:3px 7px;background:rgba(91,140,90,.08);border-radius:5px;border:1px solid rgba(91,140,90,.15);font-size:11px;color:var(--b300)}
+/* SECTION */
+.slide-sec{justify-content:center;align-items:center;text-align:center;background:radial-gradient(ellipse at 50% 40%,rgba(91,140,90,.05),transparent 70%)}
+.slide-sec .sec-num{font-size:140px;font-weight:900;line-height:1;color:rgba(255,255,255,.03)}
+.slide-sec h1{font-size:48px;font-weight:800;margin-top:-32px;letter-spacing:-1px}
+.slide-sec .sec-desc{font-size:19px;color:var(--g400);margin-top:14px;max-width:520px;font-weight:300}
 
-/* Flow Grid — simple 2 columns × 3 rows: 1/4 2/5 3/6 */
-.flow-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;width:100%}
-
-/* Title / Section */
-.slide-title{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:radial-gradient(ellipse at 30% 20%,rgba(91,140,90,.08),transparent 60%),var(--g900)}
-.slide-title .badge{display:inline-block;margin-bottom:18px;padding:6px 18px;border-radius:30px;background:rgba(91,140,90,.12);border:1px solid rgba(91,140,90,.3);color:var(--b300);font-size:14px;font-weight:500;animation:fadeIn .8s ease}
-.slide-title h1{font-size:52px;background:linear-gradient(135deg,var(--b300),#A8D1A7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:fadeUp .6s cubic-bezier(.22,1,.36,1) .1s both}
-.slide-title .sub{font-size:20px;color:var(--g400);margin-top:14px;animation:fadeUp .6s cubic-bezier(.22,1,.36,1) .2s both}
-.slide-sec{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:radial-gradient(ellipse at 50% 40%,rgba(91,140,90,.06),transparent 70%),var(--g900)}
-.slide-sec .num{font-size:72px;font-weight:900;color:rgba(91,140,90,.1);line-height:1;animation:fadeUp .5s cubic-bezier(.22,1,.36,1)}
-.slide-sec h1{font-size:42px;font-weight:700;margin-top:-16px;animation:fadeUp .5s cubic-bezier(.22,1,.36,1) .1s both}
-.slide-sec p{font-size:18px;color:var(--g400);margin-top:12px;max-width:500px;animation:fadeUp .5s cubic-bezier(.22,1,.36,1) .2s both}
-
-/* Overview */
-.overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;width:100%;max-width:920px;margin:0 auto}
-.ov-card{background:var(--g700);border:1px solid var(--g600);border-radius:16px;padding:28px 26px;box-shadow:0 4px 16px rgba(0,0,0,.25);transition:all .3s cubic-bezier(.22,1,.36,1)}
-.ov-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.35)}
-.ov-card h3{font-size:22px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:12px}
-.ov-card .ov-desc{font-size:16px;color:var(--g300);line-height:1.65}
+/* OVERVIEW */
+.overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;width:100%;max-width:940px;margin:0 auto}
+.ov-card{background:var(--glass);backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:20px;padding:28px 26px;transition:all .35s cubic-bezier(.22,1,.36,1);position:relative;overflow:hidden}
+.ov-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--card-accent,var(--b400))}
+.ov-card:hover{transform:translateY(-4px);border-color:rgba(255,255,255,.12);box-shadow:0 16px 48px rgba(0,0,0,.35)}
+.ov-card .ov-icon{font-size:36px;margin-bottom:8px}
+.ov-card h3{font-size:22px;font-weight:700;margin-bottom:8px}
+.ov-card .ov-desc{font-size:15px;color:var(--g300);line-height:1.55}
 .ov-card .ov-steps{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
-.ov-step{padding:5px 12px;border-radius:7px;font-size:14px;font-weight:600;background:var(--g800);border:1px solid var(--g600);color:var(--g300)}
-.slide.active .ov-card{animation:fadeUp .5s cubic-bezier(.22,1,.36,1) both}
-.slide.active .ov-card:nth-child(1){animation-delay:.05s}.slide.active .ov-card:nth-child(2){animation-delay:.12s}.slide.active .ov-card:nth-child(3){animation-delay:.19s}.slide.active .ov-card:nth-child(4){animation-delay:.26s}
+.ov-step{padding:5px 14px;border-radius:20px;font-size:13px;font-weight:500;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);color:var(--g300)}
 
-/* Comparison */
-.cmp-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;width:100%;margin-top:12px}
-.cmp-card{background:var(--g700);border:1px solid var(--g600);border-radius:8px;padding:10px;text-align:center;transition:all .3s}
-.cmp-card:hover{transform:translateY(-2px);border-color:var(--b400)}
-.cmp-card h4{font-size:13px;font-weight:700;margin-bottom:4px}
-.cmp-card .cmp-layers{font-size:11px;color:var(--g300);line-height:1.5}
+/* ===== STEP SLIDE ===== */
+.step-slide{flex-direction:column;align-items:center;justify-content:center;padding:0;gap:0;overflow:hidden}
+.step-wrap{display:flex;flex-direction:row;width:88%;max-width:1200px;height:88%}
+.step-left{flex:0 0 16%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(255,255,255,.01),transparent);border-right:1px solid rgba(255,255,255,.03)}
+.step-left .num-ring{width:110px;height:110px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--num-bg,rgba(91,140,90,.06));border:2px solid var(--num-border,rgba(91,140,90,.15));box-shadow:0 0 50px var(--num-glow,rgba(91,140,90,.08)),inset 0 0 25px var(--num-glow,rgba(91,140,90,.03));animation:numPulse 3s ease-in-out infinite}
+@keyframes numPulse{0%,100%{box-shadow:0 0 50px var(--num-glow,rgba(91,140,90,.08)),inset 0 0 25px var(--num-glow,rgba(91,140,90,.03))}50%{box-shadow:0 0 80px var(--num-glow,rgba(91,140,90,.14)),inset 0 0 40px var(--num-glow,rgba(91,140,90,.04))}}
+.step-left .num-text{font-size:48px;font-weight:900;background:var(--num-text,linear-gradient(135deg,var(--b300),var(--b200)));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.step-left .step-of{font-size:11px;color:var(--g500);margin-top:10px;letter-spacing:1px}
+.step-dots{display:flex;gap:5px;margin-top:18px}
+.step-dots span{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.06);transition:all .3s}
+.step-dots span.on{background:var(--dot-color,var(--b400));box-shadow:0 0 6px var(--dot-glow,rgba(91,140,90,.3))}
+
+.step-right{flex:1;display:flex;flex-direction:column;justify-content:center;padding:48px 56px;overflow-y:auto;min-width:0}
+.step-right .badge-row{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.step-right .badge-row .bx{font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--badge-color,var(--b300));padding:4px 12px;border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05)}
+.step-right h2{font-size:42px;font-weight:800;color:var(--g50);margin-bottom:32px;letter-spacing:-.5px;line-height:1.15}
+
+/* Bullets */
+.blist{list-style:none;display:flex;flex-direction:column;gap:20px;margin-bottom:32px}
+.blist li{display:flex;align-items:center;gap:16px;font-size:22px;color:var(--g200);line-height:1.3}
+.blist li .bi{flex-shrink:0;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;background:var(--bi-bg,rgba(91,140,90,.1))}
+.blist li strong{color:#fff;font-weight:700}
+
+/* Bottom notes */
+.notes-area{display:flex;flex-direction:column;gap:8px}
+.bottom-note{font-size:15px;color:var(--g400);padding:10px 16px;border-radius:10px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.04);display:flex;align-items:flex-start;gap:8px;line-height:1.5}
+.bottom-note .bn-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+.bottom-note strong{color:var(--g200)}
+.bottom-note em{font-style:normal;color:var(--b300);font-weight:600}
+.bottom-note .warn{color:var(--danger)}
+.bottom-note .ok{color:var(--b300)}
+
+/* Message stack */
+.msg-stack{display:flex;flex-direction:column;gap:5px}
+.msg-row{display:flex;align-items:center;gap:10px;padding:7px 14px;border-radius:10px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.02);font-size:16px;color:var(--g300)}
+.msg-row .ml-tag{flex-shrink:0;font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px}
+.ml-tag.sys{background:rgba(91,140,90,.15);color:var(--b300)}.ml-tag.usr{background:rgba(107,143,168,.12);color:var(--info)}.ml-tag.rag{background:rgba(212,165,116,.12);color:var(--warn)}.ml-tag.role{background:rgba(139,105,20,.12);color:var(--accent)}
+.msg-row strong{color:var(--g100);font-weight:600}
+
+/* Tag cloud */
+.tag-cloud{display:flex;flex-wrap:wrap;gap:10px}
+.tag-cloud .tg{padding:10px 20px;border-radius:24px;font-size:16px;font-weight:600;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);color:var(--g200)}
+
+/* Stat highlight */
+.stat-row{display:flex;gap:32px;margin-bottom:28px}
+.stat-row .st{text-align:center}
+.stat-row .st .st-num{font-size:44px;font-weight:900;line-height:1}
+.stat-row .st .st-lbl{font-size:13px;color:var(--g500);margin-top:4px}
 
 /* Round timeline */
-.round-tl{display:flex;gap:4px;width:100%;margin-bottom:14px}
-.round-tl>div{flex:1;border-radius:8px;padding:7px;text-align:center;transition:all .3s}
-.round-tl>div:hover{transform:translateY(-2px)}
+.round-tl{display:flex;gap:6px;width:100%;max-width:880px;margin:0 auto 28px}
+.round-tl>div{flex:1;border-radius:14px;padding:18px 10px;text-align:center;background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--glass-border);transition:all .35s}
+.round-tl>div:hover{transform:translateY(-4px);border-color:rgba(255,255,255,.12)}
+.round-tl .rnd-num{font-size:11px;color:var(--g500);margin-bottom:6px}
+.round-tl .rnd-name{font-size:19px;font-weight:700;margin-bottom:4px}
+.round-tl .rnd-detail{font-size:12px;color:var(--g300)}
+.round-tl .rnd-limit{font-size:11px;color:var(--g500);margin-top:4px}
 
-@media(max-width:1100px){.slide{padding:20px 28px}.flow-grid{grid-template-columns:1fr}.cmp-grid{grid-template-columns:repeat(2,1fr)}.round-tl{flex-wrap:wrap}}
+/* Comparison */
+.cmp-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;width:100%;max-width:960px}
+.cmp-card{background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--glass-border);border-radius:14px;padding:20px 14px;text-align:center;transition:all .35s}
+.cmp-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.1)}
+.cmp-card h4{font-size:14px;font-weight:700;margin-bottom:6px}
+.cmp-card .cmp-info{font-size:12px;color:var(--g300);line-height:1.55}
+
+/* COLOR THEMES */
+.c-green{--num-bg:rgba(91,140,90,.05);--num-border:rgba(91,140,90,.12);--num-glow:rgba(91,140,90,.06);--num-text:linear-gradient(135deg,var(--b300),var(--b200));--dot-color:var(--b400);--dot-glow:rgba(91,140,90,.3);--badge-color:var(--b300);--bi-bg:rgba(91,140,90,.1)}
+.c-blue{--num-bg:rgba(107,143,168,.05);--num-border:rgba(107,143,168,.12);--num-glow:rgba(107,143,168,.06);--num-text:linear-gradient(135deg,var(--info),#8DB0C8);--dot-color:var(--info);--dot-glow:rgba(107,143,168,.3);--badge-color:var(--info);--bi-bg:rgba(107,143,168,.1)}
+.c-orange{--num-bg:rgba(212,165,116,.05);--num-border:rgba(212,165,116,.12);--num-glow:rgba(212,165,116,.06);--num-text:linear-gradient(135deg,var(--warn),#E8C89E);--dot-color:var(--warn);--dot-glow:rgba(212,165,116,.3);--badge-color:var(--warn);--bi-bg:rgba(212,165,116,.1)}
+.c-red{--num-bg:rgba(199,91,91,.05);--num-border:rgba(199,91,91,.12);--num-glow:rgba(199,91,91,.06);--num-text:linear-gradient(135deg,var(--danger),#E09090);--dot-color:var(--danger);--dot-glow:rgba(199,91,91,.3);--badge-color:var(--danger);--bi-bg:rgba(199,91,91,.1)}
+
+@media(max-width:960px){
+  .step-slide{flex-direction:column}.step-wrap{flex-direction:column;width:100%;max-width:100%;height:auto}.step-left{flex:0 0 auto;width:100%;flex-direction:row;padding:14px 20px;border-right:none;border-bottom:1px solid rgba(255,255,255,.04);gap:14px;align-self:auto}.step-left .num-ring{width:60px;height:60px}.step-left .num-text{font-size:26px}.step-left .step-dots{display:none}.step-right{padding:28px 24px}.step-right h2{font-size:26px}.blist li{font-size:18px}.blist li .bi{width:34px;height:34px;font-size:16px}.slide{padding:24px 20px}.cmp-grid{grid-template-columns:repeat(2,1fr)}.round-tl{flex-wrap:wrap}.overview-grid{grid-template-columns:1fr}.slide-title h1{font-size:36px}.slide-sec h1{font-size:32px}.slide-sec .sec-num{font-size:90px}
+}
 </style>
 </head>
 <body>
 <div class="prog" id="prog"></div>
 <div class="slides" id="slides">
 
-<!-- ===== 0: Title ===== -->
+<!-- ═══ 0: TITLE ═══ -->
 <div class="slide slide-title active" data-i="0">
-  <div class="badge">Product Walkthrough</div>
-  <h1>KBook AI 调用流程</h1>
-  <p class="sub">每一步做了什么 · 组装了什么内容</p>
-  <p style="margin-top:28px;font-size:12px;color:var(--g600)">AI 图书问答 · 圆桌派 · 奇葩说</p>
+  <div class="t-icon reveal">
+    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--b300)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 0 20px rgba(125,186,124,.3))">
+      <path d="M12 7v14" />
+      <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
+    </svg>
+  </div>
+  <div class="badge reveal d1">PRODUCT WALKTHROUGH</div>
+  <h1 class="reveal d2">KBook AI 调用流程</h1>
+  <p class="sub reveal d3">每一步做了什么 · 组装了什么内容</p>
+  <p class="tags reveal d4">AI 图书问答 · 圆桌派 · 奇葩说</p>
 </div>
 
-<!-- ===== 1: Overview ===== -->
+<!-- ═══ 1: OVERVIEW ═══ -->
 <div class="slide" data-i="1" style="justify-content:center;align-items:center">
-  <h2 style="text-align:center">📋 三大 AI 功能</h2>
+  <h2 style="text-align:center;font-size:30px;margin-bottom:6px" class="reveal">📋 三大 AI 功能</h2>
+  <p style="text-align:center;color:var(--g400);font-size:15px;margin-bottom:26px" class="reveal d1">同一套底层，三种完全不同的交互体验</p>
   <div class="overview-grid">
-    <div class="ov-card" style="border-color:var(--b400)">
-      <h3><span style="font-size:28px">💬</span> AI 图书问答</h3>
-      <div class="ov-desc">用户和 AI 一对一聊书。AI 先去书里搜索相关内容，再结合用户选的对话风格来回答。</div>
-      <div class="ov-steps"><div class="ov-step">查询扩展</div><div class="ov-step">向量检索</div><div class="ov-step">组装消息</div><div class="ov-step">流式回答</div></div>
-    </div>
-    <div class="ov-card" style="border-color:var(--info)">
-      <h3><span style="font-size:28px">🎙️</span> 圆桌派</h3>
-      <div class="ov-desc">多个 AI 角色围绕一本书讨论。每次有一位嘉宾发言，系统智能选下一位，覆盖度不够时主持人引导话题。</div>
-      <div class="ov-steps"><div class="ov-step">智能选角</div><div class="ov-step">角色专属搜索</div><div class="ov-step">组装消息</div><div class="ov-step">角色发言</div><div class="ov-step">选下一位</div></div>
-    </div>
-    <div class="ov-card" style="border-color:var(--danger)">
-      <h3><span style="font-size:28px">⚔️</span> 奇葩说</h3>
-      <div class="ov-desc">正反方 4v4 辩论，分 5 轮进行。每轮规则不同（立论、质询、反驳、自由辩论、总结），系统为每轮选辩手。</div>
-      <div class="ov-steps"><div class="ov-step">生成辩题</div><div class="ov-step">5轮发言</div><div class="ov-step">选下一位</div><div class="ov-step">评分</div></div>
-    </div>
-    <div class="ov-card" style="border-color:var(--accent)">
-      <h3><span style="font-size:28px">🏗️</span> 共同特点</h3>
-      <div class="ov-desc">三个功能共用底层能力：AI 调用、流式输出（实时打字）、配置热加载（改完即生效）。</div>
-      <div class="ov-steps"><div class="ov-step">多 AI 角色</div><div class="ov-step">流式输出</div><div class="ov-step">配置热加载</div><div class="ov-step">历史压缩</div></div>
-    </div>
+    <div class="ov-card reveal d2" style="--card-accent:var(--b400)"><div class="ov-icon">💬</div><h3>AI 图书问答</h3><div class="ov-desc">用户和 AI 一对一聊书。AI 搜索书中内容，结合用户选的对话风格来回答。</div><div class="ov-steps"><span class="ov-step">提问+风格</span><span class="ov-step">拆解搜索</span><span class="ov-step">书内检索</span><span class="ov-step">组装指令</span><span class="ov-step">逐字回答</span></div></div>
+    <div class="ov-card reveal d3" style="--card-accent:var(--info)"><div class="ov-icon">🎙️</div><h3>圆桌派</h3><div class="ov-desc">多位 AI 角色围炉聊书。智能选嘉宾，每次一人发言，主持人适时引导话题。</div><div class="ov-steps"><span class="ov-step">智能选角</span><span class="ov-step">准备素材</span><span class="ov-step">角色发言</span><span class="ov-step">覆盖追踪</span><span class="ov-step">选下一位</span></div></div>
+    <div class="ov-card reveal d4" style="--card-accent:var(--danger)"><div class="ov-icon">⚔️</div><h3>奇葩说</h3><div class="ov-desc">4v4 辩论，5 轮规则各异。AI 准备论据、多维打分，结束后自动生成报告。</div><div class="ov-steps"><span class="ov-step">生成辩题</span><span class="ov-step">5轮辩论</span><span class="ov-step">7维评分</span><span class="ov-step">辩论报告</span></div></div>
+    <div class="ov-card reveal d5" style="--card-accent:var(--accent)"><div class="ov-icon">🏗️</div><h3>共同能力</h3><div class="ov-desc">140+ AI 角色库、流式逐字输出、配置热加载、对话历史自动压缩。</div><div class="ov-steps"><span class="ov-step">140+角色</span><span class="ov-step">流式输出</span><span class="ov-step">热加载</span><span class="ov-step">历史压缩</span></div></div>
   </div>
 </div>
 
-<!-- ===== 2: Book Chat Section ===== -->
-<div class="slide slide-sec" data-i="2"><div class="num">01</div><h1>AI 图书问答</h1><p>用户提问 → AI 搜索书中内容 → 结合风格回答</p></div>
+<!-- ═══ 2: 图书问答 SECTION ═══ -->
+<div class="slide slide-sec" data-i="2"><div class="sec-num reveal">01</div><h1 class="reveal d1">AI 图书问答</h1><p class="sec-desc reveal d2">用户提问 → AI 搜索书中内容 → 结合风格逐字回答</p></div>
 
-<!-- ===== 3: Book Chat ===== -->
-<div class="slide" data-i="3">
-<h2>💬 图书问答 — 6 步完整流程</h2>
-<div class="flow-grid">
-  <div class="step-block"><div class="step-num">1</div><div class="step-main"><div class="step-title">用户提问 + 选风格</div><div class="step-desc">4 种对话风格：随和(口语化) / 深度(结构化分析) / 简洁(≤200字) / 幽默(可吐槽可夸)。</div></div></div>
-  <div class="step-block" style="border-left-color:rgba(212,165,116,.75)"><div class="step-num orange">4</div><div class="step-main"><div class="step-title">向量检索 — RAG 多路召回</div><div class="step-desc">每个子查询 → Qdrant 检索 → 按前 80 字符去重(保留最高分) → 相邻片段合并(chunkIndex 差≤1) → 乱码检测(?>10% 丢弃)。</div><div class="detail-box"><div class="edge">⚠️ 无结果 → forceReEmbed 重建向量重搜</div><div class="ok">✅ 每片段加"【参考片段N】"前缀，总量截断到 ragMaxChars</div></div></div></div>
-
-  <div class="step-block" style="border-left-color:rgba(107,143,168,.75)"><div class="step-num blue">2</div><div class="step-main"><div class="step-title">向量就绪检查 + 压缩摘要</div><div class="step-desc">确保书籍内容已向量化，同时懒生成 LLM 压缩摘要。</div><div class="detail-box"><div class="edge">⚠️ 未嵌入 → 自动触发，每 2s 轮询，最多等 1 小时</div><div class="ok">✅ 摘要懒生成：首次提问时 LLM 生成，后续复用</div></div></div></div>
-  <div class="step-block"><div class="step-num">5</div><div class="step-main"><div class="step-title">流式输出 + 历史压缩</div><div class="step-desc">SSE 逐 token 推送，完成后持久化到 DB。</div><div class="detail-box"><strong>压缩算法：</strong>超 80% token 上限时逐条压缩，目标 ≤60%。每条 LLM 压缩到 200 字。<div class="ok">✅ 压缩失败不影响主流程 / SSE 超时自动取消 AI 任务</div></div></div></div>
-
-  <div class="step-block" style="border-left-color:rgba(107,143,168,.75)"><div class="step-num blue">3</div><div class="step-main"><div class="step-title">智能查询扩展</div><div class="step-desc">LLM 拆解为最多 9 个子查询(每个≤15字)：核心概念 + 相关主题 + 上下位概念。支持宏观(目录)和微观(概念钻取)两种模式。</div><div class="detail-box"><div class="edge">⚠️ AI 扩展失败 → 回退原始关键词</div></div></div></div>
-  <div class="step-block" style="border-left-color:rgba(212,165,116,.75)"><div class="step-num orange">6</div><div class="step-main"><div class="step-title">组装消息 — 4 层提示词</div><div class="msg-detail">
-    <div class="msg-row"><div class="msg-label sys">System</div><div class="msg-content"><strong>角色风格</strong> — 4种预设 + 外部 JSON 热加载</div></div>
-    <div class="msg-row"><div class="msg-label usr">User#1</div><div class="msg-content"><strong>书籍信息</strong> — 书名/作者/标签/评分/目录/压缩摘要(静态缓存)</div></div>
-    <div class="msg-row"><div class="msg-label usr">User#2</div><div class="msg-content"><strong>对话历史</strong> — 超 80% token 自动压缩到 60%</div></div>
-    <div class="msg-row"><div class="msg-label rag">User#3</div><div class="msg-content"><strong>RAG + 问题</strong> — 参考片段(≤100字引用) + 用户问题</div></div>
-  </div></div></div>
-</div>
-</div>
-
-<!-- ===== 4: Round Table Section ===== -->
-<div class="slide slide-sec" data-i="4"><div class="num">02</div><h1>圆桌派</h1><p>多位 AI 角色围绕一本书讨论 — 每次一人发言</p></div>
-
-<!-- ===== 5: Round Table ===== -->
-<div class="slide" data-i="5">
-<h2>🎙️ 圆桌派 — 6 步完整流程</h2>
-<div class="flow-grid">
-  <div class="step-block"><div class="step-num">1</div><div class="step-main"><div class="step-title">智能选角 — 3 层回退</div><div class="step-desc">选出 4-6 个嘉宾：① Redis 热度排序(7天滑动窗口) ② AI 画像匹配(用户兴趣+角色标签) ③ 随机标签兜底。</div><div class="detail-box"><div class="edge">⚠️ LLM 失败 → 标签匹配 / 标签也失败 → 从前 20 随机选</div><div class="ok">✅ 主持人固定为 "主持人" 角色，始终参与</div></div></div></div>
-  <div class="step-block" style="border-left-color:rgba(107,143,168,.75)"><div class="step-num blue">4</div><div class="step-main"><div class="step-title">流式输出 — 角色发言</div><div class="step-desc">SSE 逐 token 推送，事件格式: data:[DONE] / event:roleKey / data:content。完成后保存到 DB。</div><div class="detail-box"><div class="ok">✅ 主持人发言自动判断(是否需要引导话题)</div></div></div></div>
-
-  <div class="step-block" style="border-left-color:rgba(107,143,168,.75)"><div class="step-num blue">2</div><div class="step-main"><div class="step-title">角色专属搜索 + 外部知识</div><div class="step-desc">LLM 按角色专业领域生成搜索词(核心概念+延伸方向)→书内向量检索。同时生成 2-3 条外部知识补充。</div><div class="detail-box"><div class="edge">⚠️ LLM 生成搜索词失败 → 回退"书名+角色关键词"</div><div class="ok">✅ 每条知识标注来源：SEARCH(书内) / EXTERNAL(补充)</div></div></div></div>
-  <div class="step-block"><div class="step-num">5</div><div class="step-main"><div class="step-title">覆盖追踪 + 历史压缩</div><div class="step-desc">3 层覆盖评估：① 目录级(章节覆盖) ② 大纲级(LLM 生成讨论要点) ③ 摘要级(书的 AI 摘要)。评级 S/A/B/C/D/F。</div><div class="detail-box"><div class="edge">⚠️ 覆盖分析失败 → 不注入引导</div><div class="ok">✅ 主持人注入引导语："请围绕XX展开讨论"</div></div></div></div>
-
-  <div class="step-block" style="border-left-color:rgba(212,165,116,.75)"><div class="step-num orange">3</div><div class="step-main"><div class="step-title">组装消息 — 7 层提示词</div><div class="msg-detail">
-    <div class="msg-row"><div class="msg-label sys">L1</div><div class="msg-content"><strong>行为规则</strong> — "必须制造冲突" + 角色行为指令</div></div>
-    <div class="msg-row"><div class="msg-label usr">L2</div><div class="msg-content"><strong>书籍信息</strong> — 书名/作者/标签/评分/目录/压缩摘要</div></div>
-    <div class="msg-row"><div class="msg-label usr">L3</div><div class="msg-content"><strong>讨论历史</strong> — 超 80% token 自动压缩到 60%</div></div>
-    <div class="msg-row"><div class="msg-label role">L4</div><div class="msg-content"><strong>角色设定</strong> — 人设/金句/6参数(性格/语言/智慧/情感/互动/知识)</div></div>
-    <div class="msg-row"><div class="msg-label rag">L5</div><div class="msg-content"><strong>书内搜索</strong> — 步骤2的向量检索片段</div></div>
-    <div class="msg-row"><div class="msg-label rag">L6</div><div class="msg-content"><strong>外部知识</strong> — 步骤2的 2-3 条补充</div></div>
-    <div class="msg-row"><div class="msg-label usr">L7</div><div class="msg-content"><strong>发言指令</strong> — "请以XX身份发言" + 引导语</div></div>
-  </div></div></div>
-  <div class="step-block" style="border-left-color:rgba(107,143,168,.75)"><div class="step-num blue">6</div><div class="step-main"><div class="step-title">选下一位 — 4 层（与发言完全不同）</div><div class="msg-detail">
-    <div class="msg-row"><div class="msg-label sys">System</div><div class="msg-content"><strong>5级规则</strong>：①沉默者上场 ②禁连续 ③主持人控场 ④最少优先 ⑤最能接话</div></div>
-    <div class="msg-row"><div class="msg-label usr">User#1</div><div class="msg-content"><strong>书籍+全部角色人设</strong> — 含"社交直觉与张力"</div></div>
-    <div class="msg-row"><div class="msg-label usr">User#2</div><div class="msg-content"><strong>加权历史</strong> — 三级权重：焦点(100%)/近期(30%)/背景(10%)</div></div>
-    <div class="msg-row"><div class="msg-label usr">User#3</div><div class="msg-content"><strong>公平约束</strong> — 禁连续/沉默者优先/计数</div></div>
-  </div><div class="detail-box"><div class="edge">⚠️ LLM 失败 → 回退：选发言最少的非连续角色</div><div class="ok">✅ → {"nextSpeaker":"PSYCHOLOGIST"} → 回到步骤3</div></div></div></div>
-</div>
-</div>
-
-<!-- ===== 6: Debate Section ===== -->
-<div class="slide slide-sec" data-i="6"><div class="num">03</div><h1>奇葩说</h1><p>正反方 4v4 辩论 — 5 轮不同规则</p></div>
-
-<!-- ===== 7: Debate ===== -->
-<div class="slide" data-i="7">
-<h2>⚔️ 奇葩说 — 6 步完整流程</h2>
-<div class="round-tl">
-  <div style="background:rgba(91,140,90,.2);border:1px solid var(--b400)"><div style="font-size:10px;color:var(--g400)">第1轮</div><div style="font-size:14px;font-weight:700;color:var(--b300)">开篇立论</div><div style="font-size:11px;color:var(--g300)">正一→反一</div></div>
-  <div style="background:rgba(107,143,168,.18);border:1px solid var(--info)"><div style="font-size:10px;color:var(--g400)">第2轮</div><div style="font-size:14px;font-weight:700;color:var(--info)">质询交锋</div><div style="font-size:11px;color:var(--g300)">只能问/只能答</div></div>
-  <div style="background:rgba(212,165,116,.18);border:1px solid var(--warn)"><div style="font-size:10px;color:var(--g400)">第3轮</div><div style="font-size:14px;font-weight:700;color:var(--warn)">反驳强化</div><div style="font-size:11px;color:var(--g300)">逐条拆解</div></div>
-  <div style="background:rgba(199,91,91,.15);border:1px solid var(--danger)"><div style="font-size:10px;color:var(--g400)">第4轮</div><div style="font-size:14px;font-weight:700;color:var(--danger)">自由辩论</div><div style="font-size:11px;color:var(--g300)">全员抢麦</div></div>
-  <div style="background:rgba(139,105,20,.18);border:1px solid var(--accent)"><div style="font-size:10px;color:var(--g400)">第5轮</div><div style="font-size:14px;font-weight:700;color:var(--accent)">总结陈词</div><div style="font-size:11px;color:var(--g300)">反四→正四</div></div>
-</div>
-<div class="flow-grid">
-  <div class="step-block">
-    <div class="step-num">1</div>
-    <div class="step-main">
-      <div class="step-title">选择轮次规则</div>
-      <div class="step-desc">5 轮固定流程：① 开篇立论(150-250字搭框架) ② 质询交锋(30-60字只问/只答，2 Q&A 对) ③ 反驳强化(120-180字逐条拆解) ④ 自由辩论(20-80字抢麦，每人可多次) ⑤ 总结陈词(200-350字升华)。</div>
-      <div class="detail-box"><div class="ok">✅ OPENING→CROSS_EXAM→REBUTTAL→FREE→CLOSING 状态机</div></div>
-    </div>
+<!-- ═══ 图书问答 1 ═══ -->
+<div class="slide step-slide c-green" data-i="3">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">1</span></div><div class="step-of">第 1 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">💬 开始对话</span></div>
+    <h2 class="reveal d1">用户提问，选择对话风格</h2>
+    <div class="tag-cloud reveal d2"><span class="tg">🎯 随和</span><span class="tg">🧠 深度</span><span class="tg">✂️ 简洁</span><span class="tg">😄 幽默</span></div>
+    <ul class="blist reveal d3"><li><span class="bi">🎨</span><span>风格只影响 <strong>说话方式</strong>，不影响内容</span></li><li><span class="bi">⚡</span><span>管理员可随时添加，<strong>改完立刻生效</strong></span></li></ul>
+    <div class="notes-area reveal d4"><div class="bottom-note"><span class="bn-icon">💡</span> 默认「随和」— 像朋友聊天，用户可边聊边切换</div></div>
   </div>
-  <div class="step-block" style="border-left-color:rgba(199,91,91,.7)">
-    <div class="step-num red">4</div>
-    <div class="step-main">
-      <div class="step-title">流式输出 + 7维评分</div>
-      <div class="step-desc">SSE 逐 token 推送。完成后 7 维评分：逻辑性/说服力/反驳力/感染力/知识运用/幽默感/整体印象。</div>
-      <div class="detail-box"><div class="ok">✅ 主持人点评 → 角色评论 → 评委打分</div></div>
-    </div>
-  </div>
-  <div class="step-block" style="border-left-color:rgba(199,91,91,.7)">
-    <div class="step-num red">2</div>
-    <div class="step-main">
-      <div class="step-title">生成领域知识</div>
-      <div class="step-desc">LLM 为每位辩手按专业领域生成 3-5 条论证素材(观点+论据+引用方向)。</div>
-      <div class="detail-box"><div class="edge">⚠️ 生成失败 → 不注入外部知识，辩手纯靠设定发挥</div></div>
-    </div>
-  </div>
-  <div class="step-block">
-    <div class="step-num">5</div>
-    <div class="step-main">
-      <div class="step-title">推进轮次 + 辩论报告</div>
-      <div class="step-desc">状态机自动推进：OPENING→CROSS_EXAM→REBUTTAL→FREE→CLOSING。5 轮结束后 LLM 生成 Markdown 报告。</div>
-      <div class="detail-box"><strong>报告结构：</strong>概要 / 精彩回顾 / 评分表格 / 正反分析 / 逻辑漏洞 / 评审结语</div>
-    </div>
-  </div>
-  <div class="step-block" style="border-left-color:rgba(212,165,116,.75)">
-    <div class="step-num orange">3</div>
-    <div class="step-main">
-      <div class="step-title">组装消息 — 5 层提示词</div>
-      <div class="msg-detail">
-        <div class="msg-row"><div class="msg-label sys">L1</div><div class="msg-content"><strong>轮次规则</strong> — 6种模板：开篇/质询提问/质询回答/反驳/自由辩论/总结，各有不同字数及输出格式要求</div></div>
-        <div class="msg-row"><div class="msg-label usr">L2</div><div class="msg-content"><strong>辩题+立场+知识</strong> — 辩题描述、正方/反方立场、步骤2生成的领域论证素材</div></div>
-        <div class="msg-row"><div class="msg-label usr">L3</div><div class="msg-content"><strong>历史+上下文</strong> — 本轮及之前所有发言记录、当前辩论阶段和轮次信息</div></div>
-        <div class="msg-row"><div class="msg-label role">L4</div><div class="msg-content"><strong>角色+输出要求</strong> — 辩手人设/性格参数/说话风格 + 当前轮次的具体输出指令</div></div>
-        <div class="msg-row"><div class="msg-label rag">L5</div><div class="msg-content"><strong>书内检索片段</strong> — 向量检索的原文内容（可选，增强论证依据）</div></div>
       </div>
     </div>
+
+<!-- ═══ 图书问答 2 ═══ -->
+<div class="slide step-slide c-blue" data-i="4">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">2</span></div><div class="step-of">第 2 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span></span><span></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🔍 准备工作</span></div>
+    <h2 class="reveal d1">确认书籍可以搜索</h2>
+    <ul class="blist reveal d2"><li><span class="bi">📖</span><span>新书 <strong>自动语义化处理</strong>，几秒到几分钟</span></li><li><span class="bi">📝</span><span>同时生成 <strong>全书精简摘要</strong>，只做一次</span></li></ul>
+    <div class="notes-area reveal d3"><div class="bottom-note"><span class="bn-icon">💡</span> 摘要缓存复用，同一本书后续提问无需等待</div><div class="bottom-note"><span class="bn-icon">⚠️</span> 处理超时极少发生，发生时<span class="warn">提示稍后再试</span></div></div>
   </div>
-  <div class="step-block" style="border-left-color:rgba(199,91,91,.7)">
-    <div class="step-num red">6</div>
-    <div class="step-main">
-      <div class="step-title">选下一位 — 仅自由辩论轮（其他轮固定顺序）</div>
-      <div class="msg-detail">
-        <div class="msg-row"><div class="msg-label sys">System</div><div class="msg-content"><strong>5条规则</strong>：①选发言少的 ②正反交替 ③不选上一位 ④考虑走向 ⑤冷落者优先</div></div>
-        <div class="msg-row"><div class="msg-label usr">User</div><div class="msg-content"><strong>辩题+立场+发言次数+上一位</strong></div></div>
       </div>
-      <div class="detail-box"><div class="edge">⚠️ 选了同方 → 强制切换 / LLM失败 → 选对方最少者</div></div>
     </div>
+
+<!-- ═══ 图书问答 3 ═══ -->
+<div class="slide step-slide c-blue" data-i="5">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">3</span></div><div class="step-of">第 3 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🧠 AI 分析</span></div>
+    <h2 class="reveal d1">一个问题 → 多个搜索方向</h2>
+    <ul class="blist reveal d2"><li><span class="bi">🔀</span><span>拆成最多 <strong>9 个精准关键词</strong></span></li><li><span class="bi">🎯</span><span>每个方向<strong>独立搜索</strong>，互不干扰</span></li></ul>
+    <div class="notes-area reveal d3"><div class="bottom-note"><span class="bn-icon">例</span>「哲学思想」→ 存在主义 · 自由意志 · 伦理观 · 人与社会</div><div class="bottom-note"><span class="bn-icon">🛡️</span> AI 拆解失败 → 直接用原始问题搜索</div></div>
   </div>
-</div>
+      </div>
+    </div>
+
+<!-- ═══ 图书问答 4 ═══ -->
+<div class="slide step-slide c-orange" data-i="6">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">4</span></div><div class="step-of">第 4 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">📖 书内检索</span></div>
+    <h2 class="reveal d1">搜索 + 整理 + 去噪</h2>
+    <ul class="blist reveal d2"><li><span class="bi">🔍</span><span>每个关键词<strong>语义搜索</strong>书中内容</span></li><li><span class="bi">🧹</span><span><strong>去重 → 合并 → 截断 → 编号</strong></span></li></ul>
+    <div class="notes-area reveal d3"><div class="bottom-note"><span class="bn-icon">🛡️</span> 什么都没搜到 → <strong>重建搜索数据重试</strong>一次</div><div class="bottom-note"><span class="bn-icon">🧹</span> 乱码检测：? 占比超过 <em>10%</em> 就整批丢弃 — 宁可少搜，不给 AI 喂垃圾</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 图书问答 5 ═══ -->
+<div class="slide step-slide c-green" data-i="7">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">5</span></div><div class="step-of">第 5 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">📦 组装指令</span></div>
+    <h2 class="reveal d1">打包 4 层信息发给 AI</h2>
+    <p style="font-size:15px;color:var(--g500);margin-bottom:16px" class="reveal d2">顺序讲究：<strong>不变在前可缓存</strong>，变化在后</p>
+    <div class="msg-stack reveal d3"><div class="msg-row"><span class="ml-tag sys">1</span><strong>回答风格</strong></div><div class="msg-row"><span class="ml-tag usr">2</span><strong>书籍信息</strong> — 静态数据，同书复用</div><div class="msg-row"><span class="ml-tag usr">3</span><strong>历史对话</strong> — 太长自动压缩</div><div class="msg-row"><span class="ml-tag rag">4</span><strong>搜索片段 + 用户问题</strong></div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 图书问答 6 ═══ -->
+<div class="slide step-slide c-orange" data-i="8">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">6</span></div><div class="step-of">第 6 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">✨ 输出 + 保存</span></div>
+    <h2 class="reveal d1">逐字生成 · 打字机效果</h2>
+    <ul class="blist reveal d2"><li><span class="bi">⌨️</span><span>回答<strong>逐字出现</strong>，如真人在打字</span></li><li><span class="bi">💾</span><span>完成后<strong>自动保存</strong>，下次打开还在</span></li></ul>
+    <div class="notes-area reveal d3"><div class="bottom-note"><span class="bn-icon">👁️</span> 用户看到：「翻翻这本书…」→ 找到 N 条内容 → 正文逐字出现</div><div class="bottom-note"><span class="bn-icon">🗜️</span> <strong>历史压缩：</strong>超 <em>80%</em> 容量触发 → 逐条压至 <em>≤200 字</em> → 回到 <em>60%</em> 以下</div><div class="bottom-note"><span class="bn-icon">🎯</span> 只压缩 AI 回答，不动用户原话 · 异步执行，不卡当前回复</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 9: 圆桌派 SECTION ═══ -->
+<div class="slide slide-sec" data-i="9"><div class="sec-num reveal">02</div><h1 class="reveal d1">圆桌派</h1><p class="sec-desc reveal d2">多位 AI 角色围炉聊书 — 每次一人发言，循环往复</p></div>
+
+<!-- ═══ 圆桌派 1 ═══ -->
+<div class="slide step-slide c-green" data-i="10">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">1</span></div><div class="step-of">第 1 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🎭 选角</span></div>
+    <h2 class="reveal d1">为这本书挑选讨论嘉宾</h2>
+    <ul class="blist reveal d2"><li><span class="bi">🔥</span><span><strong>热度优先</strong> — 之前人气最高直接入选</span></li><li><span class="bi">🎬</span><span><strong>AI 匹配</strong> — 根据内容风格推荐最佳组合</span></li></ul>
+    <div class="notes-area reveal d3"><div class="bottom-note"><span class="bn-icon">📊</span> 从 <em>140+</em> 角色中选 <em>4-6 位</em> + 1 位主持人 · 按历史选中次数排序 · 三层逐级回退</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 圆桌派 2 ═══ -->
+<div class="slide step-slide c-blue" data-i="11">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">2</span></div><div class="step-of">第 2 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span></span><span></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🔍 准备素材</span></div>
+    <h2 class="reveal d1">为发言嘉宾准备两类素材</h2>
+    <ul class="blist reveal d2"><li><span class="bi">📖</span><span><strong>书内资料</strong> — 按角色专业方向搜索书中段落</span></li><li><span class="bi">🌐</span><span><strong>外部知识</strong> — LLM 根据自身训练数据，生成 2-3 条学术观点或现实案例</span></li></ul>
+    <div class="notes-area reveal d3"><div class="bottom-note"><span class="bn-icon">💡</span> 每条知识标明来源（书内搜索 / LLM 补充）· 嘉宾必须引用至少一条外部知识</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 圆桌派 3 ═══ -->
+<div class="slide step-slide c-orange" data-i="12">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">3</span></div><div class="step-of">第 3 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">📦 组装指令</span></div>
+    <h2 class="reveal d1">打包 7 层信息发给 AI</h2>
+    <p style="font-size:15px;color:var(--g500);margin-bottom:14px" class="reveal d2">嘉宾 → 制造观点碰撞 · 主持人 → 引导控场</p>
+    <div class="msg-stack reveal d3"><div class="msg-row"><span class="ml-tag sys">1</span><strong>讨论规则</strong></div><div class="msg-row"><span class="ml-tag usr">2</span><strong>书籍信息</strong></div><div class="msg-row"><span class="ml-tag usr">3</span><strong>讨论记录</strong>（超量自动压缩）</div><div class="msg-row"><span class="ml-tag role">4</span><strong>角色人设</strong></div><div class="msg-row"><span class="ml-tag rag">5</span><strong>书内搜索</strong></div><div class="msg-row"><span class="ml-tag rag">6</span><strong>外部知识</strong></div><div class="msg-row"><span class="ml-tag usr">7</span><strong>发言指令</strong></div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 圆桌派 4 ═══ -->
+<div class="slide step-slide c-green" data-i="13">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">4</span></div><div class="step-of">第 4 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🎤 角色发言</span></div>
+    <h2 class="reveal d1">AI 以角色身份逐字发言</h2>
+    <ul class="blist reveal d2"><li><span class="bi">👋</span><span><strong>开场</strong> — 主持人打招呼、介绍嘉宾</span></li><li><span class="bi">🔄</span><span><strong>跑偏</strong> — 话题未覆盖时插话引导</span></li></ul>
+    <div class="notes-area reveal d3"><div class="bottom-note"><span class="bn-icon">💡</span> 覆盖充分时不抢话 · 发言自动保存 · 页面标明谁在说话</div><div class="bottom-note"><span class="bn-icon">🗜️</span> 每轮发言后自动检查历史长度，超 <em>80%</em> 容量触发压缩，同问答流程</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 圆桌派 5 ═══ -->
+<div class="slide step-slide c-blue" data-i="14">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">5</span></div><div class="step-of">第 5 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">📊 覆盖追踪</span></div>
+    <h2 class="reveal d1">哪些话题聊了？哪些还没聊？</h2>
+    <ul class="blist reveal d2"><li><span class="bi">🧩</span><span>目录拆成 <strong>讨论要点 + 关键词</strong></span></li><li><span class="bi">🔍</span><span>发言命中关键词 → 标记 <strong>已覆盖</strong></span></li></ul>
+    <div class="notes-area reveal d3"><div class="bottom-note"><span class="bn-icon">📐</span> <strong>评分公式：</strong>AI 综合评估深度 / 广度 / 批判性 / 原创性 / 相关性。最终分 = <em>40%</em> 内容块 + <em>20%</em> 概念标签 + <em>40%</em> AI 评估</div><div class="bottom-note"><span class="bn-icon">🚨</span> 大量话题未覆盖 → 触发主持人引导，列出具体未聊到的主题和关键词</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 圆桌派 6 ═══ -->
+<div class="slide step-slide c-red" data-i="15">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">6</span></div><div class="step-of">第 6 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🎯 选下一位</span></div>
+    <h2 class="reveal d1">AI 决定下一位谁发言</h2>
+    <p style="font-size:15px;color:var(--g500);margin-bottom:14px" class="reveal d2">选好人 → 回到步骤 2，循环</p>
+    <div class="msg-stack reveal d3"><div class="msg-row"><span class="ml-tag sys">1</span>沉默者优先</div><div class="msg-row"><span class="ml-tag sys">2</span>禁止连续发言</div><div class="msg-row"><span class="ml-tag sys">3</span>主持人定期控场</div><div class="msg-row"><span class="ml-tag sys">4</span>最少发言优先</div><div class="msg-row"><span class="ml-tag sys">5</span>最能接话的最后考虑</div></div>
+    <div class="notes-area reveal d4"><div class="bottom-note"><span class="bn-icon">⚖️</span> 传给 AI 的历史分<strong>三级标注</strong>：<em>当前焦点</em>（最后 1 条）· <em>近期讨论</em>（前 2-3 条）· <em>背景讨论</em>（更早）</div><div class="bottom-note"><span class="bn-icon">🛡️</span> AI 选不出 → 自动选发言最少的非连续角色</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 16: 奇葩说 SECTION ═══ -->
+<div class="slide slide-sec" data-i="16"><div class="sec-num reveal">03</div><h1 class="reveal d1">奇葩说</h1><p class="sec-desc reveal d2">正反方 4v4 — 5 轮不同规则，打完自动生成报告</p></div>
+
+<!-- ═══ 17: 奇葩说 Timeline ═══ -->
+<div class="slide" data-i="17" style="justify-content:center;align-items:center">
+  <h2 class="reveal" style="text-align:center;font-size:28px;margin-bottom:6px">⚔️ 辩论 5 轮流程</h2>
+  <p class="reveal d1" style="text-align:center;color:var(--g400);font-size:14px;margin-bottom:36px">OPENING → CROSS_EXAM → REBUTTAL → FREE → CLOSING</p>
+  <div class="round-tl reveal d2"><div><div class="rnd-num">第 1 轮</div><div class="rnd-name" style="color:var(--b300)">开篇立论</div><div class="rnd-detail">正一 → 反一</div><div class="rnd-limit">150-250 字</div></div><div><div class="rnd-num">第 2 轮</div><div class="rnd-name" style="color:var(--info)">质询交锋</div><div class="rnd-detail">二辩质询一辩</div><div class="rnd-limit">30-60 字 × 4 轮</div></div><div><div class="rnd-num">第 3 轮</div><div class="rnd-name" style="color:var(--warn)">反驳强化</div><div class="rnd-detail">二辩逐条拆解</div><div class="rnd-limit">120-180 字</div></div><div><div class="rnd-num">第 4 轮</div><div class="rnd-name" style="color:var(--danger)">自由辩论</div><div class="rnd-detail">全员抢麦</div><div class="rnd-limit">20-80 字/次</div></div><div><div class="rnd-num">第 5 轮</div><div class="rnd-name" style="color:var(--accent)">总结陈词</div><div class="rnd-detail">反四 → 正四</div><div class="rnd-limit">200-350 字</div></div></div>
+  <p class="reveal d3" style="text-align:center;color:var(--g600);font-size:14px;margin-top:20px">下面 6 个步骤描述了每一轮辩论里都会发生的事情</p>
 </div>
 
-<!-- ===== 8: Comparison ===== -->
-<div class="slide" data-i="8" style="justify-content:center;align-items:center">
-  <h2 style="text-align:center">📊 提示词对比</h2>
-  <div class="cmp-grid" style="max-width:900px">
-    <div class="cmp-card" style="border-color:var(--b400)"><h4 style="color:var(--b300)">图书问答</h4><div class="cmp-layers">4层·流式<br>System+书籍+历史+RAG</div></div>
-    <div class="cmp-card" style="border-color:var(--info)"><h4 style="color:var(--info)">圆桌·发言</h4><div class="cmp-layers">7层·流式<br>最复杂：角色RAG+外部知识</div></div>
-    <div class="cmp-card" style="border-color:var(--accent)"><h4 style="color:var(--accent)">圆桌·选人</h4><div class="cmp-layers">4层·非流式<br>人设+加权历史+公平约束</div></div>
-    <div class="cmp-card" style="border-color:var(--danger)"><h4 style="color:var(--danger)">辩论·发言</h4><div class="cmp-layers">5层·流式<br>轮次规则+辩题知识+历史+角色+检索</div></div>
-    <div class="cmp-card" style="border-color:var(--danger)"><h4 style="color:var(--danger)">辩论·选人</h4><div class="cmp-layers">2层·非流式<br>仅自由辩论轮使用</div></div>
+<!-- ═══ 奇葩说 1 ═══ -->
+<div class="slide step-slide c-green" data-i="18">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">1</span></div><div class="step-of">第 1 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🎯 辩题 + 组队</span></div>
+    <h2 class="reveal d1">确定辩题，组建正反双方</h2>
+    <ul class="blist reveal d2"><li><span class="bi">📝</span><span>AI 生成 <strong>3-12 个辩题</strong>，自带正反观点</span></li><li><span class="bi">👥</span><span>自动组建 <strong>8 位辩手</strong>（4v4），16 种人格可选</span></li></ul>
+    <div class="notes-area reveal d3"><div class="bottom-note"><span class="bn-icon">🗺️</span> 固定路线：开篇 → 质询 → 反驳 → 自由 → 总结</div><div class="bottom-note"><span class="bn-icon">🎭</span> <strong>16 种人格 × 6 维特质：</strong>逻辑型 · 犀利型 · 幽默型 · 共情型… 抢麦权重、话量、主见、挑战倾向、共情、幽默各有不同分值</div></div>
   </div>
-</div>
+      </div>
+    </div>
 
-<!-- ===== 9: Summary ===== -->
-<div class="slide" data-i="9" style="justify-content:center;align-items:center;text-align:center">
-  <h2 style="justify-content:center">✨ 三个核心设计</h2>
-  <div class="overview-grid" style="max-width:860px">
-    <div class="ov-card" style="text-align:center"><div style="font-size:34px;margin-bottom:8px">🔄</div><h3 style="justify-content:center;font-size:20px">热加载</h3><div class="ov-desc" style="font-size:16px">角色配置修改后，调用一个接口即可生效，无需重启服务</div></div>
-    <div class="ov-card" style="text-align:center"><div style="font-size:34px;margin-bottom:8px">🧠</div><h3 style="justify-content:center;font-size:20px">分层提示词</h3><div class="ov-desc" style="font-size:16px">不变的内容放前面（书籍信息），变化的放后面（RAG、指令），利用缓存加速</div></div>
-    <div class="ov-card" style="text-align:center"><div style="font-size:34px;margin-bottom:8px">🎭</div><h3 style="justify-content:center;font-size:20px">角色化 AI</h3><div class="ov-desc" style="font-size:16px">56+ 个 AI 角色，每个有独立人设、说话风格、搜索关键词和性格参数</div></div>
-    <div class="ov-card" style="text-align:center"><div style="font-size:34px;margin-bottom:8px">⚖️</div><h3 style="justify-content:center;font-size:20px">智能调度</h3><div class="ov-desc" style="font-size:16px">AI 选角、公平性约束、话题覆盖追踪、历史自动压缩</div></div>
+<!-- ═══ 奇葩说 2 ═══ -->
+<div class="slide step-slide c-red" data-i="19">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">2</span></div><div class="step-of">第 2 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span></span><span></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🎒 准备弹药</span></div>
+    <h2 class="reveal d1">为辩手准备论证素材</h2>
+    <p style="font-size:15px;color:var(--g500);margin-bottom:14px" class="reveal d2">LLM 根据自身训练数据生成 <strong>3-5 条外部论据</strong> — 学术观点、事件、案例</p>
+    <div class="msg-stack reveal d3"><div class="msg-row"><span class="ml-tag sys">开篇</span>权威观点<strong>搭框架</strong></div><div class="msg-row"><span class="ml-tag usr">质询</span>案例<strong>找漏洞</strong></div><div class="msg-row"><span class="ml-tag rag">反驳</span>学术研究<strong>支撑反驳</strong></div><div class="msg-row"><span class="ml-tag role">自由</span>事实作为<strong>短兵器</strong></div><div class="msg-row"><span class="ml-tag usr">总结</span>现实案例<strong>升华</strong></div></div>
+    <div class="notes-area reveal d4"><div class="bottom-note"><span class="bn-icon">🛡️</span> 素材生成失败 → 辩手靠自己人设发挥，不阻断辩论</div></div>
   </div>
-</div>
+      </div>
+    </div>
+
+<!-- ═══ 奇葩说 3 ═══ -->
+<div class="slide step-slide c-orange" data-i="20">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">3</span></div><div class="step-of">第 3 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">📦 组装指令</span></div>
+    <h2 class="reveal d1">打包 5 层信息发给 AI</h2>
+    <p style="font-size:15px;color:var(--g500);margin-bottom:14px" class="reveal d2">每个环节规则不同（质询分提问方 / 回答方）</p>
+    <div class="msg-stack reveal d3"><div class="msg-row"><span class="ml-tag sys">1</span><strong>本轮规则</strong></div><div class="msg-row"><span class="ml-tag usr">2</span><strong>辩题 + 立场 + 素材</strong></div><div class="msg-row"><span class="ml-tag usr">3</span><strong>发言记录</strong></div><div class="msg-row"><span class="ml-tag role">4</span><strong>辩手人设</strong></div><div class="msg-row"><span class="ml-tag rag">5</span><strong>书内段落</strong></div></div>
+    <div class="notes-area reveal d4"><div class="bottom-note"><span class="bn-icon">📐</span> 质询环节：<strong>提问方</strong>只能问不能陈述 · <strong>回答方</strong>只能答不能反问</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 奇葩说 4 ═══ -->
+<div class="slide step-slide c-red" data-i="21">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">4</span></div><div class="step-of">第 4 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">⚡ 发言 + 打分</span></div>
+    <h2 class="reveal d1">辩手发言 · 7 维实时评分</h2>
+    <p style="font-size:15px;color:var(--g500);margin-bottom:14px" class="reveal d2">发言逐字出现 · 后台打分 · <strong>不耽误下一轮</strong></p>
+    <div class="msg-stack reveal d3"><div class="msg-row"><span class="ml-tag sys">逻辑</span>论证是否严密</div><div class="msg-row"><span class="ml-tag usr">论据</span>证据是否充分</div><div class="msg-row"><span class="ml-tag rag">反驳</span>是否命中弱点</div><div class="msg-row"><span class="ml-tag role">感染</span>语言是否生动</div><div class="msg-row"><span class="ml-tag sys">幽默</span>巧妙加分</div><div class="msg-row"><span class="ml-tag usr">清晰</span>观点明白</div><div class="msg-row"><span class="ml-tag rag">新颖</span>视角独到</div></div>
+    <div class="notes-area reveal d4"><div class="bottom-note"><span class="bn-icon">🏆</span> 综合分 = 7 项平均（每项 1-10，<em>0.5 精度</em>）· 5 轮结束后按总分<strong>自动选出最佳辩手</strong>（排除主持人）</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 奇葩说 5 ═══ -->
+<div class="slide step-slide c-green" data-i="22">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">5</span></div><div class="step-of">第 5 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🏁 收官</span></div>
+    <h2 class="reveal d1">主持人串场 → 自动生成报告</h2>
+    <ul class="blist reveal d2"><li><span class="bi">🎤</span><span>每轮之间主持人<strong>总结 + 预告</strong></span></li><li><span class="bi">📋</span><span>5 轮结束<strong>自动生成报告</strong>，无需等待</span></li></ul>
+    <div class="tag-cloud reveal d3"><span class="tg">📄 概要</span><span class="tg">🌟 精彩回顾</span><span class="tg">📊 评分排名</span><span class="tg">🟢 正方分析</span><span class="tg">🔴 反方分析</span><span class="tg">💡 亮点与漏洞</span><span class="tg">🏆 评审结语</span></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 奇葩说 6 ═══ -->
+<div class="slide step-slide c-red" data-i="23">
+        <div class="step-wrap">
+  <div class="step-left"><div class="num-ring"><span class="num-text">6</span></div><div class="step-of">第 6 步 / 共 6 步</div><div class="step-dots"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div></div>
+  <div class="step-right">
+    <div class="badge-row reveal"><span class="bx">🎤 抢麦</span></div>
+    <h2 class="reveal d1">自由辩论时 AI 决定谁发言</h2>
+    <p style="font-size:15px;color:var(--g500);margin-bottom:14px" class="reveal d2">其他 4 轮顺序固定 · 仅自由辩论需动态选人</p>
+    <div class="msg-stack reveal d3"><div class="msg-row"><span class="ml-tag sys">1</span>发言少的优先</div><div class="msg-row"><span class="ml-tag sys">2</span>正反方交替</div><div class="msg-row"><span class="ml-tag sys">3</span>不能连续说</div><div class="msg-row"><span class="ml-tag sys">4</span>考虑走向</div><div class="msg-row"><span class="ml-tag sys">5</span>冷落超 <strong>3 倍</strong> 必须上场</div></div>
+    <div class="notes-area reveal d4"><div class="bottom-note"><span class="bn-icon">🛡️</span> AI 选了同方 → 强制切对方 / AI 失败 → 自动选对方发言最少者</div></div>
+  </div>
+      </div>
+    </div>
+
+<!-- ═══ 24: Comparison ═══ -->
+<div class="slide" data-i="24" style="justify-content:center;align-items:center"><h2 class="reveal" style="text-align:center;font-size:28px;margin-bottom:24px">📊 三种功能的指令结构对比</h2><div class="cmp-grid reveal d2"><div class="cmp-card" style="border-color:var(--b400)"><h4 style="color:var(--b300)">💬 图书问答</h4><div class="cmp-info">4 层 · 流式<br>风格 + 书籍 + 历史 + 搜索</div></div><div class="cmp-card" style="border-color:var(--info)"><h4 style="color:var(--info)">🎙️ 圆桌 · 发言</h4><div class="cmp-info">7 层 · 流式<br>角色人设 +<br>书内搜索 + 外部知识</div></div><div class="cmp-card" style="border-color:var(--accent)"><h4 style="color:var(--accent)">🎙️ 圆桌 · 选人</h4><div class="cmp-info">4 层 · 非流式<br>全角色人设 +<br>加权历史 + 公平约束</div></div><div class="cmp-card" style="border-color:var(--danger)"><h4 style="color:var(--danger)">⚔️ 辩论 · 发言</h4><div class="cmp-info">5 层 · 流式<br>轮次规则 + 辩题素材 +<br>历史 + 角色 + 搜索</div></div><div class="cmp-card" style="border-color:var(--danger)"><h4 style="color:var(--danger)">⚔️ 辩论 · 选人</h4><div class="cmp-info">2 层 · 非流式<br>仅自由辩论轮使用</div></div></div></div>
+
+<!-- ═══ 25: Summary ═══ -->
+<div class="slide" data-i="25" style="justify-content:center;align-items:center;text-align:center"><h2 class="reveal" style="text-align:center;font-size:30px">✨ 四大核心设计</h2><div class="overview-grid reveal d2" style="max-width:860px;margin-top:20px"><div class="ov-card" style="text-align:center;--card-accent:var(--b400)"><div style="font-size:34px;margin-bottom:8px">🔄</div><h3 style="justify-content:center;font-size:20px">热加载</h3><div class="ov-desc" style="font-size:15px">风格和角色配置改完立刻生效</div></div><div class="ov-card" style="text-align:center;--card-accent:var(--info)"><div style="font-size:34px;margin-bottom:8px">🧠</div><h3 style="justify-content:center;font-size:20px">分层指令</h3><div class="ov-desc" style="font-size:15px">不变在前可缓存，变化在后</div></div><div class="ov-card" style="text-align:center;--card-accent:var(--accent)"><div style="font-size:34px;margin-bottom:8px">🎭</div><h3 style="justify-content:center;font-size:20px">角色化 AI</h3><div class="ov-desc" style="font-size:15px">140+ 角色各有独立人设和性格</div></div><div class="ov-card" style="text-align:center;--card-accent:var(--danger)"><div style="font-size:34px;margin-bottom:8px">⚖️</div><h3 style="justify-content:center;font-size:20px">智能调度</h3><div class="ov-desc" style="font-size:15px">AI 选角、覆盖追踪、历史压缩</div></div></div></div>
 
 </div>
-<div class="nav"><button onclick="go(-1)">◀</button><span class="c" id="c">1 / 10</span><button onclick="go(1)">▶</button></div>
+<div class="nav"><button onclick="go(-1)">◀</button><span class="c" id="c">1 / 26</span><button onclick="go(1)">▶</button></div>
 <div class="hint">← → 翻页</div>
 <script>
 let cur=0;const ss=document.querySelectorAll('.slide'),T=ss.length;const ci=document.getElementById('c'),pg=document.getElementById('prog');

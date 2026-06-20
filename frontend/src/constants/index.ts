@@ -26,8 +26,6 @@ export const ROUTES = {
   ADMIN_AI_CONFIG: '/admin/ai-config',
   ADMIN_TTS_CONFIG: '/admin/tts-config',
   FOLLOW_LIST: '/user/:userId/follow',
-  CHAT: '/chat',
-  CHAT_ROOM: '/chat/:conversationId',
   ROUND_TABLE: '/book/:bookId/round-table',
   ROUND_TABLE_SESSION: '/book/:bookId/round-table/sessions/:sessionId',
   DEBATE: '/book/:bookId/debate',

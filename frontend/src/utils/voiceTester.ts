@@ -20,9 +20,6 @@ const TEST_TEXT = '啊'
 /** 无声判定阈值（毫秒）：朗读"啊"快于这个时间视为无声 */
 const SILENCE_THRESHOLD_MS = 120
 
-/** 批量测试并发数（串行执行，一次只测一个） */
-const BATCH_CONCURRENCY = 1
-
 export type VoiceTestStatus = 'untested' | 'has_sound' | 'silent' | 'testing'
 
 interface TestResult {
@@ -39,8 +36,6 @@ interface TestResult {
  */
 export class VoiceTester {
   private cache = new Map<string, TestResult>()
-  private testQueue: SpeechSynthesisVoice[] = []
-  private processing = false
 
   /** 测试单个语音是否发声，返回 true=有声音 / false=无声 / null=无法测试 */
   async testVoice(voice: SpeechSynthesisVoice): Promise<boolean | null> {

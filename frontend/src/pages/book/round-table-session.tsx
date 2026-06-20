@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  ArrowLeft, Volume2, Square, Loader2, Play, Pause, BarChart3, Target, RefreshCw, FileText, X,
+  ArrowLeft, Volume2, Square, Loader2, Play, Pause, Target, RefreshCw, FileText, X,
   ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -205,62 +205,7 @@ function MessageBubble({
   )
 }
 
-function SpeakStatsPanel({
-  roles,
-  messages,
-  onClose,
-  isMobile,
-}: {
-  roles: RoundTableRole[]
-  messages: DisplayMessage[]
-  onClose: () => void
-  isMobile?: boolean
-}) {
-  const stats = roles.map(role => {
-    const count = messages.filter(m => m.roleKey === role.key).length
-    const totalChars = messages
-      .filter(m => m.roleKey === role.key)
-      .reduce((sum, m) => sum + m.content.length, 0)
-    return { role, count, totalChars }
-  }).sort((a, b) => b.count - a.count)
 
-  const maxCount = Math.max(...stats.map(s => s.count), 1)
-
-  return (
-    <div className="flex flex-col min-h-0">
-      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/20">
-        <h3 className="text-xs font-bold flex items-center gap-1.5">
-          <BarChart3 className="h-3.5 w-3.5 text-brand-500" />
-          发言统计
-        </h3>
-        {!isMobile && (
-          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground mr-7">关闭</button>
-        )}
-      </div>
-      <div className="px-4 py-3 shrink-0">
-        <div className="space-y-2 overflow-y-auto">
-          {stats.map(({ role, count, totalChars }) => {
-          const color = role.color || ROLE_COLORS[role.key] || '#6B655C'
-            const pct = (count / maxCount) * 100
-            return (
-              <div key={role.key} className="flex items-center gap-2">
-                <span className="text-xs font-bold w-20 truncate" style={{ color }}>{role.name}</span>
-                <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${pct}%`, backgroundColor: color }}
-                  />
-                </div>
-                <span className="text-xs font-bold text-muted-foreground/80 w-14 text-right shrink-0 tabular-nums">{count}次</span>
-                <span className="text-xs font-bold text-muted-foreground/80 w-20 text-right shrink-0 tabular-nums">{totalChars}字</span>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function ReportPanel({
   report,
@@ -365,7 +310,6 @@ export default function RoundTableSessionPage() {
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null)
   const [currentRound, setCurrentRound] = useState(0)
   const [grabbingAnimation, setGrabbingAnimation] = useState<string | null>(null)
-  const [showStats, setShowStats] = useState(false)
   const [showCoverage, setShowCoverage] = useState(false)
   const [coverageVersion, setCoverageVersion] = useState(0)
   const [bookTitle, setBookTitle] = useState<string>('')
@@ -1128,25 +1072,6 @@ export default function RoundTableSessionPage() {
 
       <div className="flex flex-1 overflow-hidden relative" ref={mainLayoutRef}>
         <div className="flex flex-1 flex-col overflow-hidden relative min-w-0">
-          {showStats && !isMobile && (
-            <SpeakStatsPanel
-              roles={roles}
-              messages={messages}
-              onClose={() => setShowStats(false)}
-            />
-          )}
-          {showStats && isMobile && (
-            <Sheet open={showStats} onOpenChange={(v) => !v && setShowStats(false)}>
-              <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[85vh] [&>button]:hidden">
-                <SpeakStatsPanel
-                  roles={roles}
-                  messages={messages}
-                  onClose={() => setShowStats(false)}
-                  isMobile
-                />
-              </SheetContent>
-            </Sheet>
-          )}
 
           <RoleBar
             roles={roles}
@@ -1342,17 +1267,6 @@ export default function RoundTableSessionPage() {
 
               {/* 右区：信息开关 */}
               <div className="flex items-center gap-1">
-                {messages.length > 0 && (
-                  <button
-                    onClick={() => setShowStats(!showStats)}
-                    className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 sm:py-2 h-10 sm:h-auto w-10 sm:w-auto text-xs transition-colors ${
-                      showStats ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    <BarChart3 className="h-3 w-3 shrink-0" />
-                    <span className="hidden sm:inline">统计</span>
-                  </button>
-                )}
 
                 {messages.length > 0 && (
                   <button

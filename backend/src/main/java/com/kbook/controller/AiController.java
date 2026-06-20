@@ -1,5 +1,4 @@
 package com.kbook.controller;
-import com.kbook.service.ai.ChatService;
 
 import com.kbook.common.api.Result;
 import com.kbook.config.properties.AiProviderProperties;

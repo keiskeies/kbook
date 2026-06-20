@@ -86,8 +86,6 @@ public class SecurityConfig {
                         .requestMatchers("/api/user/avatar/**").permitAll()
                         // 图书封面图片（浏览器 <img> 直连）
                         .requestMatchers(HttpMethod.GET, "/api/books/cover/**").permitAll()
-                        // WebSocket STOMP 握手（认证在协议层进行）
-                        .requestMatchers("/api/ws/**").permitAll()
                         
                         // ===== 内部端点（需 ADMIN 角色）=====
                         .requestMatchers("/actuator/**").hasRole("ADMIN")

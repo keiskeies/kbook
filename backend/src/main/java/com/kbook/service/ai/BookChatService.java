@@ -699,7 +699,7 @@ public class BookChatService {
 
         sb.append("\n【读者的问题】\n").append(question);
 
-        sb.append("\n\n【重要提醒】请用中文直接回答上述问题，不要翻译、分类或解释参考片段。引用原文时不超过100字，长段落请概括后引用关键句，用 > 引用格式标注原文。");
+        sb.append("\n\n【重要提醒】请用中文直接回答上述问题，不要翻译、分类或解释参考片段。绝对不要直接引用或复述书中的原文内容，而是用自己的语言概括和转述书中的观点、情节和信息。");
 
         String prompt = sb.toString();
 
