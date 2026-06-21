@@ -20,7 +20,7 @@ export function TabBar() {
   if (!tabBarVisible) return null
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t bg-navbar/95 backdrop-blur-xl safe-area-bottom">
+    <nav className="md:hidden shrink-0 w-full z-50 border-t bg-navbar/95 backdrop-blur-xl safe-area-bottom">
       <div className="mx-auto flex h-16 max-w-lg items-center justify-around px-2">
         {tabs.map((tab) => {
           const active = isActive(tab.path)

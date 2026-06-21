@@ -794,7 +794,7 @@ export default function DiscoverPage() {
       </div>
 
       {/* ====== 可滚动内容区（pt-3 留出与头部的间距）====== */}
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 pt-3 pb-20 md:pb-6">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 pt-3">
         {/* 奇葩说 内容 */}
         {activeTab === 'debate' && (
           <div>

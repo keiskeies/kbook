@@ -119,7 +119,7 @@ export default function ProfilePage() {
     : null
 
   return (
-    <div className="px-4 md:px-6 lg:px-8 pt-safe-top pb-20 md:pb-6 page-enter">
+    <div className="px-4 md:px-6 lg:px-8 pt-safe-top md:pb-6 page-enter">
       <div className="lg:grid lg:grid-cols-[320px_1fr] xl:grid-cols-[360px_1fr] lg:gap-6">
         {/* 左栏：用户卡片 + 管理员功能 */}
         <div>

@@ -1015,7 +1015,7 @@ public class RoundTableService {
         int nonHostCount = (int) Arrays.stream(roleKeys).filter(k -> !"HOST".equals(k.trim())).count();
         long hostCount = speakCounts.getOrDefault("HOST", 0L);
         int totalRounds = allMessages.size();
-        int hostInterval = Math.max(3, nonHostCount);
+        int hostInterval = Math.max(6, nonHostCount * 2);
         int hostMinExpected = Math.max(1, totalRounds / hostInterval);
         if (totalRounds >= nonHostCount && hostCount < hostMinExpected) {
             sb.append("- 【建议主持人控场】主持人发言偏少（仅发言").append(hostCount)

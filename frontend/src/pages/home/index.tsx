@@ -170,7 +170,7 @@ export default function HomePage() {
   const goToBook = (id: number) => navigate(`/book/${id}`)
 
   return (
-    <div className="px-4 md:px-6 lg:px-8 page-enter pb-20 md:pb-6">
+    <div className="px-4 md:px-6 lg:px-8 page-enter md:pb-6">
       <Header />
 
       {/* 移动端：Hero + MoodQuickSwitch */}

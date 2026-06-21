@@ -1046,7 +1046,8 @@ export default function RoundTableSessionPage() {
   }, [isMobile])
 
   return (
-    <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background">
+    <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background"
+         style={isMobile ? { paddingBottom: 'env(safe-area-inset-bottom, 0px)' } : undefined}>
           <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-navbar/95 px-4 py-2.5 backdrop-blur-xl z-20 pt-safe-top">
         <button
           onClick={() => navigate(-1)}
@@ -1157,10 +1158,7 @@ export default function RoundTableSessionPage() {
           </div>
           </div>
 
-          <div
-            className="shrink-0 border-t border-border/20 bg-navbar/95 backdrop-blur-xl px-4 py-2.5"
-            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
-          >
+          <div className="shrink-0 border-t border-border/20 bg-navbar/95 backdrop-blur-xl px-4 py-2.5">
             {/* PC: 左右分布 + 文字标签；手机: 图标-only */}
             <div className="flex items-center gap-2 max-w-3xl mx-auto">
               {/* 左区：操作按钮 */}

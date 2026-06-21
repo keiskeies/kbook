@@ -9,6 +9,18 @@
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
 }
 
+/* TabBar 底部安全区域 — 配合 shrink-0 flex 布局，不改变自身 box 高度 */
+.bottom-bar-safe::after {
+  content: '';
+  display: block;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* 发现页底部留白 — 匹配 TabBar h-16(64px) + safe-area-bottom padding(0.75rem=12px) */
+.pb-safe-bottom-page {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 4.75rem);
+}
+
 /* 禁止移动端文字选择和输入光标 */
 body {
   -webkit-tap-highlight-color: transparent;

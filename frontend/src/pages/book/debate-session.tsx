@@ -1426,7 +1426,8 @@ export default function DebateSessionPage() {
   }
 
   return (
-    <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background">
+    <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background"
+         style={isMobile ? { paddingBottom: 'env(safe-area-inset-bottom, 0px)' } : undefined}>
       {/* 顶部导航 — 整合角色状态 + 环节标签 */}
       <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-navbar/95 px-4 py-2.5 backdrop-blur-xl z-20">
         <button
@@ -1853,10 +1854,7 @@ export default function DebateSessionPage() {
           </div>
 
           {/* 底部控制栏 — 1+1 原则：主操作唯一 + 次要操作折叠 */}
-          <div
-            className="shrink-0 border-t border-border/20 bg-navbar/95 backdrop-blur-xl px-4 py-2.5"
-            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
-          >
+          <div className="shrink-0 border-t border-border/20 bg-navbar/95 backdrop-blur-xl px-4 py-2.5">
             <div className="flex items-center gap-2 max-w-3xl mx-auto">
               {/* 主操作区 */}
               <div className="flex items-center gap-2">
