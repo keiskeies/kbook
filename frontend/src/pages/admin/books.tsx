@@ -937,7 +937,7 @@ export default function AdminBooksPage() {
                     <div className="text-success/80">已嵌入</div>
                   </div>
                   <div className="rounded-lg bg-muted p-2.5 text-center">
-                    <div className="text-lg font-bold text-foreground">{embedStats.totalContentVectors.toLocaleString()}</div>
+                    <div className="text-lg font-bold text-foreground">{embedStats.totalContentVectors?.toLocaleString() ?? 0}</div>
                     <div className="text-muted-foreground">向量总数</div>
                   </div>
                 </div>

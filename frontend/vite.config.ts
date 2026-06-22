@@ -93,11 +93,12 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8181',
+        target: process.env.TAURI
+          ? 'http://127.0.0.1:8282'
+          : 'http://localhost:8181',
         changeOrigin: true,
         ws: true,
-        // 开发环境超时配置（支持 AI 流式输出）
-        timeout: 3600000,  // 3600 秒
+        timeout: 3600000,
         proxyTimeout: 3600000,
       },
     },

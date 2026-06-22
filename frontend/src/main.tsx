@@ -11,6 +11,14 @@ import { router } from '@/router'
 import './index.css'
 import './App.css'
 
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(registrations => {
+    for (const registration of registrations) {
+      registration.unregister()
+    }
+  })
+}
+
 // TanStack Query 客户端配置
 const queryClient = new QueryClient({
   defaultOptions: {
