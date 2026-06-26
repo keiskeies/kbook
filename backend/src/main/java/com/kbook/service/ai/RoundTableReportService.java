@@ -49,6 +49,10 @@ public class RoundTableReportService {
     private static final int LLM_MAX_RETRIES = 3;
     /** GENERATING 状态超过此时间（分钟）视为宕机残留，自动标记 FAILED */
     private static final int STALE_THRESHOLD_MINUTES = 10;
+    /** token 到字符的转换比（中文约 1.5 字符/token） */
+    private static final double TOKEN_TO_CHAR_RATIO = 1.5;
+    /** 系统默认 maxTokens（配置为空时的兜底值） */
+    private static final int DEFAULT_MAX_TOKENS = 32768;
 
     private final RoundTableReportRepository reportRepository;
     private final RoundTableSessionRepository sessionRepository;
@@ -57,6 +61,7 @@ public class RoundTableReportService {
     private final ChatModelManager chatModelManager;
     private final NotificationService notificationService;
     private final ExecutorService sseExecutor;
+    private final AiProviderConfigService aiProviderConfigService;
 
     public RoundTableReportService(
             RoundTableReportRepository reportRepository,
@@ -65,7 +70,8 @@ public class RoundTableReportService {
             BookRepository bookRepository,
             ChatModelManager chatModelManager,
             NotificationService notificationService,
-            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+            @Qualifier("sseExecutor") ExecutorService sseExecutor,
+            AiProviderConfigService aiProviderConfigService) {
         this.reportRepository = reportRepository;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
@@ -73,6 +79,7 @@ public class RoundTableReportService {
         this.chatModelManager = chatModelManager;
         this.notificationService = notificationService;
         this.sseExecutor = sseExecutor;
+        this.aiProviderConfigService = aiProviderConfigService;
     }
 
     /**
@@ -105,12 +112,8 @@ public class RoundTableReportService {
                     log.info("报告正在生成中，跳过: sessionId={}, status={}", sessionId, existing.getStatus());
                     return existing;
                 }
-                case "COMPLETED" -> {
-                    // 已完成，直接返回
-                    return existing;
-                }
-                case "FAILED" -> {
-                    // 失败则重置状态，允许重新生成
+                case "FAILED", "COMPLETED" -> {
+                    // 失败或已完成，重置状态，允许重新生成
                     existing.setStatus("GENERATING");
                     existing.setErrorMessage(null);
                     existing.setContent(null);
@@ -201,6 +204,8 @@ public class RoundTableReportService {
     /**
      * 异步生成报告的核心逻辑
      * <p>
+     * 策略：讨论超过 8000 字时自动分段评估（按主持人发言切割），
+     * 每段独立评估后合并为最终报告，避免单次 LLM 调用丢失细节。
      * LLM 调用内置重试机制（最多 3 次），全部失败才标记为 FAILED。
      */
     private void doGenerateReport(String sessionId, Long userId, Long bookId) {
@@ -232,12 +237,17 @@ public class RoundTableReportService {
             String fullDiscussion = buildDiscussionText(messages);
             log.info("讨论文本构建完成: {} 字符, {} 条发言, {}", fullDiscussion.length(), messages.size(), getRoleNames(messages));
 
-            // 5. 调用 LLM 生成解读（带重试）
-            String reportContent = interpretWithRetry(fullDiscussion, session, book, messages);
+            // 5. 决定策略：短讨论直接评估，长讨论分段评估
+            String reportContent;
+            if (fullDiscussion.length() <= 8000) {
+                reportContent = interpretWithRetry(fullDiscussion, session, book, messages);
+            } else {
+                reportContent = interpretSegmented(fullDiscussion, session, book, messages);
+            }
 
             if (reportContent == null || reportContent.isBlank()) {
                 report.setStatus("FAILED");
-                report.setErrorMessage("LLM 解读生成失败（已重试 " + LLM_MAX_RETRIES + " 次）");
+                report.setErrorMessage("LLM 解读生成失败（已重试）");
                 reportRepository.save(report);
                 return;
             }
@@ -265,6 +275,234 @@ public class RoundTableReportService {
                 log.error("更新报告失败状态异常: {}", ex.getMessage());
             }
         }
+    }
+
+    // ==================== 分段评估 ====================
+
+    /**
+     * 分段评估：按主持人发言切割讨论，逐段评估后合并
+     */
+    private String interpretSegmented(String fullDiscussion, RoundTableSession session,
+                                       Book book, List<RoundTableMessage> messages) {
+        // 1. 按 HOST 发言切割为多个 segment
+        List<String> segments = splitByHost(messages);
+        log.info("讨论分为 {} 段进行评估", segments.size());
+
+        // 2. 逐段评估，传递前文概要
+        List<String> segmentReports = new ArrayList<>();
+        String previousSummary = "";
+
+        for (int i = 0; i < segments.size(); i++) {
+            String segment = segments.get(i);
+            log.info("评估第 {}/{} 段 ({} 字符)", i + 1, segments.size(), segment.length());
+
+            StringBuilder userMsg = new StringBuilder();
+            if (!previousSummary.isEmpty()) {
+                userMsg.append("【前文概要】\n").append(previousSummary).append("\n\n");
+            }
+            userMsg.append("【本段讨论】\n").append(segment);
+
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(AiPromptConstants.ROUND_TABLE_REPORT_SEGMENT_PROMPT),
+                    UserMessage.from(buildBookAndRoleContext(session, book) + "\n\n" + userMsg));
+
+            String segmentReport = callAiWithRetry(chatMessages, "分段评估第" + (i + 1) + "段");
+            if (segmentReport == null || segmentReport.isBlank()) {
+                log.warn("第 {} 段评估失败，跳过", i + 1);
+                continue;
+            }
+            segmentReports.add(segmentReport);
+
+            // 完整传递前文评估，不截断
+            previousSummary = segmentReport;
+        }
+
+        if (segmentReports.isEmpty()) {
+            return null;
+        }
+
+        // 3. 合并所有分段评估为最终报告
+        log.info("合并 {} 段评估为最终报告", segmentReports.size());
+        StringBuilder mergedSegments = new StringBuilder();
+        for (int i = 0; i < segmentReports.size(); i++) {
+            mergedSegments.append("=== 第").append(i + 1).append("段评估 ===\n");
+            mergedSegments.append(segmentReports.get(i)).append("\n\n");
+        }
+
+        List<ChatMessage> mergeMessages = List.of(
+                SystemMessage.from(AiPromptConstants.ROUND_TABLE_REPORT_MERGE_PROMPT),
+                UserMessage.from(buildBookAndRoleContext(session, book)
+                        + "\n\n【各段评估结果】\n" + mergedSegments));
+
+        return callAiWithRetry(mergeMessages, "报告合并");
+    }
+
+    /**
+     * 按主持人（HOST）发言切割讨论为多个段落，按动态计算的目标字符数分段
+     * <p>
+     * 目标字符数 = maxTokens × 1.5 × 0.6
+     * - maxTokens：从 AiProviderConfig 读取（如 8K/32K/128K）
+     * - 1.5：token 到字符的转换比（中文约 1.5 字符/token）
+     * - 0.6：留 40% 给系统提示词 + 书籍信息 + 前文概要 + 输出
+     * <p>
+     * 切割优先在 HOST 发言处，其次在目标字符数附近的发言边界切割。
+     * 相邻段保留最后 2 条发言重叠，保证上下文连贯。
+     */
+    private List<String> splitByHost(List<RoundTableMessage> messages) {
+        // 动态计算目标字符数：maxTokens × 1.5 × 0.35
+        // - 1.5：token 到字符转换比（中文）
+        // - 0.35：只用 35% 的上下文放讨论内容，留 65% 给系统提示词 + 书籍信息 + 前文概要 + 输出
+        Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
+        int tokens = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
+        int targetChars = (int) (tokens * TOKEN_TO_CHAR_RATIO * 0.35);
+        log.info("分段目标字符数: {} (maxTokens={}, ratio=0.35)", targetChars, tokens);
+
+        // 如果总字符数在目标范围内，不分段
+        int totalChars = 0;
+        for (RoundTableMessage msg : messages) {
+            String c = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
+                    ? msg.getCompressedContent() : msg.getContent();
+            if (c != null) totalChars += c.length();
+        }
+        if (totalChars <= (int) (targetChars * 1.5)) {
+            return List.of(buildDiscussionText(messages));
+        }
+
+        // 第一遍：标记每个位置的累计字符数和是否为 HOST
+        int[] cumLen = new int[messages.size()];
+        boolean[] isHost = new boolean[messages.size()];
+        int running = 0;
+        for (int i = 0; i < messages.size(); i++) {
+            String c = messages.get(i).getCompressedContent() != null && !messages.get(i).getCompressedContent().isBlank()
+                    ? messages.get(i).getCompressedContent() : messages.get(i).getContent();
+            running += (c != null ? c.length() : 0);
+            cumLen[i] = running;
+            isHost[i] = "HOST".equals(messages.get(i).getRoleKey());
+        }
+
+        // 第二遍：找切割点（尽量在 HOST 处切割，否则在目标字符数附近的发言边界切割）
+        // 如果切割后剩余字数 < targetChars × 0.3，不切割，直接合并到当前段
+        int minSegmentChars = (int) (targetChars * 0.3);
+        List<Integer> cutPoints = new ArrayList<>();
+        int segStart = 0;
+        while (segStart < messages.size()) {
+            int nextCut = -1;
+
+            for (int i = segStart; i < messages.size(); i++) {
+                int segLen = cumLen[i] - (segStart > 0 ? cumLen[segStart - 1] : 0);
+                int remainingLen = cumLen[messages.size() - 1] - cumLen[i];
+                if (segLen >= targetChars) {
+                    // 剩余字数太少，不切割，合并到当前段
+                    if (remainingLen < minSegmentChars) {
+                        break;
+                    }
+                    // 超过目标字符数，从这个点往回找最近的 HOST
+                    for (int j = i; j >= segStart; j--) {
+                        if (isHost[j]) {
+                            nextCut = j;
+                            break;
+                        }
+                    }
+                    if (nextCut < 0) {
+                        nextCut = i;
+                    }
+                    break;
+                }
+            }
+
+            if (nextCut < 0) {
+                break;
+            }
+
+            cutPoints.add(nextCut);
+            segStart = nextCut + 1;
+        }
+
+        if (cutPoints.isEmpty()) {
+            return List.of(buildDiscussionText(messages));
+        }
+
+        // 第三遍：按切割点分段
+        List<String> segments = new ArrayList<>();
+        int prevStart = 0;
+        for (int cutIdx = 0; cutIdx < cutPoints.size(); cutIdx++) {
+            int cut = cutPoints.get(cutIdx);
+
+            StringBuilder seg = new StringBuilder();
+            for (int i = prevStart; i <= cut && i < messages.size(); i++) {
+                appendMessage(seg, messages.get(i));
+            }
+            segments.add(seg.toString());
+
+            prevStart = cut + 1;
+        }
+
+        // 剩余内容
+        if (prevStart < messages.size()) {
+            StringBuilder seg = new StringBuilder();
+            int overlapStart = Math.max(0, prevStart - 3);
+            for (int i = overlapStart; i < prevStart && i < messages.size(); i++) {
+                appendMessage(seg, messages.get(i));
+            }
+            if (overlapStart < prevStart) {
+                seg.append("——以下为新段落——\n\n");
+            }
+            for (int i = prevStart; i < messages.size(); i++) {
+                appendMessage(seg, messages.get(i));
+            }
+            segments.add(seg.toString());
+        }
+
+        return segments;
+    }
+
+    private void appendMessage(StringBuilder sb, RoundTableMessage msg) {
+        String content = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
+                ? msg.getCompressedContent() : msg.getContent();
+        if (content == null || content.isBlank()) return;
+        sb.append("【").append(msg.getRoleName()).append("】(第").append(msg.getRound()).append("轮)\n")
+                .append(content).append("\n\n");
+    }
+
+    /**
+     * 构建书籍+角色上下文（供分段评估使用）
+     */
+    private String buildBookAndRoleContext(RoundTableSession session, Book book) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【图书信息】\n").append(buildBookInfo(book)).append("\n\n");
+        // 从 session 获取角色信息
+        if (session.getRoleKeys() != null) {
+            sb.append("【角色说明】\n");
+            for (String key : session.getRoleKeys().split(",")) {
+                key = key.trim();
+                if (!key.isBlank()) sb.append("  ").append(key).append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 带重试的 LLM 调用
+     */
+    private String callAiWithRetry(List<ChatMessage> messages, String taskName) {
+        String lastError = null;
+        for (int i = 1; i <= LLM_MAX_RETRIES; i++) {
+            try {
+                String result = chatModelManager.callAi("圆桌派" + taskName, "", messages);
+                if (result != null && !result.isBlank()) {
+                    return result;
+                }
+                lastError = "LLM 返回空内容";
+            } catch (Exception e) {
+                lastError = e.getMessage();
+                log.warn("{}第 {}/{} 次失败: {}", taskName, i, LLM_MAX_RETRIES, e.getMessage());
+            }
+            if (i < LLM_MAX_RETRIES) {
+                try { Thread.sleep(2000L * i); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); return null; }
+            }
+        }
+        log.error("{}全部 {} 次尝试失败: {}", taskName, LLM_MAX_RETRIES, lastError);
+        return null;
     }
 
     // ==================== LLM 解读（带重试） ====================

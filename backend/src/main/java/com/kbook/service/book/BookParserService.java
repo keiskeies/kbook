@@ -680,20 +680,46 @@ public class BookParserService {
                 zos.putNextEntry(newEntry);
                 String name = entry.getName().toLowerCase();
                 if (name.endsWith(".opf") || name.endsWith(".xml") || name.endsWith(".xhtml") || name.endsWith(".html") || name.endsWith(".ncx")) {
-                    byte[] raw = zis.readAllBytes();
-                    String content = new String(raw, StandardCharsets.UTF_8);
-                    for (var e : HTML_ENTITIES.entrySet()) {
-                        content = content.replace(e.getKey(), e.getValue());
+                    // 限制单个条目最大 5MB，防止恶意/异常 EPUB 耗尽内存
+                    byte[] raw = readEntryLimited(zis, 5 * 1024 * 1024);
+                    if (raw != null) {
+                        String content = new String(raw, StandardCharsets.UTF_8);
+                        for (var e : HTML_ENTITIES.entrySet()) {
+                            content = content.replace(e.getKey(), e.getValue());
+                        }
+                        content = BARE_AMPERSAND_PATTERN.matcher(content).replaceAll("&amp;");
+                        zos.write(content.getBytes(StandardCharsets.UTF_8));
                     }
-                    content = BARE_AMPERSAND_PATTERN.matcher(content).replaceAll("&amp;");
-                    zos.write(content.getBytes(StandardCharsets.UTF_8));
                 } else {
-                    zos.write(zis.readAllBytes());
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = zis.read(buf)) > 0) {
+                        zos.write(buf, 0, n);
+                    }
                 }
                 zos.closeEntry();
             }
         }
         return new ByteArrayInputStream(bos.toByteArray());
+    }
+
+    /**
+     * 限制读取 ZipInputStream 条目字节数，防止 OOM
+     */
+    private byte[] readEntryLimited(ZipInputStream zis, int maxBytes) throws IOException {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        byte[] tmp = new byte[8192];
+        int total = 0;
+        int n;
+        while ((n = zis.read(tmp)) > 0) {
+            total += n;
+            if (total > maxBytes) {
+                log.warn("EPUB 条目超过 {}MB 限制，跳过", maxBytes / 1024 / 1024);
+                return null;
+            }
+            buf.write(tmp, 0, n);
+        }
+        return buf.toByteArray();
     }
 
     /**

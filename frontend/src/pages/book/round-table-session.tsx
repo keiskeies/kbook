@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Volume2, Square, Loader2, Play, Pause, Target, RefreshCw, FileText, X,
-  ChevronUp, ChevronDown,
+  ChevronUp, ChevronDown, Download,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
@@ -10,7 +10,7 @@ import CoveragePanel from '@/components/round-table/CoveragePanel'
 import {
   getRoundTableRoles, getRoundTableMessages, getRoundTableSession, updateRoundTableSessionStatus,
   getNextSpeaker, streamCharacterSpeak,
-  triggerRoundTableReport, getRoundTableReport,
+  triggerRoundTableReport, getRoundTableReport, exportRoundTableSession,
 } from '@/api/roundTable'
 import { getBook } from '@/api/book'
 import type { RoundTableRole, RoundTableMessage, RoundTableReport, RoundTableSession } from '@/types/roundTable'
@@ -211,12 +211,14 @@ function ReportPanel({
   report,
   isGenerating,
   isOwner,
+  sessionId,
   onTrigger,
   onClose,
 }: {
   report: RoundTableReport | null
   isGenerating: boolean
   isOwner?: boolean
+  sessionId?: string
   onTrigger: () => void
   onClose: () => void
 }) {
@@ -227,12 +229,34 @@ function ReportPanel({
           <FileText className="h-3.5 w-3.5 text-brand-500" />
           解读报告
         </h3>
-        <button
-          onClick={onClose}
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {report?.status === 'COMPLETED' && (
+            <button
+              onClick={onTrigger}
+              className="flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="重新生成报告"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              重新评估
+            </button>
+          )}
+          {report?.status === 'COMPLETED' && sessionId && (
+            <button
+              onClick={() => exportRoundTableSession(sessionId)}
+              className="flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="导出讨论记录"
+            >
+              <Download className="h-3.5 w-3.5" />
+              导出
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3">
@@ -1346,6 +1370,7 @@ export default function RoundTableSessionPage() {
                 report={report}
                 isGenerating={reportPolling || report?.status === 'GENERATING'}
                 isOwner={isOwner}
+                sessionId={sessionId}
                 onTrigger={handleTriggerReport}
                 onClose={() => setShowReport(false)}
               />
@@ -1360,6 +1385,7 @@ export default function RoundTableSessionPage() {
                 report={report}
                 isGenerating={reportPolling || report?.status === 'GENERATING'}
                 isOwner={isOwner}
+                sessionId={sessionId}
                 onTrigger={handleTriggerReport}
                 onClose={() => setShowReport(false)}
               />

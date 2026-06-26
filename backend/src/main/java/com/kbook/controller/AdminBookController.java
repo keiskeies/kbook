@@ -200,13 +200,15 @@ public class AdminBookController extends BaseController {
         long totalBooks = bookRepository.count();
         long embeddedBooks = bookRepository.countByContentEmbeddedTrue();
         long notEmbeddedBooks = totalBooks - embeddedBooks;
-        long totalContentVectors = embeddingService.getTotalContentEmbeddingCount();
+        long totalBookVectors = embeddingService.getTotalBookEmbeddingCount();
+        long embeddedContentBooks = embeddingService.getContentEmbeddedBookCount();
 
         return Result.ok(Map.of(
                 "totalBooks", totalBooks,
                 "embeddedBooks", embeddedBooks,
                 "notEmbeddedBooks", notEmbeddedBooks,
-                "totalContentVectors", totalContentVectors
+                "totalBookVectors", totalBookVectors,
+                "embeddedContentBooks", embeddedContentBooks
         ));
     }
 
@@ -218,6 +220,46 @@ public class AdminBookController extends BaseController {
                 "deletedCount", deletedCount,
                 "message", "内容向量库已清空"
         ));
+    }
+
+    @Operation(summary = "全量刷新书籍向量库(kbook_books)")
+    @GetMapping(value = "/vector/rebuild-books", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter rebuildBooksVector() {
+        SseEmitter emitter = new SseEmitter(600_000L);
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                long startTime = System.currentTimeMillis();
+                embeddingService.rebuildAllBookEmbeddings((processed, total) -> {
+                    try {
+                        emitter.send(SseEmitter.event()
+                                .name("progress")
+                                .data(Map.of(
+                                        "current", processed,
+                                        "total", total,
+                                        "status", "processing"
+                                )));
+                    } catch (IOException e) {
+                        log.warn("SSE 发送失败: {}", e.getMessage());
+                    }
+                });
+                long elapsed = System.currentTimeMillis() - startTime;
+                emitter.send(SseEmitter.event()
+                        .name("done")
+                        .data(Map.of("elapsed", elapsed)));
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("书籍向量全量刷新失败", e);
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("error")
+                            .data(Map.of("message", e.getMessage() != null ? e.getMessage() : "书籍向量刷新失败")));
+                } catch (IOException ignored) {}
+                emitter.completeWithError(e);
+            }
+        });
+
+        return emitter;
     }
 
     // ==================== ES 索引管理 ====================

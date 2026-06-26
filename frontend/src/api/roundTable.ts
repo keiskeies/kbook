@@ -69,6 +69,25 @@ export function getRoundTableReport(sessionId: string) {
   return request.get<RoundTableReport>(`/round-table/sessions/${sessionId}/report`)
 }
 
+/** 导出讨论记录为 Markdown */
+export async function exportRoundTableSession(sessionId: string) {
+  const token = localStorage.getItem('kbook_token')
+  const res = await fetch(`/api/round-table/sessions/${sessionId}/export`, {
+    headers: { Authorization: `Bearer ${token || ''}` },
+  })
+  if (!res.ok) throw new Error('导出失败')
+  const blob = await res.blob()
+  const disposition = res.headers.get('Content-Disposition') || ''
+  const match = disposition.match(/filename\*=UTF-8''(.+)/)
+  const filename = match ? decodeURIComponent(match[1]) : '圆桌派讨论.md'
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 /** LLM 判断下一轮发言人 */
 export function getNextSpeaker(sessionId: string) {
   return request.post<string>(`/round-table/sessions/${sessionId}/next-speaker`)

@@ -3,6 +3,7 @@ package com.kbook.service.embedding;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
+import com.kbook.repository.BookRepository;
 import com.kbook.service.book.BookService;
 import org.springframework.context.annotation.Lazy;
 import dev.langchain4j.data.document.Metadata;
@@ -49,17 +50,20 @@ public class EmbeddingService {
     private final ChatModelFactory chatModelFactory;
     private final QdrantProperties qdrantProps;
     private final BookService bookService;
+    private final BookRepository bookRepository;
     private final RagHitStatisticsService ragHitStatisticsService;
 
     public EmbeddingService(QdrantClient qdrantClient,
                             ChatModelFactory chatModelFactory,
                             QdrantProperties qdrantProps,
                             @Lazy BookService bookService,
+                            BookRepository bookRepository,
                             @Lazy RagHitStatisticsService ragHitStatisticsService) {
         this.qdrantClient = qdrantClient;
         this.chatModelFactory = chatModelFactory;
         this.qdrantProps = qdrantProps;
         this.bookService = bookService;
+        this.bookRepository = bookRepository;
         this.ragHitStatisticsService = ragHitStatisticsService;
     }
 
@@ -1192,6 +1196,91 @@ public class EmbeddingService {
     // ==================== 管理操作 ====================
 
     /**
+     * 获取 kbook_books 向量库的总条目数
+     */
+    public long getTotalBookEmbeddingCount() {
+        try {
+            if (qdrantClient == null) return 0;
+            var info = qdrantClient.getCollectionInfoAsync(qdrantProps.getBookCollection()).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            return info.getPointsCount();
+        } catch (Exception e) {
+            log.warn("获取书籍向量总数失败: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * 清空所有书籍元数据向量（kbook_books 集合）
+     */
+    public long clearAllBookEmbeddings() {
+        try {
+            if (qdrantClient == null) {
+                log.warn("Qdrant 客户端未初始化");
+                return 0;
+            }
+            long totalCount = qdrantClient.countAsync(qdrantProps.getBookCollection()).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            log.info("开始清空书籍向量库: totalVectors={}", totalCount);
+
+            qdrantClient.deleteAsync(
+                    qdrantProps.getBookCollection(),
+                    Common.Filter.newBuilder().build()
+            ).get(60, java.util.concurrent.TimeUnit.SECONDS);
+
+            log.info("书籍向量库已清空: deletedVectors={}", totalCount);
+            return totalCount;
+        } catch (Exception e) {
+            log.error("清空书籍向量库失败: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * 全量刷新 kbook_books 向量库
+     * 清空后逐本重新生成元数据向量
+     *
+     * @param progressCallback 进度回调 (processed, total)
+     */
+    public void rebuildAllBookEmbeddings(java.util.function.BiConsumer<Long, Long> progressCallback) {
+        ensureEmbeddingModelInitialized();
+        if (embeddingModel == null) {
+            throw new RuntimeException("Embedding 模型未初始化，无法重建书籍向量");
+        }
+
+        long totalBooks = bookRepository.count();
+        log.info("开始全量重建书籍向量: totalBooks={}", totalBooks);
+
+        clearAllBookEmbeddings();
+
+        int batchSize = 50;
+        long processed = 0;
+        long failed = 0;
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(0, batchSize);
+
+        while (true) {
+            var page = bookRepository.findAllByOrderByIdAsc(pageable);
+            if (page.isEmpty()) break;
+
+            for (Book book : page.getContent()) {
+                try {
+                    upsertBookEmbedding(book);
+                    processed++;
+                } catch (Exception e) {
+                    log.error("书籍向量生成失败: bookId={}, title={}", book.getId(), book.getTitle(), e);
+                    failed++;
+                }
+                if (processed % 10 == 0 || processed == totalBooks) {
+                    progressCallback.accept(processed, totalBooks);
+                }
+            }
+
+            if (page.isLast()) break;
+            pageable = page.nextPageable();
+        }
+
+        log.info("全量重建书籍向量完成: processed={}, failed={}, total={}", processed, failed, totalBooks);
+    }
+
+    /**
      * 清空所有内容向量（kbook_content 集合）
      */
     public long clearAllContentEmbeddings() {
@@ -1345,6 +1434,20 @@ public class EmbeddingService {
             log.warn("删除旧内容向量超时，跳过: bookId={} - {}", bookId, e.getMessage());
         } catch (Exception e) {
             log.debug("删除旧内容向量失败（可能不存在）: bookId={} - {}", bookId, e.getMessage());
+        }
+    }
+
+    /**
+     * 获取 kbook_content 中有向量的不重复书籍数量
+     */
+    public long getContentEmbeddedBookCount() {
+        try {
+            if (qdrantClient == null) return 0;
+            var collectionInfo = qdrantClient.getCollectionInfoAsync(qdrantProps.getContentCollection()).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            return collectionInfo.getPointsCount() > 0 ? bookRepository.countByContentEmbeddedTrue() : 0;
+        } catch (Exception e) {
+            log.warn("获取内容向量书籍数失败: {}", e.getMessage());
+            return 0;
         }
     }
 

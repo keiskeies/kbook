@@ -18,6 +18,7 @@ import {
   Plus,
   RefreshCw,
   Scan,
+  Trash2,
   Search,
   Send,
   Sparkles,
@@ -32,6 +33,8 @@ import type {
   EmbeddingStats,
   EsReindexProgress,
   EsReindexResult,
+  BookVectorRebuildProgress,
+  BookVectorRebuildResult,
   ScanError,
   ScanProgress,
   ScanResult,
@@ -41,6 +44,7 @@ import {
   getEmbeddingStats,
   getScanStatus,
   rebuildEsIndexStream,
+  rebuildBooksVectorStream,
   resetScanStatus,
   scanBooksStream,
   uploadBookWithProgress
@@ -105,6 +109,12 @@ export default function AdminBooksPage() {
   const [esProgress, setEsProgress] = useState<EsReindexProgress | null>(null)
   const [esResult, setEsResult] = useState<EsReindexResult | null>(null)
   const esAbortRef = useRef<AbortController | null>(null)
+
+  // 书籍向量重建状态
+  const [bookVectorRebuilding, setBookVectorRebuilding] = useState(false)
+  const [bookVectorProgress, setBookVectorProgress] = useState<BookVectorRebuildProgress | null>(null)
+  const [bookVectorResult, setBookVectorResult] = useState<BookVectorRebuildResult | null>(null)
+  const bookVectorAbortRef = useRef<AbortController | null>(null)
 
   // AI 管理员对话状态
   const [showChat, setShowChat] = useState(false)
@@ -190,6 +200,7 @@ export default function AdminBooksPage() {
       abortRef.current?.abort()
       chatAbortRef.current?.abort()
       esAbortRef.current?.abort()
+      bookVectorAbortRef.current?.abort()
     }
   }, [])
 
@@ -384,6 +395,44 @@ export default function AdminBooksPage() {
     setEsReindexing(false)
     setEsProgress(null)
     toast.info('已取消 ES 索引重建')
+  }
+
+  // ==================== 书籍向量重建 ====================
+
+  const handleBookVectorRebuild = () => {
+    if (bookVectorRebuilding) return
+    if (!confirm('确定要全量刷新书籍向量库（kbook_books）吗？将清空并重新生成所有书籍的元数据向量。')) {
+      return
+    }
+    setBookVectorRebuilding(true)
+    setBookVectorProgress(null)
+    setBookVectorResult(null)
+
+    bookVectorAbortRef.current = rebuildBooksVectorStream(
+      (data) => {
+        setBookVectorProgress(data)
+      },
+      (data) => {
+        setBookVectorRebuilding(false)
+        setBookVectorResult(data)
+        toast.success(`书籍向量全量刷新完成，耗时 ${(data.elapsed / 1000).toFixed(1)}s`)
+        loadEmbedStats()
+      },
+      (err) => {
+        setBookVectorRebuilding(false)
+        toast.error(err.message || '书籍向量刷新失败')
+      },
+    )
+  }
+
+  const handleCancelBookVectorRebuild = () => {
+    if (bookVectorAbortRef.current) {
+      bookVectorAbortRef.current.abort()
+      bookVectorAbortRef.current = null
+    }
+    setBookVectorRebuilding(false)
+    setBookVectorProgress(null)
+    toast.info('已取消书籍向量刷新')
   }
 
   // ==================== AI 管理员对话 ====================
@@ -927,18 +976,21 @@ export default function AdminBooksPage() {
 
               {/* 统计信息 */}
               {embedStats && (
-                <div className="mb-3 grid grid-cols-3 gap-2 text-xs">
-                  <div className="rounded-lg bg-muted p-2.5 text-center">
-                    <div className="text-lg font-bold text-foreground">{embedStats.totalBooks}</div>
-                    <div className="text-muted-foreground">总书籍</div>
-                  </div>
-                  <div className="rounded-lg bg-success/10 dark:bg-success/10 p-2.5 text-center">
-                    <div className="text-lg font-bold text-success">{embedStats.embeddedBooks}</div>
-                    <div className="text-success/80">已嵌入</div>
-                  </div>
-                  <div className="rounded-lg bg-muted p-2.5 text-center">
-                    <div className="text-lg font-bold text-foreground">{embedStats.totalContentVectors?.toLocaleString() ?? 0}</div>
-                    <div className="text-muted-foreground">向量总数</div>
+                <div className="mb-3 text-xs">
+                  <div className="rounded-lg bg-muted p-3 space-y-2">
+                    <div className="text-xs font-medium text-muted-foreground">向量库条目数</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-lg font-bold text-success">{embedStats.totalBookVectors?.toLocaleString() ?? 0}</div>
+                        <div className="text-muted-foreground">kbook_books</div>
+                        <div className="text-[10px] text-muted-foreground/70">已有元数据向量的书籍数，用于推荐召回</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-info">{embedStats.embeddedContentBooks?.toLocaleString() ?? 0}</div>
+                        <div className="text-muted-foreground">kbook_content</div>
+                        <div className="text-[10px] text-muted-foreground/70">已有内容向量的书籍数，用于 RAG 检索</div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -954,14 +1006,61 @@ export default function AdminBooksPage() {
                   {statsLoading ? '加载中...' : '刷新统计'}
                 </button>
 
+                {/* 全量刷新书籍向量 */}
+                {bookVectorRebuilding && bookVectorProgress && (
+                  <div className="rounded-lg bg-success/10 p-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>正在重建书籍向量...</span>
+                      <span>{bookVectorProgress.current}/{bookVectorProgress.total} ({Math.round((bookVectorProgress.current / bookVectorProgress.total) * 100)}%)</span>
+                    </div>
+                    <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-success transition-all duration-300 ease-out"
+                        style={{ width: `${bookVectorProgress.total > 0 ? (bookVectorProgress.current / bookVectorProgress.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {bookVectorResult && !bookVectorRebuilding && (
+                  <div className="rounded-lg bg-green-50 p-3 text-xs dark:bg-green-950/30">
+                    <div className="flex items-center gap-1.5 font-medium text-green-700 dark:text-green-400">
+                      <CheckCircle2 className="h-4 w-4" />
+                      书籍向量刷新完成
+                    </div>
+                    <div className="mt-1 text-green-600 dark:text-green-400">
+                      耗时 {(bookVectorResult.elapsed / 1000).toFixed(1)}s
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleBookVectorRebuild}
+                  disabled={bookVectorRebuilding}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-success py-2.5 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${bookVectorRebuilding ? 'animate-spin' : ''}`} />
+                  {bookVectorRebuilding ? '刷新中...' : '刷新书籍元数据向量'}
+                </button>
+
+                {bookVectorRebuilding && (
+                  <button
+                    onClick={handleCancelBookVectorRebuild}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    取消
+                  </button>
+                )}
+
                 {/* 清空内容信息 */}
                 <button
                   onClick={handleClearContentVectors}
                   disabled={contentVectorsClearing}
                   className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
                 >
-                  <RefreshCw className={`h-4 w-4 ${contentVectorsClearing ? 'animate-spin' : ''}`} />
-                  {contentVectorsClearing ? '清空中...' : '清空内容信息'}
+                  <Trash2 className="h-4 w-4" />
+                  {contentVectorsClearing ? '清空中...' : '清空书籍内容向量'}
                 </button>
               </div>
             </section>

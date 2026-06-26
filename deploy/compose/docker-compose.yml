@@ -61,7 +61,7 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms${ES_HEAP_SIZE:-512m} -Xmx${ES_HEAP_SIZE:-512m}"
+      - "ES_JAVA_OPTS=-Xms${ES_HEAP_SIZE:-1024m} -Xmx${ES_HEAP_SIZE:-1024m}"
       - cluster.name=kbook
       - TZ=${TZ:-Asia/Shanghai}
     ports:

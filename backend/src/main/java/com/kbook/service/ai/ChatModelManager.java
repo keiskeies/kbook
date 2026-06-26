@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
@@ -50,6 +51,7 @@ public class ChatModelManager {
 
     private final ChatModelFactory chatModelFactory;
     private final ObjectMapper objectMapper;
+    private final AiConfigProvider aiConfigProvider;
 
     private static final int SPEED_READ_CONTENT_LIMIT = 15000;
 
@@ -141,11 +143,42 @@ public class ChatModelManager {
             return callAi("历史压缩", String.format("%d→? chars", original.length()),
                     chatModelFactory::buildToolChatModel,
                     List.of(
-                            SystemMessage.from("将以下内容压缩到200字以内，保留核心观点和信息。"),
+                            SystemMessage.from("将以下内容压缩到200字以内，保留核心观点、关键论据和信息。"),
                             UserMessage.from(original)));
         } catch (Exception e) {
             // 压缩失败不影响主流程，返回 null 由调用方处理
             log.warn("调用 AI 压缩内容失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 圆桌派讨论历史压缩 — 保留发言者的态度、论点、问题和情绪方向
+     */
+    public String compressRoundTableContent(String original) {
+        if (original == null || original.length() <= 200) return original;
+        try {
+            return callAi("圆桌派历史压缩", String.format("%d→? chars", original.length()),
+                    chatModelFactory::buildToolChatModel,
+                    List.of(
+                            SystemMessage.from("""
+                                    将以下圆桌派讨论发言压缩到200字以内。
+
+                                    【必须保留】
+                                    1. 发言者的核心论点（用一句话概括）
+                                    2. 具体论据或例子（保留1-2个关键的）
+                                    3. 提出的问题或挑战（如果有的话）
+                                    4. 情绪方向（支持/反对/质疑/追问等）
+
+                                    【禁止】
+                                    - 禁止变成干巴巴的要点列表
+                                    - 禁止丢失发言者的态度和立场
+                                    - 禁止删掉提出的问题
+
+                                    用一段话概括，保留发言的"味道"，让读者能感受到这个人说了什么、态度是什么。"""),
+                            UserMessage.from(original)));
+        } catch (Exception e) {
+            log.warn("调用 AI 压缩圆桌派内容失败: {}", e.getMessage());
             return null;
         }
     }
@@ -867,9 +900,14 @@ public class ChatModelManager {
      *
      * @return AI 原始响应文本（JSON 数组），由调用方解析
      */
-    public String callAiForRoleSelection(long bookId, String bookTitle, String bookInfo) {
+    public String callAiForRoleSelection(long bookId, String bookTitle, String bookInfo, List<String> excludeKeys) {
+        String roleList = aiConfigProvider.buildRoundTableRoleListForPrompt();
+        String excludeClause = (excludeKeys != null && !excludeKeys.isEmpty())
+                ? "4. 【刷新】以下角色已选过，这次必须换一批不同的人：" + String.join(", ", excludeKeys)
+                : "";
+        String systemPrompt = String.format(AiPromptConstants.ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT_TEMPLATE, excludeClause, roleList);
         return callAi("圆桌派角色推荐", String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
-                SystemMessage.from(AiPromptConstants.ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT),
+                SystemMessage.from(systemPrompt),
                 UserMessage.from("书籍信息：\n" + bookInfo)));
     }
 

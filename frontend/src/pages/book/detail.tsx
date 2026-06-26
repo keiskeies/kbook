@@ -226,12 +226,13 @@ export default function BookDetailPage() {
 
   if (loading || !book) {
     return (
-      <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
-        <header className="shrink-0 flex items-center gap-3 border-b border-border/50 bg-navbar/95 px-4 py-3 backdrop-blur-xl z-20">
+      <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
+        {/* 手机端骨架屏 */}
+        <header className="md:hidden shrink-0 flex items-center gap-3 border-b border-border/50 bg-navbar/95 px-4 py-3 backdrop-blur-xl z-20">
           <div className="h-9 w-9 shrink-0 animate-pulse rounded-xl bg-muted" />
           <div className="h-5 flex-1 animate-pulse rounded bg-muted" />
         </header>
-        <div className="flex-1 overflow-y-auto overscroll-contain">
+        <div className="md:hidden flex-1 overflow-y-auto overscroll-contain">
           <div className="bg-gradient-to-b from-primary/5 to-transparent px-4 py-5">
             <div className="flex gap-4">
               <div className="h-36 w-24 flex-shrink-0 animate-pulse rounded-xl bg-muted shadow-lg" />
@@ -282,11 +283,81 @@ export default function BookDetailPage() {
             </div>
           </div>
         </div>
-        <div className="shrink-0 border-t border-border/50 bg-navbar/95 backdrop-blur-xl px-3 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
+        <div className="md:hidden shrink-0 border-t border-border/50 bg-navbar/95 backdrop-blur-xl px-3 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}>
           <div className="flex gap-2">
             <div className="h-11 flex-[2] animate-pulse rounded-2xl bg-muted" />
             <div className="h-11 flex-1 animate-pulse rounded-2xl bg-muted" />
             <div className="h-11 flex-1 animate-pulse rounded-2xl bg-muted" />
+          </div>
+        </div>
+
+        {/* PC端骨架屏 */}
+        <header className="hidden md:flex shrink-0 items-center gap-3 border-b border-border/50 bg-navbar/95 px-4 md:px-6 lg:px-8 py-3 backdrop-blur-xl z-20">
+          <div className="h-9 w-9 shrink-0 animate-pulse rounded-xl bg-muted" />
+          <div className="h-5 flex-1 animate-pulse rounded bg-muted" />
+          <div className="h-9 w-24 animate-pulse rounded-xl bg-muted" />
+          <div className="h-9 w-24 animate-pulse rounded-xl bg-muted" />
+          <div className="h-9 w-24 animate-pulse rounded-xl bg-muted" />
+        </header>
+        <div className="hidden md:flex flex-1 overflow-y-auto overscroll-contain">
+          <div className="px-4 lg:px-6 py-6 w-full">
+            <div className="flex gap-6">
+              {/* 左栏：封面 + 信息 */}
+              <div className="w-[380px] lg:w-[420px] shrink-0">
+                <div className="flex justify-center mb-6">
+                  <div className="h-64 w-44 lg:w-52 animate-pulse rounded-xl bg-muted shadow-xl" />
+                </div>
+                <div className="text-center mb-4 space-y-2">
+                  <div className="h-6 w-3/4 mx-auto animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-1/2 mx-auto animate-pulse rounded bg-muted" />
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-3 mb-4">
+                  <div className="h-4 w-12 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+                  <div className="h-5 w-10 animate-pulse rounded-md bg-muted" />
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="h-7 animate-pulse rounded-full bg-muted" style={{ width: `${50 + i * 15}px` }} />
+                  ))}
+                </div>
+                <div className="rounded-2xl border border-border/50 bg-card p-4 mb-4">
+                  <div className="h-4 w-16 animate-pulse rounded bg-muted mb-3" />
+                  <div className="space-y-2">
+                    <div className="h-3 w-full animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-full animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-4/5 animate-pulse rounded bg-muted" />
+                  </div>
+                </div>
+              </div>
+              {/* 右栏：卡片 */}
+              <div className="flex-1 min-w-0 space-y-4">
+                <div className="rounded-2xl border border-border/50 bg-card p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-14 w-14 animate-pulse rounded-full bg-muted" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                      <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-border/50 bg-card p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+                    <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                  </div>
+                  <div className="space-y-2">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="h-3 w-full animate-pulse rounded bg-muted" />
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-border/50 bg-card p-4">
+                  <div className="h-4 w-20 animate-pulse rounded bg-muted mb-3" />
+                  <div className="h-10 w-full animate-pulse rounded-xl bg-muted" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

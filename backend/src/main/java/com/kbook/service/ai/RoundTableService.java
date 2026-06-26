@@ -187,7 +187,9 @@ public class RoundTableService {
         // 2. 冷启动 / 强制刷新 → LLM
         try {
             String bookInfo = buildBookInfoForRoleSelection(book);
-            String result = chatModelManager.callAiForRoleSelection(bookId, book.getTitle(), bookInfo);
+            // 刷新时排除上次已选角色，避免重复推荐
+            List<String> excludeKeys = refresh ? getTopSelectedKeysFromZSet(scoreKey) : List.of();
+            String result = chatModelManager.callAiForRoleSelection(bookId, book.getTitle(), bookInfo, excludeKeys);
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
@@ -216,6 +218,16 @@ public class RoundTableService {
             }
         }
         return fallbackRoles;
+    }
+
+    /**
+     * 从 ZSet 中读取使用次数 Top 的非 HOST 角色 key 列表（用于刷新时排除）。
+     */
+    private List<String> getTopSelectedKeysFromZSet(String scoreKey) {
+        Set<String> topKeys = stringRedisTemplate.opsForZSet()
+                .reverseRangeByScore(scoreKey, 0, Double.MAX_VALUE, 0, 8);
+        if (topKeys == null || topKeys.isEmpty()) return List.of();
+        return topKeys.stream().filter(k -> !"HOST".equals(k)).toList();
     }
 
     /**
@@ -972,35 +984,24 @@ public class RoundTableService {
 
     /**
      * 构建公平性约束说明（用于纯 LLM 发言人选择）
+     * <p>
+     * 公平性约束仅作为兜底信息提供，不强制 LLM 必须执行。
+     * 对话流向是首要选择依据，公平性只在 LLM 无法判断时起参考作用。
      */
     private String buildFairnessConstraints(String[] roleKeys, Map<String, Long> speakCounts,
                                             List<RoundTableMessage> allMessages) {
         StringBuilder sb = new StringBuilder();
 
-        // 1. 禁止连续发言
+        // 1. 禁止连续发言（硬约束）
         if (!allMessages.isEmpty()) {
             String lastSpeaker = allMessages.get(allMessages.size() - 1).getRoleKey();
             AiConfig.RoundTableRole lastRole = aiConfigProvider.getRoundTableRole(lastSpeaker);
-            sb.append("- 绝对禁止：").append(lastRole != null ? lastRole.getName() : lastSpeaker)
+            sb.append("- 【硬约束】").append(lastRole != null ? lastRole.getName() : lastSpeaker)
                     .append("刚发过言，不能连续发言\n");
         }
 
-        // 2. 从未发言的角色（强制优先）
-        Set<String> neverSpoken = Arrays.stream(roleKeys)
-                .map(String::trim)
-                .filter(key -> !speakCounts.containsKey(key))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        if (!neverSpoken.isEmpty()) {
-            sb.append("- 【强制优先】以下角色至今一次都没发言，必须在下一轮选其中一位：");
-            for (String key : neverSpoken) {
-                AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
-                if (role != null) sb.append(role.getName()).append("(").append(key).append(") ");
-            }
-            sb.append("\n");
-        }
-
-        // 3. 发言次数统计（按次数排序）
-        sb.append("- 当前发言次数统计（从少到多）：");
+        // 2. 发言次数统计（供参考，从少到多）
+        sb.append("- 发言次数（供参考）：");
         Arrays.stream(roleKeys)
                 .map(String::trim)
                 .sorted(Comparator.comparingLong(k -> speakCounts.getOrDefault(k, 0L)))
@@ -1011,34 +1012,21 @@ public class RoundTableService {
                 });
         sb.append("\n");
 
-        // 4. 主持人定期控场（建议，非强制）
-        int nonHostCount = (int) Arrays.stream(roleKeys).filter(k -> !"HOST".equals(k.trim())).count();
-        long hostCount = speakCounts.getOrDefault("HOST", 0L);
+        // 3. 仅当有角色从未发言且讨论已过半程时，才标记为强制优先
         int totalRounds = allMessages.size();
-        int hostInterval = Math.max(6, nonHostCount * 2);
-        int hostMinExpected = Math.max(1, totalRounds / hostInterval);
-        if (totalRounds >= nonHostCount && hostCount < hostMinExpected) {
-            sb.append("- 【建议主持人控场】主持人发言偏少（仅发言").append(hostCount)
-                    .append("次），可考虑选主持人(HOST)来引导新方向\n");
-        }
-
-        // 5. 严重发言不足的角色（发言次数差距>2倍）
-        if (allMessages.isEmpty() || neverSpoken.isEmpty()) {
-            long maxCount = speakCounts.values().stream().mapToLong(v -> v).max().orElse(1);
-            List<String> starved = Arrays.stream(roleKeys)
+        int nonHostCount = (int) Arrays.stream(roleKeys).filter(k -> !"HOST".equals(k.trim())).count();
+        if (totalRounds >= nonHostCount) {
+            Set<String> neverSpoken = Arrays.stream(roleKeys)
                     .map(String::trim)
-                    .filter(key -> {
-                        long c = speakCounts.getOrDefault(key, 0L);
-                        return c > 0 && c * 3 <= maxCount && maxCount >= 3;
-                    })
-                    .toList();
-            if (!starved.isEmpty()) {
-                sb.append("- 【强制优先】以下角色发言严重不足（与最活跃者差距3倍以上）：");
-                for (String key : starved) {
+                    .filter(key -> !"HOST".equals(key) && !speakCounts.containsKey(key))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (!neverSpoken.isEmpty()) {
+                sb.append("- 【强制优先】以下角色至今未发言：");
+                for (String key : neverSpoken) {
                     AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
                     if (role != null) sb.append(role.getName()).append("(").append(key).append(") ");
                 }
-                sb.append("\n");
+                sb.append("（从其中选最能接话的）\n");
             }
         }
 
@@ -1507,29 +1495,42 @@ public class RoundTableService {
                                                 AiConfig.RoundTableRole role, Book book) {
         List<ChatMessage> messages = new ArrayList<>();
 
-        // 1. 系统提示词（仅共享规则）
+        // 1. 系统提示词（仅共享规则）— 全局静态
         messages.add(SystemMessage.from(systemPrompt));
 
-        // 2. 静态书籍基础信息（跨会话共享 KV Cache 前缀）
+        // 2. 静态书籍基础信息 — 全局静态
         if (bookInfo != null && !bookInfo.isBlank()) {
             messages.add(UserMessage.from("【书籍信息】\n" + bookInfo));
         }
 
-        // 发言指令
+        // 3. 角色设定 — 同一角色跨轮次不变，通常 2000-3000 字符，尽量靠前以复用缓存
+        if (roleSetting != null && !roleSetting.isBlank()) {
+            messages.add(UserMessage.from(roleSetting));
+        }
+
+        // 4. 发言指令（含额外指令）— 同一角色跨轮次不变
         String speakInstruction;
         if ("HOST".equals(roleName) || "主持人".equals(roleName)) {
             speakInstruction = "请以主持人的身份发言。直接说你的观点或抛出问题，绝对不要以「刚才大家...」「前面几位...」「听了各位...」开头。";
         } else {
             speakInstruction = "请以" + roleName + "的身份发言。直接接话，绝对不要以「刚才大家...」「前面几位...」「听了各位...」开头，直接说你的观点。";
         }
+        StringBuilder finalInstruction = new StringBuilder();
+        if (extraInstructions != null && !extraInstructions.isBlank()) {
+            finalInstruction.append(extraInstructions).append("\n\n");
+        }
+        finalInstruction.append(speakInstruction);
+        messages.add(UserMessage.from(finalInstruction.toString()));
 
-        // 加载历史消息并同步压缩，确保 LLM 上下文不超限
+        // ——— 以上 4 条：同一角色跨轮次可命中缓存（SystemMessage + bookInfo + roleSetting + instruction）———
+        // ——— 以下为动态内容，每次变化，放在最后以最小化缓存失效 ———
+
+        // 5. 历史对话（每次变化）
         int currentOverhead = systemPrompt.length()
                 + (bookInfo != null ? bookInfo.length() : 0)
                 + (ragContent != null ? ragContent.length() : 0)
                 + (roleSetting != null ? roleSetting.length() : 0)
                 + (extraInstructions != null ? extraInstructions.length() : 0)
-                + speakInstruction.length()
                 + 2000;
         List<RoundTableMessage> history = new ArrayList<>();
         try {
@@ -1544,38 +1545,23 @@ public class RoundTableService {
                         historyBuilder.append(msg.getRoleName()).append("：").append(content).append("\n\n");
                     }
                 }
-
-                // 3. 历史对话
                 messages.add(UserMessage.from(historyBuilder.toString()));
                 log.debug("加载圆桌派历史: sessionId={}, totalRecords={}", sessionId, history.size());
             }
         } catch (Exception e) {
             log.warn("加载圆桌派历史失败，继续无历史对话: {}", e.getMessage());
-
-        }
-        // 4. 角色设定（每个角色不同 — 角色内稳定，放在 RAG 前以复用缓存）
-        if (roleSetting != null && !roleSetting.isBlank()) {
-            messages.add(UserMessage.from(roleSetting));
         }
 
-        // 5. RAG 内容或覆盖度引导（每次变化，放在最后以最小化缓存失效）
+        // 6. RAG 内容（每次变化）
         if (ragContent != null && !ragContent.isBlank()) {
             messages.add(UserMessage.from("【书籍参考内容】\n" + ragContent));
         }
 
-        // 6. 外部知识（每次变化，根据角色专业领域生成）
+        // 7. 外部知识（每次变化）
         String externalKnowledge = generateExternalKnowledgeForRole(role, book, history);
         if (externalKnowledge != null && !externalKnowledge.isBlank()) {
             messages.add(UserMessage.from("【外部参考知识】\n以下知识可帮助你从专业视角评价讨论话题：\n" + externalKnowledge));
         }
-
-        // 7. 发言指令（含额外指令）
-        StringBuilder finalInstruction = new StringBuilder();
-        if (extraInstructions != null && !extraInstructions.isBlank()) {
-            finalInstruction.append(extraInstructions).append("\n\n");
-        }
-        finalInstruction.append(speakInstruction);
-        messages.add(UserMessage.from(finalInstruction.toString()));
 
         return messages;
     }
@@ -1664,14 +1650,15 @@ public class RoundTableService {
     private void saveMessage(Long userId, String sessionId, Long bookId,
                              String roleKey, String roleName, String content) {
         try {
-            // 计算当前轮次
-            List<RoundTableMessage> existing = messageRepository.query()
+            // 只查最后一条的 round 值，避免全量加载历史消息
+            RoundTableMessage lastMsg = messageRepository.query()
                     .where(RoundTableMessage::getSessionId, eq(sessionId))
                     .orderBy(RoundTableMessage::getId)
-                    .list();
+                    .list()
+                    .stream().reduce((a, b) -> b).orElse(null);
             int round = 1;
-            if (!existing.isEmpty()) {
-                Integer lastRound = existing.get(existing.size() - 1).getRound();
+            if (lastMsg != null) {
+                Integer lastRound = lastMsg.getRound();
                 round = (lastRound != null ? lastRound : 0) + 1;
             }
 
@@ -1754,7 +1741,7 @@ public class RoundTableService {
             }
 
             String original = target.getContent();
-            String summary = chatModelManager.compressContent(original);
+            String summary = chatModelManager.compressRoundTableContent(original);
             if (summary == null) {
                 log.warn("压缩失败(跳过): sessionId={}, msgId={}", sessionId, target.getId());
                 break;

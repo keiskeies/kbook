@@ -168,6 +168,84 @@ public class AiConfigProvider {
         return all;
     }
 
+    // ==================== 圆桌派角色列表构建 ====================
+
+    /** 分组中文名映射 */
+    private static final Map<String, String> GROUP_NAMES = Map.of(
+            "CORE", "核心思辨组",
+            "ART", "文艺视角组",
+            "BUSINESS", "商业视角组",
+            "LIFE", "生活视角组",
+            "TECH", "技术/专业组",
+            "SOCIAL", "社会/公共组"
+    );
+
+    /**
+     * 从配置动态构建角色列表文本，用于 ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT_TEMPLATE。
+     * 按分组输出，用 prompt 中的"身份与视角"第一句作为描述（比 title 更具体）。
+     */
+    public String buildRoundTableRoleListForPrompt() {
+        List<AiConfig.RoundTableRole> roles = getRoundTableRoles();
+        if (roles.isEmpty()) return "（无可用角色）";
+
+        // 按 group 分组，保持插入顺序
+        LinkedHashMap<String, List<AiConfig.RoundTableRole>> grouped = new LinkedHashMap<>();
+        for (AiConfig.RoundTableRole role : roles) {
+            String group = role.getGroup() != null ? role.getGroup() : "CORE";
+            grouped.computeIfAbsent(group, k -> new ArrayList<>()).add(role);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        int index = 1;
+        for (var entry : grouped.entrySet()) {
+            String groupLabel = GROUP_NAMES.getOrDefault(entry.getKey(), entry.getKey());
+            sb.append(groupLabel).append("：\n");
+            for (AiConfig.RoundTableRole role : entry.getValue()) {
+                sb.append(index).append(". ")
+                  .append(role.getKey()).append("(").append(role.getName()).append(")");
+                // 优先用 prompt 中的身份描述，比 title 更有辨识度
+                String identity = extractIdentityFromPrompt(role.getPrompt());
+                if (identity != null) {
+                    sb.append(" - ").append(identity);
+                } else if (role.getTitle() != null && !role.getTitle().isBlank()) {
+                    sb.append(" - ").append(role.getTitle());
+                }
+                sb.append("\n");
+                index++;
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 从角色 prompt 中提取"身份与视角"段的第一句作为身份描述。
+     * 格式：【身份与视角】你是XXX。...
+     * 返回：XXX（如"概念拆解者"、"动机挖掘机"）
+     */
+    private String extractIdentityFromPrompt(String prompt) {
+        if (prompt == null) return null;
+        int markerStart = prompt.indexOf("【身份与视角】");
+        if (markerStart < 0) return null;
+        String after = prompt.substring(markerStart + "【身份与视角】".length()).trim();
+        // 匹配 "你是XXX。" 或 "你是XXX，"
+        if (after.startsWith("你是")) {
+            after = after.substring("你是".length());
+        }
+        // 取到第一个句号或逗号
+        int end = -1;
+        for (int i = 0; i < Math.min(after.length(), 50); i++) {
+            char c = after.charAt(i);
+            if (c == '。' || c == '，' || c == ',' || c == '.') {
+                end = i;
+                break;
+            }
+        }
+        if (end > 0) {
+            return "你是" + after.substring(0, end).trim();
+        }
+        return null;
+    }
+
     // ==================== 奇葩说性格 ====================
 
     /** 获取主持人配置 */

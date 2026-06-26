@@ -346,7 +346,8 @@ export interface EmbeddingStats {
   totalBooks: number
   embeddedBooks: number
   notEmbeddedBooks: number
-  totalContentVectors: number
+  totalBookVectors: number
+  embeddedContentBooks: number
 }
 
 /** 获取内容向量统计 */
@@ -357,6 +358,30 @@ export function getEmbeddingStats() {
 /** 清空内容向量库（kbook_content） */
 export function clearContentVectors() {
   return request.post<{ deletedCount: number; message: string }>('/admin/books/vector/clear-content')
+}
+
+/** 书籍向量重建进度 */
+export interface BookVectorRebuildProgress {
+  current: number
+  total: number
+  status: 'processing' | 'completed'
+}
+
+/** 书籍向量重建结果 */
+export interface BookVectorRebuildResult {
+  elapsed: number
+}
+
+/** 全量刷新书籍向量库(kbook_books) — SSE 流式返回进度 */
+export function rebuildBooksVectorStream(
+  onProgress: (data: BookVectorRebuildProgress) => void,
+  onDone: (data: BookVectorRebuildResult) => void,
+  onError: (error: Error) => void,
+): AbortController {
+  return createSseConnection<BookVectorRebuildProgress, BookVectorRebuildResult>(
+    '/admin/books/vector/rebuild-books',
+    { onProgress, onDone, onError },
+  )
 }
 
 /** ES 索引重建进度 */

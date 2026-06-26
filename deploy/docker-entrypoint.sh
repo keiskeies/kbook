@@ -11,9 +11,13 @@ nginx
 
 echo "Starting KBook backend..."
 exec java \
-    -Xms256m -Xmx512m \
+    -Xms512m -Xmx1280m \
     -XX:+UseG1GC \
+    -XX:MaxGCPauseMillis=200 \
+    -XX:MaxMetaspaceSize=200m \
+    -Xss512k \
     -XX:+HeapDumpOnOutOfMemoryError \
+    -XX:HeapDumpPath=/tmp/heapdump.hprof \
     -Dfile.encoding=UTF-8 \
     -Dsun.jnu.encoding=UTF-8 \
     -Djava.security.egd=file:/dev/./urandom \

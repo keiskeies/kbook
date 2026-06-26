@@ -1,7 +1,9 @@
 package com.kbook.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.common.api.Result;
+import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
 import com.kbook.dto.roundtable.SpeakRequest;
@@ -12,16 +14,25 @@ import com.kbook.entity.RoundTableSession;
 import com.kbook.service.ai.RoundTableCoverageService;
 import com.kbook.service.ai.RoundTableReportService;
 import com.kbook.service.ai.RoundTableService;
+import com.kbook.service.ai.ChatModelManager;
+import com.kbook.service.book.BookService;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -47,6 +58,15 @@ public class RoundTableController extends BaseController {
 
     /** 圆桌派解读报告服务 */
     private final RoundTableReportService reportService;
+
+    /** 书籍服务 */
+    private final BookService bookService;
+
+    /** AI 配置（读取角色信息） */
+    private final AiConfigProvider aiConfigProvider;
+
+    /** AI 模型调用（导出时生成钩子文案） */
+    private final ChatModelManager chatModelManager;
 
     /**
      * 获取推荐角色列表（LLM 驱动）
@@ -245,5 +265,115 @@ public class RoundTableController extends BaseController {
     @GetMapping("/sessions/{sessionId}/report")
     public Result<RoundTableReport> getReport(@PathVariable String sessionId) {
         return Result.ok(reportService.getReport(sessionId));
+    }
+
+    /**
+     * 导出圆桌派讨论记录为 TXT 文件
+     */
+    @Operation(summary = "导出讨论记录")
+    @GetMapping("/sessions/{sessionId}/export")
+    public void exportSession(@PathVariable String sessionId, HttpServletResponse response) throws IOException {
+        Long userId = extractUserId();
+        roundTableService.verifySessionOwnership(userId, sessionId);
+
+        RoundTableSession session = roundTableService.getSession(sessionId);
+        if (session == null) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND, "会话不存在");
+            return;
+        }
+
+        List<RoundTableMessage> messages = roundTableService.getHistory(userId, sessionId);
+        RoundTableReport report = reportService.getReport(sessionId);
+
+        com.kbook.entity.Book book = null;
+        if (session.getBookId() != null) {
+            book = bookService.getBookById(session.getBookId());
+        }
+
+        StringBuilder sb = new StringBuilder();
+        // 标题
+        sb.append("# ").append(session.getTitle());
+        if (book != null) {
+            sb.append("（《").append(book.getTitle()).append("》）");
+        }
+        sb.append("\n\n");
+
+        // 书籍简介（截取前 300 字）
+        if (book != null && book.getDescription() != null && !book.getDescription().isBlank()) {
+            String desc = book.getDescription().trim();
+            if (desc.length() > 300) desc = desc.substring(0, 300) + "……";
+            sb.append("> ").append(desc).append("\n\n");
+        }
+
+        // 嘉宾介绍
+        String[] roleKeys = session.getRoleKeys() != null ? session.getRoleKeys().split(",") : new String[0];
+        if (roleKeys.length > 0) {
+            sb.append("**本期嘉宾**\n\n");
+            for (String key : roleKeys) {
+                key = key.trim();
+                if (key.isBlank()) continue;
+                com.kbook.config.ai.AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
+                if (role == null) continue;
+                sb.append("- **").append(role.getName()).append("**");
+                if (role.getTitle() != null && !role.getTitle().isBlank()) {
+                    sb.append("（").append(role.getTitle()).append("）");
+                }
+                sb.append("\n");
+            }
+            sb.append("\n");
+        }
+
+        // 每隔约 5000 字用 6 个换行分段，不截断单条发言
+        int PARAGRAPH_LIMIT = 5000;
+        int currentParagraphLen = 0;
+        for (RoundTableMessage msg : messages) {
+            String line = "**" + msg.getRoleName() + "说**：" + msg.getContent() + "\n\n";
+            if (currentParagraphLen > 0 && currentParagraphLen + line.length() > PARAGRAPH_LIMIT) {
+                sb.append("\n\n---\n\n");
+                currentParagraphLen = 0;
+            }
+            sb.append(line);
+            currentParagraphLen += line.length();
+        }
+
+        if (report != null && "COMPLETED".equals(report.getStatus()) && report.getContent() != null) {
+            // 先生成短视频钩子（基于报告内容）
+            String hook = generateExportHook(report.getContent());
+            if (hook != null && !hook.isBlank()) {
+                sb.append(hook).append("\n\n---\n\n");
+            }
+            sb.append("## 总结报告\n\n").append(report.getContent());
+        }
+
+        String filename = "圆桌派讨论_" + session.getTitle() + ".md";
+        // 清理文件名中的非法字符
+        filename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        response.setContentType("text/markdown;charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(filename, StandardCharsets.UTF_8));
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+
+        try (PrintWriter writer = response.getWriter()) {
+            writer.write(sb.toString());
+        }
+    }
+
+    /**
+     * 基于报告内容生成短视频风格的钩子文案
+     */
+    private String generateExportHook(String reportContent) {
+        try {
+            // 截取报告前 2000 字作为 LLM 输入（报告重点通常在前面）
+            String input = reportContent.length() > 2000
+                    ? reportContent.substring(0, 2000) + "……"
+                    : reportContent;
+            return chatModelManager.callAi("导出钩子", "report→hook",
+                    List.of(
+                            SystemMessage.from(AiPromptConstants.ROUND_TABLE_EXPORT_HOOK_PROMPT),
+                            UserMessage.from(input)));
+        } catch (Exception e) {
+            log.warn("生成导出钩子失败: {}", e.getMessage());
+            return null;
+        }
     }
 }

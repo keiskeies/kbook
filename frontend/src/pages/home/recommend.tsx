@@ -346,16 +346,23 @@ export default function RecommendPage() {
             </div>
           </div>
         ) : loading && books.length === 0 ? (
-          <div className="space-y-3">
-            {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className="rounded-2xl bg-card p-3 shadow-sm border border-border/50">
-                <div className="flex gap-3">
+          <div className="columns-1 sm:columns-2 lg:columns-3 gap-3 space-y-3">
+            {Array.from({ length: 12 }, (_, i) => (
+              <div key={i} className="break-inside-avoid rounded-2xl bg-card p-3 shadow-sm border border-border/50">
+                <div className="flex gap-3 pb-2">
                   <div className="h-24 w-16 flex-shrink-0 rounded-lg bg-muted animate-pulse" />
                   <div className="flex-1 space-y-2">
                     <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
                     <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
-                    <div className="h-3 w-full rounded bg-muted animate-pulse" />
+                    <div className="mt-1.5 flex gap-1.5">
+                      <div className="h-5 w-10 rounded-md bg-muted animate-pulse" />
+                      <div className="h-5 w-12 rounded-md bg-muted animate-pulse" />
+                    </div>
                   </div>
+                </div>
+                <div className="border-t border-border/30 pt-2 flex gap-2">
+                  <div className="h-5 w-10 rounded bg-muted animate-pulse" />
+                  <div className="h-5 w-5 rounded bg-muted animate-pulse" />
                 </div>
               </div>
             ))}

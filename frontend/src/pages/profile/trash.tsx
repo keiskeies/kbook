@@ -78,7 +78,7 @@ export default function BookTrashPage() {
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background page-enter overscroll-contain">
       <div className="shrink-0 z-20 bg-gradient-to-b from-navbar/95 via-navbar/80 to-navbar/60 pt-safe-top backdrop-blur-xl border-b border-border/30">
-        <header className="flex items-center gap-3 px-4 py-3">
+        <header className="flex items-center gap-3 px-4 md:px-6 lg:px-8 py-3">
           <button onClick={() => goBack()} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted transition-colors">
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -92,7 +92,7 @@ export default function BookTrashPage() {
         </header>
       </div>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-3">
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }, (_, i) => (
