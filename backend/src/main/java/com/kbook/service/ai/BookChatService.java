@@ -225,10 +225,7 @@ public class BookChatService {
             return emitter;
         }
 
-        try {
-            emitter.send(SseEmitter.event().name("thinking_content").data("让我先翻翻这本书…\n"));
-        } catch (Exception ignored) {
-        }
+
 
         Future<?> aiFuture = sseExecutor.submit(() -> {
             try {

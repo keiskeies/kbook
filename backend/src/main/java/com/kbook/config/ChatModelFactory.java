@@ -340,6 +340,7 @@ public class ChatModelFactory {
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
+                .reasoningEffort(thinking ? null : "none")
                 .returnThinking(thinking).sendThinking(thinking)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
@@ -352,6 +353,7 @@ public class ChatModelFactory {
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
+                .reasoningEffort(thinking ? null : "none")
                 .returnThinking(thinking).sendThinking(thinking)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");

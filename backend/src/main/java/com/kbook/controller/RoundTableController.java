@@ -323,6 +323,14 @@ public class RoundTableController extends BaseController {
             sb.append("\n");
         }
 
+        // 短视频钩子（基于报告内容，放在最前面吸引注意力）
+        if (report != null && "COMPLETED".equals(report.getStatus()) && report.getContent() != null) {
+            String hook = generateExportHook(report.getContent());
+            if (hook != null && !hook.isBlank()) {
+                sb.append(hook).append("\n\n---\n\n");
+            }
+        }
+
         // 每隔约 5000 字用 6 个换行分段，不截断单条发言
         int PARAGRAPH_LIMIT = 5000;
         int currentParagraphLen = 0;
@@ -337,12 +345,7 @@ public class RoundTableController extends BaseController {
         }
 
         if (report != null && "COMPLETED".equals(report.getStatus()) && report.getContent() != null) {
-            // 先生成短视频钩子（基于报告内容）
-            String hook = generateExportHook(report.getContent());
-            if (hook != null && !hook.isBlank()) {
-                sb.append(hook).append("\n\n---\n\n");
-            }
-            sb.append("## 总结报告\n\n").append(report.getContent());
+            sb.append("---\n\n## 总结报告\n\n").append(report.getContent());
         }
 
         String filename = "圆桌派讨论_" + session.getTitle() + ".md";
@@ -363,14 +366,19 @@ public class RoundTableController extends BaseController {
      */
     private String generateExportHook(String reportContent) {
         try {
-            // 截取报告前 2000 字作为 LLM 输入（报告重点通常在前面）
-            String input = reportContent.length() > 2000
-                    ? reportContent.substring(0, 2000) + "……"
-                    : reportContent;
-            return chatModelManager.callAi("导出钩子", "report→hook",
+            String hook = chatModelManager.callAi("导出钩子", "report→hook",
                     List.of(
                             SystemMessage.from(AiPromptConstants.ROUND_TABLE_EXPORT_HOOK_PROMPT),
-                            UserMessage.from(input)));
+                            UserMessage.from(reportContent)));
+            if (hook != null && hook.length() > 150) {
+                int lastPeriod = hook.lastIndexOf('。', 150);
+                if (lastPeriod > 50) {
+                    hook = hook.substring(0, lastPeriod + 1);
+                } else {
+                    hook = hook.substring(0, 150) + "……";
+                }
+            }
+            return hook;
         } catch (Exception e) {
             log.warn("生成导出钩子失败: {}", e.getMessage());
             return null;

@@ -321,7 +321,13 @@ public class RoundTableReportService {
             return null;
         }
 
-        // 3. 合并所有分段评估为最终报告
+        // 只有 1 段，直接返回，不走合并
+        if (segmentReports.size() == 1) {
+            log.info("只有 1 段评估，直接返回");
+            return segmentReports.get(0);
+        }
+
+        // 多段：合并所有分段评估为最终报告
         log.info("合并 {} 段评估为最终报告", segmentReports.size());
         StringBuilder mergedSegments = new StringBuilder();
         for (int i = 0; i < segmentReports.size(); i++) {
