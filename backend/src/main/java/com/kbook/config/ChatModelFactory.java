@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * AI 聊天模型工厂类
@@ -341,6 +342,7 @@ public class ChatModelFactory {
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .reasoningEffort(thinking ? null : "none")
+                .customParameters(thinking ? null : Map.of("enable_thinking", false))
                 .returnThinking(thinking).sendThinking(thinking)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
@@ -354,6 +356,7 @@ public class ChatModelFactory {
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .reasoningEffort(thinking ? null : "none")
+                .customParameters(thinking ? null : Map.of("enable_thinking", false))
                 .returnThinking(thinking).sendThinking(thinking)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
