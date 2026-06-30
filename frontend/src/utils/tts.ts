@@ -188,6 +188,25 @@ class TtsService {
   private streamingEnabled = false
   private longTextAbortController: AbortController | null = null
 
+  // ── 长文本朗读(分段连续播放)的健壮性控制 ──
+  // 代际计数:每次新的 speakLongText / cancel 递增,旧回调链据此作废,避免多次点击并发播报
+  private longTextGeneration = 0
+  // heartbeat:定时 resume() 唤醒 Chrome speechSynthesis 长播挂起
+  private longTextHeartbeatRef: ReturnType<typeof setInterval> | null = null
+  // safety timeout:onend 万一丢失时兜底推进下一段,防止队列死在某一段
+  private longTextSafetyTimeoutRef: ReturnType<typeof setTimeout> | null = null
+
+  private clearLongTextTimers(): void {
+    if (this.longTextHeartbeatRef) {
+      clearInterval(this.longTextHeartbeatRef)
+      this.longTextHeartbeatRef = null
+    }
+    if (this.longTextSafetyTimeoutRef) {
+      clearTimeout(this.longTextSafetyTimeoutRef)
+      this.longTextSafetyTimeoutRef = null
+    }
+  }
+
   constructor() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       this.synth = window.speechSynthesis
@@ -619,26 +638,60 @@ class TtsService {
       this.speakSingleText(text, onEnd)
       return
     }
+    // 新一轮朗读:递增代际,作废所有旧回调链(旧 onend/setTimeout/safety timer)
+    this.longTextGeneration += 1
+    const generation = this.longTextGeneration
     if (this.isBackendMode) {
-      this.speakLongTextBackend(chunks, onEnd)
+      this.speakLongTextBackend(chunks, onEnd, generation)
     } else {
-      this.speakLongTextBrowser(chunks, onEnd)
+      this.speakLongTextBrowser(chunks, onEnd, generation)
     }
   }
 
-  private speakLongTextBrowser(chunks: string[], onEnd?: () => void): void {
+  private speakLongTextBrowser(chunks: string[], onEnd?: () => void, generation = 0): void {
     if (!this.synth) return
     this.synth.cancel()
+    this.clearLongTextTimers()
 
     let currentIndex = 0
+    const synth = this.synth
+
+    const finishAll = () => {
+      if (generation !== this.longTextGeneration) return
+      this.clearLongTextTimers()
+      onEnd?.()
+    }
+
+    const scheduleSafetyTimeout = (chunkText: string) => {
+      if (this.longTextSafetyTimeoutRef) {
+        clearTimeout(this.longTextSafetyTimeoutRef)
+      }
+      // 兜底:若 onend 长时间不触发(Chrome 挂起/语音异常),强制推进下一段
+      // 中文每字约 300ms,取 max(15s, len*300) + 5s 缓冲
+      const timeoutMs = Math.max(15000, chunkText.length * 300) + 5000
+      this.longTextSafetyTimeoutRef = setTimeout(() => {
+        if (generation !== this.longTextGeneration) return
+        console.warn('[TTS longText] safety timeout fired, advancing chunk', currentIndex)
+        if (this.longTextHeartbeatRef) {
+          clearInterval(this.longTextHeartbeatRef)
+          this.longTextHeartbeatRef = null
+        }
+        currentIndex++
+        speakNext()
+      }, timeoutMs)
+    }
 
     const speakNext = () => {
+      // 代际守卫:被 cancel / 新一轮 speakLongText 作废后,旧回调直接退出
+      if (generation !== this.longTextGeneration) return
+
       if (currentIndex >= chunks.length) {
-        onEnd?.()
+        finishAll()
         return
       }
 
-      const utterance = new SpeechSynthesisUtterance(chunks[currentIndex])
+      const chunkText = chunks[currentIndex]
+      const utterance = new SpeechSynthesisUtterance(chunkText)
       const { settings, voices } = useTtsStore.getState()
 
       utterance.rate = settings.rate
@@ -646,32 +699,62 @@ class TtsService {
       if (settings.voiceURI) {
         const voice = voices.find((v: TtsVoice) => v.voiceURI === settings.voiceURI)
         if (voice) {
-          const sv = this.synth!.getVoices().find((v) => v.voiceURI === voice.voiceURI)
+          const sv = synth.getVoices().find((v) => v.voiceURI === voice.voiceURI)
           if (sv) utterance.voice = sv
         }
       }
 
+      // 启动本段兜底定时器
+      scheduleSafetyTimeout(chunkText)
+
+      // heartbeat:Chrome speechSynthesis 连续播放多段时会自动挂起,定时 resume() 唤醒
+      if (!this.longTextHeartbeatRef) {
+        this.longTextHeartbeatRef = setInterval(() => {
+          try { synth.resume() } catch { /* ignore */ }
+        }, 5000)
+      }
+
       utterance.onend = () => {
-        const pause = getPauseMs(chunks[currentIndex])
+        if (generation !== this.longTextGeneration) return
+        // 正常结束,清除本段兜底定时器
+        if (this.longTextSafetyTimeoutRef) {
+          clearTimeout(this.longTextSafetyTimeoutRef)
+          this.longTextSafetyTimeoutRef = null
+        }
+        const pause = getPauseMs(chunkText)
         currentIndex++
-        setTimeout(speakNext, pause)
+        setTimeout(() => {
+          if (generation !== this.longTextGeneration) return
+          speakNext()
+        }, pause)
       }
 
       utterance.onerror = (e) => {
-        if (e.error !== 'canceled') {
-          console.warn('TTS chunk error:', e.error)
-          currentIndex++
-          speakNext()
+        if (generation !== this.longTextGeneration) return
+        if (this.longTextSafetyTimeoutRef) {
+          clearTimeout(this.longTextSafetyTimeoutRef)
+          this.longTextSafetyTimeoutRef = null
         }
+        // 被 cancel() 中断时不再递归,避免旧回调把已清空的队列又启动起来
+        if (e.error === 'canceled' || e.error === 'interrupted') {
+          if (this.longTextHeartbeatRef) {
+            clearInterval(this.longTextHeartbeatRef)
+            this.longTextHeartbeatRef = null
+          }
+          return
+        }
+        console.warn('TTS chunk error:', e.error)
+        currentIndex++
+        speakNext()
       }
 
-      this.synth!.speak(utterance)
+      synth.speak(utterance)
     }
 
     speakNext()
   }
 
-  private async speakLongTextBackend(chunks: string[], onEnd?: () => void): Promise<void> {
+  private async speakLongTextBackend(chunks: string[], onEnd?: () => void, generation = 0): Promise<void> {
     this.currentAudio?.pause()
     this.currentAudio = null
     this.streamPlayer?.stop()
@@ -682,24 +765,24 @@ class TtsService {
 
     try {
       if (this.streamingEnabled) {
-        await this.speakLongTextBackendStream(chunks, signal, onEnd)
+        await this.speakLongTextBackendStream(chunks, signal, onEnd, generation)
       } else {
-        await this.speakLongTextBackendNonStream(chunks, signal, onEnd)
+        await this.speakLongTextBackendNonStream(chunks, signal, onEnd, generation)
       }
     } catch (e: any) {
       if (e.name === 'AbortError') return
       console.warn('Backend TTS long text error, falling back to browser:', e)
       useTtsStore.getState().setBackendMode(false)
-      this.speakLongTextBrowser(chunks, onEnd)
+      this.speakLongTextBrowser(chunks, onEnd, generation)
     }
   }
 
-  private async speakLongTextBackendStream(chunks: string[], signal: AbortSignal, onEnd?: () => void): Promise<void> {
+  private async speakLongTextBackendStream(chunks: string[], signal: AbortSignal, onEnd?: () => void, generation = 0): Promise<void> {
     this.streamPlayer = new PcmStreamPlayer()
     this.streamPlayer.init()
 
     for (let i = 0; i < chunks.length; i++) {
-      if (signal.aborted) break
+      if (signal.aborted || generation !== this.longTextGeneration) break
 
       const token = localStorage.getItem('kbook_token')
       const configId = useTtsStore.getState().backendConfig?.id
@@ -755,46 +838,143 @@ class TtsService {
 
     const remaining = this.streamPlayer?.remainingTime ?? 0
     setTimeout(() => {
+      // 代际守卫:cancel / 新一轮朗读后,旧 setTimeout 不再触发 onEnd,避免误清状态
+      if (signal.aborted || generation !== this.longTextGeneration) return
       this.streamPlayer?.stop()
       this.streamPlayer = null
       onEnd?.()
     }, (remaining + 0.5) * 1000)
   }
 
-  private async speakLongTextBackendNonStream(chunks: string[], signal: AbortSignal, onEnd?: () => void): Promise<void> {
-    for (let i = 0; i < chunks.length; i++) {
-      if (signal.aborted) break
+  /**
+   * 预加载单个 segment:合成 + 创建 Audio + 等待 canplaythrough 就绪(不 play)。
+   * 返回就绪的 { audio, url },取消/失败返回 null。失败时抛错由上层 catch。
+   */
+  private async prepareSegment(
+    text: string,
+    signal: AbortSignal,
+    generation: number,
+  ): Promise<{ audio: HTMLAudioElement; url: string } | null> {
+    const audioData = await synthesizeTts(text, useTtsStore.getState().backendConfig?.id)
+    if (signal.aborted || generation !== this.longTextGeneration) return null
 
-      const audioData = await synthesizeTts(chunks[i], useTtsStore.getState().backendConfig?.id)
-      const blob = new Blob([audioData], { type: 'audio/wav' })
-      const url = URL.createObjectURL(blob)
+    const blob = new Blob([audioData], { type: 'audio/wav' })
+    const url = URL.createObjectURL(blob)
+    const audio = new Audio(url)
 
-      await new Promise<void>((resolve) => {
-        const audio = new Audio(url)
-        this.currentAudio = audio
+    // 等 canplaythrough(浏览器认为可流畅播放)或 10s 超时兜底,防止个别段卡住阻塞流水线
+    await new Promise<void>((resolve) => {
+      let settled = false
+      const done = () => {
+        if (settled) return
+        settled = true
+        audio.removeEventListener('canplaythrough', done)
+        audio.removeEventListener('error', done)
+        clearTimeout(timer)
+        signal.removeEventListener('abort', done)
+        resolve()
+      }
+      const timer = setTimeout(done, 10000)
+      audio.addEventListener('canplaythrough', done)
+      audio.addEventListener('error', done)
+      // cancel 时立即结束等待,让取消分支及时清理
+      signal.addEventListener('abort', done)
+      // preload 提示浏览器提前解码
+      audio.preload = 'auto'
+    })
 
-        const finish = () => {
-          URL.revokeObjectURL(url)
-          const pause = i < chunks.length - 1 ? getPauseMs(chunks[i]) : 0
-          if (pause > 0) {
-            setTimeout(resolve, pause)
-          } else {
-            resolve()
-          }
-        }
+    if (signal.aborted || generation !== this.longTextGeneration) {
+      URL.revokeObjectURL(url)
+      audio.src = ''
+      return null
+    }
+    return { audio, url }
+  }
 
-        audio.addEventListener('ended', finish)
-        audio.addEventListener('error', finish)
+  /**
+   * 播放单个已预加载的 segment,返回 ended/error 的结束原因。
+   * ended 后显式释放 audio 资源(避免多 audio 累积占用输出通道)。
+   */
+  private playSegment(
+    prepared: { audio: HTMLAudioElement; url: string },
+    isLast: boolean,
+    text: string,
+    signal: AbortSignal,
+    generation: number,
+  ): Promise<void> {
+    const { audio, url } = prepared
+    this.currentAudio = audio
 
-        audio.play().catch(() => {
-          URL.revokeObjectURL(url)
+    return new Promise<void>((resolve) => {
+      let finished = false
+      const finish = () => {
+        if (finished) return
+        finished = true
+        // 显式释放:pause + 清 src + load,回收解码器/输出通道资源
+        // 这是修复"只听到第一段"的关键——避免 audio 资源累积导致后续段无声
+        try {
+          audio.pause()
+          audio.src = ''
+          audio.load()
+        } catch { /* ignore */ }
+        URL.revokeObjectURL(url)
+        if (signal.aborted || generation !== this.longTextGeneration) {
           resolve()
-        })
-      })
+          return
+        }
+        // 段间停顿(最后一段不停顿)
+        const pause = isLast ? 0 : getPauseMs(text)
+        if (pause > 0) {
+          setTimeout(resolve, pause)
+        } else {
+          resolve()
+        }
+      }
 
-      this.currentAudio = null
+      audio.addEventListener('ended', finish)
+      audio.addEventListener('error', finish)
+
+      // play 前再次校验代际(cancel 可能在预取就绪后、play 前发生)
+      if (signal.aborted || generation !== this.longTextGeneration) {
+        finish()
+        return
+      }
+
+      audio.play().catch(() => {
+        // play 失败(如 autoplay policy),直接结束本段推进下一段
+        finish()
+      })
+    })
+  }
+
+  private async speakLongTextBackendNonStream(chunks: string[], signal: AbortSignal, onEnd?: () => void, generation = 0): Promise<void> {
+    // 段间预取流水线:第 i 段播放期间并发预加载第 i+1 段(合成+等 canplaythrough),
+    // 第 i 段 ended 后第 i+1 段已就绪,立即 play,消除段间网络等待空白。
+    // play() 严格串行(由 ended 驱动),绝不叠加播放。
+
+    // 预加载第 0 段(首段无预取,需等合成)
+    let next = await this.prepareSegment(chunks[0], signal, generation)
+
+    for (let i = 0; i < chunks.length; i++) {
+      if (signal.aborted || generation !== this.longTextGeneration) break
+
+      const cur = next
+      if (!cur) break
+
+      // 并发预取下一段(不阻塞当前播放);最后一段不预取
+      const nextPromise = (i < chunks.length - 1)
+        ? this.prepareSegment(chunks[i + 1], signal, generation)
+        : Promise.resolve(null)
+
+      // 播放当前段(等 ended)
+      await this.playSegment(cur, i === chunks.length - 1, chunks[i], signal, generation)
+
+      // 等下一段就绪(通常在第 i 段播放期间早已就绪)
+      next = await nextPromise
     }
 
+    // 代际守卫:cancel / 新一轮朗读后不再触发 onEnd
+    if (signal.aborted || generation !== this.longTextGeneration) return
     onEnd?.()
   }
 
@@ -821,6 +1001,11 @@ class TtsService {
   }
 
   cancel(): void {
+    // 先递增代际 + 清理长文本定时器:作废所有 speakLongText 的旧 onend/setTimeout/safety 回调,
+    // 防止 cancel 后旧回调仍推进队列或重启语音(多次点击并发播报的根因)
+    this.longTextGeneration += 1
+    this.clearLongTextTimers()
+
     this.currentAudio?.pause()
     this.currentAudio = null
     this.abortController?.abort()
