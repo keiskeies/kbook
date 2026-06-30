@@ -100,6 +100,7 @@ public class ChatModelManager {
 
     /**
      * 带完整消息列表的公共 AI 调用入口（消息已由调用方组装）。
+     * 使用 TOOL 角色模型（默认无思考），并在 SystemMessage 后追加 /no_think 禁用推理。
      *
      * @param logName   日志标识
      * @param logDetail 日志详情
@@ -107,11 +108,13 @@ public class ChatModelManager {
      * @return AI 响应文本
      */
     public String callAi(String logName, String logDetail, List<ChatMessage> messages) {
-        return callAi(logName, logDetail, chatModelFactory::buildToolChatModel, messages);
+        return callAi(logName, logDetail, chatModelFactory::buildToolChatModel,
+                appendNoThink(messages));
     }
 
     /**
      * 不带思考模式的公共 AI 调用入口（用于标签生成、元数据推断等无需复杂推理的场景）。
+     * 使用 QA 角色无思考模型，并在 SystemMessage 后追加 /no_think 双重确保不产生推理 token。
      *
      * @param logName   日志标识
      * @param logDetail 日志详情
@@ -119,7 +122,27 @@ public class ChatModelManager {
      * @return AI 响应文本
      */
     public String callAiWithoutThinking(String logName, String logDetail, List<ChatMessage> messages) {
-        return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinking, messages);
+        return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinking,
+                appendNoThink(messages));
+    }
+
+    /**
+     * 在消息列表中追加 /no_think 到 SystemMessage，用于禁用 LLM 推理 token。
+     * <p>
+     * 新建一个不可变的 List（避免修改调用方传入的可变列表），找到第一条 SystemMessage
+     * 并将 " /no_think" 追加到其文本末尾。如果列表中没有 SystemMessage，则原样返回。
+     * </p>
+     */
+    private static List<ChatMessage> appendNoThink(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) return messages;
+        List<ChatMessage> result = new ArrayList<>(messages);
+        for (int i = 0; i < result.size(); i++) {
+            if (result.get(i) instanceof SystemMessage sysMsg) {
+                result.set(i, SystemMessage.from(sysMsg.text() + " /no_think"));
+                break;
+            }
+        }
+        return result;
     }
 
     // ================================================================
@@ -633,7 +656,7 @@ public class ChatModelManager {
 
             // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像)
             List<ChatMessage> messages = new ArrayList<>();
-            messages.add(SystemMessage.from(systemPrompt));
+            messages.add(SystemMessage.from(systemPrompt + " /no_think"));
             messages.add(UserMessage.from("【书籍信息】\n" + bookContent));
             if (!userProfileDesc.isBlank()) {
                 messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc));
