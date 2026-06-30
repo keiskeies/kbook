@@ -32,6 +32,7 @@ public class BookMetadataInferrer {
     private static final int CONTENT_LIMIT = 15000;
 
     public void infer(Book book, String content) {
+        long startTime = System.currentTimeMillis();
         try {
             String prompt = "根据以下书籍内容，推断并提取以下信息，以JSON格式返回：\n" +
                     "- author: 作者名（如果内容中能看出来，否则填 null）\n" +
@@ -47,8 +48,18 @@ public class BookMetadataInferrer {
             var response = model.chat(List.of(
                     SystemMessage.from(AiPromptConstants.BOOK_INFO_EXTRACT_SYSTEM_PROMPT),
                     UserMessage.from(prompt)));
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            int inputTokens = response.tokenUsage() != null && response.tokenUsage().inputTokenCount() != null
+                    ? response.tokenUsage().inputTokenCount() : 0;
+            int outputTokens = response.tokenUsage() != null && response.tokenUsage().outputTokenCount() != null
+                    ? response.tokenUsage().outputTokenCount() : 0;
+
             String result = response.aiMessage().text();
             if (result != null) result = result.trim();
+            CommonUtils.logAiCall("元数据推断", elapsed, inputTokens, outputTokens,
+                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
+
             result = CommonUtils.stripCodeFence(result);
             if (result != null) {
                 var node = objectMapper.readTree(result);
@@ -67,7 +78,8 @@ public class BookMetadataInferrer {
                 }
             }
         } catch (Exception e) {
-            log.debug("从内容推断元数据失败: {} - {}", book.getTitle(), e.getMessage());
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.debug("从内容推断元数据失败: {} - {} (耗时 {}ms)", book.getTitle(), e.getMessage(), elapsed);
         }
     }
 }

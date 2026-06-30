@@ -18,6 +18,7 @@ import com.kbook.repository.BookRepository;
 import com.kbook.repository.debate.DebateMessageRepository;
 import com.kbook.repository.debate.DebateScoreRepository;
 import com.kbook.repository.debate.DebateSessionRepository;
+import com.kbook.service.ai.streaming.StreamingSseHandler;
 import com.kbook.service.book.BookService;
 import com.kbook.service.progress.ReadingProgressService;
 import dev.langchain4j.data.message.ChatMessage;
@@ -925,46 +926,22 @@ public class DebateService {
                     return;
                 }
 
-                final boolean[] connectionClosed = {false};
-                StringBuilder fullResponse = new StringBuilder();
-
-                streamingChatModel.chat(messages, new StreamingChatResponseHandler() {
-                    StreamingHandle streamingHandle;
+                StreamingSseHandler.stream(streamingChatModel, messages, emitter, new StreamingSseHandler.Callback() {
+                    @Override
+                    public String getOperationName() { return "主持人点评"; }
 
                     @Override
-                    public void onPartialThinking(PartialThinking partialThinking) {}
-
-                    @Override
-                    public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
-                        if (streamingHandle == null) {
-                            streamingHandle = context.streamingHandle();
-                        }
-                        if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
-                            return;
-
-                        String text = partialResponse.text();
-                        if (text == null || text.isEmpty()) return;
-
-                        fullResponse.append(text);
+                    public String formatMessageEvent(String text) {
                         try {
-                            String json = objectMapper.writeValueAsString(
+                            return objectMapper.writeValueAsString(
                                     Map.of("roleKey", "HOST", "text", text));
-                            if (!SseHelper.safeSendEvent(emitter, "message", json)) {
-                                connectionClosed[0] = true;
-                                if (streamingHandle != null) streamingHandle.cancel();
-                            }
                         } catch (Exception e) {
-                            connectionClosed[0] = true;
-                            if (streamingHandle != null) streamingHandle.cancel();
+                            return text;
                         }
                     }
 
                     @Override
-                    public void onCompleteResponse(ChatResponse completeResponse) {
-                        if (connectionClosed[0]) return;
-                        if (Thread.currentThread().isInterrupted()) return;
-
-                        String content = fullResponse.toString().trim();
+                    public void onComplete(String content, ChatResponse completeResponse) {
                         if (!content.isBlank()) {
                             try {
                                 DebateMessage record = DebateMessage.builder()
@@ -985,19 +962,6 @@ public class DebateService {
                                 log.warn("保存主持人点评失败: {}", e.getMessage());
                             }
                         }
-
-                        try {
-                            emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                            emitter.complete();
-                        } catch (Exception e) {
-                            log.warn("发送 SSE done 事件失败: {}", e.getMessage());
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable error) {
-                        log.warn("主持人点评 SSE 流错误: type={} - {}", type, error.getMessage());
-                        SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(error));
                     }
                 });
             } catch (Exception e) {
@@ -1115,79 +1079,36 @@ public class DebateService {
             DebateSession session, DebateRole personality, String positionKey,
             DebateSpeakRequest request) {
 
-        final boolean[] connectionClosed = {false};
-        StringBuilder fullResponse = new StringBuilder();
-
-        streamingChatModel.chat(messages, new StreamingChatResponseHandler() {
-            StreamingHandle streamingHandle;
+        StreamingSseHandler.stream(streamingChatModel, messages, emitter, new StreamingSseHandler.Callback() {
+            @Override
+            public String getOperationName() { return "辩论发言"; }
 
             @Override
-            public void onPartialThinking(dev.langchain4j.model.chat.response.PartialThinking partialThinking) {
-            }
-
-            @Override
-            public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
-                if (streamingHandle == null) {
-                    streamingHandle = context.streamingHandle();
-                }
-                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
-                    return;
-
-                String text = partialResponse.text();
-                if (text == null || text.isEmpty()) return;
-
-                fullResponse.append(text);
-
+            public String formatMessageEvent(String text) {
                 try {
-                    String json = objectMapper.writeValueAsString(
+                    return objectMapper.writeValueAsString(
                             Map.of("roleKey", positionKey, "text", text));
-                    if (!SseHelper.safeSendEvent(emitter, "message", json)) {
-                        connectionClosed[0] = true;
-                        if (streamingHandle != null) streamingHandle.cancel();
-                    }
                 } catch (Exception e) {
-                    connectionClosed[0] = true;
-                    if (streamingHandle != null) streamingHandle.cancel();
+                    return text;
                 }
             }
 
             @Override
-            public void onCompleteResponse(ChatResponse completeResponse) {
-                if (connectionClosed[0]) {
-                    String content = fullResponse.toString().trim();
-                    if (!content.isBlank()) {
-                        saveMessage(userId, bookId, session, personality, positionKey, request, content);
-                    }
-                    return;
-                }
-                if (Thread.currentThread().isInterrupted()) return;
-
-                String content = fullResponse.toString().trim();
+            public void onComplete(String content, ChatResponse completeResponse) {
                 if (!content.isBlank()) {
-                    int phaseOrder = saveMessage(userId, bookId, session, personality, positionKey, request, content);
-
+                    saveMessage(userId, bookId, session, personality, positionKey, request, content);
                     String side = getSideFromPositionKey(positionKey);
                     scoringService.scoreSpeechAsync(userId, request.getSessionId(),
                             personality.getKey(), positionKey, side, content,
                             request.getRoundNumber(), request.getRoundType());
                 }
-
-                try {
-                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                    emitter.complete();
-                } catch (Exception e) {
-                    log.warn("发送 SSE done 事件失败: {}", e.getMessage());
-                }
             }
 
             @Override
-            public void onError(Throwable error) {
-                log.error("辩论发言 SSE 流错误: positionKey={} - {}", positionKey, error.getMessage());
-                String content = fullResponse.toString().trim();
-                if (!content.isBlank()) {
-                    saveMessage(userId, bookId, session, personality, positionKey, request, content);
+            public void onConnectionClosed(String partialContent) {
+                if (!partialContent.isBlank()) {
+                    saveMessage(userId, bookId, session, personality, positionKey, request, partialContent);
                 }
-                SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(error));
             }
         });
     }

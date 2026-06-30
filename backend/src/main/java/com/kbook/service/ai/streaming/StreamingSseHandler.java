@@ -1,5 +1,6 @@
 package com.kbook.service.ai.streaming;
 
+import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.*;
@@ -45,6 +46,13 @@ public final class StreamingSseHandler {
     public interface Callback {
 
         /**
+         * 返回操作名称，用于日志标识（默认 "流式AI"）。
+         */
+        default String getOperationName() {
+            return "流式AI";
+        }
+
+        /**
          * 格式化 SSE "message" 事件数据。
          * 默认原样返回文本（BookChat / SpeedRead 等纯文本场景）。
          * 辩论 / 圆桌派等需要包装 JSON 的场景可覆盖此方法。
@@ -59,7 +67,7 @@ public final class StreamingSseHandler {
          * BookChat 等需要展示思考过程的场景可覆盖此方法，
          * 通过 emitter 发送 "thinking_content" 事件。
          */
-        default void onThinkingToken(String thinkingText) {
+        default void onThinkingToken(String thinkingText, SseEmitter emitter) {
             // 默认忽略
         }
 
@@ -86,6 +94,14 @@ public final class StreamingSseHandler {
         default void onConnectionClosed(String partialResponse) {
             // 默认无操作
         }
+
+        /**
+         * 错误回调（可选），在发送 SSE error 事件之前调用。
+         * 用于清除缓存、释放资源等清理操作。
+         */
+        default void onError(Throwable error) {
+            // 默认无操作
+        }
     }
 
     /**
@@ -104,6 +120,12 @@ public final class StreamingSseHandler {
 
         final boolean[] connectionClosed = {false};
         StringBuilder fullResponse = new StringBuilder();
+        StringBuilder fullThinking = new StringBuilder();
+        // 思考 token 统计 — 用于检测模型在不该思考时产生了思考 token
+        final int[] thinkingTokenCount = {0};
+
+        // DEBUG: 打印完整对话消息
+        CommonUtils.logAiMessages(callback.getOperationName(), messages);
 
         model.chat(messages, new StreamingChatResponseHandler() {
             StreamingHandle streamingHandle;
@@ -118,7 +140,12 @@ public final class StreamingSseHandler {
                 }
                 String thinking = partialThinking.text();
                 if (thinking != null && !thinking.isEmpty()) {
-                    callback.onThinkingToken(thinking);
+                    if (thinkingTokenCount[0] == 0) {
+                        log.warn("检测到模型思考 token（首个），可能模型配置有误或未禁用思考模式");
+                    }
+                    thinkingTokenCount[0]++;
+                    fullThinking.append(thinking);
+                    callback.onThinkingToken(thinking, emitter);
                 }
             }
 
@@ -149,6 +176,13 @@ public final class StreamingSseHandler {
             public void onCompleteResponse(ChatResponse completeResponse) {
                 String content = fullResponse.toString().trim();
 
+                if (thinkingTokenCount[0] > 0) {
+                    log.info("流式完成，共收到 {} 个思考 token", thinkingTokenCount[0]);
+                }
+                // DEBUG: 打印完整 AI 思考 + 回答
+                CommonUtils.logAiResponse(callback.getOperationName(), content,
+                        !fullThinking.isEmpty() ? fullThinking.toString() : null);
+
                 if (connectionClosed[0]) {
                     if (!content.isBlank()) {
                         callback.onConnectionClosed(content);
@@ -176,7 +210,6 @@ public final class StreamingSseHandler {
                     return;
                 }
                 log.error("SSE 流式输出异常: {}", error.getMessage(), error);
-                // 尝试保存已输出的部分内容
                 String content = fullResponse.toString().trim();
                 if (!content.isBlank()) {
                     try {
@@ -185,6 +218,7 @@ public final class StreamingSseHandler {
                         log.warn("保存部分输出失败: {}", ex.getMessage());
                     }
                 }
+                callback.onError(error);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(error));
             }
         });

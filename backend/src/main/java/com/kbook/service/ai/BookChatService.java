@@ -1,6 +1,7 @@
 package com.kbook.service.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.service.ai.streaming.StreamingSseHandler;
 import com.kbook.service.user.UserService;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
@@ -272,99 +273,60 @@ public class BookChatService {
                 // SystemMessage → UserMessage(bookInfo) → HistoryMessages → UserMessage(RAG + question)
                 List<ChatMessage> messages = buildChatMessages(effectiveSessionId, userId, bookInfoPrompt, prompt);
 
-                StringBuilder fullResponse = new StringBuilder();
                 StringBuilder fullThinking = new StringBuilder();
-                final boolean[] connectionClosed = {false};
 
-                model.chat(
-                        messages,
-                        new StreamingChatResponseHandler() {
-                            StreamingHandle streamingHandle;
+                StreamingSseHandler.stream(model, messages, emitter, new StreamingSseHandler.Callback() {
+                    @Override
+                    public String getOperationName() { return "图书问答"; }
 
-                            @Override
-                            public void onPartialThinking(PartialThinking partialThinking, PartialThinkingContext context) {
-                                if (streamingHandle == null) {
-                                    streamingHandle = context.streamingHandle();
-                                }
-                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
-                                    return;
-                                String thinking = partialThinking.text();
-                                if (thinking != null && !thinking.isEmpty()) {
-                                    fullThinking.append(thinking);
-                                    if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinking)) {
-                                        connectionClosed[0] = true;
-                                        if (streamingHandle != null) streamingHandle.cancel();
-                                        log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", bookId);
-                                    }
-                                }
-                            }
-
-                            @Override
-                            public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
-                                if (streamingHandle == null) {
-                                    streamingHandle = context.streamingHandle();
-                                }
-                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
-                                    return;
-                                String text = partialResponse.text();
-                                fullResponse.append(text);
-                                if (!text.isEmpty()) {
-                                    if (!SseHelper.safeSendEvent(emitter, "message", text)) {
-                                        connectionClosed[0] = true;
-                                        if (streamingHandle != null) streamingHandle.cancel();
-                                        log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", bookId);
-                                    }
-                                }
-                            }
-
-                            @Override
-                            public void onCompleteResponse(ChatResponse completeResponse) {
-                                long elapsed = System.currentTimeMillis() - startTime;
-                                String answer = fullResponse.toString().trim();
-
-                                int apiInputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
-                                        ? completeResponse.tokenUsage().inputTokenCount() : 0;
-                                int apiOutputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
-                                        ? completeResponse.tokenUsage().outputTokenCount() : 0;
-
-                                log.info("========== 图书问答 AI 流式响应完成 ==========");
-                                log.info("耗时: {}ms", elapsed);
-                                log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-                                log.info("Answer: {}", answer.length() > 500 ? answer.substring(0, 500) + "..." : answer);
-                                log.info("==========================================");
-
-                                if (connectionClosed[0]) {
-                                    log.warn("SSE 连接已断开，跳过发送done事件，仅保存已输出内容: bookId={}", bookId);
-                                } else {
-                                    try {
-                                        emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                                        emitter.complete();
-                                    } catch (Exception ignored) {
-                                    }
-                                }
-
-                                ensureSession(userId, effectiveSessionId, question, bookId);
-                                saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
-                                String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
-                                saveMessage(userId, effectiveSessionId, "assistant", answer, bookId, thinkingText);
-                                updateSessionTimestamp(effectiveSessionId);
-
-                                CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
-                                        String.format("bookId=%d, question=%s", bookId, question.substring(0, Math.min(30, question.length()))));
-                            }
-
-                            @Override
-                            public void onError(Throwable error) {
-                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) {
-                                    log.warn("SSE 连接已断开，跳过错误处理: bookId={}", bookId);
-                                    return;
-                                }
-                                log.error("图书问答流式异常: bookId={} - {}", bookId, error.getMessage(), error);
-                                aiProviderConfigService.clearAssistantCache();
-                                SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(error));
-                            }
+                    @Override
+                    public void onThinkingToken(String thinkingText, SseEmitter emitter) {
+                        fullThinking.append(thinkingText);
+                        if (!SseHelper.safeSendEvent(emitter, "thinking_content", thinkingText)) {
+                            log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", bookId);
                         }
-                );
+                    }
+
+                    @Override
+                    public void onComplete(String answer, ChatResponse completeResponse) {
+                        long elapsed = System.currentTimeMillis() - startTime;
+
+                        int apiInputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
+                                ? completeResponse.tokenUsage().inputTokenCount() : 0;
+                        int apiOutputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
+                                ? completeResponse.tokenUsage().outputTokenCount() : 0;
+
+                        log.info("========== 图书问答 AI 流式响应完成 ==========");
+                        log.info("耗时: {}ms", elapsed);
+                        log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
+                        log.info("Answer: {}", answer.length() > 500 ? answer.substring(0, 500) + "..." : answer);
+                        log.info("==========================================");
+
+                        ensureSession(userId, effectiveSessionId, question, bookId);
+                        saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
+                        String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
+                        saveMessage(userId, effectiveSessionId, "assistant", answer, bookId, thinkingText);
+                        updateSessionTimestamp(effectiveSessionId);
+
+                        CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
+                                String.format("bookId=%d, question=%s", bookId, question.substring(0, Math.min(30, question.length()))));
+                    }
+
+                    @Override
+                    public void onConnectionClosed(String partialContent) {
+                        // 连接断开时仍然保存已输出的部分内容（与原行为一致）
+                        ensureSession(userId, effectiveSessionId, question, bookId);
+                        saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
+                        String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
+                        saveMessage(userId, effectiveSessionId, "assistant", partialContent, bookId, thinkingText);
+                        updateSessionTimestamp(effectiveSessionId);
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        aiProviderConfigService.clearAssistantCache();
+                    }
+                });
 
             } catch (Exception e) {
                 if (Thread.currentThread().isInterrupted()) return;

@@ -13,6 +13,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import javax.imageio.IIOImage;
@@ -273,5 +274,41 @@ public class CommonUtils {
             result = result.substring(0, result.length() - 3);
         }
         return result.trim();
+    }
+
+    /**
+     * DEBUG 级别打印完整 AI 对话消息（提问 → 思考 → 回答）。
+     * 超过 2000 字的内容会被截断。
+     */
+    public static void logAiMessages(String operation, List<dev.langchain4j.data.message.ChatMessage> messages) {
+        if (!log.isDebugEnabled()) return;
+        log.debug("========== AI {} 请求消息 ({} 条) ==========", operation, messages.size());
+        for (int i = 0; i < messages.size(); i++) {
+            var msg = messages.get(i);
+            String type = msg.type().name();
+            String text = null;
+            if (msg instanceof dev.langchain4j.data.message.SystemMessage sm) {
+                text = sm.text();
+            } else if (msg instanceof dev.langchain4j.data.message.UserMessage um) {
+                text = um.singleText();
+            } else if (msg instanceof dev.langchain4j.data.message.AiMessage am) {
+                text = am.text();
+            }
+            if (text == null) text = msg.toString();
+            log.debug("[{}] {}: {}", i, type, truncateText(text, 2000));
+        }
+    }
+
+    /**
+     * DEBUG 级别打印 AI 响应内容（回答 + 可选的思考过程）。
+     */
+    public static void logAiResponse(String operation, String answer, String thinking) {
+        if (!log.isDebugEnabled()) return;
+        if (thinking != null && !thinking.isBlank()) {
+            log.debug("========== AI {} 思考过程 ({} 字) ==========", operation, thinking.length());
+            log.debug("{}", truncateText(thinking, 3000));
+        }
+        log.debug("========== AI {} 回答 ({} 字) ==========", operation, answer != null ? answer.length() : 0);
+        log.debug("{}", truncateText(answer != null ? answer : "", 3000));
     }
 }

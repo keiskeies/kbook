@@ -11,6 +11,7 @@ import com.kbook.entity.User;
 import com.kbook.service.ai.core.ChatHistoryCompressor;
 import com.kbook.service.ai.core.UserProfileBuilder;
 import com.kbook.service.ai.core.ExternalKnowledgeGenerator;
+import com.kbook.service.ai.streaming.StreamingSseHandler;
 import com.kbook.service.book.BookMetadataInferrer;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -83,6 +84,8 @@ public class ChatModelManager {
         }
         // 记录调用开始时间，用于计算耗时
         long startTime = System.currentTimeMillis();
+        // DEBUG: 打印完整对话消息
+        CommonUtils.logAiMessages(logName, messages);
         // 执行 AI 对话
         ChatResponse response = model.chat(messages);
         // 计算耗时
@@ -97,6 +100,8 @@ public class ChatModelManager {
         if (text != null && !text.isBlank()) {
             text = text.trim();
         }
+        // DEBUG: 打印 AI 回答
+        CommonUtils.logAiResponse(logName, text, null);
         log.debug("logName: {}, logDetail: {}", logName, logDetail);
         CommonUtils.logAiCall(logName, elapsed, inputTokens, outputTokens, logDetail);
         return text;
@@ -522,13 +527,6 @@ public class ChatModelManager {
         return chatModelFactory.buildStreamingChatModelWithoutThinking();
     }
 
-    /**
-     * 获取 ChatModelFactory 实例（供 core/ 包内的组件使用）。
-     */
-    public ChatModelFactory chatModelFactory() {
-        return chatModelFactory;
-    }
-
 
 
     /**
@@ -603,62 +601,22 @@ public class ChatModelManager {
             }
 
             long startTime = System.currentTimeMillis();
-            final boolean[] connectionClosed = {false};
 
-            model.chat(
-                    messages,
-                    new StreamingChatResponseHandler() {
-                        StreamingHandle streamingHandle;
+            StreamingSseHandler.stream(model, messages, emitter, new StreamingSseHandler.Callback() {
+                @Override
+                public String getOperationName() { return "3分钟速读"; }
 
-                        @Override
-                        public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
-                            if (streamingHandle == null) {
-                                streamingHandle = context.streamingHandle();
-                            }
-                            if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
-                                return;
-                            String text = partialResponse.text();
-                            if (text != null && !text.isEmpty()) {
-                                if (!SseHelper.safeSendEvent(emitter, "message", text)) {
-                                    connectionClosed[0] = true;
-                                    if (streamingHandle != null) streamingHandle.cancel();
-                                    log.warn("SSE 连接已关闭，停止 AI 输出: bookId={}", book.getId());
-                                }
-                            }
-                        }
-
-                        @Override
-                        public void onCompleteResponse(ChatResponse completeResponse) {
-                            long elapsed = System.currentTimeMillis() - startTime;
-                            int inputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
-                                    ? completeResponse.tokenUsage().inputTokenCount() : 0;
-                            int outputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
-                                    ? completeResponse.tokenUsage().outputTokenCount() : 0;
-                            CommonUtils.logAiCall("3分钟速读(流式)", elapsed, inputTokens, outputTokens,
-                                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
-
-                            if (connectionClosed[0]) {
-                                log.warn("SSE 连接已断开，跳过发送done事件: bookId={}", book.getId());
-                            } else {
-                                try {
-                                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                                    emitter.complete();
-                                } catch (Exception ignored) {
-                                }
-                            }
-                        }
-
-                        @Override
-                        public void onError(Throwable error) {
-                            if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled())) {
-                                log.warn("SSE 连接已断开，跳过错误处理: bookId={}", book.getId());
-                                return;
-                            }
-                            log.warn("流式速读摘要失败: bookId={} - {}", book.getId(), error.getMessage());
-                            SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(error));
-                        }
-                    }
-            );
+                @Override
+                public void onComplete(String fullResponse, ChatResponse completeResponse) {
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    int inputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
+                            ? completeResponse.tokenUsage().inputTokenCount() : 0;
+                    int outputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
+                            ? completeResponse.tokenUsage().outputTokenCount() : 0;
+                    CommonUtils.logAiCall("3分钟速读(流式)", elapsed, inputTokens, outputTokens,
+                            String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
+                }
+            });
         } catch (Exception e) {
             if (Thread.currentThread().isInterrupted()) return;
             log.warn("流式速读摘要异常: bookId={} - {}", book.getId(), e.getMessage());

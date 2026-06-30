@@ -22,6 +22,7 @@ import com.kbook.repository.BookRepository;
 import com.kbook.repository.RoundTableCoverageRepository;
 import com.kbook.repository.RoundTableMessageRepository;
 import com.kbook.repository.RoundTableSessionRepository;
+import com.kbook.service.ai.streaming.StreamingSseHandler;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
 import com.kbook.service.embedding.EmbeddingService;
@@ -1189,119 +1190,69 @@ public class RoundTableService {
                 }
 
                 long startTime = System.currentTimeMillis();
-                StringBuilder fullResponse = new StringBuilder();
-                // 连接已关闭标志 — SSE 发送失败时立即停止 AI 输出
-                final boolean[] connectionClosed = {false};
 
-                streamingChatModel.chat(
-                        messages,
-                        new StreamingChatResponseHandler() {
-                            StreamingHandle streamingHandle;
+                StreamingSseHandler.stream(streamingChatModel, messages, emitter, new StreamingSseHandler.Callback() {
+                    @Override
+                    public String getOperationName() { return "圆桌派发言"; }
 
-                            @Override
-                            public void onPartialThinking(dev.langchain4j.model.chat.response.PartialThinking partialThinking) {
-                                // 不使用 thinking 模式，忽略
-                            }
+                    @Override
+                    public String formatMessageEvent(String text) {
+                        try {
+                            return objectMapper.writeValueAsString(
+                                    Map.of("roleKey", role.getKey(), "text", text));
+                        } catch (Exception e) {
+                            return text;
+                        }
+                    }
 
-                            @Override
-                            public void onPartialResponse(PartialResponse partialResponse, PartialResponseContext context) {
-                                if (streamingHandle == null) {
-                                    streamingHandle = context.streamingHandle();
-                                }
-                                if (connectionClosed[0] || (streamingHandle != null && streamingHandle.isCancelled()))
-                                    return;
-                                String text = partialResponse.text();
-                                if (text == null || text.isEmpty()) return;
+                    @Override
+                    public void onComplete(String content, ChatResponse completeResponse) {
+                        long elapsed = System.currentTimeMillis() - startTime;
 
-                                fullResponse.append(text);
+                        log.info("========== 圆桌派单角色发言完成 ==========");
+                        log.info("roleKey={}, 耗时: {}ms", role.getKey(), elapsed);
+                        log.info("==========================================");
 
-                                try {
-                                    String json = objectMapper.writeValueAsString(
-                                            Map.of("roleKey", role.getKey(), "text", text));
-                                    if (!SseHelper.safeSendEvent(emitter, "message", json)) {
-                                        connectionClosed[0] = true;
-                                        if (streamingHandle != null) streamingHandle.cancel();
-                                        log.warn("SSE 连接已关闭，停止 AI 输出: roleKey={}", role.getKey());
-                                    }
-                                } catch (Exception e) {
-                                    connectionClosed[0] = true;
-                                    if (streamingHandle != null) streamingHandle.cancel();
-                                    log.debug("发送 message 事件失败，停止 AI 输出: {}", e.getMessage());
-                                }
-                            }
+                        if (!content.isBlank()) {
+                            saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), content);
+                            updateSessionTimestamp(request.getSessionId());
 
-                            @Override
-                            public void onCompleteResponse(ChatResponse completeResponse) {
-                                if (connectionClosed[0]) {
-                                    log.info("SSE 连接已关闭，跳过完成处理: roleKey={}", role.getKey());
-                                    // 仍然保存已输出的内容
-                                    String content = fullResponse.toString().trim();
-                                    if (!content.isBlank()) {
-                                        try {
-                                            saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), content);
-                                        } catch (Exception e) {
-                                            log.warn("保存部分消息失败: {}", e.getMessage());
-                                        }
-                                    }
-                                    return;
-                                }
-                                if (Thread.currentThread().isInterrupted()) return;
-                                long elapsed = System.currentTimeMillis() - startTime;
-
-                                log.info("========== 圆桌派单角色发言完成 ==========");
-                                log.info("roleKey={}, 耗时: {}ms", role.getKey(), elapsed);
-                                log.info("==========================================");
-
-                                // ====== 关键修复：先保存消息到数据库，再发送 SSE done 事件 ======
-                                // 这样前端收到 done 后调用 getNextSpeaker 时，消息已在数据库中
-                                String content = fullResponse.toString().trim();
-                                if (!content.isBlank()) {
-                                    saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), content);
-                                    updateSessionTimestamp(request.getSessionId());
-
-                                    // 同步压缩历史（确保下次查询时已有压缩内容）
-                                    try {
-                                        compressHistoryIfNeeded(userId, request.getSessionId(), 0);
-                                    } catch (Exception e) {
-                                        log.warn("压缩圆桌派历史失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
-                                    }
-                                }
-
-                                // 先发送 done 事件，让前端立即可以请求下一轮
-                                try {
-                                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                                    emitter.complete();
-                                } catch (Exception e) {
-                                    log.warn("发送 SSE done 事件失败: {}", e.getMessage());
-                                }
-
-                                // 异步更新覆盖度（非 HOST 发言后也更新，确保 HOST 下次发言时数据最新）
-                                // 放在 done 之后，避免阻塞 SSE 完成
-                                if (!"HOST".equals(role.getKey()) && !content.isBlank()) {
-                                    try {
-                                        coverageService.updateCoverage(request.getSessionId(), false);
-                                    } catch (Exception e) {
-                                        log.warn("覆盖度更新失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
-                                    }
-                                }
-
-                                int apiInputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
-                                        ? completeResponse.tokenUsage().inputTokenCount() : 0;
-                                int apiOutputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
-                                        ? completeResponse.tokenUsage().outputTokenCount() : 0;
-
-                                CommonUtils.logAiCall("圆桌派发言", elapsed, apiInputTokens, apiOutputTokens,
-                                        String.format("bookId=%d, roleKey=%s", bookId, role.getKey()));
-                            }
-
-                            @Override
-                            public void onError(Throwable error) {
-                                if (streamingHandle != null && streamingHandle.isCancelled()) return;
-                                log.error("圆桌派单角色发言异常: bookId={}, roleKey={} - {}", bookId, role.getKey(), error.getMessage(), error);
-                                SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(error));
+                            try {
+                                compressHistoryIfNeeded(userId, request.getSessionId(), 0);
+                            } catch (Exception e) {
+                                log.warn("压缩圆桌派历史失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
                             }
                         }
-                );
+
+                        // 异步更新覆盖度
+                        if (!"HOST".equals(role.getKey()) && !content.isBlank()) {
+                            try {
+                                coverageService.updateCoverage(request.getSessionId(), false);
+                            } catch (Exception e) {
+                                log.warn("覆盖度更新失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
+                            }
+                        }
+
+                        int apiInputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
+                                ? completeResponse.tokenUsage().inputTokenCount() : 0;
+                        int apiOutputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
+                                ? completeResponse.tokenUsage().outputTokenCount() : 0;
+
+                        CommonUtils.logAiCall("圆桌派发言", elapsed, apiInputTokens, apiOutputTokens,
+                                String.format("bookId=%d, roleKey=%s", bookId, role.getKey()));
+                    }
+
+                    @Override
+                    public void onConnectionClosed(String partialContent) {
+                        if (!partialContent.isBlank()) {
+                            try {
+                                saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), partialContent);
+                            } catch (Exception e) {
+                                log.warn("保存部分消息失败: {}", e.getMessage());
+                            }
+                        }
+                    }
+                });
 
             } catch (Exception e) {
                 if (Thread.currentThread().isInterrupted()) return;
