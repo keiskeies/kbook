@@ -41,9 +41,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ChatModelFactory {
 
-    /** AI 模型配置属性（仅剩 vision 视觉模型配置） */
-    private final AiModelProperties aiProps;
-
     /** AI 提供商配置仓库 */
     private final AiProviderConfigRepository configRepository;
 
@@ -127,34 +124,24 @@ public class ChatModelFactory {
     /**
      * 构建视觉模型（用于 OCR/PDF 处理）。
      * <p>
-     * 使用 kbook.ai.vision 配置中的模型名称和超时时间，
-     * baseUrl 则从 CHAT-QA 配置中获取。
+     * 直接复用 CHAT-QA 配置（支持 Ollama / OpenAI 兼容多模态模型），
+     * 关闭思考过程、使用低温度以提高 OCR 准确率。
      *
      * @return 聊天模型实例，已包装重试机制
      */
     public ChatModel buildVisionChatModel() {
-        AiModelProperties.VisionConfig vision = aiProps.getVision();
-        String modelName = (vision.getModelName() != null && !vision.getModelName().isBlank())
-                ? vision.getModelName() : null;
+        AiProviderConfig qaConfig = resolveQaConfig();
+        Duration timeout = Duration.ofSeconds(600);
+        double temperature = 0.3;
 
-        // 获取 baseUrl：优先从 QA 配置获取（视觉模型通常使用同一台服务器的推理端点）
-        String baseUrl = getDefaultBaseUrl();
+        log.info("构建 OCR 视觉 ChatModel (from QA): provider={}, model={}, baseUrl={}, thinking=false",
+                qaConfig.getProvider(), qaConfig.getModelName(), qaConfig.getBaseUrl());
 
-        if (modelName == null || modelName.isBlank()) {
-            // 未配置 vision 专用模型时，使用 QA 配置的模型
-            AiProviderConfig qaConfig = resolveQaConfig();
-            modelName = qaConfig.getModelName();
-            log.info("未配置专用视觉模型，使用 QA 模型: baseUrl={}, model={}", baseUrl, modelName);
-        }
-
-        Duration timeout = vision.getTimeout() != null ? vision.getTimeout() : Duration.ofSeconds(600);
-        log.info("构建 OCR 视觉 ChatModel (Ollama): baseUrl={}, model={}, timeout={}s",
-                baseUrl, modelName, timeout.getSeconds());
-        return wrap(OllamaChatModel.builder()
-                .baseUrl(baseUrl).modelName(modelName)
-                .temperature(0.3).timeout(timeout)
-                .customHeaders(AiModelProperties.UTF8_HEADERS)
-                .build());
+        return qaConfig.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? wrap(buildOpenAiChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
+                        temperature, timeout, qaConfig.getApiKey(), false))
+                : wrap(buildOllamaChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
+                        temperature, timeout, false));
     }
 
     /**
