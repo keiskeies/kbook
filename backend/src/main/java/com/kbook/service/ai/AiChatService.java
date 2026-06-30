@@ -1,5 +1,6 @@
 package com.kbook.service.ai;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.entity.AiConversation;
@@ -47,18 +48,21 @@ public class AiChatService {
     private final AiProviderConfigService providerConfigService;
     private final AiChatMemory chatMemoryStore;
     private final ExecutorService sseExecutor;
+    private final ObjectMapper objectMapper;
 
     public AiChatService(
             AiConversationRepository conversationRepository,
             AiSessionRepository sessionRepository,
             AiProviderConfigService providerConfigService,
             AiChatMemory chatMemoryStore,
-            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+            @Qualifier("sseExecutor") ExecutorService sseExecutor,
+            ObjectMapper objectMapper) {
         this.conversationRepository = conversationRepository;
         this.sessionRepository = sessionRepository;
         this.providerConfigService = providerConfigService;
         this.chatMemoryStore = chatMemoryStore;
         this.sseExecutor = sseExecutor;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -207,8 +211,7 @@ public class AiChatService {
                                 // 如果有书籍工具调用结果，发送 book_map 事件
                                 try {
                                     if (ctx.hasBooks()) {
-                                        String bookMapJson = new com.fasterxml.jackson.databind.ObjectMapper()
-                                                .writeValueAsString(ctx.getBookMap());
+                                        String bookMapJson = objectMapper.writeValueAsString(ctx.getBookMap());
                                         emitter.send(SseEmitter.event().name("book_map").data(bookMapJson));
                                         log.debug("下发 book_map: {} 本书", ctx.getBookMap().size());
                                     }
@@ -251,8 +254,7 @@ public class AiChatService {
                                 CommonUtils.logAiCall("流式对话(连接重置)", elapsed, 0, 0, text);
                                 try {
                                     if (ctx.hasBooks()) {
-                                        String bookMapJson = new com.fasterxml.jackson.databind.ObjectMapper()
-                                                .writeValueAsString(ctx.getBookMap());
+                                        String bookMapJson = objectMapper.writeValueAsString(ctx.getBookMap());
                                         emitter.send(SseEmitter.event().name("book_map").data(bookMapJson));
                                     }
                                     emitter.send(SseEmitter.event().name("done").data("[DONE]"));

@@ -8,7 +8,10 @@ import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
-import com.kbook.service.recommend.RecommendMatchCalculator;
+import com.kbook.service.ai.core.ChatHistoryCompressor;
+import com.kbook.service.ai.core.UserProfileBuilder;
+import com.kbook.service.ai.core.ExternalKnowledgeGenerator;
+import com.kbook.service.book.BookMetadataInferrer;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -20,8 +23,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.time.LocalDate;
-import java.time.Period;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -52,6 +53,10 @@ public class ChatModelManager {
     private final ChatModelFactory chatModelFactory;
     private final ObjectMapper objectMapper;
     private final AiConfigProvider aiConfigProvider;
+    private final UserProfileBuilder userProfileBuilder;
+    private final ChatHistoryCompressor chatHistoryCompressor;
+    private final BookMetadataInferrer bookMetadataInferrer;
+    private final ExternalKnowledgeGenerator externalKnowledgeGenerator;
 
     private static final int SPEED_READ_CONTENT_LIMIT = 15000;
 
@@ -159,51 +164,14 @@ public class ChatModelManager {
      * @return 压缩后的内容，无需压缩或失败时返回 null
      */
     public String compressContent(String original) {
-        // 如果内容为空或已足够短，直接返回原内容
-        if (original == null || original.length() <= 200) return original;
-        try {
-            // 调用 AI 进行内容压缩，系统提示词与动态内容分离以复用 KV Cache
-            return callAi("历史压缩", String.format("%d→? chars", original.length()),
-                    chatModelFactory::buildToolChatModel,
-                    List.of(
-                            SystemMessage.from("将以下内容压缩到200字以内，保留核心观点、关键论据和信息。"),
-                            UserMessage.from(original)));
-        } catch (Exception e) {
-            // 压缩失败不影响主流程，返回 null 由调用方处理
-            log.warn("调用 AI 压缩内容失败: {}", e.getMessage());
-            return null;
-        }
+        return chatHistoryCompressor.compressContent(original);
     }
 
     /**
      * 圆桌派讨论历史压缩 — 保留发言者的态度、论点、问题和情绪方向
      */
     public String compressRoundTableContent(String original) {
-        if (original == null || original.length() <= 200) return original;
-        try {
-            return callAi("圆桌派历史压缩", String.format("%d→? chars", original.length()),
-                    chatModelFactory::buildToolChatModel,
-                    List.of(
-                            SystemMessage.from("""
-                                    将以下圆桌派讨论发言压缩到200字以内。
-
-                                    【必须保留】
-                                    1. 发言者的核心论点（用一句话概括）
-                                    2. 具体论据或例子（保留1-2个关键的）
-                                    3. 提出的问题或挑战（如果有的话）
-                                    4. 情绪方向（支持/反对/质疑/追问等）
-
-                                    【禁止】
-                                    - 禁止变成干巴巴的要点列表
-                                    - 禁止丢失发言者的态度和立场
-                                    - 禁止删掉提出的问题
-
-                                    用一段话概括，保留发言的"味道"，让读者能感受到这个人说了什么、态度是什么。"""),
-                            UserMessage.from(original)));
-        } catch (Exception e) {
-            log.warn("调用 AI 压缩圆桌派内容失败: {}", e.getMessage());
-            return null;
-        }
+        return chatHistoryCompressor.compressRoundTableContent(original);
     }
 
     /**
@@ -216,42 +184,7 @@ public class ChatModelManager {
      * @param content 书籍内容文本（会被截断到 2000 字以内）
      */
     public void inferMetadataFromContent(Book book, String content) {
-        try {
-            String prompt = "根据以下书籍内容，推断并提取以下信息，以JSON格式返回：\n" +
-                    "- author: 作者名（如果内容中能看出来，否则填 null）\n" +
-                    "- description: 简短的内容简介（50-200字，概括书籍主题和内容，如果内容中自带简介则提取原简介）\n" +
-                    "只返回JSON，不要其他文字。\n\n" +
-                    "书籍内容：\n" + CommonUtils.truncateText(content, SPEED_READ_CONTENT_LIMIT);
-
-            // 调用 AI 推断元数据，使用专用的系统提示词
-            String result = callAi("元数据推断", "TXT/PDF 元数据推断",
-                    chatModelFactory::buildToolChatModel,
-                    List.of(SystemMessage.from(AiPromptConstants.BOOK_INFO_EXTRACT_SYSTEM_PROMPT),
-                            UserMessage.from(prompt)));
-            // 移除 AI 响应中的代码围栏
-            result = CommonUtils.stripCodeFence(result);
-            if (result != null) {
-                // 解析 JSON 响应
-                var node = objectMapper.readTree(result);
-
-                if ((book.getAuthor() == null || book.getAuthor().isBlank())
-                        && node.has("author") && !node.get("author").isNull()) {
-                    String author = node.get("author").asText().trim();
-                    if (!author.isBlank() && !"null".equalsIgnoreCase(author)) {
-                        book.setAuthor(author);
-                    }
-                }
-
-                if (node.has("description") && !node.get("description").isNull()) {
-                    String desc = node.get("description").asText().trim();
-                    if (!desc.isBlank() && !"null".equalsIgnoreCase(desc)) {
-                        book.setDescription(desc);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("从内容推断元数据失败: {} - {}", book.getTitle(), e.getMessage());
-        }
+        bookMetadataInferrer.infer(book, content);
     }
 
     /**
@@ -274,7 +207,7 @@ public class ChatModelManager {
         }
 
         // 构建用户画像和书籍信息作为上下文
-        String userProfileDesc = buildUserProfileDesc(user);
+            String userProfileDesc = userProfileBuilder.build(user);
         String bookInfo = buildSpeedReadContent(book);
 
         try {
@@ -589,6 +522,13 @@ public class ChatModelManager {
         return chatModelFactory.buildStreamingChatModelWithoutThinking();
     }
 
+    /**
+     * 获取 ChatModelFactory 实例（供 core/ 包内的组件使用）。
+     */
+    public ChatModelFactory chatModelFactory() {
+        return chatModelFactory;
+    }
+
 
 
     /**
@@ -611,7 +551,7 @@ public class ChatModelManager {
 
             // 构建书籍内容和用户画像
             String bookContent = buildSpeedReadContent(book);
-            String userProfileDesc = buildUserProfileDesc(user);
+            String userProfileDesc = userProfileBuilder.build(user);
 
             // 固定角色 + 格式指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
             String systemPrompt = """
@@ -724,72 +664,6 @@ public class ChatModelManager {
             log.warn("流式速读摘要异常: bookId={} - {}", book.getId(), e.getMessage());
             SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
         }
-    }
-
-    /**
-     * 构建用户画像描述文本，用于个性化 AI 推荐。
-     *
-     * <p>从用户实体中提取年龄、性别、婚姻状况、子女信息、MBTI、职业、
-     * 期望学历、创业意向、期望收入、阅读意图和心情等信息，
-     * 格式化为结构化文本供 AI 模型使用。</p>
-     *
-     * @param user 用户实体（可为 null）
-     * @return 用户画像描述文本，用户为 null 时返回空字符串
-     */
-    public static String buildUserProfileDesc(User user) {
-        // 用户为 null 时返回空字符串
-        if (user == null) return "";
-        StringBuilder profileBuilder = new StringBuilder();
-        // 计算年龄
-        if (user.getBirthday() != null) {
-            int age = Period.between(user.getBirthday(), LocalDate.now()).getYears();
-            profileBuilder.append("年龄：").append(age).append("岁\n");
-        }
-        if (user.getGender() != null) {
-            profileBuilder.append("性别：").append(switch (user.getGender()) {
-                case "MALE" -> "男";
-                case "FEMALE" -> "女";
-                default -> "其他";
-            }).append("\n");
-        }
-        if (user.getMarried() != null) {
-            profileBuilder.append("婚姻：").append(user.getMarried() ? "已婚" : "未婚").append("\n");
-        }
-        if (user.getChildrenAgeRanges() != null && !user.getChildrenAgeRanges().isBlank()) {
-            String labels = java.util.Arrays.stream(user.getChildrenAgeRanges().split(","))
-                    .map(String::trim)
-                    .map(RecommendMatchCalculator::getChildRangeLabel)
-                    .collect(java.util.stream.Collectors.joining("、"));
-            profileBuilder.append("子女年龄段：").append(labels).append("\n");
-        } else if (user.getHasChildren() != null) {
-            profileBuilder.append("子女：").append(user.getHasChildren() ? "有孩子" : "无孩子").append("\n");
-        }
-        if (user.getMbti() != null) {
-            profileBuilder.append("MBTI：").append(user.getMbti()).append("\n");
-        }
-        if (user.getOccupation() != null && !user.getOccupation().isBlank()) {
-            profileBuilder.append("职业：").append(RecommendMatchCalculator.getOccupationLabel(user.getOccupation())).append("\n");
-        }
-        if (user.getAspirationEducation() != null) {
-            profileBuilder.append("期望学历：").append(RecommendMatchCalculator.getEducationLabel(user.getAspirationEducation())).append("\n");
-        }
-        if (user.getEntrepreneurship() != null) {
-            profileBuilder.append("创业意向：").append(RecommendMatchCalculator.getEntrepreneurshipLabel(user.getEntrepreneurship())).append("\n");
-        }
-        if (user.getAspirationIncome() != null) {
-            profileBuilder.append("期望年收入：").append(RecommendMatchCalculator.getAnnualIncomeLabel(user.getAspirationIncome())).append("\n");
-        }
-        if (user.getMood() != null && !user.getMood().isBlank()) {
-            String moodRaw = user.getMood();
-            int pipeIdx = moodRaw.indexOf('|');
-            if (pipeIdx > 0) {
-                String intentKey = moodRaw.substring(0, pipeIdx);
-                String moodKey = moodRaw.substring(pipeIdx + 1);
-                profileBuilder.append("阅读意图：").append(RecommendMatchCalculator.getIntentLabel(intentKey)).append("\n");
-                profileBuilder.append("当前心情：").append(RecommendMatchCalculator.getMoodLabel(moodKey)).append("\n");
-            }
-        }
-        return profileBuilder.toString();
     }
 
     /**
@@ -989,28 +863,11 @@ public class ChatModelManager {
      * 为圆桌派角色生成外部知识
      */
     public String generateExternalKnowledge(String roleDomain, String topic) {
-        String logName = "外部知识生成";
-        String logDetail = "领域=" + roleDomain + ", 话题=" + topic;
-
-        List<ChatMessage> messages = List.of(
-                SystemMessage.from(AiPromptConstants.EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT),
-                UserMessage.from("角色专业领域：" + roleDomain + "\n讨论话题：" + topic));
-
-        return callAiWithoutThinking(logName, logDetail, messages);
+        return externalKnowledgeGenerator.generateForRoundTable(roleDomain, topic);
     }
 
-    /**
-     * 为奇葩说辩手生成外部知识
-     */
     public String generateDebateExternalKnowledge(String topic, String side, String stance) {
-        String logName = "辩论外部知识生成";
-        String logDetail = "辩题=" + topic + ", 立场=" + side;
-
-        List<ChatMessage> messages = List.of(
-                SystemMessage.from(AiPromptConstants.DEBATE_EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT),
-                UserMessage.from("辩题：" + topic + "\n立场：" + side + "\n辩手视角：" + stance));
-
-        return callAiWithoutThinking(logName, logDetail, messages);
+        return externalKnowledgeGenerator.generateForDebate(topic, side, stance);
     }
 
     public String callAiForLlmOutline(String contentInfo, int minBlocks, int maxBlocks) {

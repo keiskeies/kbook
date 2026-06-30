@@ -1,5 +1,6 @@
 package com.kbook.service.ai;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.service.user.UserService;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
@@ -85,6 +86,7 @@ public class BookChatService {
     private final UserService userService;
     private final AiConfigProvider aiConfigProvider;
     private final ExecutorService sseExecutor;
+    private final ObjectMapper objectMapper;
 
     public BookChatService(
             EmbeddingService embeddingService,
@@ -101,6 +103,7 @@ public class BookChatService {
             BookQuestionGenService questionGenService,
             UserService userService,
             AiConfigProvider aiConfigProvider,
+            ObjectMapper objectMapper,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -116,6 +119,7 @@ public class BookChatService {
         this.questionGenService = questionGenService;
         this.userService = userService;
         this.aiConfigProvider = aiConfigProvider;
+        this.objectMapper = objectMapper;
         this.sseExecutor = sseExecutor;
     }
 
@@ -131,7 +135,7 @@ public class BookChatService {
         }
 
         try {
-            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            var mapper = objectMapper;
             var tags = mapper.readValue(book.getFormatTags(), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {
             });
             return BookTagQuestions.getQuestions(tags);
@@ -934,8 +938,7 @@ public class BookChatService {
             for (int i = records.size() - 1; i >= 0; i--) {
                 AiConversation record = records.get(i);
                 if ("assistant".equals(record.getRole()) && record.getFollowUpQuestions() == null) {
-                    String json = new com.fasterxml.jackson.databind.ObjectMapper()
-                            .writeValueAsString(questions);
+                    String json = objectMapper.writeValueAsString(questions);
                     record.setFollowUpQuestions(json);
                     conversationRepository.save(record);
                     return;

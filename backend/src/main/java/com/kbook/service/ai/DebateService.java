@@ -78,7 +78,7 @@ public class DebateService {
     private final ExecutorService sseExecutor;
     private final BookRepository bookRepository;
     private final DebateScoreRepository debateScoreRepository;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     private static final String DEBATE_SESSION_KEY_PREFIX = "kbook:debate:session:";
     private static final String DEBATE_TOPICS_KEY_PREFIX = "kbook:debate:topics:";
@@ -96,6 +96,7 @@ public class DebateService {
             ReadingProgressService readingProgressService,
             AiConfigProvider aiConfigProvider,
             @Qualifier("sseExecutor") ExecutorService sseExecutor,
+            ObjectMapper objectMapper,
             @Lazy BookRepository bookRepository,
             @Lazy DebateScoreRepository debateScoreRepository) {
         this.bookService = bookService;
@@ -107,6 +108,7 @@ public class DebateService {
         this.readingProgressService = readingProgressService;
         this.aiConfigProvider = aiConfigProvider;
         this.sseExecutor = sseExecutor;
+        this.objectMapper = objectMapper;
         this.bookRepository = bookRepository;
         this.debateScoreRepository = debateScoreRepository;
     }

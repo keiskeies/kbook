@@ -100,6 +100,7 @@ public class RoundTableService {
             ReadingProgressService readingProgressService,
             AiConfigProvider aiConfigProvider,
             @Qualifier("sseExecutor") ExecutorService sseExecutor,
+            ObjectMapper objectMapper,
             @Lazy BookRepository bookRepository,
             @Lazy RoundTableCoverageRepository roundTableCoverageRepository) {
         this.embeddingService = embeddingService;
@@ -114,6 +115,7 @@ public class RoundTableService {
         this.readingProgressService = readingProgressService;
         this.aiConfigProvider = aiConfigProvider;
         this.sseExecutor = sseExecutor;
+        this.objectMapper = objectMapper;
         this.bookRepository = bookRepository;
         this.roundTableCoverageRepository = roundTableCoverageRepository;
     }
@@ -121,7 +123,7 @@ public class RoundTableService {
     /**
      * JSON 序列化
      */
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     /**
      * 默认上下文长度（32K tokens）

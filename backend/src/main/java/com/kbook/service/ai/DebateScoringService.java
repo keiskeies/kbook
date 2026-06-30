@@ -38,17 +38,19 @@ public class DebateScoringService {
     private final DebateScoreRepository scoreRepository;
     private final DebateMessageRepository messageRepository;
     private final DebateSessionRepository sessionRepository;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     public DebateScoringService(
             ChatModelManager chatModelManager,
             DebateScoreRepository scoreRepository,
             DebateMessageRepository messageRepository,
-            DebateSessionRepository sessionRepository) {
+            DebateSessionRepository sessionRepository,
+            ObjectMapper objectMapper) {
         this.chatModelManager = chatModelManager;
         this.scoreRepository = scoreRepository;
         this.messageRepository = messageRepository;
         this.sessionRepository = sessionRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
