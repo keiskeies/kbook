@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Settings, ChevronRight, LogOut, Sparkles, Camera, Book, Users, Bot, Volume2, Mail } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Sparkles, Camera, Book, Users, Bot, Volume2, Mail, BarChart3 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
 import { useNavigate } from 'react-router-dom'
@@ -105,6 +105,7 @@ export default function ProfilePage() {
   }
 
   const adminMenuItems = [
+    { label: '数据看板', icon: BarChart3, path: ROUTES.ADMIN_DASHBOARD },
     { label: '图书管理', icon: Book, path: ROUTES.ADMIN_BOOKS },
     { label: '用户审核', icon: Users, path: ROUTES.ADMIN_REVIEW },
     { label: 'AI 配置', icon: Bot, path: ROUTES.ADMIN_AI_CONFIG },

@@ -20,6 +20,7 @@ export const ROUTES = {
   NOTIFICATIONS: '/notifications',
   USER_PROFILE: '/user/:userId',
   ADMIN: '/admin',
+  ADMIN_DASHBOARD: '/admin/dashboard',
   ADMIN_REVIEW: '/admin/review',
   ADMIN_BIND_EMAIL: '/admin/bind-email',
   ADMIN_BOOKS: '/admin/books',

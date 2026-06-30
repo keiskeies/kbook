@@ -11,6 +11,7 @@ const LoginPage = lazy(() => import('@/pages/auth/login'))
 const RegisterPage = lazy(() => import('@/pages/auth/register'))
 const ResetPasswordPage = lazy(() => import('@/pages/auth/reset-password'))
 const ChangePasswordPage = lazy(() => import('@/pages/auth/change-password'))
+const AdminDashboardPage = lazy(() => import('@/pages/admin/dashboard'))
 const AdminReviewPage = lazy(() => import('@/pages/admin/review'))
 const AdminBindEmailPage = lazy(() => import('@/pages/admin/bind-email'))
 const AdminBooksPage = lazy(() => import('@/pages/admin/books'))
@@ -58,6 +59,7 @@ export const router = createBrowserRouter([
       { path: ROUTES.TERMS, element: <LazyLoad><TermsPage /></LazyLoad> },
       { path: ROUTES.PRIVACY, element: <LazyLoad><PrivacyPage /></LazyLoad> },
       { path: '/onboarding', element: <LazyLoad><OnboardingPage /></LazyLoad> },
+      { path: ROUTES.ADMIN_DASHBOARD, element: <AdminGuard><LazyLoad><AdminDashboardPage /></LazyLoad></AdminGuard> },
       { path: ROUTES.ADMIN_REVIEW, element: <AdminGuard><LazyLoad><AdminReviewPage /></LazyLoad></AdminGuard> },
       { path: ROUTES.ADMIN_BIND_EMAIL, element: <AdminGuard><LazyLoad><AdminBindEmailPage /></LazyLoad></AdminGuard> },
       { path: ROUTES.ADMIN_BOOKS, element: <AdminGuard><LazyLoad><AdminBooksPage /></LazyLoad></AdminGuard> },
