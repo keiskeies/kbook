@@ -654,15 +654,14 @@ public class BookChatService {
         StringBuilder sb = new StringBuilder();
 
         if (!ragContext.isBlank()) {
-            sb.append("【书籍参考内容】（以下是从原著中检索到的与问题相关的片段）\n");
+            sb.append("【书籍参考内容】（以下是从原著中检索到的与问题相关的片段，不是全书完整内容）\n");
             sb.append(ragContext);
         } else {
-            sb.append("【注意】未从原著中检索到直接相关的内容片段，请根据书籍基本信息谨慎回答。\n");
+            sb.append("【注意】未检索到与问题直接相关的内容片段，请仅根据上方「当前讨论的书籍」基本信息回答。\n");
         }
 
         sb.append("\n【读者的问题】\n").append(question);
-
-        sb.append("\n\n【重要提醒】请用中文直接回答上述问题，不要翻译、分类或解释参考片段。绝对不要直接引用或复述书中的原文内容，而是用自己的语言概括和转述书中的观点、情节和信息。");
+        sb.append("\n\n请根据上述内容，用中文回答。【回答铁律】已在上方告知，请严格遵守。");
 
         String prompt = sb.toString();
 

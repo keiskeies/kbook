@@ -216,25 +216,9 @@ public class ChatModelManager {
         String bookInfo = buildSpeedReadContent(book);
 
         try {
-            // 固定指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
-            String systemPrompt = """
-                    你正在和读者讨论一本书。根据图书基本信息、读者画像和上轮问答，审视你刚才的回答，找出其中3个最可能引发这位读者追问的逻辑缝隙，将其转化为问题。逻辑缝隙包括但不限于：
-                    - 你说了一个结论，但没有给出这个结论成立的条件或前提
-                    - 你使用了一个关键概念，但它的含义在语境中可能被误解
-                    - 你的论证存在一个隐含的预设，这个预设本身是可以被质疑的
-                    - 你提出了一个判断，但没有说明它适用的边界或反例
-                    
-                    要求：
-                    - 每个问题直接指向回答中的具体逻辑点，不是泛泛的延伸讨论
-                    - 问题要贴合读者的背景和处境，能引发他的共鸣或思考
-                    - 问题要与本书内容紧密相关，不要偏离书籍主题
-                    - 问题的提问对象是你这个AI，问题本身你必须能回答
-                    - 每行一个，不超25字，无序号
-                    """;
-
             // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像) → UserMessage(上轮问答)
             List<ChatMessage> messages = new ArrayList<>();
-            messages.add(SystemMessage.from(systemPrompt));
+            messages.add(SystemMessage.from(AiPromptConstants.FOLLOW_UP_QUESTION_SYSTEM_PROMPT));
             messages.add(UserMessage.from("【图书信息】\n" + bookInfo));
             if (!userProfileDesc.isBlank()) {
                 messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc));
@@ -282,31 +266,7 @@ public class ChatModelManager {
             String bookContext = buildSpeedReadContent(book);
 
             // 固定指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
-            String systemPrompt = """
-                    你是一个向量检索查询生成器。将用户问题拆解为多个短小的检索关键词短语，每行一个。
-
-                    【拆解步骤】
-                    1. 提取问题中的核心名词
-                    2. 找出这些名词在书中可能对应的章节/主题
-                    3. 用"名词+名词"或"名词+动词"组合成5-15字的短语
-                    4. 从3个角度生成：核心概念、相关主题、上下位概念
-
-                    【硬性要求】
-                    - 每个短语必须≤15字
-                    - 短语必须是名词性词组，不要完整句子
-                    - 短语必须像"书中某个章节的小标题"
-                    - 禁止使用"的关系""的影响""的作用"等学术后缀
-                    - 禁止出现用户原话中的口语化表达
-
-                    【宏观问题】当用户问全书性问题（"讲了什么""核心观点"等）：
-                    - 从目录中提取每个章节的核心主题词
-
-                    【具体问题】当用户问具体问题时：
-                    - 问题中的核心概念
-                    - 问题涉及的书中相关章节主题
-                    - 问题的上位/下位概念
-
-                    只输出短语，每行一个，不带序号、引号、解释。""";
+            String systemPrompt = AiPromptConstants.EXPAND_QUERY_SYSTEM_PROMPT;
 
             // 消息顺序：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(动态上下文+问题)
             List<ChatMessage> messages = new ArrayList<>();
@@ -354,18 +314,7 @@ public class ChatModelManager {
     public List<String> expandVectorSearchQuery(String query) {
         try {
             // 系统提示词（固定，可复用 KV Cache）
-            String systemPrompt = """
-                    你是一个图书搜索查询扩展器。用户输入了口语化的搜索词，你的任务是推断用户真正的阅读需求，从多个维度生成检索关键词。
-                    
-                    关键原则：不要改写或解释用户的原话，而是思考——一个有这种需求的人，真正需要读什么书？从哪些不同方向能找到能满足他的书？
-                    
-                    规则：
-                    1. 生成3-5个不同维度的关键词短语，每行一个
-                    2. 每个短语2-8个字，简洁精准
-                    3. 各关键词覆盖不同维度，有本质差异，避免同义重复
-                    4. 关键词应是书籍标签、分类或简介中可能出现的短语
-                    5. 只输出关键词，不要序号、引号或任何额外文字
-                    """;
+            String systemPrompt = AiPromptConstants.EXPAND_VECTOR_SEARCH_SYSTEM_PROMPT;
 
             // 动态内容（用户查询）作为 UserMessage
             List<ChatMessage> chatMessages = List.of(
@@ -432,26 +381,7 @@ public class ChatModelManager {
                 input.append("\n【章节原文摘录】\n").append(book.getChapterSummary()).append("\n");
             }
 
-            String systemPrompt = """
-                    你是一位专业的图书编辑。请根据提供的图书信息，生成一份精炼的结构化摘要。
-                    
-                    要求：
-                    1. 精炼高于简短：不设字数上限，但每个字都要有价值，不废话
-                    2. 保留所有关键信息：核心论点、论证思路、重要概念、章节脉络
-                    3. 结构化输出：
-                    
-                    【一句话概括】用一句话概括本书的核心内容（≤100字）
-                    
-                    【核心论点】列出 3-5 个核心论点或观点，每条用 1-2 句话说明
-                    
-                    【章节脉络】按目录顺序，说明各主要章节/部分的核心内容及其关系（每章一句话）
-                    
-                    【关键概念】列出书中重要的术语、概念及其简要定义
-                    
-                    【独特贡献】本书在该领域中的独特贡献或与同类书的差异（如有）
-                    
-                    【适合读者】适合什么样的读者阅读
-                    """;
+            String systemPrompt = AiPromptConstants.COMPRESSED_SUMMARY_SYSTEM_PROMPT;
 
             // 动态内容（图书信息）作为 UserMessage
             List<ChatMessage> chatMessages = List.of(
@@ -552,45 +482,7 @@ public class ChatModelManager {
             String userProfileDesc = userProfileBuilder.build(user);
 
             // 固定角色 + 格式指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
-            String systemPrompt = """
-                    你是一位资深阅读顾问。请基于书籍信息和读者画像，生成一份「3分钟速读」摘要，帮助读者快速判断这本书是否值得阅读。
-                    
-                    请严格按照以下格式输出，每个标题占一行，标题下的每条内容各占一行：
-                    
-                    ### 难度
-                    入门/中等/进阶
-                    
-                    ### 核心观点
-                    xxxxx
-                    xxxxx
-                    xxxxx
-                    xxxxx
-                    
-                    ### 适合谁读
-                    xxxxx
-                    xxxxx
-                    xxxxx
-                    
-                    ### 不适合谁读
-                    xxxxx
-                    xxxxx
-                    xxxxx
-                    
-                    ### 读完能收获什么
-                    xxxxx
-                    xxxxx
-                    xxxxx
-                    
-                    要求：
-                    - 难度: 根据内容深度判断阅读难度，只输出"入门"、"中等"或"进阶"。
-                    - 核心观点: 3-10个最核心的观点或主题，每个不超过30字，**直接输出内容文字，不加任何序号、编号、前缀符号**。如提供读者画像，请突出与其最相关的内容。
-                    - 适合谁读: 2-3类最适合阅读的人群描述，**每条直接输出，不加序号、编号、符号前缀**。如提供读者画像，请特别说明为什么适合这位读者。
-                    - 不适合谁读: 2-3类不适合阅读的人群描述，**每条直接输出，不加序号、编号、符号前缀**。
-                    - 读完能收获什么: 2-3个读完能获得的具体收获，**每条直接输出，不加序号、编号、符号前缀**。如提供读者画像，请结合其职业和人生阶段给出个性化收获。
-                    - **绝对禁止**：不要使用任何序号（如1. 2. 3.）、编号、列表符号（如-、*、）、前缀字符，每条内容必须是纯自然段落文字。
-                    - 不要输出任何其他内容，不要使用Markdown加粗或列表符号。
-                    - 每个标题占一行，标题下的每条内容各占一行
-                    """;
+            String systemPrompt = AiPromptConstants.SPEED_READ_SYSTEM_PROMPT;
 
             // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像)
             List<ChatMessage> messages = new ArrayList<>();
@@ -773,7 +665,7 @@ public class ChatModelManager {
      */
     public String callAiForRoleSelectionFallback(long bookId, String bookTitle, String bookInfo, String roleList) {
         return callAi("圆桌派角色推荐(回退)", String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
-                SystemMessage.from("根据提供的书籍信息，从角色列表中选出最适合参与讨论的4-6个角色（不含HOST）。只输出角色key，用逗号分隔，不要输出任何解释。"),
+                SystemMessage.from(AiPromptConstants.ROLE_SELECTION_FALLBACK_SYSTEM_PROMPT),
                 UserMessage.from("角色列表：" + roleList + "\n\n书籍信息：\n" + bookInfo)));
     }
 
@@ -782,15 +674,7 @@ public class ChatModelManager {
      */
     public String callAiForRoleSearchQuery(String roleKey, String bookTitle, String roleName,
                                             String roleTitle, String roleKeywords, String recentDiscussion) {
-        String systemPrompt = """
-                你是一个检索查询生成器。请根据提供的信息，生成一段用于在书中检索相关段落的查询文本。
-
-                要求：
-                1. 查询应该从该角色的专业视角出发，结合角色关注的关键词
-                2. 查询要紧扣当前讨论话题，让检索结果能帮助该角色发表有深度的观点
-                3. 只输出查询文本本身，不要输出任何解释或前缀
-                4. 查询长度控制在30-80字
-                """;
+        String systemPrompt = AiPromptConstants.ROLE_SEARCH_QUERY_SYSTEM_PROMPT;
 
         String userPrompt = String.format("""
                 【图书】%s
@@ -829,21 +713,7 @@ public class ChatModelManager {
     }
 
     public String callAiForLlmOutline(String contentInfo, int minBlocks, int maxBlocks) {
-        String systemPrompt = String.format("""
-                你是一个书籍内容分析专家。请根据提供的图书信息，生成该书的内容大纲。
-
-                要求：
-                1. 将全书内容划分为 %d-%d 个主题块
-                2. 每个块要有「标题」和「一句话摘要」
-                3. 标题要能反映该块的内容主题
-                4. 输出格式为 JSON 数组，不要任何其他内容
-
-                输出格式：
-                [
-                  {"title": "标题1", "summary": "一句话摘要"},
-                  {"title": "标题2", "summary": "一句话摘要"}
-                ]
-                """, minBlocks, maxBlocks);
+        String systemPrompt = String.format(AiPromptConstants.LLM_OUTLINE_SYSTEM_PROMPT_TEMPLATE, minBlocks, maxBlocks);
 
         return callAi("圆桌派覆盖度评估", "LLM大纲生成", List.of(
                 SystemMessage.from(systemPrompt),
