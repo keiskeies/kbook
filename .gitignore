@@ -13,6 +13,7 @@ target/
 .codegraph/
 .trae/
 
+
 # 环境变量（生产）
 .env
 .env.production
@@ -35,4 +36,4 @@ package/
 deploy/.env
 deploy/docker/.env
 reasonix.toml
-
+.bug

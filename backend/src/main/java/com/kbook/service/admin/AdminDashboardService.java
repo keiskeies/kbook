@@ -287,7 +287,7 @@ public class AdminDashboardService {
     private long getTokensBySessionType(String prefix) {
         // 圆桌和辩论的对话也存在 ai_conversations 中，session_id 以 rt- 或 db- 开头
         String sql = "SELECT COALESCE(SUM(c.token_count), 0) FROM ai_conversations c " +
-                "WHERE c.token_count IS NOT NULL AND c.session_id LIKE :prefix%";
+                "WHERE c.token_count IS NOT NULL AND c.session_id LIKE CONCAT(:prefix, '%')";
         Query q = em.createNativeQuery(sql);
         q.setParameter("prefix", prefix);
         return ((Number) q.getSingleResult()).longValue();
