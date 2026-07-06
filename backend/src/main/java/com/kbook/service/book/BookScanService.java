@@ -223,7 +223,6 @@ public class BookScanService {
                 log.error("处理文件失败: {} - {}", fileName, e.getMessage(), e);
                 scanFailed++;
                 String reason = e.getMessage() != null ? e.getMessage() : "未知错误";
-                if (reason.length() > 200) reason = reason.substring(0, 200) + "...";
                 scanErrors.add(Map.of("file", fileName, "reason", reason));
             }
 

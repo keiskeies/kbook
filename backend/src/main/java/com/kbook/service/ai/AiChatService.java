@@ -200,7 +200,7 @@ public class AiChatService {
                             log.info("========== AI 流式对话响应完成 ==========");
                             log.info("耗时: {}ms", elapsed);
                             log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-                            log.info("Answer: {}", text.length() > 500 ? text.substring(0, 500) + "..." : text);
+                            log.info("Answer: {}", text);
 
                             // 记录 AI 调用日志
                             CommonUtils.logAiCall("流式对话", elapsed, apiInputTokens, apiOutputTokens, text);

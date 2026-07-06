@@ -28,7 +28,7 @@ public class DiagnosticChatListener implements ChatModelListener {
                 String text = sm.text().replaceAll("\\n", "");
                 log.info("📤 [AI 请求] SystemMessage ({}字符): {}",
                         text.length(),
-                        text.length() > 100 ? text.substring(0, 100) + "..." : text);
+                        text);
                 return;
             }
         }

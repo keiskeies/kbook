@@ -21,7 +21,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -300,6 +302,7 @@ public class ChatModelFactory {
 
     private OllamaChatModel buildOllamaChat(String baseUrl, String modelName,
                                             Double temperature, Duration timeout, boolean thinking) {
+
         return OllamaChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
@@ -307,6 +310,7 @@ public class ChatModelFactory {
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .returnThinking(thinking).think(thinking)
+                .logRequests(true)
                 .build();
     }
 
@@ -319,6 +323,7 @@ public class ChatModelFactory {
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .returnThinking(thinking).think(thinking)
+                .logRequests(true)
                 .build();
     }
 
@@ -329,8 +334,8 @@ public class ChatModelFactory {
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .reasoningEffort(thinking ? null : "none")
-                .customParameters(thinking ? null : Map.of("enable_thinking", false))
                 .returnThinking(thinking).sendThinking(thinking)
+                .logRequests(true)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
@@ -343,8 +348,8 @@ public class ChatModelFactory {
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .reasoningEffort(thinking ? null : "none")
-                .customParameters(thinking ? null : Map.of("enable_thinking", false))
                 .returnThinking(thinking).sendThinking(thinking)
+                .logRequests(true)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();

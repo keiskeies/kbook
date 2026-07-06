@@ -148,7 +148,7 @@ public class ChatModelManager {
         List<ChatMessage> result = new ArrayList<>(messages);
         for (int i = 0; i < result.size(); i++) {
             if (result.get(i) instanceof SystemMessage sysMsg) {
-                result.set(i, SystemMessage.from(sysMsg.text() + " /no_think"));
+                result.set(i, SystemMessage.from(sysMsg.text() + " \n\n /no_think"));
                 break;
             }
         }
@@ -486,10 +486,10 @@ public class ChatModelManager {
 
             // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像)
             List<ChatMessage> messages = new ArrayList<>();
-            messages.add(SystemMessage.from(systemPrompt + " /no_think"));
-            messages.add(UserMessage.from("【书籍信息】\n" + bookContent));
+            messages.add(SystemMessage.from(systemPrompt + "\n\n /no_think"));
+            messages.add(UserMessage.from("【书籍信息】\n" + bookContent + "\n\n /no_think"));
             if (!userProfileDesc.isBlank()) {
-                messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc));
+                messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc + "\n\n /no_think"));
             }
 
             long startTime = System.currentTimeMillis();

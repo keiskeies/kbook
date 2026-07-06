@@ -248,9 +248,7 @@ public class BookAuthorFillTest {
         sb.append("格式: ").append(book.getFormat()).append("\n");
 
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            String desc = book.getDescription().length() > 150
-                    ? book.getDescription().substring(0, 150) + "..."
-                    : book.getDescription();
+            String desc = book.getDescription();
             sb.append("简介: ").append(desc).append("\n");
         }
 

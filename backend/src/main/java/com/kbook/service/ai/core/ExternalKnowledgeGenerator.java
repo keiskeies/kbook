@@ -93,7 +93,7 @@ public class ExternalKnowledgeGenerator {
         List<ChatMessage> result = new ArrayList<>(messages);
         for (int i = 0; i < result.size(); i++) {
             if (result.get(i) instanceof SystemMessage sysMsg) {
-                result.set(i, SystemMessage.from(sysMsg.text() + " /no_think"));
+                result.set(i, SystemMessage.from(sysMsg.text() + " \n\n /no_think"));
                 break;
             }
         }

@@ -156,7 +156,7 @@ public class BookAdminChatService {
                             log.info("========== 管理员 AI 流式响应完成 ==========");
                             log.info("耗时: {}ms", elapsed);
                             log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-                            log.info("Answer: {}", responseText.length() > 500 ? responseText.substring(0, 500) + "..." : responseText);
+                            log.info("Answer: {}", responseText);
 
                             CommonUtils.logAiCall("管理员对话", elapsed, apiInputTokens, apiOutputTokens, responseText);
 

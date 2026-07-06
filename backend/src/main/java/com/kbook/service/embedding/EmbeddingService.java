@@ -966,8 +966,7 @@ public class EmbeddingService {
             result.put("step2_storedVector.currentModel", currentEmbeddingModelName);
             result.put("step2_storedVector.modelMatch", storedModel != null && storedModel.equals(currentEmbeddingModelName));
             result.put("step2_storedVector.textLength", storedText != null ? storedText.length() : 0);
-            result.put("step2_storedVector.textPreview", storedText != null && storedText.length() > 100
-                    ? storedText.substring(0, 100) + "..." : storedText);
+            result.put("step2_storedVector.textPreview", storedText);
 
             if (storedVector != null) {
                 result.put("step2_storedVector.vectorDim", storedVector.length);

@@ -94,13 +94,11 @@ public class ServiceLogAspect {
             if (arg == null) continue;
             if (sb.length() > 0) sb.append(", ");
             String value = arg.toString();
-            if (value.length() > 80) value = value.substring(0, 80) + "...";
             sb.append(value);
         }
 
         if (sb.length() == 0) return "";
         String s = sb.toString();
-        if (s.length() > 300) s = s.substring(0, 300) + "...";
         return s;
     }
 }

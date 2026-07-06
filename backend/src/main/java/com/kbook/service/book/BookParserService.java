@@ -878,7 +878,7 @@ public class BookParserService {
             UserMessage userMessage =
                     UserMessage.from(contents);
             SystemMessage systemMessage =
-                    SystemMessage.from(AiPromptConstants.OCR_METADATA_SYSTEM_PROMPT + " /no_think");
+                    SystemMessage.from(AiPromptConstants.OCR_METADATA_SYSTEM_PROMPT + " \n\n /no_think");
 
             ChatResponse response = chatModel.chat(List.of(systemMessage, userMessage));
             String result = response.aiMessage().text();
@@ -1698,7 +1698,7 @@ public class BookParserService {
             SystemMessage systemMessage =
                     SystemMessage.from(
                             "你是一个专业的 OCR 文字识别助手。你的唯一任务是准确识别图片中的文字内容并原样输出。" +
-                                    "不要添加任何额外的解释、总结或评论。只输出图片中出现的文字。 /no_think");
+                                    "不要添加任何额外的解释、总结或评论。只输出图片中出现的文字。 \n\n /no_think");
 
             long startTime = System.currentTimeMillis();
             ChatResponse response = chatModel.chat(List.of(systemMessage, userMessage));
