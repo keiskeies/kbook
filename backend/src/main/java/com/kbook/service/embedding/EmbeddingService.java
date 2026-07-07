@@ -1883,7 +1883,9 @@ public class EmbeddingService {
                         text = extractPayloadString(payloadMap, "text");
                     }
                     if (text != null && !text.isBlank()) {
-                        chunks.add(new ChunkInfo(text, point.getId().getNum()));
+                        Long idxLong = extractPayloadLong(payloadMap, "chunkIndex");
+                        int chunkIndex = idxLong != null ? idxLong.intValue() : -1;
+                        chunks.add(new ChunkInfo(text, point.getId().getNum(), chunkIndex));
                     }
                 }
 
@@ -1897,8 +1899,96 @@ public class EmbeddingService {
     }
 
     /**
-     * 内容分块简略信息（text + pointId），用于全量 scroll 场景
+     * 内容分块简略信息（text + pointId + chunkIndex），用于全量 scroll 场景
      */
-    public record ChunkInfo(String text, long pointId) {
+    public record ChunkInfo(String text, long pointId, int chunkIndex) {
+    }
+
+    /**
+     * 获取指定书籍的内容向量分块数（用于列表型问题 RAG 策略选择）。
+     *
+     * @param bookId 书籍 ID
+     * @return 分块数量；查询失败返回 0
+     */
+    public long countContentChunks(Long bookId) {
+        if (qdrantClient == null) return 0;
+        try {
+            Long count = qdrantClient.countAsync(
+                    qdrantProps.getContentCollection(),
+                    buildBookIdFilter(bookId),
+                    true).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            return count != null ? count : 0;
+        } catch (Exception e) {
+            log.warn("获取内容分块数失败: bookId={} - {}", bookId, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * 按 chunkIndex 范围 scroll 内容分块（用于列表型问题档 2/档 3 的邻域扩展）。
+     * 完全绕过向量相似度，只按位置范围拉取。
+     *
+     * @param bookId 书籍 ID
+     * @param minIdx 起始 chunkIndex（含）
+     * @param maxIdx 结束 chunkIndex（含）
+     * @return 范围内的内容分块（按 chunkIndex 升序）
+     */
+    public List<ChunkInfo> scrollChunksByIndexRange(Long bookId, int minIdx, int maxIdx) {
+        List<ChunkInfo> chunks = new ArrayList<>();
+        if (qdrantClient == null) {
+            log.warn("QdrantClient 未初始化，跳过 scrollChunksByIndexRange: bookId={}", bookId);
+            return chunks;
+        }
+        if (minIdx > maxIdx) return chunks;
+
+        try {
+            // 复合 filter：bookId 精确匹配 + chunkIndex 范围
+            // 用 ConditionFactory 工厂方法（与 buildBookIdFilter 一致），Range 字段是 double 类型
+            io.qdrant.client.grpc.Common.Filter filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
+                    .addMust(match("bookId", bookId))
+                    .addMust(io.qdrant.client.ConditionFactory.range("chunkIndex",
+                            io.qdrant.client.grpc.Common.Range.newBuilder()
+                                    .setGte((double) minIdx)
+                                    .setLte((double) maxIdx)
+                                    .build()))
+                    .build();
+
+            Common.PointId offset = null;
+            do {
+                var builder = io.qdrant.client.grpc.Points.ScrollPoints.newBuilder()
+                        .setCollectionName(qdrantProps.getContentCollection())
+                        .setFilter(filter)
+                        .setLimit(200)
+                        .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(true).build());
+
+                var response = qdrantClient.scrollAsync(builder.build())
+                        .get(30, java.util.concurrent.TimeUnit.SECONDS);
+                var points = response.getResultList();
+
+                for (var point : points) {
+                    var payloadMap = point.getPayloadMap();
+                    String text = null;
+                    if (payloadMap.containsKey(PAYLOAD_TEXT_KEY)) {
+                        text = extractPayloadString(payloadMap, PAYLOAD_TEXT_KEY);
+                    } else if (payloadMap.containsKey("text")) {
+                        text = extractPayloadString(payloadMap, "text");
+                    }
+                    if (text == null || text.isBlank()) continue;
+                    Long idxLong = extractPayloadLong(payloadMap, "chunkIndex");
+                    int chunkIndex = idxLong != null ? idxLong.intValue() : -1;
+                    chunks.add(new ChunkInfo(text, point.getId().getNum(), chunkIndex));
+                }
+
+                offset = response.hasNextPageOffset() ? response.getNextPageOffset() : null;
+            } while (offset != null);
+
+            // 按 chunkIndex 升序排序，保证阅读顺序
+            chunks.sort(java.util.Comparator.comparingInt(ChunkInfo::chunkIndex));
+        } catch (Exception e) {
+            log.warn("按 chunkIndex 范围 scroll 失败: bookId={}, range=[{}-{}] - {}",
+                    bookId, minIdx, maxIdx, e.getMessage());
+        }
+
+        return chunks;
     }
 }

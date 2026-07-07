@@ -88,6 +88,10 @@ public class BookChatService {
     private final AiConfigProvider aiConfigProvider;
     private final ExecutorService sseExecutor;
     private final ObjectMapper objectMapper;
+    // 列表型问题 RAG 优化
+    private final ListQueryDetector listQueryDetector;
+    private final ListQueryStrategySelector listQueryStrategySelector;
+    private final ListQueryRetriever listQueryRetriever;
 
     public BookChatService(
             EmbeddingService embeddingService,
@@ -105,6 +109,9 @@ public class BookChatService {
             UserService userService,
             AiConfigProvider aiConfigProvider,
             ObjectMapper objectMapper,
+            ListQueryDetector listQueryDetector,
+            ListQueryStrategySelector listQueryStrategySelector,
+            ListQueryRetriever listQueryRetriever,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -121,6 +128,9 @@ public class BookChatService {
         this.userService = userService;
         this.aiConfigProvider = aiConfigProvider;
         this.objectMapper = objectMapper;
+        this.listQueryDetector = listQueryDetector;
+        this.listQueryStrategySelector = listQueryStrategySelector;
+        this.listQueryRetriever = listQueryRetriever;
         this.sseExecutor = sseExecutor;
     }
 
@@ -883,6 +893,89 @@ public class BookChatService {
     }
 
     /**
+     * 列表型问题 RAG 优化入口。
+     * <p>
+     * 流程：
+     * 1. LLM 检测问题是否为列表型（含列表主题提取）
+     * 2. 若是列表型 → 选档策略 → 执行对应检索流程
+     * 3. 拼接 RAG 上下文返回
+     * <p>
+     * 返回 null 表示：
+     * - 不是列表型问题 → 走常规 RAG
+     * - 是列表型但所有档位都失败 → 走常规 RAG（兜底）
+     *
+     * @return RAG 上下文字符串；非列表型或失败返回 null
+     */
+    private String tryListQueryRagRetrieval(Book book, String question, String lastAiAnswer,
+                                            int ragMaxChars, SseEmitter emitter) {
+        // 1. 检测列表型问题
+        ListQueryDetector.DetectionResult detection = listQueryDetector.detect(question, lastAiAnswer);
+        if (!detection.isListQuery()) {
+            return null; // 非列表型，走常规 RAG
+        }
+
+        String listTopic = detection.listTopic();
+        log.info("[ListQuery] 检测到列表型问题: bookId={}, topic={}, question={}",
+                book.getId(), listTopic, question);
+
+        try {
+            emitter.send(SseEmitter.event().name("thinking_content")
+                    .data("这是个列表型问题，我用专门策略找找\"" + listTopic + "\"的具体内容…\n"));
+        } catch (Exception ignored) {
+        }
+
+        // 2. 选档策略
+        ListQueryStrategySelector.Strategy strategy = listQueryStrategySelector.selectStrategy(book);
+
+        // 3. 执行对应检索
+        ListQueryRetriever.RetrievalResult result;
+        try {
+            result = switch (strategy) {
+                case FULL_SCAN -> listQueryRetriever.fullScanAndRefine(book, listTopic, ragMaxChars);
+                case TOC_RANGE -> listQueryRetriever.tocRangeRetrieve(book, listTopic, ragMaxChars);
+                case CLUSTER_EXPAND -> listQueryRetriever.clusterExpandRetrieve(book, listTopic, question, ragMaxChars);
+            };
+        } catch (Exception e) {
+            log.warn("[ListQuery] 策略 {} 执行异常，退化为常规 RAG: {}", strategy, e.getMessage());
+            return null;
+        }
+
+        // 4. 检查结果
+        if (result.matches().isEmpty()) {
+            log.warn("[ListQuery] 策略 {} 无结果，退化为常规 RAG: {}", strategy, result.strategyLog());
+            return null;
+        }
+
+        // 5. 拼接 RAG 上下文
+        StringBuilder sb = new StringBuilder();
+        int totalLen = 0;
+        for (EmbeddingMatch<TextSegment> match : result.matches()) {
+            String chunkText = match.embedded() != null ? match.embedded().text() : "";
+            if (chunkText.isBlank()) continue;
+            if (totalLen + chunkText.length() > ragMaxChars) break;
+            sb.append(chunkText).append("\n\n");
+            totalLen += chunkText.length();
+        }
+
+        String ragContext = sb.toString();
+        if (ragContext.isBlank()) {
+            log.warn("[ListQuery] 策略 {} 拼接后上下文为空", strategy);
+            return null;
+        }
+
+        log.info("[ListQuery] 检索成功: bookId={}, strategy={}, matches={}, chars={}, log={}",
+                book.getId(), strategy, result.matches().size(), ragContext.length(), result.strategyLog());
+
+        try {
+            emitter.send(SseEmitter.event().name("thinking_content")
+                    .data("找到 " + result.matches().size() + " 条相关内容（列表型优化），我整理一下思路…\n"));
+        } catch (Exception ignored) {
+        }
+
+        return ragContext;
+    }
+
+    /**
      * 保存深入追问问题到最近一条 assistant 消息记录
      *
      * @param userId    用户ID
@@ -911,7 +1004,82 @@ public class BookChatService {
     }
 
     /**
+     * 导出图书问答对话记录
+     * <p>
+     * 验证用户权限和对话归属，返回格式化的对话文本
+     *
+     * @param userId    用户ID
+     * @param bookId    书籍ID
+     * @param sessionId 会话ID
+     * @return 包含标题和内容的Map，失败时返回错误信息
+     */
+    @LogAction("导出图书问答对话")
+    public Map<String, String> exportBookChatHistory(Long userId, Long bookId, String sessionId) {
+        Map<String, String> result = new HashMap<>();
+
+        // 1. 验证会话存在且属于当前用户
+        List<AiSession> sessions = sessionRepository.query()
+                .where(AiSession::getUserId, eq(userId))
+                .and(AiSession::getSessionId, eq(sessionId))
+                .and(AiSession::getBookId, eq(bookId))
+                .list();
+
+        if (sessions.isEmpty()) {
+            result.put("error", "对话不存在或无权访问");
+            return result;
+        }
+
+        AiSession session = sessions.get(0);
+
+        // 2. 获取书籍信息
+        Book book = bookService.getBookById(bookId);
+        if (book == null) {
+            result.put("error", "书籍不存在");
+            return result;
+        }
+
+        // 3. 获取对话历史
+        List<AiConversation> conversations = conversationRepository
+                .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+
+        if (conversations.isEmpty()) {
+            result.put("error", "对话记录为空");
+            return result;
+        }
+
+        // 4. 构建导出内容
+        StringBuilder content = new StringBuilder();
+
+        // 标题
+        String title = book.getTitle() + " 书籍讲解";
+        content.append(title).append("\n\n");
+
+        // 书籍简介
+        content.append("书籍简介\n");
+        if (book.getDescription() != null && !book.getDescription().isBlank()) {
+            content.append(book.getDescription()).append("\n");
+        } else {
+            content.append("暂无简介\n");
+        }
+        content.append("\n");
+
+        // 对话内容
+        for (AiConversation conv : conversations) {
+            String role = "user".equals(conv.getRole()) ? "问" : "答";
+            content.append(role).append(": ").append(conv.getContent()).append("\n\n\n\n");
+        }
+
+        result.put("title", title);
+        result.put("content", content.toString());
+
+        return result;
+    }
+
+    /**
      * RAG 检索核心逻辑：查询扩展 → 多查询检索 → 去重 → 合并相邻片段 → 组装上下文。
+     * <p>
+     * 列表型问题优化：先检测是否为列表型问题，若是则走三档优化策略
+     * （全量 scroll / toc 范围 / 簇扩展 + LLM 精筛），失败时退化为常规流程。
      *
      * @return RAG 上下文字符串，不可用时返回 null
      */
@@ -922,6 +1090,14 @@ public class BookChatService {
                     .data("我好好分析一下这个问题…\n"));
         } catch (Exception ignored) {
         }
+
+        // ===== 列表型问题 RAG 优化分支 =====
+        String listRagContext = tryListQueryRagRetrieval(book, question, lastAiAnswer, ragMaxChars, emitter);
+        if (listRagContext != null) {
+            return listRagContext;
+        }
+        // 列表型分支未触发或失败 → 走常规 RAG 流程（兜底）
+
         List<String> subQueries = chatModelManager.expandQuery(question, lastAiAnswer, book);
         try {
             emitter.send(SseEmitter.event().name("thinking_content")
@@ -988,12 +1164,10 @@ public class BookChatService {
 
         StringBuilder sb = new StringBuilder();
         int totalLen = 0;
-        for (int i = 0; i < merged.size(); i++) {
-            EmbeddingMatch<TextSegment> match = merged.get(i);
+        for (EmbeddingMatch<TextSegment> match : merged) {
             String chunkText = match.embedded() != null ? match.embedded().text() : "";
             if (chunkText.isBlank()) continue;
             if (totalLen + chunkText.length() > ragMaxChars) break;
-            sb.append("【参考片段").append(i + 1).append("】\n");
             sb.append(chunkText).append("\n\n");
             totalLen += chunkText.length();
         }

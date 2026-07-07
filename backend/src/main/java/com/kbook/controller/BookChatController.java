@@ -131,4 +131,22 @@ public class BookChatController extends BaseController {
         return Result.ok(followUps);
     }
 
+    /**
+     * 导出图书问答对话记录
+     * <p>
+     * 验证用户权限和对话归属，返回格式化的对话文本
+     * @param bookId 图书ID
+     * @param sessionId 会话ID
+     * @return 格式化的对话文本
+     */
+    @Operation(summary = "导出图书问答对话")
+    @GetMapping("/{bookId}/chat/export")
+    public Result<Map<String, String>> exportBookChatHistory(
+            @PathVariable Long bookId,
+            @RequestParam String sessionId
+    ) {
+        Long userId = extractUserId();
+        return Result.ok(bookChatService.exportBookChatHistory(userId, bookId, sessionId));
+    }
+
 }

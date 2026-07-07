@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, Volume2, Square, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, Volume2, Square, Plus, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import MobileSheetHeader from '@/components/common/MobileSheetHeader'
-import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions, getBookChatHistory } from '@/api/bookChat'
+import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions, getBookChatHistory, exportBookChatHistory } from '@/api/bookChat'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import { BlinkingBot } from '@/components/BlinkingBot'
@@ -447,6 +447,34 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
 
   const hasMessages = messages.length > 0
 
+  const handleExport = useCallback(async () => {
+    if (!sessionId || !hasMessages) return
+
+    try {
+      const res = await exportBookChatHistory(book.id, sessionId)
+      const data = (res as any)?.data || (res as any)
+
+      if (data.error) {
+        return
+      }
+
+      if (data.content) {
+        // 创建Blob并下载
+        const blob = new Blob([data.content], { type: 'text/plain;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `${data.title || '对话记录'}.txt`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+      }
+    } catch {
+      // 导出失败静默处理
+    }
+  }, [sessionId, hasMessages, book.id, book.title])
+
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) handleClose(); else onOpenChange(true) }}>
       <SheetContent
@@ -465,6 +493,15 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
           description={`基于原著内容回答关于《${book.title}》的问题`}
           actions={
             <>
+              {hasMessages && sessionId && (
+                <button
+                  onClick={handleExport}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="导出对话"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+              )}
               {hasMessages && (
                 <button
                   onClick={handleNewChat}

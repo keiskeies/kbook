@@ -84,6 +84,31 @@ public class Book extends BaseEntity {
     private String compressedSummary;
 
     /**
+     * TOC 质量评分（0.0~1.0），用于列表型问题 RAG 策略选择。
+     * null 表示未评估；toc/chapterSummary 变更时必须重置为 null。
+     */
+    @Column(name = "toc_quality_score")
+    private Float tocQualityScore;
+
+    /**
+     * 自定义 setToc：toc 变更时清空质量评分，触发下次评估重新计算。
+     * 覆盖 Lombok 自动生成的 setter。
+     */
+    public void setToc(String toc) {
+        this.toc = toc;
+        this.tocQualityScore = null;
+    }
+
+    /**
+     * 自定义 setChapterSummary：chapterSummary 变更时清空 toc 质量评分。
+     * 因为 chapterSummary 是 toc 的语义补充（章节摘要），其变更可能影响 toc 评估。
+     */
+    public void setChapterSummary(String chapterSummary) {
+        this.chapterSummary = chapterSummary;
+        this.tocQualityScore = null;
+    }
+
+    /**
      * 14维度相关度得分（JSON对象）
      * 维度：ageGroup(年龄段), male(男性), female(女性), married(已婚),
      *       unmarried(未婚), hasChildren(有孩子), noChildren(无孩子), mbti(MBTI匹配),

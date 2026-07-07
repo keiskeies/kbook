@@ -5,6 +5,7 @@ import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.Book;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,6 +17,16 @@ import java.util.Optional;
  * 图书数据访问层
  */
 public interface BookRepository extends BaseRepository<Book, Long> {
+
+    /**
+     * 只更新 tocQualityScore 字段（避免全字段 save 重写 TEXT 大字段）
+     * @param id 书籍 ID
+     * @param score TOC 质量评分，null 表示清除
+     */
+    @Modifying
+    @Query("UPDATE Book b SET b.tocQualityScore = :score WHERE b.id = :id")
+    void updateTocQualityScore(@Param("id") Long id, @Param("score") Float score);
+
 
     /**
      * 按格式查询图书列表

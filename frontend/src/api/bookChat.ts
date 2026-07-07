@@ -37,3 +37,9 @@ export function getBookChatSessions(bookId: number) {
 export function getFollowUpQuestions(bookId: number, data: { question: string; answer: string; sessionId?: string }) {
   return request.post<string[]>(`/books/${bookId}/chat/follow-up`, data)
 }
+
+export function exportBookChatHistory(bookId: number, sessionId: string) {
+  return request.get<{ title?: string; content?: string; error?: string }>(`/books/${bookId}/chat/export`, {
+    params: { sessionId },
+  })
+}
