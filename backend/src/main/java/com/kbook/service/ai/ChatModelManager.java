@@ -26,7 +26,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -686,6 +688,59 @@ public class ChatModelManager {
         return callAi("圆桌派角色检索查询", "role=" + roleKey, List.of(
                 SystemMessage.from(systemPrompt),
                 UserMessage.from(userPrompt)));
+    }
+
+    /**
+     * 为特定角色生成多个向量检索查询短语（每行一个），用于多子查询 RAG 检索。
+     * <p>
+     * 与 {@link #callAiForRoleSearchQuery} 的区别：
+     * - 单查询版本：生成一段 30-80 字的查询文本
+     * - 多查询版本：生成 N 个 10-30 字的查询短语，覆盖不同维度
+     *
+     * @param roleKey         角色键名
+     * @param bookTitle       书名
+     * @param roleName        角色名
+     * @param roleTitle       角色头衔
+     * @param roleKeywords    角色关键词（空格分隔）
+     * @param recentDiscussion 最近两轮发言
+     * @param subQueryCount   要生成的子查询数量
+     * @param perspectiveHint 视角提示（如"从商业落地、产品思维角度解读"），null 时用默认视角
+     * @return 子查询列表（已 trim、去空、去重）；失败返回空列表
+     */
+    public List<String> callAiForRoleSearchQueries(String roleKey, String bookTitle, String roleName,
+                                                   String roleTitle, String roleKeywords,
+                                                   String recentDiscussion, int subQueryCount,
+                                                   String perspectiveHint) {
+        String perspective = (perspectiveHint == null || perspectiveHint.isBlank())
+                ? "从该角色的专业视角出发" : perspectiveHint;
+        String systemPrompt = String.format(
+                AiPromptConstants.ROLE_SEARCH_QUERIES_SYSTEM_PROMPT_TEMPLATE,
+                subQueryCount, perspective);
+
+        String userPrompt = String.format("""
+                【图书】%s
+                【角色】%s（%s）
+                【角色关注领域】%s
+                【最近讨论】
+                %s""", bookTitle, roleName, roleTitle, roleKeywords,
+                recentDiscussion == null || recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion);
+
+        String aiText = callAi("圆桌派角色检索查询(多)", "role=" + roleKey + ", count=" + subQueryCount, List.of(
+                SystemMessage.from(systemPrompt),
+                UserMessage.from(userPrompt)));
+        if (aiText == null || aiText.isBlank()) return List.of();
+
+        List<String> queries = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (String line : aiText.split("\n")) {
+            String q = line.trim()
+                    .replaceAll("^(查询|检索|搜索|关键词)[：:]", "")
+                    .trim();
+            if (q.isBlank() || q.length() > 30 || seen.contains(q)) continue;
+            seen.add(q);
+            queries.add(q);
+        }
+        return queries;
     }
 
     // ================================================================

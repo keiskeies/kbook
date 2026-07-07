@@ -522,78 +522,9 @@ public class BookChatService {
     }
 
 
-    /**
-     * 合并相邻的文本片段，减少重复上下文
-     * 按 chunkIndex 排序后，将索引差 ≤ 2 且合并后不超过 2000 字符的片段拼接
-     *
-     * @param matches 原始匹配结果列表
-     * @return 合并后的匹配结果列表
-     */
-    private List<EmbeddingMatch<TextSegment>> mergeAdjacentChunks(List<EmbeddingMatch<TextSegment>> matches) {
-        if (matches.size() <= 1) return matches;
-
-        List<EmbeddingMatch<TextSegment>> sortedByIndex = new ArrayList<>(matches);
-        sortedByIndex.sort((a, b) -> {
-            int indexA = getChunkIndex(a);
-            int indexB = getChunkIndex(b);
-            return Integer.compare(indexA, indexB);
-        });
-
-        List<EmbeddingMatch<TextSegment>> merged = new ArrayList<>();
-        EmbeddingMatch<TextSegment> current = sortedByIndex.get(0);
-        StringBuilder mergedText = new StringBuilder(current.embedded() != null ? current.embedded().text() : "");
-        double bestScore = current.score();
-
-        for (int i = 1; i < sortedByIndex.size(); i++) {
-            EmbeddingMatch<TextSegment> next = sortedByIndex.get(i);
-            int currentIndex = getChunkIndex(current);
-            int nextIndex = getChunkIndex(next);
-
-            if (nextIndex <= currentIndex + 1 && nextIndex > currentIndex) {
-                String nextText = next.embedded() != null ? next.embedded().text() : "";
-                mergedText.append("\n\n").append(nextText);
-                if (next.score() > bestScore) bestScore = next.score();
-                current = next;
-                continue;
-            }
-
-            merged.add(createMergedMatch(mergedText.toString(), current, bestScore));
-            mergedText = new StringBuilder(next.embedded() != null ? next.embedded().text() : "");
-            bestScore = next.score();
-            current = next;
-        }
-        merged.add(createMergedMatch(mergedText.toString(), current, bestScore));
-
-        return merged;
-    }
-
-    /**
-     * 从片段元数据中提取 chunkIndex，用于判断片段在书籍中的位置顺序
-     *
-     * @param match 向量检索匹配结果
-     * @return 片段索引，元数据缺失时返回 0
-     */
-    private int getChunkIndex(EmbeddingMatch<TextSegment> match) {
-        if (match.embedded() != null && match.embedded().metadata() != null) {
-            Long idx = match.embedded().metadata().getLong("chunkIndex");
-            return idx != null ? idx.intValue() : 0;
-        }
-        return 0;
-    }
-
-    /**
-     * 根据模板创建合并后的匹配结果，复用模板的 embeddingId 和元数据
-     *
-     * @param text     合并后的文本内容
-     * @param template 原始匹配结果（用于复用元数据）
-     * @param score    合并后的得分
-     * @return 新的匹配结果对象
-     */
-    private EmbeddingMatch<TextSegment> createMergedMatch(String text, EmbeddingMatch<TextSegment> template, double score) {
-        TextSegment segment = TextSegment.from(text,
-                template.embedded() != null ? template.embedded().metadata() : new dev.langchain4j.data.document.Metadata());
-        return new EmbeddingMatch<>(score, template.embeddingId(), template.embedding(), segment);
-    }
+    /** 邻域扩展候选数量：前 1 后 2 */
+    private static final int NEIGHBOR_PREV = 1;
+    private static final int NEIGHBOR_NEXT = 2;
 
     /**
      * 构建图书基本信息提示词（纯静态信息，用于 KV Cache 前缀复用）
@@ -1104,23 +1035,33 @@ public class BookChatService {
                     .data("找找 [" + String.join("，", subQueries) + "] 相关内容…\n"));
         } catch (Exception ignored) {
         }
-        Map<String, EmbeddingMatch<TextSegment>> dedupedMatches = new LinkedHashMap<>();
-        int rawCount = 0, rawChars = 0;
-        int maxResult = subQueries.isEmpty() ? ragTopK :
-                Math.min(ragTopK, Math.max(ragTopK / 2, ragTopK * 2 / subQueries.size()));
 
+        // ===== 新 RAG 检索管线 =====
+        // 1. 向量查询：每个子查询取 ragTopK × 2（宽松取，后续由全局 topN 截断）
+        // 2. 按 chunkIndex 去重（替代前 80 字符 key）
+        // 3. 全局 score 排序 + topN 截断
+        // 4. 软阈值过滤（砍明显噪声）
+        // 5. 自适应邻域扩展（前 1 后 2 候选，按 score 决定保留）
+        // 6. 合并相邻 + 按 bestScore 重排
+        // 7. ragMaxChars 截断填充
+        int rawCount = 0, rawChars = 0;
+        Map<Integer, EmbeddingMatch<TextSegment>> dedupedByIndex = new LinkedHashMap<>();
+        // 每个子查询统一取 ragTopK × 2，不再用固定公式
+        int perQueryLimit = Math.max(ragTopK, ragTopK * 2);
+
+        // 1. 首轮向量查询
         for (String subQuery : subQueries) {
             try {
                 List<EmbeddingMatch<TextSegment>> matches =
-                        embeddingService.searchContent(subQuery, maxResult, book);
+                        embeddingService.searchContent(subQuery, perQueryLimit, book);
                 for (EmbeddingMatch<TextSegment> match : matches) {
                     String chunkText = match.embedded() != null ? match.embedded().text() : "";
                     if (chunkText.isBlank()) continue;
                     rawCount++;
                     rawChars += chunkText.length();
-                    String dedupeKey = chunkText.length() > 80
-                            ? chunkText.substring(0, 80) : chunkText;
-                    dedupedMatches.merge(dedupeKey, match,
+                    int idx = RagPipelineComponents.getChunkIndex(match);
+                    // 按 chunkIndex 去重，保留 score 更高的
+                    dedupedByIndex.merge(idx, match,
                             (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
                 }
             } catch (Exception e) {
@@ -1128,54 +1069,80 @@ public class BookChatService {
             }
         }
 
-        List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>(dedupedMatches.values());
-        int dedupChars = allMatches.stream()
-                .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
-
-        if (allMatches.isEmpty()) {
+        // 2. 无结果时触发向量重建（保留原兜底逻辑）
+        if (dedupedByIndex.isEmpty()) {
             log.debug("RAG 检索无结果: bookId={}, question={}",
                     book.getId(), question.substring(0, Math.min(30, question.length())));
             Boolean reEmbedResult = bookParserService.forceReEmbedIfMissing(book.getId());
             if (reEmbedResult != null && reEmbedResult) {
                 log.info("内容向量重建成功，重新执行 RAG 检索: bookId={}", book.getId());
+                // 重建后重置计数器，确保日志反映最终检索数据
+                rawCount = 0;
+                rawChars = 0;
                 for (String subQuery : subQueries) {
                     try {
                         List<EmbeddingMatch<TextSegment>> matches =
-                                embeddingService.searchContent(subQuery, maxResult, book);
+                                embeddingService.searchContent(subQuery, perQueryLimit, book);
                         for (EmbeddingMatch<TextSegment> match : matches) {
                             String chunkText = match.embedded() != null ? match.embedded().text() : "";
                             if (chunkText.isBlank()) continue;
-                            String dedupeKey = chunkText.length() > 80
-                                    ? chunkText.substring(0, 80) : chunkText;
-                            dedupedMatches.merge(dedupeKey, match,
+                            rawCount++;
+                            rawChars += chunkText.length();
+                            int idx = RagPipelineComponents.getChunkIndex(match);
+                            dedupedByIndex.merge(idx, match,
                                     (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
                         }
                     } catch (Exception e) {
                         log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
                     }
                 }
-                allMatches = new ArrayList<>(dedupedMatches.values());
             }
         }
 
-        List<EmbeddingMatch<TextSegment>> merged = mergeAdjacentChunks(allMatches);
+        // 3. 全局按 score 降序排序 + topN 截断
+        List<EmbeddingMatch<TextSegment>> sortedByScore = new ArrayList<>(dedupedByIndex.values());
+        sortedByScore.sort((a, b) -> Double.compare(b.score(), a.score()));
+        int dedupCount = sortedByScore.size();
+        int dedupChars = sortedByScore.stream()
+                .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
+
+        List<EmbeddingMatch<TextSegment>> topN = sortedByScore.stream()
+                .limit(ragTopK)
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        // 4. 软阈值过滤：只砍明显噪声（score < max_score × 0.3）
+        if (!topN.isEmpty()) {
+            double maxScore = topN.get(0).score();
+            double noiseThreshold = maxScore * 0.3;
+            int beforeFilter = topN.size();
+            topN = topN.stream()
+                    .filter(m -> m.score() >= noiseThreshold)
+                    .collect(Collectors.toCollection(ArrayList::new));
+            if (topN.size() < beforeFilter) {
+                log.debug("软阈值过滤: maxScore={}, threshold={}, 砍掉 {} 条噪声",
+                        String.format("%.4f", maxScore), String.format("%.4f", noiseThreshold),
+                        beforeFilter - topN.size());
+            }
+        }
+
+        // 5. 自适应邻域扩展
+        List<EmbeddingMatch<TextSegment>> expanded = RagPipelineComponents.adaptiveNeighborExpand(
+                topN, book.getId(), NEIGHBOR_PREV, NEIGHBOR_NEXT,
+                (bookId, idx) -> embeddingService.searchContentByChunkIndex(bookId, idx));
+
+        // 6. 合并相邻 + 按 bestScore 重排
+        List<EmbeddingMatch<TextSegment>> merged = RagPipelineComponents.mergeAdjacentChunks(expanded);
+        // 关键改造：合并后按 bestScore 降序（高相关片段优先填满 ragMaxChars）
+        merged.sort((a, b) -> Double.compare(b.score(), a.score()));
         int mergeChars = merged.stream()
                 .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
 
-        StringBuilder sb = new StringBuilder();
-        int totalLen = 0;
-        for (EmbeddingMatch<TextSegment> match : merged) {
-            String chunkText = match.embedded() != null ? match.embedded().text() : "";
-            if (chunkText.isBlank()) continue;
-            if (totalLen + chunkText.length() > ragMaxChars) break;
-            sb.append(chunkText).append("\n\n");
-            totalLen += chunkText.length();
-        }
-
-        String ragContext = sb.toString();
-        log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重后得{}条{}字 → 合并后得{}条{}字 → 最终{}字",
+        // 7. ragMaxChars 截断填充
+        String ragContext = RagPipelineComponents.truncateToChars(merged, ragMaxChars);
+        log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重{}条{}字 → topN={} → 邻域扩展={} → 合并{}条{}字 → 最终{}字",
                 book.getId(), rawCount, rawChars,
-                dedupedMatches.size(), dedupChars,
+                dedupCount, dedupChars,
+                Math.min(ragTopK, dedupCount), expanded.size(),
                 merged.size(), mergeChars, ragContext.length());
 
         long questionMarkCount = ragContext.chars().filter(c -> c == '?').count();

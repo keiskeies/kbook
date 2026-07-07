@@ -1793,32 +1793,73 @@ public class RoundTableService {
                 return "";
             }
 
-            String query = buildRoleSpecificQuery(book, role, history);
-            log.debug("角色视角 RAG 查询: role={}, query={}", role.getKey(), query);
+            AiConfig.RagStrategy strategy = role.getRagStrategy();
+            int topN = (strategy != null && strategy.getTopN() > 0) ? strategy.getTopN() : 10;
+            int neighborPrev = (strategy != null) ? strategy.getNeighborPrev() : 0;
+            int neighborNext = (strategy != null) ? strategy.getNeighborNext() : 0;
+            int subQueryCount = (strategy != null && strategy.getSubQueryCount() > 0) ? strategy.getSubQueryCount() : 1;
+            int maxChars = (strategy != null && strategy.getMaxChars() > 0) ? strategy.getMaxChars() : 8000;
+            List<String> focusKeywords = (strategy != null) ? strategy.getFocusKeywords() : null;
+            String perspectiveHint = (strategy != null) ? strategy.getPerspectiveHint() : null;
 
-            List<EmbeddingMatch<TextSegment>> matches =
-                    embeddingService.searchContent(query, 10, book);
-
-            if (matches.isEmpty()) {
+            // 生成子查询
+            List<String> subQueries = buildRoleSubQueries(book, role, history, subQueryCount, perspectiveHint);
+            if (subQueries.isEmpty()) {
+                log.debug("角色视角 RAG 查询生成失败: bookId={}, role={}", book.getId(), role.getKey());
                 return "";
             }
+            log.debug("角色视角 RAG 查询: role={}, subQueries={}", role.getKey(), subQueries);
 
-            matches = matches.stream()
+            // 1. 多子查询向量检索
+            List<EmbeddingMatch<TextSegment>> allMatches = new ArrayList<>();
+            for (String subQuery : subQueries) {
+                try {
+                    List<EmbeddingMatch<TextSegment>> matches =
+                            embeddingService.searchContent(subQuery, topN, book);
+                    allMatches.addAll(matches);
+                } catch (Exception e) {
+                    log.debug("子查询检索失败: role={}, subQuery={} - {}", role.getKey(), subQuery, e.getMessage());
+                }
+            }
+            if (allMatches.isEmpty()) return "";
+
+            // 2. score ≥ 0.1 过滤（保留原有风控）
+            allMatches = allMatches.stream()
                     .filter(m -> m.score() >= 0.1)
                     .toList();
+            if (allMatches.isEmpty()) return "";
 
-            if (matches.isEmpty()) {
-                return "";
-            }
+            // 3. 按 chunkIndex 去重（保留 score 更高的）
+            List<EmbeddingMatch<TextSegment>> deduped =
+                    RagPipelineComponents.dedupByChunkIndex(allMatches);
 
-            StringBuilder sb = new StringBuilder();
-            int maxResults = 8;
-            for (int i = 0; i < Math.min(matches.size(), maxResults); i++) {
-                EmbeddingMatch<TextSegment> match = matches.get(i);
-                sb.append(match.embedded().text()).append("\n\n");
-            }
+            // 4. focusKeywords 加权（在 topN 截断前应用，让视角偏好影响排序）
+            deduped = RagPipelineComponents.applyFocusKeywordsBoost(deduped, focusKeywords);
 
-            return sb.toString();
+            // 5. 按 score 降序 + topN 截断（全局 topN，而非每子查询）
+            deduped.sort((a, b) -> Double.compare(b.score(), a.score()));
+            List<EmbeddingMatch<TextSegment>> topNMatches = deduped.stream()
+                    .limit(topN)
+                    .collect(Collectors.toCollection(ArrayList::new));
+
+            // 6. 自适应邻域扩展
+            List<EmbeddingMatch<TextSegment>> expanded = RagPipelineComponents.adaptiveNeighborExpand(
+                    topNMatches, book.getId(), neighborPrev, neighborNext,
+                    (bookId, idx) -> embeddingService.searchContentByChunkIndex(bookId, idx));
+
+            // 7. 合并相邻 + 按 bestScore 重排
+            List<EmbeddingMatch<TextSegment>> merged = RagPipelineComponents.mergeAdjacentChunks(expanded);
+            merged.sort((a, b) -> Double.compare(b.score(), a.score()));
+
+            // 8. maxChars 截断填充
+            String ragContext = RagPipelineComponents.truncateToChars(merged, maxChars);
+
+            log.info("圆桌派RAG role={} | 子查询={}, 原始{}条 → 去重{}条 → topN={} → 邻域扩展={} → 合并{}条 → 最终{}字",
+                    role.getKey(), subQueries.size(), allMatches.size(),
+                    deduped.size(), topNMatches.size(), expanded.size(),
+                    merged.size(), ragContext.length());
+
+            return ragContext;
         } catch (Exception e) {
             log.warn("角色视角 RAG 检索异常: bookId={}, role={} - {}", book.getId(), role.getKey(), e.getMessage());
             return "";
@@ -1826,52 +1867,76 @@ public class RoundTableService {
     }
 
     /**
-     * 构建角色专属的检索查询 — 使用 LLM 生成
+     * 生成角色专属的检索子查询列表
      * <p>
-     * 输入：角色信息 + 角色专业关键词 + 前两轮发言 + 图书基础信息
-     * 输出：一段精准的检索查询文本，用于向量检索
+     * - subQueryCount = 1 时走单查询生成（向后兼容）
+     * - subQueryCount > 1 时走多子查询生成（视角覆盖更广）
+     * - LLM 失败时回退到关键词拼接
      */
-    private String buildRoleSpecificQuery(Book book, AiConfig.RoundTableRole role, List<RoundTableMessage> history) {
-        try {
-            if ("HOST".equals(role.getKey())) {
-                return buildHostSearchQuery(book, history);
+    private List<String> buildRoleSubQueries(Book book, AiConfig.RoundTableRole role,
+                                              List<RoundTableMessage> history,
+                                              int subQueryCount, String perspectiveHint) {
+        if ("HOST".equals(role.getKey())) {
+            // 主持人走原有逻辑（关键词拼接，不需要 LLM）
+            return List.of(buildHostSearchQuery(book, history));
+        }
+
+        // 构建最近两轮发言摘要
+        String recentDiscussion = "";
+        if (history != null && !history.isEmpty()) {
+            int start = Math.max(0, history.size() - 2);
+            StringBuilder sb = new StringBuilder();
+            for (int i = start; i < history.size(); i++) {
+                RoundTableMessage msg = history.get(i);
+                String name = msg.getRoleName() != null ? msg.getRoleName() : msg.getRoleKey();
+                String content = msg.getCompressedContent();
+                sb.append(name).append("：").append(content).append("\n");
             }
+            recentDiscussion = sb.toString();
+        }
 
-            // 构建最近两轮发言摘要
-            String recentDiscussion = "";
-            if (history != null && !history.isEmpty()) {
-                int start = Math.max(0, history.size() - 2);
-                StringBuilder sb = new StringBuilder();
-                for (int i = start; i < history.size(); i++) {
-                    RoundTableMessage msg = history.get(i);
-                    String name = msg.getRoleName() != null ? msg.getRoleName() : msg.getRoleKey();
-                    String content = msg.getCompressedContent();
-                    sb.append(name).append("：").append(content).append("\n");
-                }
-                recentDiscussion = sb.toString();
-            }
+        String roleKeywords = getRoleSearchKeywords(role);
 
-            // 角色专业关键词
-            String roleKeywords = getRoleSearchKeywords(role);
-
-            String result = chatModelManager.callAiForRoleSearchQuery(
+        // subQueryCount == 1 时走原单查询逻辑（向后兼容）
+        if (subQueryCount <= 1) {
+            String query = chatModelManager.callAiForRoleSearchQuery(
                     role.getKey(), book.getTitle(),
                     role.getName(), role.getTitle(), roleKeywords,
                     recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion);
-            if (result != null && !result.isBlank()) {
-                // 清理可能的前缀（如"查询："、"检索："等）
-                result = result.trim()
+            if (query != null && !query.isBlank()) {
+                query = query.trim()
                         .replaceAll("^(查询|检索|搜索|关键词)[：:]", "")
                         .trim();
-                log.debug("LLM 生成角色检索查询: role={}, query={}", role.getKey(), result);
-                return result;
+                if (!query.isBlank()) return List.of(query);
             }
-        } catch (Exception e) {
-            log.warn("LLM 生成角色检索查询失败，回退到关键词模式: role={} - {}", role.getKey(), e.getMessage());
+            // LLM 失败回退
+            return List.of(book.getTitle() + " " + roleKeywords);
         }
 
-        // 回退：使用书名 + 角色关键词
-        return book.getTitle() + " " + getRoleSearchKeywords(role);
+        // subQueryCount > 1 时走多子查询生成
+        try {
+            List<String> queries = chatModelManager.callAiForRoleSearchQueries(
+                    role.getKey(), book.getTitle(),
+                    role.getName(), role.getTitle(), roleKeywords,
+                    recentDiscussion, subQueryCount, perspectiveHint);
+            if (!queries.isEmpty()) return queries;
+        } catch (Exception e) {
+            log.warn("多子查询生成失败，回退到单查询: role={} - {}", role.getKey(), e.getMessage());
+        }
+
+        // 多子查询失败回退到单查询
+        String query = chatModelManager.callAiForRoleSearchQuery(
+                role.getKey(), book.getTitle(),
+                role.getName(), role.getTitle(), roleKeywords,
+                recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion);
+        if (query != null && !query.isBlank()) {
+            return List.of(query.trim()
+                    .replaceAll("^(查询|检索|搜索|关键词)[：:]", "")
+                    .trim());
+        }
+
+        // 最终回退：书名 + 角色关键词
+        return List.of(book.getTitle() + " " + roleKeywords);
     }
 
     /**

@@ -775,6 +775,59 @@ public class EmbeddingService {
     }
 
     /**
+     * 按 chunkIndex 精确拉取内容分块（用于邻域扩展）。
+     * 完全绕过向量相似度，按位置精确拉取。
+     *
+     * @param bookId     书籍 ID
+     * @param chunkIndex 目标 chunkIndex
+     * @return 匹配的分块；不存在返回 null
+     */
+    public EmbeddingMatch<TextSegment> searchContentByChunkIndex(Long bookId, int chunkIndex) {
+        if (qdrantClient == null) return null;
+        try {
+            var filter = io.qdrant.client.grpc.Common.Filter.newBuilder()
+                    .addMust(match("bookId", bookId))
+                    .addMust(match("chunkIndex", chunkIndex))
+                    .build();
+
+            var builder = io.qdrant.client.grpc.Points.ScrollPoints.newBuilder()
+                    .setCollectionName(qdrantProps.getContentCollection())
+                    .setFilter(filter)
+                    .setLimit(1)
+                    .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(true).build());
+
+            var response = qdrantClient.scrollAsync(builder.build())
+                    .get(15, java.util.concurrent.TimeUnit.SECONDS);
+            var points = response.getResultList();
+            if (points.isEmpty()) return null;
+
+            var point = points.get(0);
+            var payloadMap = point.getPayloadMap();
+            String text = null;
+            if (payloadMap.containsKey(PAYLOAD_TEXT_KEY)) {
+                text = extractPayloadString(payloadMap, PAYLOAD_TEXT_KEY);
+            } else if (payloadMap.containsKey("text")) {
+                text = extractPayloadString(payloadMap, "text");
+            }
+            if (text == null || text.isBlank()) return null;
+
+            Metadata metadata = new Metadata();
+            metadata.put("bookId", bookId);
+            metadata.put("chunkIndex", chunkIndex);
+            if (payloadMap.containsKey("chapterIdx")) {
+                Long chapterIdx = extractPayloadLong(payloadMap, "chapterIdx");
+                if (chapterIdx != null) metadata.put("chapterIdx", chapterIdx);
+            }
+            TextSegment segment = TextSegment.from(text, metadata);
+            // score 设为 0，邻域扩展的 score 由调用方折扣后赋值
+            return new EmbeddingMatch<>(0.0, String.valueOf(point.getId().getNum()), null, segment);
+        } catch (Exception e) {
+            log.warn("按 chunkIndex 查询失败: bookId={}, chunkIndex={} - {}", bookId, chunkIndex, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 使用 Qdrant 原生 filter 搜索内容向量（按 bookId 精确过滤）
      * 解决：LangChain4j EmbeddingSearchRequest 不支持 Qdrant payload filter，
      * 导致先取 top-N 再内存过滤，当数据量大时目标书的结果被其他书挤掉
