@@ -270,18 +270,15 @@ public class ChatModelManager {
             // 固定指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
             String systemPrompt = AiPromptConstants.EXPAND_QUERY_SYSTEM_PROMPT;
 
-            // 消息顺序：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(动态上下文+问题)
+            // 消息顺序：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(上轮回答,可空) → UserMessage(用户问题)
+            // 拆分独立消息：背景信息与扩展目标定位清晰，避免上轮回答过长淹没用户问题
             List<ChatMessage> messages = new ArrayList<>();
             messages.add(SystemMessage.from(systemPrompt));
             messages.add(UserMessage.from("【书籍信息】\n" + bookContext.trim()));
-
-            // 动态内容（上轮回答 + 用户问题）
-            StringBuilder dynamicContext = new StringBuilder();
             if (lastAiAnswer != null && !lastAiAnswer.isBlank()) {
-                dynamicContext.append("上轮AI回答：").append(lastAiAnswer).append("\n");
+                messages.add(UserMessage.from("【上轮AI回答】\n" + lastAiAnswer.trim()));
             }
-            dynamicContext.append("\n用户问题：").append(question);
-            messages.add(UserMessage.from("【上下文】\n" + dynamicContext.toString().trim()));
+            messages.add(UserMessage.from("【用户问题】\n" + question));
 
             String aiText = callAi("RAG查询扩展",
                     String.format("原始: %s", question),

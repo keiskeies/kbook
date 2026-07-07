@@ -271,17 +271,19 @@ public class BookChatService {
                 }
 
 
-                // 构建图书基本信息（静态，跨会话共享 KV Cache）和 RAG+问题（每次变化）
+                // 构建图书基本信息（静态，跨会话共享 KV Cache）
                 String bookInfoPrompt = buildBookInfoPrompt(book);
-                String prompt = buildPrompt(question, ragContext != null ? ragContext : "");
+                // RAG 参考内容 + 用户问题分别构造为独立消息（结构清晰，避免问题被 RAG 淹没）
+                String ragMessage = buildRagMessage(ragContext);
+                String questionMessage = buildQuestionMessage(question);
                 long startTime = System.currentTimeMillis();
 
-                log.debug("图书问答: bookId={}, question={}, bookInfoLen={}, ragContextLen={}, promptLen={}",
+                log.debug("图书问答: bookId={}, question={}, bookInfoLen={}, ragContextLen={}, questionMsgLen={}",
                         bookId, question, bookInfoPrompt.length(),
-                        ragContext != null ? ragContext.length() : 0, prompt.length());
+                        ragContext != null ? ragContext.length() : 0, questionMessage.length());
 
-                // SystemMessage → UserMessage(bookInfo) → HistoryMessages → UserMessage(RAG + question)
-                List<ChatMessage> messages = buildChatMessages(effectiveSessionId, userId, bookInfoPrompt, prompt);
+                // SystemMessage → UserMessage(bookInfo) → HistoryMessages → UserMessage(RAG) → UserMessage(question)
+                List<ChatMessage> messages = buildChatMessages(effectiveSessionId, userId, bookInfoPrompt, ragMessage, questionMessage);
 
                 StringBuilder fullThinking = new StringBuilder();
 
@@ -431,10 +433,12 @@ public class BookChatService {
      * @param sessionId      会话ID
      * @param userId         用户ID
      * @param bookInfoPrompt 图书基本信息提示词（静态，用于 KV Cache 前缀复用）
-     * @param currentPrompt  当前用户提示词（RAG + 问题）
+     * @param ragMessage     RAG 参考内容消息（可为空）
+     * @param questionMessage 用户问题 + 回答要求消息
      * @return 完整的 ChatMessage 列表
      */
-    private List<ChatMessage> buildChatMessages(String sessionId, Long userId, String bookInfoPrompt, String currentPrompt) {
+    private List<ChatMessage> buildChatMessages(String sessionId, Long userId, String bookInfoPrompt,
+                                                String ragMessage, String questionMessage) {
         List<ChatMessage> messages = new ArrayList<>();
         String style = getChatStyleForUser(userId);
         String systemPrompt = getSystemPromptForStyle(style);
@@ -449,7 +453,8 @@ public class BookChatService {
             // 加载历史消息并同步压缩，确保 LLM 上下文不超限
             int currentOverhead = AiPromptConstants.BOOK_CHAT_SYSTEM_PROMPT.length()
                     + (bookInfoPrompt != null ? bookInfoPrompt.length() : 0)
-                    + currentPrompt.length()
+                    + (ragMessage != null ? ragMessage.length() : 0)
+                    + (questionMessage != null ? questionMessage.length() : 0)
                     + 2000; // AI 回复预留
             List<AiConversation> history = loadAndCompressHistory(userId, sessionId, currentOverhead);
             if (!history.isEmpty()) {
@@ -468,7 +473,12 @@ public class BookChatService {
             log.warn("加载图书问答历史失败，继续无历史对话: {}", e.getMessage());
         }
 
-        messages.add(UserMessage.from(currentPrompt));
+        // RAG 参考内容作为独立 UserMessage（参考资料性质，与问题分离）
+        if (ragMessage != null && !ragMessage.isBlank()) {
+            messages.add(UserMessage.from(ragMessage));
+        }
+        // 用户问题 + 回答要求作为最后一个 UserMessage（任务目标，位置突出）
+        messages.add(UserMessage.from(questionMessage));
         return messages;
     }
 
@@ -584,34 +594,39 @@ public class BookChatService {
     }
 
     /**
-     * 构建 RAG 检索上下文 + 用户问题的提示词
-     * 不包含图书基本信息（已由 buildBookInfoPrompt 单独发送以优化 KV Cache）
+     * 构建 RAG 参考内容消息（作为独立 UserMessage，与用户问题分离）
+     * <p>
+     * 设计：把 RAG 内容单独包装，让 LLM 明确这是"参考资料"而非"任务描述"。
+     * RAG 内容可能很长（数千到数万字），与用户问题混在一起会淹没问题本身。
      *
-     * @param question   用户问题
-     * @param ragContext RAG 检索到的参考内容
-     * @return RAG + 问题文本
+     * @param ragContext RAG 检索结果（可为空）
+     * @return RAG 消息字符串；ragContext 为空时返回空字符串（不加入消息列表）
      */
-    private String buildPrompt(String question, String ragContext) {
-        StringBuilder sb = new StringBuilder();
+    private String buildRagMessage(String ragContext) {
+        if (ragContext == null || ragContext.isBlank()) return "";
 
-        if (!ragContext.isBlank()) {
-            sb.append("【书籍参考内容】（以下是从原著中检索到的与问题相关的片段，不是全书完整内容）\n");
-            sb.append(ragContext);
-        } else {
-            sb.append("【注意】未检索到与问题直接相关的内容片段，请仅根据上方「当前讨论的书籍」基本信息回答。\n");
+        String message = "【书籍参考内容】（以下是从原著中检索到的与问题相关的片段，不是全书完整内容）\n"
+                + ragContext;
+
+        // 乱码诊断：问号占比过高提示编码异常
+        long qmCount = message.chars().filter(c -> c == '?').count();
+        if (qmCount > message.length() * 0.05) {
+            log.warn("[编码诊断] RAG内容疑似乱码! 问号占比={}/{}", qmCount, message.length());
         }
+        return message;
+    }
 
-        sb.append("\n【读者的问题】\n").append(question);
-        sb.append("\n\n请根据上述内容，用中文回答。【回答铁律】已在上方告知，请严格遵守。");
-
-        String prompt = sb.toString();
-
-        long qmCount = prompt.chars().filter(c -> c == '?').count();
-        if (qmCount > prompt.length() * 0.05) {
-            log.warn("[编码诊断] RAG提示词疑似乱码! 问号占比={}/{}", qmCount, prompt.length());
-        }
-
-        return prompt;
+    /**
+     * 构建用户问题 + 回答要求消息（作为最后一个 UserMessage，位置突出）
+     * <p>
+     * 设计：把用户问题和回答指引打包为独立消息，置于消息列表末尾，
+     * 让 LLM 在生成时注意力集中在问题上，而非被 RAG 内容淹没。
+     *
+     * @param question 用户原始问题
+     * @return 问题消息字符串
+     */
+    private String buildQuestionMessage(String question) {
+        return "【读者的问题】\n" + question + "\n\n请根据上述内容，用中文回答。【回答铁律】已在上方告知，请严格遵守。";
     }
 
     /**
