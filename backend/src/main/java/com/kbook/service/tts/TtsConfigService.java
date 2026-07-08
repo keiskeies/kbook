@@ -178,34 +178,14 @@ public class TtsConfigService {
         TtsConfig config = resolveConfig(configId);
         TtsEngine engine = ttsEngineFactory.getEngine(config);
 
-        byte[] cached = ttsCache.get(config.getId(), text);
-        if (cached != null) {
-            log.info("TTS stream cache hit: configId={}, textLength={}", config.getId(), text.length());
-            try {
-                int offset = 0;
-                int chunkSize = 8192;
-                while (offset < cached.length) {
-                    int end = Math.min(offset + chunkSize, cached.length);
-                    byte[] chunk = new byte[end - offset];
-                    System.arraycopy(cached, offset, chunk, 0, chunk.length);
-                    String base64 = Base64.getEncoder().encodeToString(chunk);
-                    emitter.send(SseEmitter.event().name("audio").data(base64));
-                    offset = end;
-                }
-                emitter.send(SseEmitter.event().name("done").data(""));
-                emitter.complete();
-            } catch (IOException e) {
-                log.debug("SSE send cached audio failed: {}", e.getMessage());
-            }
-            return;
-        }
-
-        java.io.ByteArrayOutputStream cacheBuffer = new java.io.ByteArrayOutputStream();
+        // 流式路径不读写 ttsCache：
+        // ① 流式产出裸 PCM16，非流式产出完整 wav，格式不兼容，共用 key 会互相污染
+        // ② 流式命中缓存时会把 wav 切块当 PCM 发给前端，前端 PcmStreamPlayer 解码出错
+        // ③ 流式核心价值是实时性，缓存意义有限；缓存交给非流式 synthesize() 统一管理
 
         engine.synthesizeStream(text, config,
                 (pcmBytes) -> {
                     try {
-                        cacheBuffer.write(pcmBytes);
                         String base64 = Base64.getEncoder().encodeToString(pcmBytes);
                         emitter.send(SseEmitter.event().name("audio").data(base64));
                     } catch (IOException e) {
@@ -214,10 +194,6 @@ public class TtsConfigService {
                 },
                 () -> {
                     try {
-                        byte[] fullAudio = cacheBuffer.toByteArray();
-                        if (fullAudio.length > 0) {
-                            ttsCache.put(config.getId(), text, fullAudio);
-                        }
                         emitter.send(SseEmitter.event().name("done").data(""));
                         emitter.complete();
                     } catch (IOException e) {

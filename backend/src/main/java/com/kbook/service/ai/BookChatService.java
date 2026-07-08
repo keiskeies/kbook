@@ -311,7 +311,7 @@ public class BookChatService {
                         log.info("========== 图书问答 AI 流式响应完成 ==========");
                         log.info("耗时: {}ms", elapsed);
                         log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-                        log.info("Answer: {}", answer);
+                        log.info("Answer: {}", CommonUtils.truncateText(answer, 100).replace("\n", " "));
                         log.info("==========================================");
 
                         ensureSession(userId, effectiveSessionId, question, bookId);
@@ -638,7 +638,7 @@ public class BookChatService {
                 .list(1)
                 .stream().findFirst()
                 .orElseGet(() -> {
-                    String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
+                    String title = CommonUtils.truncateText(userMessage, 30);
                     AiSession session = AiSession.builder()
                             .userId(userId)
                             .type(TYPE)

@@ -1,5 +1,6 @@
 package com.kbook.config.aspect;
 
+import com.kbook.common.util.CommonUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -105,13 +106,13 @@ public class RequestLogAspect {
 
             if (sb.length() > 0) sb.append(", ");
             String value = arg.toString();
-            if (value.length() > 80) value = value.substring(0, 80) + "...";
+            value = CommonUtils.truncateText(value, 80);
             sb.append(value);
         }
 
         if (sb.length() == 0) return "";
         String s = sb.toString();
-        if (s.length() > 300) s = s.substring(0, 300) + "...";
+        s = CommonUtils.truncateText(s, 300);
         return s;
     }
 

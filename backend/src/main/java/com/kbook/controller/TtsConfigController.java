@@ -13,8 +13,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 /**
@@ -57,7 +59,7 @@ public class TtsConfigController {
     @Operation(summary = "语音合成")
     @PostMapping("/api/tts/synthesize")
     public ResponseEntity<byte[]> synthesize(@Valid @RequestBody TtsSynthesizeRequest request) {
-        log.info("TTS synthesize request: textLength={}, configId={}", 
+        log.info("TTS synthesize request: textLength={}, configId={}",
                 request.getText() != null ? request.getText().length() : 0, request.getConfigId());
         long start = System.currentTimeMillis();
         byte[] audio = ttsConfigService.synthesize(request.getText(), request.getConfigId());
@@ -65,6 +67,27 @@ public class TtsConfigController {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("audio/wav"))
                 .body(audio);
+    }
+
+    @Operation(summary = "流式语音合成")
+    @PostMapping(value = "/api/tts/synthesize/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter synthesizeStream(@Valid @RequestBody TtsSynthesizeRequest request) {
+        log.info("TTS stream request: textLength={}, configId={}",
+                request.getText() != null ? request.getText().length() : 0, request.getConfigId());
+
+        // 超时 5 分钟，与引擎层流式超时对齐
+        SseEmitter emitter = new SseEmitter(300_000L);
+
+        emitter.onTimeout(() -> {
+            log.warn("TTS stream SSE timeout: configId={}", request.getConfigId());
+            emitter.complete();
+        });
+        emitter.onError(e -> log.warn("TTS stream SSE error: configId={}, msg={}", request.getConfigId(), e.getMessage()));
+
+        CompletableFuture.runAsync(() ->
+                ttsConfigService.synthesizeStream(request.getText(), request.getConfigId(), emitter), sseExecutor);
+
+        return emitter;
     }
 
     @Operation(summary = "是否支持流式合成")

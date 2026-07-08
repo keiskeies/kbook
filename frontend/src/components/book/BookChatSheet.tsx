@@ -130,6 +130,17 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     }
   }, [open, speakingId])
 
+  // 组件卸载（路由切换/页面退出）时停止 TTS，避免 audio 在后台继续播放
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        abortRef.current.abort()
+        abortRef.current = null
+      }
+      ttsService.cancel()
+    }
+  }, [])
+
   useEffect(() => {
     if (!input && textareaRef.current) {
       textareaRef.current.style.height = 'auto'
@@ -378,6 +389,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     const plainText = content
       .replace(/```[\s\S]*?```/g, '')
       .replace(/`[^`]+`/g, '')
+      .replace(/\[BOOK:id=\d+\]\s*/g, '')      // 去掉图书链接标记，保留书名
       .replace(/\*\*([^*]+)\*\*/g, '$1')
       .replace(/\*([^*]+)\*/g, '$1')
       .replace(/^(#{1,6})\s+/gm, '\n')
@@ -387,6 +399,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
       .replace(/^>\s+/gm, '')
       .replace(/\|/g, ' ')
       .replace(/---+/g, '\n')
+      .replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, '')  // 去掉 emoji，TTS 无法朗读
       .trim()
     if (!plainText) return
     ttsService.cancel()

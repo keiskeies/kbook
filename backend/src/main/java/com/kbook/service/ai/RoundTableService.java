@@ -312,9 +312,7 @@ public class RoundTableService {
             sb.append("读者关注：").append(needs).append("\n");
         }
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            String desc = book.getDescription().length() > 500
-                    ? book.getDescription().substring(0, 500) + "..."
-                    : book.getDescription();
+            String desc = CommonUtils.truncateText(book.getDescription(), 500);
             sb.append("简介：").append(desc).append("\n");
         }
         String summary = bookService.resolveBookSummary(book);

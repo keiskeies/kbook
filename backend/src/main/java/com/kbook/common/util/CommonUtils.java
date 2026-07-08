@@ -295,7 +295,7 @@ public class CommonUtils {
                 text = am.text();
             }
             if (text == null) text = msg.toString();
-            log.debug("[{}] {}: {}", i, type, truncateText(text, 2000));
+            log.debug("[{}] {}: {}", i, type, truncateText(text, 100).replace("\n", ""));
         }
     }
 
@@ -306,9 +306,9 @@ public class CommonUtils {
         if (!log.isDebugEnabled()) return;
         if (thinking != null && !thinking.isBlank()) {
             log.debug("========== AI {} 思考过程 ({} 字) ==========", operation, thinking.length());
-            log.debug("{}", truncateText(thinking, 3000));
+            log.debug("{}", truncateText(thinking, 100).replace("\n", ""));
         }
         log.debug("========== AI {} 回答 ({} 字) ==========", operation, answer != null ? answer.length() : 0);
-        log.debug("{}", truncateText(answer != null ? answer : "", 3000));
+        log.debug("{}", truncateText(answer != null ? answer : "", 100).replace("\n", ""));
     }
 }

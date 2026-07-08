@@ -1355,9 +1355,7 @@ public class DebateService {
             };
             sb.append(sideLabel).append(msg.getRoleName()).append("：").append(msg.getContent()).append("\n\n");
         }
-        return sb.length() > SUMMARY_MAX_LENGTH
-                ? sb.substring(0, SUMMARY_MAX_LENGTH) + "..."
-                : sb.toString();
+        return CommonUtils.truncateText(sb.toString(), SUMMARY_MAX_LENGTH);
     }
 
     /**

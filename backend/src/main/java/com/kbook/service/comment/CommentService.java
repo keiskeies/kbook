@@ -4,6 +4,7 @@ import com.kbook.service.notification.NotificationService;
 import com.kbook.service.book.BookService;
 
 import com.kbook.common.api.PageResult;
+import com.kbook.common.util.CommonUtils;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
@@ -102,7 +103,7 @@ public class CommentService {
                     // 如果父评论作者存在且有邮箱地址
                     if (parentUser != null && parentUser.getEmail() != null) {
                         // 截取评论内容前50字符作为预览
-                        String preview = content.length() > 50 ? content.substring(0, 50) + "..." : content;
+                        String preview = CommonUtils.truncateText(content, 50);
                         // 发送HTML格式邮件通知
                         emailNotificationService.sendHtmlEmail(
                             parentUser.getEmail(), // 收件人邮箱
@@ -124,9 +125,7 @@ public class CommentService {
                 // 如果父评论作者存在且有邮箱地址
                 if (parentUser != null && parentUser.getEmail() != null) {
                     // 截取父评论内容前50字符作为预览
-                    String preview = parent.getContent().length() > 50
-                        ? parent.getContent().substring(0, 50) + "..."
-                        : parent.getContent();
+                    String preview = CommonUtils.truncateText(parent.getContent(), 50);
                     // 检查并发送回复数达标邮件通知
                     emailNotificationService.checkAndSendReplyThresholdNotification(
                         parent.getId(), // 父评论ID
@@ -287,9 +286,7 @@ public class CommentService {
             // 如果点赞者、书籍、评论作者都存在且评论作者有邮箱
             if (liker != null && book != null && commentOwner != null && commentOwner.getEmail() != null) {
                 // 截取评论内容前50字符作为预览
-                String preview = comment.getContent().length() > 50
-                    ? comment.getContent().substring(0, 50) + "..."
-                    : comment.getContent();
+                String preview = CommonUtils.truncateText(comment.getContent(), 50);
                 // 发送HTML格式邮件通知
                 emailNotificationService.sendHtmlEmail(
                     commentOwner.getEmail(), // 收件人邮箱
@@ -312,9 +309,7 @@ public class CommentService {
         // 如果评论作者存在且有邮箱，且书籍信息存在
         if (commentOwner != null && commentOwner.getEmail() != null && book != null) {
             // 截取评论内容前50字符作为预览
-            String preview = comment.getContent().length() > 50
-                ? comment.getContent().substring(0, 50) + "..."
-                : comment.getContent();
+            String preview = CommonUtils.truncateText(comment.getContent(), 50);
             User liker = userRepository.findById(userId).orElse(null); // 查询点赞者信息
             // 检查并发送点赞数达标邮件通知
             emailNotificationService.checkAndSendLikeThresholdNotification(

@@ -122,6 +122,12 @@ class PcmStreamPlayer {
   playPcmChunk(pcmBase64: string) {
     if (!this.audioContext || !this.gainNode) return
 
+    // 每段之间的网络间隙可能导致 AudioContext 被浏览器挂起(无活跃 source 时 Chrome 自动 suspend)
+    // 必须在调度新音频前 resume，否则 currentTime 冻结，source.start() 永远不会触发
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume()
+    }
+
     const binaryStr = atob(pcmBase64)
     const bytes = new Uint8Array(binaryStr.length)
     for (let i = 0; i < binaryStr.length; i++) {
@@ -142,6 +148,8 @@ class PcmStreamPlayer {
     source.connect(this.gainNode)
 
     const now = this.audioContext.currentTime
+    // resume() 是异步的，挂起恢复后 currentTime 可能仍为旧值
+    // 若 nextPlayTime 落后于 now（挂起期间时间没走但 nextPlayTime 没变），重置到当前时间
     if (this.nextPlayTime < now) {
       this.nextPlayTime = now
     }
@@ -159,6 +167,9 @@ class PcmStreamPlayer {
 
   addPause(durationMs: number) {
     if (!this.audioContext) return
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume()
+    }
     const now = this.audioContext.currentTime
     if (this.nextPlayTime < now) {
       this.nextPlayTime = now
@@ -177,6 +188,14 @@ class PcmStreamPlayer {
   get remainingTime(): number {
     if (!this.audioContext || !this.gainNode) return 0
     return Math.max(0, this.nextPlayTime - this.audioContext.currentTime)
+  }
+
+  get state(): string {
+    return this.audioContext?.state ?? 'closed'
+  }
+
+  get nextPlayTimeVal(): number {
+    return this.nextPlayTime
   }
 }
 
@@ -634,7 +653,9 @@ class TtsService {
 
   speakLongText(text: string, onEnd?: () => void): void {
     const chunks = smartChunkText(text)
+    console.log('[TTS] speakLongText start, chunks=', chunks.length, 'streaming=', this.streamingEnabled, 'backend=', this.isBackendMode)
     if (chunks.length <= 1) {
+      console.log('[TTS] single chunk, use speakSingleText')
       this.speakSingleText(text, onEnd)
       return
     }
@@ -763,12 +784,15 @@ class TtsService {
     this.longTextAbortController = new AbortController()
     const signal = this.longTextAbortController.signal
 
+    // 长文本强制走非流式 wav 路径：
+    // ① wav 有浏览器原生 ended 事件，段间衔接可靠（流式靠 remainingTime 推算 + setTimeout，不可靠）
+    // ② 非流式路径有段间预加载流水线，第 i 段播放期间并发预取第 i+1 段，消除段间网络空白
+    // ③ 流式 PCM 路径在段间 await fetch 间隙 AudioContext 会被浏览器挂起，导致后续段静音
+    // 流式仅用于单段短文本（speakSegmentStream），单段不存在段间衔接问题
+    console.log('[TTS] speakLongTextBackend, force non-stream wav path, chunks=', chunks.length)
+
     try {
-      if (this.streamingEnabled) {
-        await this.speakLongTextBackendStream(chunks, signal, onEnd, generation)
-      } else {
-        await this.speakLongTextBackendNonStream(chunks, signal, onEnd, generation)
-      }
+      await this.speakLongTextBackendNonStream(chunks, signal, onEnd, generation)
     } catch (e: any) {
       if (e.name === 'AbortError') return
       console.warn('Backend TTS long text error, falling back to browser:', e)
@@ -783,6 +807,7 @@ class TtsService {
 
     for (let i = 0; i < chunks.length; i++) {
       if (signal.aborted || generation !== this.longTextGeneration) break
+      console.log(`[TTS stream] chunk ${i}/${chunks.length} start, len=${chunks[i].length}`)
 
       const token = localStorage.getItem('kbook_token')
       const configId = useTtsStore.getState().backendConfig?.id
@@ -803,33 +828,47 @@ class TtsService {
       const reader = response.body?.getReader()
       if (!reader) throw new Error('No readable body')
 
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let chunkDone = false
+      let chunkCount = 0
+      try {
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let chunkDone = false
 
-      while (!chunkDone) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('event:audio')) continue
-          if (line.startsWith('data:')) {
-            const data = line.substring(5).trim()
-            if (data) this.streamPlayer!.playPcmChunk(data)
-          }
-          if (line.startsWith('event:done')) {
-            chunkDone = true
+        while (!chunkDone) {
+          const { done, value } = await reader.read()
+          if (done) {
+            console.log(`[TTS stream] chunk ${i} reader done (stream end), audioChunks=${chunkCount}`)
             break
           }
-          if (line.startsWith('event:error')) {
-            throw new Error('TTS stream chunk error')
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (line.startsWith('event:audio')) continue
+            if (line.startsWith('data:')) {
+              const data = line.substring(5).trim()
+              if (data) {
+                this.streamPlayer!.playPcmChunk(data)
+                chunkCount++
+              }
+            }
+            if (line.startsWith('event:done')) {
+              console.log(`[TTS stream] chunk ${i} got event:done, audioChunks=${chunkCount}`)
+              chunkDone = true
+              break
+            }
+            if (line.startsWith('event:error')) {
+              throw new Error('TTS stream chunk error')
+            }
           }
         }
+      } finally {
+        reader.cancel().catch(() => {})
       }
+
+      console.log(`[TTS stream] chunk ${i} finished, state=${this.streamPlayer?.state}, nextPlayTime=${this.streamPlayer?.nextPlayTimeVal}, currentTime=${this.streamPlayer?.currentTime}, remaining=${this.streamPlayer?.remainingTime}`)
 
       if (i < chunks.length - 1) {
         this.streamPlayer!.addPause(getPauseMs(chunks[i]))
@@ -837,8 +876,8 @@ class TtsService {
     }
 
     const remaining = this.streamPlayer?.remainingTime ?? 0
+    console.log('[TTS stream] all chunks fed, remaining=', remaining)
     setTimeout(() => {
-      // 代际守卫:cancel / 新一轮朗读后,旧 setTimeout 不再触发 onEnd,避免误清状态
       if (signal.aborted || generation !== this.longTextGeneration) return
       this.streamPlayer?.stop()
       this.streamPlayer = null
@@ -847,71 +886,49 @@ class TtsService {
   }
 
   /**
-   * 预加载单个 segment:合成 + 创建 Audio + 等待 canplaythrough 就绪(不 play)。
-   * 返回就绪的 { audio, url },取消/失败返回 null。失败时抛错由上层 catch。
+   * 预加载单个 segment：仅合成 + 缓存 Blob，不创建 Audio 对象。
+   * 返回就绪的 { blob }，取消/失败返回 null。
+   * 关键：不在这里 new Audio()，避免预取的 Audio 与正在播放的 Audio 共享浏览器音频管线，
+   * 导致 ended 事件丢失或 play() 静默失败（未命中缓存长延迟场景的根因）。
    */
   private async prepareSegment(
     text: string,
     signal: AbortSignal,
     generation: number,
-  ): Promise<{ audio: HTMLAudioElement; url: string } | null> {
+  ): Promise<{ blob: Blob } | null> {
     const audioData = await synthesizeTts(text, useTtsStore.getState().backendConfig?.id)
     if (signal.aborted || generation !== this.longTextGeneration) return null
-
-    const blob = new Blob([audioData], { type: 'audio/wav' })
-    const url = URL.createObjectURL(blob)
-    const audio = new Audio(url)
-
-    // 等 canplaythrough(浏览器认为可流畅播放)或 10s 超时兜底,防止个别段卡住阻塞流水线
-    await new Promise<void>((resolve) => {
-      let settled = false
-      const done = () => {
-        if (settled) return
-        settled = true
-        audio.removeEventListener('canplaythrough', done)
-        audio.removeEventListener('error', done)
-        clearTimeout(timer)
-        signal.removeEventListener('abort', done)
-        resolve()
-      }
-      const timer = setTimeout(done, 10000)
-      audio.addEventListener('canplaythrough', done)
-      audio.addEventListener('error', done)
-      // cancel 时立即结束等待,让取消分支及时清理
-      signal.addEventListener('abort', done)
-      // preload 提示浏览器提前解码
-      audio.preload = 'auto'
-    })
-
-    if (signal.aborted || generation !== this.longTextGeneration) {
-      URL.revokeObjectURL(url)
-      audio.src = ''
-      return null
-    }
-    return { audio, url }
+    return { blob: new Blob([audioData], { type: 'audio/wav' }) }
   }
 
   /**
-   * 播放单个已预加载的 segment,返回 ended/error 的结束原因。
-   * ended 后显式释放 audio 资源(避免多 audio 累积占用输出通道)。
+   * 播放单个已预加载的 segment。
+   * 播放时才创建 Audio 对象，ended/error 后立即释放。
+   * 单一活跃 Audio 原则：避免多 Audio 累积占用输出通道导致后续段无声。
    */
   private playSegment(
-    prepared: { audio: HTMLAudioElement; url: string },
+    prepared: { blob: Blob },
     isLast: boolean,
     text: string,
     signal: AbortSignal,
     generation: number,
   ): Promise<void> {
-    const { audio, url } = prepared
+    const { blob } = prepared
+    const url = URL.createObjectURL(blob)
+    const audio = new Audio(url)
     this.currentAudio = audio
 
     return new Promise<void>((resolve) => {
       let finished = false
+      let readyTimer: ReturnType<typeof setTimeout> | null = null
+
       const finish = () => {
         if (finished) return
         finished = true
-        // 显式释放:pause + 清 src + load,回收解码器/输出通道资源
-        // 这是修复"只听到第一段"的关键——避免 audio 资源累积导致后续段无声
+        // 移除所有监听器和定时器，防止 cancel 后回调仍触发（audio 后台播放的根因）
+        signal.removeEventListener('abort', onAbort)
+        audio.removeEventListener('canplaythrough', onReady)
+        if (readyTimer) clearTimeout(readyTimer)
         try {
           audio.pause()
           audio.src = ''
@@ -931,6 +948,10 @@ class TtsService {
         }
       }
 
+      // cancel 时立即 finish：释放 audio 资源 + resolve Promise，避免 audio 后台继续播放
+      const onAbort = () => finish()
+      signal.addEventListener('abort', onAbort)
+
       audio.addEventListener('ended', finish)
       audio.addEventListener('error', finish)
 
@@ -940,10 +961,34 @@ class TtsService {
         return
       }
 
-      audio.play().catch(() => {
-        // play 失败(如 autoplay policy),直接结束本段推进下一段
-        finish()
-      })
+      // 等 canplaythrough 后再 play，确保浏览器已解码 wav 头部
+      // 未预解码直接 play() 在 Safari 上会静默失败
+      const onReady = () => {
+        audio.removeEventListener('canplaythrough', onReady)
+        readyTimer = null
+        startPlay()
+      }
+
+      const startPlay = () => {
+        if (signal.aborted || generation !== this.longTextGeneration) {
+          finish()
+          return
+        }
+        audio.play().catch(() => {
+          // play 失败(如 autoplay policy),直接结束本段推进下一段
+          finish()
+        })
+      }
+
+      if (audio.readyState >= 3) {
+        startPlay()
+      } else {
+        audio.addEventListener('canplaythrough', onReady)
+        // 10s 兜底：防止个别 wav 解码卡住阻塞流水线
+        readyTimer = setTimeout(() => {
+          if (!finished) startPlay()
+        }, 10000)
+      }
     })
   }
 
@@ -951,15 +996,20 @@ class TtsService {
     // 段间预取流水线:第 i 段播放期间并发预加载第 i+1 段(合成+等 canplaythrough),
     // 第 i 段 ended 后第 i+1 段已就绪,立即 play,消除段间网络等待空白。
     // play() 严格串行(由 ended 驱动),绝不叠加播放。
+    console.log('[TTS non-stream] enter, chunks=', chunks.length)
 
     // 预加载第 0 段(首段无预取,需等合成)
     let next = await this.prepareSegment(chunks[0], signal, generation)
+    console.log('[TTS non-stream] chunk 0 prepared, starting playback loop')
 
     for (let i = 0; i < chunks.length; i++) {
       if (signal.aborted || generation !== this.longTextGeneration) break
 
       const cur = next
-      if (!cur) break
+      if (!cur) {
+        console.log(`[TTS non-stream] chunk ${i} cur is null, break`)
+        break
+      }
 
       // 并发预取下一段(不阻塞当前播放);最后一段不预取
       const nextPromise = (i < chunks.length - 1)
@@ -967,7 +1017,9 @@ class TtsService {
         : Promise.resolve(null)
 
       // 播放当前段(等 ended)
+      console.log(`[TTS non-stream] playSegment ${i}/${chunks.length}`)
       await this.playSegment(cur, i === chunks.length - 1, chunks[i], signal, generation)
+      console.log(`[TTS non-stream] chunk ${i} playSegment returned`)
 
       // 等下一段就绪(通常在第 i 段播放期间早已就绪)
       next = await nextPromise

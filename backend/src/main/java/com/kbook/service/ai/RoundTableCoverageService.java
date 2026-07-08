@@ -241,7 +241,7 @@ public class RoundTableCoverageService {
                 // 构建信息行：标题 + 摘要(如有) + 关键词(如有)
                 String line = block.title;
                 if (block.summary != null && !block.summary.isBlank()) {
-                    line += "——" + (block.summary.length() > 60 ? block.summary.substring(0, 60) + "…" : block.summary);
+                    line += "——" + CommonUtils.truncateText(block.summary, 60);
                 } else if (block.keywords != null && !block.keywords.isEmpty()) {
                     String kwStr = block.keywords.stream().limit(5).collect(Collectors.joining("、"));
                     line += "（关键词：" + kwStr + "）";
@@ -818,7 +818,7 @@ public class RoundTableCoverageService {
             String content = msg.getCompressedContent() != null && !msg.getCompressedContent().isBlank()
                     ? msg.getCompressedContent() : msg.getContent();
             if (content != null && !content.isBlank()) {
-                String truncated = content.length() > 200 ? content.substring(0, 200) + "…" : content;
+                String truncated = CommonUtils.truncateText(content, 200);
                 sb.append(msg.getRoleName()).append("：").append(truncated).append("\n");
             }
         }

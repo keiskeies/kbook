@@ -1,5 +1,6 @@
 package com.kbook.config.aspect;
 
+import com.kbook.common.util.CommonUtils;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -94,11 +95,13 @@ public class ServiceLogAspect {
             if (arg == null) continue;
             if (sb.length() > 0) sb.append(", ");
             String value = arg.toString();
+            value = CommonUtils.truncateText(value, 80);
             sb.append(value);
         }
 
         if (sb.length() == 0) return "";
         String s = sb.toString();
+        s = CommonUtils.truncateText(s, 300);
         return s;
     }
 }

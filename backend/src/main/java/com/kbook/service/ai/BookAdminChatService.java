@@ -331,7 +331,7 @@ public class BookAdminChatService {
                 .list(1)
                 .stream().findFirst()
                 .orElseGet(() -> {
-                    String title = userMessage.length() > 30 ? userMessage.substring(0, 30) + "..." : userMessage;
+                    String title = CommonUtils.truncateText(userMessage, 30);
                     AiSession session = AiSession.builder()
                             .userId(userId)
                             .type(TYPE)

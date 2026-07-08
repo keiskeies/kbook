@@ -310,7 +310,7 @@ public class ChatModelFactory {
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .returnThinking(thinking).think(thinking)
-                .logRequests(true)
+//                .logRequests(true)
                 .build();
     }
 
@@ -323,7 +323,7 @@ public class ChatModelFactory {
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .returnThinking(thinking).think(thinking)
-                .logRequests(true)
+//                .logRequests(true)
                 .build();
     }
 
@@ -335,7 +335,7 @@ public class ChatModelFactory {
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .reasoningEffort(thinking ? null : "none")
                 .returnThinking(thinking).sendThinking(thinking)
-                .logRequests(true)
+//                .logRequests(true)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
@@ -349,7 +349,7 @@ public class ChatModelFactory {
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .reasoningEffort(thinking ? null : "none")
                 .returnThinking(thinking).sendThinking(thinking)
-                .logRequests(true)
+//                .logRequests(true)
                 .listeners(List.of(new DiagnosticChatListener()));
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();

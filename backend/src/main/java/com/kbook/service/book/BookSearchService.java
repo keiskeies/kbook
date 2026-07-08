@@ -4,6 +4,7 @@ import com.kbook.service.ai.ChatModelManager;
 import com.kbook.service.embedding.EmbeddingService;
 
 import com.kbook.common.api.PageResult;
+import com.kbook.common.util.CommonUtils;
 import com.kbook.document.BookDocument;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.Book;
@@ -258,7 +259,7 @@ public class BookSearchService {
 
         long elapsed = System.currentTimeMillis() - startTime;
         log.info("混合搜索完成: keyword='{}', weights=({},{}), vectorHits={}, keywordHits={}, fused={}, returned={}, excluded={}, elapsed={}ms",
-                keyword.length() > 20 ? keyword.substring(0, 20) + "..." : keyword,
+                CommonUtils.truncateText(keyword, 20),
                 String.format("%.2f", vw), String.format("%.2f", kw),
                 vectorScores.size(), keywordRanks.size(), scored.size(), docs.size(),
                 exclude.size(), elapsed);

@@ -1,5 +1,6 @@
 package com.kbook.config;
 
+import com.kbook.common.util.CommonUtils;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.model.chat.listener.ChatModelErrorContext;
@@ -28,7 +29,7 @@ public class DiagnosticChatListener implements ChatModelListener {
                 String text = sm.text().replaceAll("\\n", "");
                 log.info("📤 [AI 请求] SystemMessage ({}字符): {}",
                         text.length(),
-                        text);
+                        CommonUtils.truncateText(text, 100));
                 return;
             }
         }
