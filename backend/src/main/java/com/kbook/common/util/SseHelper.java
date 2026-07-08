@@ -63,4 +63,51 @@ public final class SseHelper {
             return false;
         }
     }
+
+    /**
+     * 判断异常是否值得重试（与 RetryableChatModel 判断逻辑一致）。
+     * <p>
+     * 可重试：429 限速、5xx 服务端错误、网络层异常（超时/DNS/IO）。
+     * 不可重试：4xx 客户端错误、编程异常等。
+     */
+    public static boolean isRetryableError(Throwable e) {
+        if (e == null) return false;
+        if (isRateLimit(e)) return true;
+        if (isServerError(e)) return true;
+        if (e instanceof java.net.SocketTimeoutException
+                || e instanceof java.net.UnknownHostException
+                || e instanceof java.io.IOException) {
+            return true;
+        }
+        return isRetryableError(e.getCause());
+    }
+
+    private static boolean isRateLimit(Throwable e) {
+        String name = e.getClass().getName();
+        if ("dev.langchain4j.model.openai.OpenAiHttpException".equals(name)) {
+            try {
+                int code = (int) e.getClass().getMethod("statusCode").invoke(e);
+                if (code == 429) return true;
+            } catch (Exception ignored) {}
+        }
+        String msg = e.getMessage();
+        if (msg != null && (msg.contains("429") || msg.contains("Too Many Requests")
+                || msg.contains("rate_limit") || msg.contains("Rate Limit"))) {
+            return true;
+        }
+        return e.getCause() != null && isRateLimit(e.getCause());
+    }
+
+    private static boolean isServerError(Throwable e) {
+        String msg = e.getMessage();
+        if (msg != null && (msg.contains(" 500 ") || msg.contains(" 502 ")
+                || msg.contains(" 503 ") || msg.contains(" 504 ")
+                || msg.contains("Internal Server Error")
+                || msg.contains("Bad Gateway")
+                || msg.contains("Service Unavailable")
+                || msg.contains("Gateway Timeout"))) {
+            return true;
+        }
+        return e.getCause() != null && isServerError(e.getCause());
+    }
 }

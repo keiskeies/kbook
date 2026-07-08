@@ -1252,7 +1252,7 @@ public class RoundTableService {
                             }
                         }
                     }
-                });
+                }, 2);
 
             } catch (Exception e) {
                 if (Thread.currentThread().isInterrupted()) return;

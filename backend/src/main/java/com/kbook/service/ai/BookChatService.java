@@ -338,7 +338,7 @@ public class BookChatService {
                     public void onError(Throwable error) {
                         aiProviderConfigService.clearAssistantCache();
                     }
-                });
+                }, 2);
 
             } catch (Exception e) {
                 if (Thread.currentThread().isInterrupted()) return;

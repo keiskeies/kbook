@@ -963,7 +963,7 @@ public class DebateService {
                             }
                         }
                     }
-                });
+                }, 2);
             } catch (Exception e) {
                 log.error("主持人点评失败: type={} - {}", type, e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
@@ -1110,7 +1110,7 @@ public class DebateService {
                     saveMessage(userId, bookId, session, personality, positionKey, request, partialContent);
                 }
             }
-        });
+        }, 2);
     }
 
     // ==================== 消息持久化 ====================

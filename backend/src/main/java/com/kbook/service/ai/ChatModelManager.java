@@ -530,7 +530,7 @@ public class ChatModelManager {
                     CommonUtils.logAiCall("3分钟速读(流式)", elapsed, inputTokens, outputTokens,
                             String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
                 }
-            });
+            }, 2);
         } catch (Exception e) {
             if (Thread.currentThread().isInterrupted()) return;
             log.warn("流式速读摘要异常: bookId={} - {}", book.getId(), e.getMessage());
