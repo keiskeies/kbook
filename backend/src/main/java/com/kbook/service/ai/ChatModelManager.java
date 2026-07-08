@@ -287,7 +287,7 @@ public class ChatModelManager {
                 for (String line : aiText.split("\n")) {
                     line = line.trim();
                     // 过滤：非空、不过长、不重复
-                    if (!line.isBlank() && line.length() <= 15 && !queries.contains(line)) {
+                    if (!line.isBlank() && line.length() <= 20 && !queries.contains(line)) {
                         queries.add(line);
                     }
                 }
@@ -326,12 +326,20 @@ public class ChatModelManager {
                     chatModelFactory::buildToolChatModel, chatMessages);
             if (result != null) {
                 // 解析 AI 响应，按行分割并过滤无效内容
-                List<String> expanded = Arrays.stream(result.split("\n"))
+                // 格式约束在代码层完成，prompt 不做硬性字数限制
+                List<String> raw = Arrays.stream(result.split("\n"))
                         .map(String::trim)
-                        .filter(line -> !line.isBlank() && line.length() <= 30)
+                        .filter(line -> !line.isBlank() && line.length() <= 20)
+                        .filter(line -> line.length() >= 2)  // 单字无意义
                         .distinct()
+                        .toList();
+
+                // 去除与原词高度相似的扩展词（包含关系），避免重复查询
+                List<String> expanded = raw.stream()
+                        .filter(line -> !isSimilarToQuery(line, query))
                         .limit(5)
                         .collect(Collectors.toList());
+
                 if (!expanded.isEmpty()) {
                     log.debug("向量查询扩展: '{}' → {}", query, expanded);
                     return expanded;
@@ -343,6 +351,21 @@ public class ChatModelManager {
         }
         // 默认返回原始查询
         return List.of(query);
+    }
+
+    /**
+     * 判断扩展词与原词是否高度相似（包含关系），相似则跳过避免重复查询。
+     * "两性"与"两性关系"相似；"婚姻沟通"与"两性关系"不相似。
+     */
+    private boolean isSimilarToQuery(String expansion, String query) {
+        String e = expansion.trim();
+        String q = query.trim();
+        if (e.equals(q)) return true;
+        // 包含关系：短词是长词的子串，且短词长度≥2
+        if (e.length() >= 2 && q.length() >= 2) {
+            if (q.contains(e) || e.contains(q)) return true;
+        }
+        return false;
     }
 
     /**

@@ -50,13 +50,18 @@ public class BookSearchService {
 
     /** 各路召回上限 */
     private static final int RECALL_SIZE = 100;
-    /** 向量召回最低相似度 */
-    private static final double MIN_VECTOR_SCORE = 0.7;
-
-    private static final List<String> SEMANTIC_KEYWORDS = List.of(
-            "推荐", "适合", "类似", "风格", "关于", "有没有", "好看", "什么",
-            "帮忙", "求", "想看", "喜欢", "感兴趣", "如何", "怎样", "比较"
-    );
+    /** 向量相似度阈值 — 对话场景需要跨概念召回，但 0.5 太宽松会召回不相关书 */
+    private static final double MIN_VECTOR_SCORE = 0.55;
+    /** 召回不足时的降级阈值 */
+    private static final double FALLBACK_VECTOR_SCORE = 0.35;
+    /** 召回不足的判定数量 */
+    private static final int MIN_RECALL_FOR_FALLBACK = 5;
+    /** ES 结果不足此数时，触发向量兜底 */
+    private static final int VECTOR_FALLBACK_THRESHOLD = 5;
+    /** 质量门槛 — 仅过滤评分数据缺失或极低的书，不做质量筛选（评分主观性强） */
+    private static final double MIN_RATING_THRESHOLD = 2.0;
+    /** 扩展词参与关键词召回的最大数量（控制 ES 查询次数） */
+    private static final int MAX_EXPANSION_FOR_KEYWORD = 5;
 
     private record SearchWeights(double vectorWeight, double keywordWeight) {
         static SearchWeights of(double vw, double kw) {
@@ -124,9 +129,10 @@ public class BookSearchService {
 
     /**
      * MySQL 关键词搜索实现
+     * 按 rating 降序，避免 readCount 热门偏见
      */
     private PageResult<BookDocument> mysqlKeywordSearch(String keyword, String tag, int page, int size) {
-        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
+        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "rating"));
         Page<BookProjection> jpaResult = bookRepository.searchProjectedBooks(keyword, pageable);
         List<BookProjection> books = jpaResult.getContent();
 
@@ -146,10 +152,15 @@ public class BookSearchService {
     /**
      * 混合搜索：Qdrant 向量语义召回 + ES/MySQL 关键词召回，加权融合排序
      * <p>
-     * 仅格式筛选（无关键词）时走纯 ES/MySQL，不做向量搜索
-     * 适用于 AI Tool 等需要语义理解场景
+     * 对话场景专用入口（前端搜索走 keywordSearch）。ES 为主路、向量降级为补充，
+     * 查询扩展词（同义+反义方向）喂 ES 多字段匹配，ES 结果不足时向量跨概念兜底。
+     *
+     * @param keyword       检索词（LLM 提炼，长短不限）
+     * @param tag           标签筛选，可为 null
+     * @param excludeBookIds 需排除的书籍ID（如已推荐的），可为 null
      */
-    public PageResult<BookDocument> hybridSearch(String keyword, String tag, int page, int size) {
+    public PageResult<BookDocument> hybridSearch(String keyword, String tag,
+                                                  List<Long> excludeBookIds, int page, int size) {
         if (keyword == null || keyword.isBlank()) {
             if (tag != null && !tag.isBlank()) {
                 return searchByTag(tag, page, size);
@@ -158,17 +169,27 @@ public class BookSearchService {
         }
 
         long startTime = System.currentTimeMillis();
+        Set<Long> exclude = excludeBookIds != null ? new HashSet<>(excludeBookIds) : Set.of();
 
-        SearchWeights prior = analyzeQueryIntent(keyword);
+        // 查询扩展（同义+反义方向），一次调用两路共用
+        List<String> expandedQueries = chatModelManager.expandVectorSearchQuery(keyword);
 
-        Map<Long, Double> vectorScores = vectorRecall(keyword);
-        Map<Long, Integer> keywordRanks = keywordRecall(keyword);
+        // ES 关键词召回（主路，扩展词用真实排名+折扣）
+        Map<Long, Integer> keywordRanks = keywordRecall(keyword, expandedQueries, exclude);
 
-        SearchWeights weights = adjustWeightsByRecall(prior, vectorScores, keywordRanks);
+        // 向量召回降级为补充：ES 结果不足时才触发，跨概念兜底
+        Map<Long, Double> vectorScores = Map.of();
+        if (keywordRanks.size() < VECTOR_FALLBACK_THRESHOLD) {
+            log.debug("ES 召回不足({}本)，触发向量兜底", keywordRanks.size());
+            vectorScores = vectorRecall(keyword, expandedQueries, exclude);
+        }
+
+        // 权重：ES 主(0.7)，向量辅(0.3)
+        SearchWeights weights = SearchWeights.of(0.30, 0.70);
 
         Set<Long> allIds = new LinkedHashSet<>();
-        allIds.addAll(vectorScores.keySet());
         allIds.addAll(keywordRanks.keySet());
+        allIds.addAll(vectorScores.keySet());
 
         if (allIds.isEmpty()) {
             return PageResult.of(List.of(), 0L, page, size);
@@ -199,17 +220,30 @@ public class BookSearchService {
 
         scored.sort((a, b) -> Double.compare(b.fusionScore, a.fusionScore));
 
+        // 质量门槛：过滤评分过低的书（阈值降低后可能召回烂书）
+        List<Long> candidateIds = scored.stream().map(s -> s.bookId).toList();
+        Map<Long, BookProjection> bookMap = bookRepository.findProjectedByIdIn(candidateIds).stream()
+                .collect(Collectors.toMap(BookProjection::getId, b -> b, (a, b) -> a));
+
+        scored = scored.stream()
+                .filter(sb -> {
+                    BookProjection book = bookMap.get(sb.bookId);
+                    return book != null
+                            && (book.getRating() == null || book.getRating() >= MIN_RATING_THRESHOLD);
+                })
+                .toList();
+
+        // 分页（基于过滤后的列表）
         int start = Math.min((page - 1) * size, scored.size());
         int end = Math.min(page * size, scored.size());
         List<ScoredBook> paged = scored.subList(start, end);
 
         List<Long> pagedIds = paged.stream().map(s -> s.bookId).toList();
-        Map<Long, BookProjection> bookMap = bookRepository.findProjectedByIdIn(pagedIds).stream()
-                .collect(Collectors.toMap(BookProjection::getId, b -> b, (a, b) -> a));
+        Map<Long, BookProjection> pagedBookMap = bookMap; // 复用已加载的 map
 
         List<BookDocument> docs = paged.stream()
                 .map(sb -> {
-                    BookProjection book = bookMap.get(sb.bookId);
+                    BookProjection book = pagedBookMap.get(sb.bookId);
                     if (book == null) return null;
                     return toDocument(book);
                 })
@@ -223,20 +257,33 @@ public class BookSearchService {
         }
 
         long elapsed = System.currentTimeMillis() - startTime;
-        log.info("混合搜索完成: keyword='{}', weights=({},{}), vectorHits={}, keywordHits={}, fused={}, returned={}, elapsed={}ms",
+        log.info("混合搜索完成: keyword='{}', weights=({},{}), vectorHits={}, keywordHits={}, fused={}, returned={}, excluded={}, elapsed={}ms",
                 keyword.length() > 20 ? keyword.substring(0, 20) + "..." : keyword,
                 String.format("%.2f", vw), String.format("%.2f", kw),
-                vectorScores.size(), keywordRanks.size(), scored.size(), docs.size(), elapsed);
+                vectorScores.size(), keywordRanks.size(), scored.size(), docs.size(),
+                exclude.size(), elapsed);
 
         return PageResult.of(docs, (long) scored.size(), page, size);
+    }
+
+    /** 向后兼容重载（无排除） */
+    public PageResult<BookDocument> hybridSearch(String keyword, String tag, int page, int size) {
+        return hybridSearch(keyword, tag, null, page, size);
     }
 
     // ==================== 向量召回：Qdrant kbook_books ====================
 
     /**
      * 通过 Qdrant kbook_books 做语义向量召回
+     * <p>
+     * 自适应阈值：先用 MIN_VECTOR_SCORE 召回，不足 MIN_RECALL_FOR_FALLBACK 本时
+     * 用 FALLBACK_VECTOR_SCORE 重试，避免跨概念语义相关书被硬阈值卡掉。
+     *
+     * @param queryText       原始查询（主查询）
+     * @param expandedQueries 查询扩展词列表
+     * @param exclude         需排除的书籍ID
      */
-    private Map<Long, Double> vectorRecall(String queryText) {
+    private Map<Long, Double> vectorRecall(String queryText, List<String> expandedQueries, Set<Long> exclude) {
         Map<Long, Double> scores = new LinkedHashMap<>();
         if (!embeddingService.isAvailable()) {
             log.debug("向量召回跳过: EmbeddingService 不可用");
@@ -245,18 +292,45 @@ public class BookSearchService {
         try {
             List<String> queries = new ArrayList<>();
             queries.add(queryText);
-            queries.addAll(chatModelManager.expandVectorSearchQuery(queryText));
+            queries.addAll(expandedQueries);
 
-            int size = RECALL_SIZE / queries.size();
+            // size 分配：原始查询拿 50%，扩展词平分剩余 50%
+            int primarySize = RECALL_SIZE / 2;
+            int expansionSize = queries.size() > 1 ? (RECALL_SIZE / 2) / (queries.size() - 1) : 0;
+            List<Long> excludeList = new ArrayList<>(exclude);
 
-            for (String query : queries) {
+            // 第一轮：默认阈值
+            for (int i = 0; i < queries.size(); i++) {
+                String query = queries.get(i);
+                int size = (i == 0) ? primarySize : expansionSize;
+                if (size <= 0) continue;
                 List<EmbeddingMatch<TextSegment>> matches =
-                        embeddingService.searchSimilarBooks(query, size, MIN_VECTOR_SCORE, List.of());
+                        embeddingService.searchSimilarBooks(query, size, MIN_VECTOR_SCORE, excludeList);
                 for (EmbeddingMatch<TextSegment> match : matches) {
                     if (match.embedded() != null && match.embedded().metadata() != null) {
                         Long bookId = match.embedded().metadata().getLong("bookId");
                         if (bookId != null) {
                             scores.merge(bookId, match.score(), Math::max);
+                        }
+                    }
+                }
+            }
+
+            // 召回不足时降阈值重试（跨概念语义推荐需要）
+            if (scores.size() < MIN_RECALL_FOR_FALLBACK) {
+                log.debug("向量召回不足({}本)，降阈值重试: {}", scores.size(), FALLBACK_VECTOR_SCORE);
+                for (int i = 0; i < queries.size(); i++) {
+                    String query = queries.get(i);
+                    int size = (i == 0) ? primarySize : expansionSize;
+                    if (size <= 0) continue;
+                    List<EmbeddingMatch<TextSegment>> matches =
+                            embeddingService.searchSimilarBooks(query, size, FALLBACK_VECTOR_SCORE, excludeList);
+                    for (EmbeddingMatch<TextSegment> match : matches) {
+                        if (match.embedded() != null && match.embedded().metadata() != null) {
+                            Long bookId = match.embedded().metadata().getLong("bookId");
+                            if (bookId != null) {
+                                scores.merge(bookId, match.score(), Math::max);
+                            }
                         }
                     }
                 }
@@ -271,17 +345,51 @@ public class BookSearchService {
 
     /**
      * 关键词召回：ES 优先，降级 MySQL，返回 bookId → rank（1-based，越小越相关）
+     * <p>
+     * 原始词命中的书按真实排名；扩展词命中的书（原始词未命中）给基础低 rank，
+     * 不抢原始词排名但保留在候选池中，实现"扩展词喂关键词路"。
+     *
+     * @param keyword         原始检索词
+     * @param expandedQueries 查询扩展词列表
+     * @param exclude         需排除的书籍ID
      */
-    private Map<Long, Integer> keywordRecall(String keyword) {
+    private Map<Long, Integer> keywordRecall(String keyword, List<String> expandedQueries, Set<Long> exclude) {
+        Map<Long, Integer> ranks = new LinkedHashMap<>();
         if (esAvailable) {
             try {
-                return esKeywordRecall(keyword);
+                // 原始词召回（真实排名）
+                ranks.putAll(esKeywordRecall(keyword));
+
+                // 扩展词召回：用真实 ES 排名 + 偏移，让扩展词命中的书有质量区分
+                // 偏移量 = 原始词召回数量，确保扩展词命中的书排在原始词后面但不被埋
+                // 过滤与原词高度相似的扩展词（包含关系），避免重复查询
+                List<String> expansions = expandedQueries.stream()
+                        .filter(q -> !q.equals(keyword)
+                                && !(q.length() >= 2 && keyword.length() >= 2
+                                    && (keyword.contains(q) || q.contains(keyword))))
+                        .limit(MAX_EXPANSION_FOR_KEYWORD)
+                        .toList();
+                int baseOffset = ranks.size();  // 原始词召回数量作为偏移
+                for (String eq : expansions) {
+                    Map<Long, Integer> expRanks = esKeywordRecall(eq);
+                    int expRank = 1;
+                    for (Long bookId : expRanks.keySet()) {
+                        if (!ranks.containsKey(bookId) && !exclude.contains(bookId)) {
+                            // 扩展词真实排名 + 偏移，rankToScore 会指数衰减
+                            ranks.put(bookId, baseOffset + expRank);
+                        }
+                        expRank++;
+                    }
+                }
+                return ranks;
             } catch (Exception e) {
                 log.warn("ES 关键词召回异常，降级到 MySQL: {}", e.getMessage());
                 esAvailable = false;
             }
         }
-        return mysqlKeywordRecall(keyword);
+        // MySQL 降级：只查原始词，不增强扩展词
+        ranks.putAll(mysqlKeywordRecall(keyword));
+        return ranks;
     }
 
     /**
@@ -303,10 +411,11 @@ public class BookSearchService {
 
     /**
      * MySQL LIKE 关键词召回（ES 降级方案），返回 bookId → rank
+     * 按 rating 降序，避免 readCount 热门偏见
      */
     private Map<Long, Integer> mysqlKeywordRecall(String keyword) {
         Map<Long, Integer> ranks = new LinkedHashMap<>();
-        Pageable pageable = PageRequest.of(0, RECALL_SIZE, Sort.by(Sort.Direction.DESC, "readCount"));
+        Pageable pageable = PageRequest.of(0, RECALL_SIZE, Sort.by(Sort.Direction.DESC, "rating"));
         Page<Book> jpaResult = bookRepository.searchBooks(keyword, pageable);
         List<Book> books = jpaResult.getContent();
         for (int i = 0; i < books.size(); i++) {
@@ -317,45 +426,15 @@ public class BookSearchService {
 
     /**
      * 排名 → 得分：指数衰减，top 排名书籍获得更高权重
+     * 前3名给额外加成，体现书名/标签精确匹配的强信号，避免被向量路弱相关书淹没
      */
     private double rankToScore(Integer rank) {
         if (rank == null) return 0.0;
-        return Math.pow(0.8, rank - 1);
+        // 更陡的衰减：rank 1=1.0, 2=0.7, 3=0.49, 5=0.24
+        return Math.pow(0.7, rank - 1);
     }
 
     // ==================== 动态权重 ====================
-
-    /**
-     * 分析查询意图，确定初始权重分配
-     * <p>
-     * 根据查询文本特征判断搜索意图：
-     * - 短查询（≤4字符）：优先关键词匹配（如书名"三体"）
-     * - 包含语义关键词：优先向量搜索（如"推荐适合失恋看的书"）
-     * - 长查询（≥15字符）：优先向量搜索（语义更丰富）
-     * - 其他：均衡分配
-     *
-     * @param keyword 搜索关键词
-     * @return 权重分配结果
-     */
-    private SearchWeights analyzeQueryIntent(String keyword) {
-        String trimmed = keyword.trim();
-        int len = trimmed.length();
-
-        if (len <= 4) {
-            return SearchWeights.of(0.3, 0.7);
-        }
-
-        boolean hasSemanticIntent = SEMANTIC_KEYWORDS.stream().anyMatch(trimmed::contains);
-        if (hasSemanticIntent) {
-            return SearchWeights.of(0.8, 0.2);
-        }
-
-        if (len >= 15) {
-            return SearchWeights.of(0.7, 0.3);
-        }
-
-        return SearchWeights.of(0.5, 0.5);
-    }
 
     /**
      * 根据召回结果质量动态调整权重
@@ -416,10 +495,11 @@ public class BookSearchService {
 
     /**
      * 按标签筛选（无关键词时使用）
+     * 按 rating 降序，避免 readCount 热门偏见
      */
     private PageResult<BookDocument> searchByTag(String tag, int page, int size) {
         // MySQL 标签筛选（formatTags 存储的是 JSON 字符串，用 LIKE 匹配）
-        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "readCount"));
+        Pageable pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "rating"));
         Page<BookProjection> jpaResult = bookRepository.findProjectedByTag(tag, pageable);
         List<BookDocument> docs = jpaResult.getContent().stream()
                 .map(this::toDocument)

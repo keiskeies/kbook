@@ -87,17 +87,20 @@ public class AiToolService {
 
     @Tool("搜索图书的主工具。底层是向量语义+关键词混合检索，能理解自然语言意图。可按书名/作者精确查找，也可按主题/情绪/需求等简短描述搜索。返回图书ID、书名、作者、评分、标签、简介，供你挑选最合适的推荐。")
     public String searchBooks(
-            @P("搜索关键词或简短描述。主题/情绪/需求搜索可传2-15字的描述（如'幽默搞笑''治愈系散文''商业思维入门'），向量检索能理解语义；精确找书用书名或作者名。控制在15字以内，避免整段长句，也不要压缩成单个字。") String keyword,
+            @P("搜索关键词或描述。主题/情绪/需求搜索可传简短描述（如'幽默搞笑''治愈系散文''商业思维入门'），向量检索能理解语义；精确找书用书名或作者名。无需刻意压缩长度。") String keyword,
             @P("标签筛选，可选。当用户明确限定类型时传入，如'科幻''心理学''投资'。会匹配图书的标签字段做精确过滤。无需筛选时传 null。") String tag,
+            @P("要排除的图书ID列表，用于避免重复推荐。从对话历史中已推荐的[BOOK:id=数字]提取，逗号分隔如'5,12,28'。用户说'还有吗''换一批''不要这本'时必传；首次搜索可不传或传 null。") String excludeBookIds,
             @P("返回数量，可选，默认20，最大50。用户明确说要几本时传入对应数字（如'推荐3本'传3）；否则用默认值。") Integer count,
             @P("页码，可选，默认1。当需要看更多结果（如用户说'还有吗''换一批'且已推荐过前20本）时传2、3翻页。") Integer page
     ) {
         int size = (count != null && count > 0 && count <= 50) ? count : 20;
         int pageNum = (page != null && page > 0) ? page : 1;
-        log.debug("[AI Tool] searchBooks: keyword='{}', tag={}, count={}, page={}", keyword, tag, size, pageNum);
+        List<Long> excludeIds = parseBookIds(excludeBookIds);
+        log.debug("[AI Tool] searchBooks: keyword='{}', tag={}, exclude={}, count={}, page={}",
+                keyword, tag, excludeIds.size(), size, pageNum);
         try {
             PageResult<BookDocument> result =
-                    bookService.hybridSearch(keyword, tag, pageNum, size);
+                    bookService.hybridSearch(keyword, tag, excludeIds.isEmpty() ? null : excludeIds, pageNum, size);
             if (result.getList().isEmpty()) {
                 return "没有找到相关图书。";
             }
@@ -125,6 +128,21 @@ public class AiToolService {
             log.error("[AI Tool] searchBooks error", e);
             return "搜索图书时发生错误，请稍后重试。";
         }
+    }
+
+    /** 解析逗号分隔的图书ID字符串 */
+    private List<Long> parseBookIds(String ids) {
+        if (ids == null || ids.isBlank()) return List.of();
+        return Arrays.stream(ids.split("[,，\\s]+"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> {
+                    try { return Long.parseLong(s); }
+                    catch (NumberFormatException e) { return null; }
+                })
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
     }
 
     @Tool("当用户想了解某本书的详细信息时调用。需要提供图书ID（可从searchBooks结果中获取[BOOK:id=数字]）。返回书名、作者、格式、评分、阅读次数、完整简介、目录等。")

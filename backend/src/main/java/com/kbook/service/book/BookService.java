@@ -371,6 +371,18 @@ public class BookService {
     }
 
     /**
+     * 混合搜索（带排除列表，供 AI Tool 追问去重使用）
+     *
+     * @param excludeBookIds 需排除的书籍ID（如已推荐的），可为 null
+     */
+    public PageResult<BookDocument> hybridSearch(String keyword, String tag,
+                                                  java.util.List<Long> excludeBookIds, int page, int size) {
+        log.debug("混合搜索(带排除): keyword={}, tag={}, exclude={}, page={}, size={}",
+                keyword, tag, excludeBookIds != null ? excludeBookIds.size() : 0, page, size);
+        return bookSearchService.hybridSearch(keyword, tag, excludeBookIds, page, size);
+    }
+
+    /**
      * 搜索图书（JPA 原始方法，保留兼容 — 供内部/AI工具使用）
      * <p>
      * 注意：此方法仅走 MySQL LIKE，不经过 Qdrant/ES。

@@ -35,8 +35,10 @@ public interface BookSearchRepository extends ElasticsearchRepository<BookDocume
     Page<BookDocument> searchWithHighlight(String keyword, Pageable pageable);
 
     /**
-     * 多字段全文搜索 + quality function_score（评分/阅读量加权）
-     * 用于混合搜索召回 — 高分/热门书籍排名前置
+     * 多字段全文搜索 + quality function_score（仅评分轻微加权）
+     * 用于混合搜索召回 — 文本相关度主导，评分仅作轻微参考
+     * 注：readCount 不作为排序依据，避免热门偏见埋没冷门好书和新书
+     *     rating factor 较小，避免低分好书被埋（评分主观性强）
      */
     @Query("{\"function_score\": {\"query\": {\"bool\": {\"should\": [" +
             "{\"match\": {\"title\": {\"query\": \"?0\", \"boost\": 3.0}}}," +
@@ -47,8 +49,7 @@ public interface BookSearchRepository extends ElasticsearchRepository<BookDocume
             "{\"match\": {\"description\": {\"query\": \"?0\", \"boost\": 1.0}}}" +
             "], \"minimum_should_match\": 1}}, \"functions\": [" +
             "{\"weight\": 1}," +
-            "{\"field_value_factor\": {\"field\": \"rating\", \"factor\": 0.2, \"modifier\": \"log1p\", \"missing\": 0}}," +
-            "{\"field_value_factor\": {\"field\": \"readCount\", \"factor\": 0.00001, \"modifier\": \"log1p\", \"missing\": 0}}" +
+            "{\"field_value_factor\": {\"field\": \"rating\", \"factor\": 0.05, \"modifier\": \"log1p\", \"missing\": 0}}" +
             "], \"score_mode\": \"sum\", \"boost_mode\": \"multiply\"}}")
     Page<BookDocument> searchForRecall(String keyword, Pageable pageable);
 
