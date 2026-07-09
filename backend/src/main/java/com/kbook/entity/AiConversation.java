@@ -65,7 +65,7 @@ public class AiConversation extends BaseEntity {
     private String content;
 
     /**
-     * 压缩后的消息内容（初始等于 content；当上下文超限时 AI 回复会被压缩到200字以内）
+     * 压缩后的消息内容（初始等于 content；当上下文超限时 AI 回复被压缩后写入此字段）
      * buildChatMessages 始终读取此字段而非 content
      */
     @Column(name = "compressed_content", columnDefinition = "TEXT")

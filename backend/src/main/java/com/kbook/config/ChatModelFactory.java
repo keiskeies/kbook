@@ -111,6 +111,23 @@ public class ChatModelFactory {
     }
 
     /**
+     * 构建压缩专用聊天模型 — 复用 TOOL 配置，但使用低温度（0.1）确保压缩结果的
+     * 确定性和忠实度，避免高温度带来的内容改写/编造风险。
+     *
+     * @return 聊天模型实例，已包装重试机制
+     * @throws IllegalStateException 无可用 TOOL 配置时抛出
+     */
+    public ChatModel buildCompressionChatModel() {
+        AiProviderConfig config = resolveToolConfig();
+        Duration t = timeout(config.getTimeout());
+        return config.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? wrap(buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
+                0.1, t, config.getApiKey(), false))
+                : wrap(buildOllamaChat(config.getBaseUrl(), config.getModelName(),
+                0.1, t, false));
+    }
+
+    /**
      * 构建流式工具聊天模型（TOOL 角色，不包含思考过程）。
      *
      * @return 流式聊天模型实例

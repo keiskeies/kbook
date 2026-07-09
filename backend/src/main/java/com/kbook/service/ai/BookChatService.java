@@ -737,10 +737,6 @@ public class BookChatService {
      * 压缩触发阈值：历史占比超过此比例开始压缩
      */
     private static final double COMPRESS_TRIGGER_RATIO = 0.8;
-    /**
-     * 压缩目标：历史占比降到该比例以下停止
-     */
-    private static final double COMPRESS_TARGET_RATIO = 0.6;
 
     /**
      * 加载历史消息并同步压缩，一次 DB 查询完成加载+压缩判断+压缩执行。
@@ -765,11 +761,10 @@ public class BookChatService {
                 })
                 .sum();
 
-        // 3. 计算阈值
+        // 3. 计算触发阈值
         Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
         int tokenLimit = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
         int charLimit = (int) (tokenLimit * TOKEN_TO_CHAR_RATIO);
-        long compressTarget = (long) (charLimit * COMPRESS_TARGET_RATIO) - currentOverheadChars;
 
         long totalWithCurrent = totalChars + currentOverheadChars;
         log.debug("压缩检查: sessionId={}, history={}, current={}, total={}/{} ({}%)",
@@ -777,56 +772,60 @@ public class BookChatService {
                 totalWithCurrent, charLimit,
                 charLimit > 0 ? totalWithCurrent * 100 / charLimit : 0);
 
-        // 4. 未达触发阈值，直接返回
+        // 4. 未达触发阈值，直接返回（不再做预算估算——batch 只有一次 LLM 调用，直接告诉比例即可）
         if (totalWithCurrent < charLimit * COMPRESS_TRIGGER_RATIO) {
             return conversations;
         }
 
-        // 5. 从内存中找最老的未压缩 assistant 消息并压缩（避免逐条 DB 查询）
+        // 5. 收集所有未压缩的 assistant 消息，一次性批量压缩
+        List<AiConversation> toCompress = conversations.stream()
+                .filter(c -> "assistant".equals(c.getRole()))
+                .filter(c -> {
+                    String compressed = c.getCompressedContent();
+                    String original = c.getContent();
+                    return compressed == null || original == null || compressed.equals(original);
+                })
+                .collect(Collectors.toList());
+
+        if (toCompress.isEmpty()) {
+            return conversations;
+        }
+
+        // 6. 一次性批量压缩（单次 LLM 调用），替换原有逐条串行压缩
+        List<String> originals = toCompress.stream()
+                .map(AiConversation::getContent)
+                .toList();
+        List<String> summaries = chatModelManager.compressContentBatch(originals);
+        if (summaries == null || summaries.size() != toCompress.size()) {
+            log.warn("批量压缩返回异常(跳过): sessionId={}, expected={}, actual={}",
+                    sessionId, toCompress.size(),
+                    summaries != null ? summaries.size() : "null");
+            return conversations;
+        }
+
         int compressed = 0;
-        while (totalChars >= Math.max(compressTarget, 0)) {
-            AiConversation target = findFirstUncompressedAssistantInMemory(conversations);
-            if (target == null) {
-                log.info("无可压缩的 AI 回复: sessionId={}, compressed={}", sessionId, compressed);
-                break;
+        for (int i = 0; i < toCompress.size(); i++) {
+            String summary = summaries.get(i);
+            if (summary == null || summary.isBlank()) {
+                log.warn("单条压缩结果为空(跳过): sessionId={}, convId={}",
+                        sessionId, toCompress.get(i).getId());
+                continue;
             }
-
+            AiConversation target = toCompress.get(i);
             String original = target.getContent();
-            String summary = chatModelManager.compressContent(original);
-            if (summary == null) {
-                log.warn("压缩失败(跳过): sessionId={}, convId={}", sessionId, target.getId());
-                break;
-            }
-
             target.setCompressedContent(summary);
             conversationRepository.save(target);
-            totalChars = totalChars - original.length() + summary.length();
+            totalChars = totalChars - (original != null ? original.length() : 0) + summary.length();
             compressed++;
             log.info("压缩历史消息: sessionId={}, convId={}, {}→{} chars, totalChars={}",
-                    sessionId, target.getId(), original.length(), summary.length(), totalChars);
+                    sessionId, target.getId(), original != null ? original.length() : 0, summary.length(), totalChars);
         }
 
         if (compressed > 0) {
-            log.info("压缩完成: sessionId={}, compressed={}条", sessionId, compressed);
+            log.info("压缩完成: sessionId={}, 批量压缩 {} 条（单次 LLM 调用）", sessionId, compressed);
         }
 
         return conversations;
-    }
-
-    /**
-     * 从内存列表中查找第一条未压缩的 assistant 消息。
-     * 未压缩判定：compressedContent 为 null，或与 content 完全相同（创建时初始化相等）。
-     */
-    private AiConversation findFirstUncompressedAssistantInMemory(List<AiConversation> conversations) {
-        for (AiConversation c : conversations) {
-            if (!"assistant".equals(c.getRole())) continue;
-            String compressed = c.getCompressedContent();
-            String original = c.getContent();
-            if (compressed == null || compressed.equals(original)) {
-                return c;
-            }
-        }
-        return null;
     }
 
     /**

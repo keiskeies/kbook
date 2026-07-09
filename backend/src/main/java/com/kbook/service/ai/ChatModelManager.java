@@ -162,10 +162,10 @@ public class ChatModelManager {
     // ================================================================
 
     /**
-     * 将内容压缩到 200 字以内，用于历史对话记忆的精简。
+     * 将内容按信息密度动态压缩精简，用于历史对话记忆。
      *
-     * <p>压缩策略：如果内容长度小于等于 200 字则直接返回原内容，否则调用 AI 进行压缩。
-     * 压缩失败时返回 null，由调用方决定如何处理。</p>
+     * <p>信息密度高的核心内容少压缩，冗余啰嗦内容多压缩。
+     * 短内容（≤50 字）直接返回原内容。压缩失败时返回 null。</p>
      *
      * @param original 原始内容文本
      * @return 压缩后的内容，无需压缩或失败时返回 null
@@ -179,6 +179,20 @@ public class ChatModelManager {
      */
     public String compressRoundTableContent(String original) {
         return chatHistoryCompressor.compressRoundTableContent(original);
+    }
+
+    /**
+     * 批量压缩多条通用对话内容 — 单次 LLM 调用，返回与输入索引对齐的结果列表
+     */
+    public List<String> compressContentBatch(List<String> originals) {
+        return chatHistoryCompressor.compressContentBatch(originals);
+    }
+
+    /**
+     * 批量压缩多条圆桌派发言 — 单次 LLM 调用，返回与输入索引对齐的结果列表
+     */
+    public List<String> compressRoundTableContentBatch(List<String> originals) {
+        return chatHistoryCompressor.compressRoundTableContentBatch(originals);
     }
 
     /**
