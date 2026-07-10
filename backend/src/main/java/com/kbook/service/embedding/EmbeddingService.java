@@ -1775,32 +1775,41 @@ public class EmbeddingService {
     }
 
     /**
-     * 将书籍内容按固定大小分块（带重叠）
-     * 高性能版本：预转换 char[] + 简化重叠逻辑
+     * 将书籍内容按固定大小分块（带重叠，段落感知）
+     * <p>
+     * 以 chunkSize 字符为目标长度，切点优先选段落边界（\n\n），其次行边界（\n），
+     * 再次句末标点（。！？），最后才硬切。搜索窗口允许略超 chunkSize（+100），
+     * 用小幅长度波动换取完整段落，避免语义单元被腰斩。
      */
     private List<String> splitContent(String content) {
         ArrayList<String> chunks = new ArrayList<>();
         int contentLen = content.length();
         if (contentLen == 0) return chunks;
 
-        int estimatedChunks = contentLen / (qdrantProps.getChunkSize() - qdrantProps.getChunkOverlap()) + 1;
+        int chunkSize = qdrantProps.getChunkSize();
+        int chunkOverlap = qdrantProps.getChunkOverlap();
+        int estimatedChunks = contentLen / (chunkSize - chunkOverlap) + 1;
         chunks.ensureCapacity(estimatedChunks);
 
         char[] chars = content.toCharArray();
+        // 略超 chunkSize 寻找段落边界，换语义完整性
+        int lookahead = Math.min(100, chunkOverlap / 2);
 
         int pos = 0;
         while (pos < contentLen) {
-            int chunkEnd = Math.min(pos + qdrantProps.getChunkSize(), contentLen);
+            int chunkEnd = Math.min(pos + chunkSize, contentLen);
 
             if (chunkEnd < contentLen) {
-                int searchStart = Math.max(pos, chunkEnd - qdrantProps.getChunkOverlap());
-                for (int i = chunkEnd - 1; i >= searchStart; i--) {
-                    char c = chars[i];
-                    if (c == '\n' || c == '。' || c == '！' || c == '？') {
-                        chunkEnd = i + 1;
-                        break;
-                    }
+                // 向前回退窗口：先尝试段落/行边界，再退到句末标点
+                int backStart = Math.max(pos, chunkEnd - chunkOverlap);
+                // 向后延伸窗口：若超出 chunkEnd 不多，可接受以落在段落边界
+                int fwdEnd = Math.min(contentLen, chunkEnd + lookahead);
+
+                int cut = findChunkBoundary(chars, backStart, chunkEnd, fwdEnd);
+                if (cut > 0) {
+                    chunkEnd = cut;
                 }
+                // cut==0 表示未找到任何边界，保持硬切在 chunkSize
             }
 
             String chunk = new String(chars, pos, chunkEnd - pos).trim();
@@ -1808,7 +1817,7 @@ public class EmbeddingService {
                 chunks.add(chunk);
             }
 
-            int nextPos = chunkEnd - qdrantProps.getChunkOverlap();
+            int nextPos = chunkEnd - chunkOverlap;
             if (nextPos <= pos) {
                 pos = chunkEnd;
             } else {
@@ -1818,6 +1827,46 @@ public class EmbeddingService {
 
         log.debug("分块完成: totalChars={}, chunks={}", contentLen, chunks.size());
         return chunks;
+    }
+
+    /**
+     * 在 [backStart, fwdEnd) 范围内寻找最佳切点（chunkEnd 的调整值）。
+     * <p>
+     * 优先级（高 → 低）：
+     * 1. 向后延伸 [chunkEnd, fwdEnd) 内的 \n\n（段落边界，允许 chunk 略长）
+     * 2. 回退 [backStart, chunkEnd) 内的 \n\n
+     * 3. 回退 [backStart, chunkEnd) 内的 \n（行边界）
+     * 4. 回退 [backStart, chunkEnd) 内的 句末标点（。！？）
+     * <p>
+     * 返回切点之后的索引（即新 chunkEnd），未找到返回 0。
+     */
+    private int findChunkBoundary(char[] chars, int backStart, int chunkEnd, int fwdEnd) {
+        // 1. 向后延伸找段落边界（\n\n），允许略超 chunkSize 换取完整段落
+        for (int i = chunkEnd; i < fwdEnd - 1; i++) {
+            if (chars[i] == '\n' && chars[i + 1] == '\n') {
+                return i + 2;
+            }
+        }
+        // 2. 回退找段落边界（\n\n）
+        for (int i = chunkEnd - 2; i >= backStart; i--) {
+            if (chars[i] == '\n' && chars[i + 1] == '\n') {
+                return i + 2;
+            }
+        }
+        // 3. 回退找行边界（\n）
+        for (int i = chunkEnd - 1; i >= backStart; i--) {
+            if (chars[i] == '\n') {
+                return i + 1;
+            }
+        }
+        // 4. 回退找句末标点（。！？）
+        for (int i = chunkEnd - 1; i >= backStart; i--) {
+            char c = chars[i];
+            if (c == '。' || c == '！' || c == '？') {
+                return i + 1;
+            }
+        }
+        return 0;
     }
 
     // ==================== 诊断方法 ====================
