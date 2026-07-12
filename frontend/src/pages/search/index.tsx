@@ -1,12 +1,14 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { ArrowLeft, Search, X, ChevronDown, ChevronUp } from 'lucide-react'
-import { useKeepAliveStore } from '@/store/keepAlive'
+import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { searchBooks } from '@/api/book'
+import { getHomeTags } from '@/api/home'
 import { BookCard } from '@/components/book/BookCard'
+import { Card } from '@/components/ui/card'
 
 import { reportProgress, getProgressBatch } from '@/api/progress'
 
@@ -106,67 +108,62 @@ function getReadingStatus(progress: number | null | undefined): string | null {
   return 'READING'
 }
 
-const CACHE_KEY = '/search'
-const CACHE_TTL = 5 * 60 * 1000
-
-interface SearchCache {
-  query: string
-  tag: string
-  results: any[]
-  popularTags: string[]
-  timestamp: number
-}
-
 export default function SearchPage() {
   const navigate = useNavigate()
   const goBack = useGoBack()
   const [searchParams] = useSearchParams()
-  const savePageData = useKeepAliveStore((s) => s.savePageData)
-  const getPageData = useKeepAliveStore((s) => s.getPageData)
-
-  const cached = getPageData<SearchCache>(CACHE_KEY)
-  const isCacheValid = cached && Date.now() - cached.timestamp < CACHE_TTL
 
   const urlKw = searchParams.get('keyword')
   const urlTag = searchParams.get('tag')
-  const hasUrlParams = !!(urlKw || urlTag)
 
-  const urlMatchCache = isCacheValid
-    && (urlKw ? decodeURIComponent(urlKw) : '') === cached.query
-    && (urlTag || '') === cached.tag
-
-  const useCache = isCacheValid && (!hasUrlParams || urlMatchCache)
-
-  const [keyword, setKeyword] = useState(() => useCache ? cached.query : (urlKw ? decodeURIComponent(urlKw) : ''))
-  const [tag, setTag] = useState<string>(() => useCache ? cached.tag : (urlTag || ''))
-  const [results, setResults] = useState<any[]>(() => useCache ? cached.results : [])
-  const [loading, setLoading] = useState(false)
-  const [searched, setSearched] = useState(() => useCache)
+  const [keyword, setKeyword] = useState(urlKw ? decodeURIComponent(urlKw) : '')
+  const [tag, setTag] = useState<string>(urlTag || '')
+  const [searchKeyword, setSearchKeyword] = useState(urlKw ? decodeURIComponent(urlKw) : (urlTag ? '' : ''))
   const [suggests, setSuggests] = useState<string[]>([])
   const [showSuggest, setShowSuggest] = useState(false)
-  const [popularTags, setPopularTags] = useState<string[]>(() => useCache ? cached.popularTags : [])
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { handleScroll } = useScrollRestore(scrollRef)
   const [searchTriggerKey, setSearchTriggerKey] = useState(0)
-  const [progressMap, setProgressMap] = useState<Record<number, number>>({})
 
-  /** 批量获取搜索结果的阅读进度 */
-  useEffect(() => {
-    if (results.length === 0) return
-    const ids = results.map((b: any) => b.id as number).filter(Boolean)
-    if (ids.length === 0) return
-    getProgressBatch(ids).then((data) => {
-      if (!data) return
+  // --- React Query ---
+
+  const { data: rawResult, isLoading: loading, isFetched: searched } = useQuery({
+    queryKey: ['search', searchKeyword, tag],
+    queryFn: () => searchBooks({ keyword: searchKeyword || undefined, tag: tag || undefined, page: 1, size: 50 }),
+    enabled: !!searchKeyword || !!tag,
+  })
+  const results = (rawResult as any)?.list ?? []
+
+  const { data: popularTagObjs } = useQuery({
+    queryKey: ['popular-tags'],
+    queryFn: async () => {
+      const data = await getHomeTags()
+      return data.map(c => c.name)
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+  const popularTags = popularTagObjs ?? []
+
+  const bookIds = useMemo(() => results.map((b: any) => b.id as number).filter(Boolean), [results])
+  const [optimisticProgress, setOptimisticProgress] = useState<Record<number, number>>({})
+  const { data: fetchedProgress = {} } = useQuery({
+    queryKey: ['search-progress', ...bookIds],
+    queryFn: async () => {
+      const data = await getProgressBatch(bookIds)
       const map: Record<number, number> = {}
-      for (const [id, p] of Object.entries(data)) {
+      for (const [id, p] of Object.entries(data || {})) {
         const rp = p as { progress?: number }
         map[Number(id)] = rp.progress ?? 0
       }
-      setProgressMap(map)
-    }).catch(() => { /* ignore */ })
-  }, [results])
+      return map
+    },
+    enabled: bookIds.length > 0,
+  })
+  const progressMap = useMemo(() => ({ ...fetchedProgress, ...optimisticProgress }), [fetchedProgress, optimisticProgress])
+
+
 
   /** 处理阅读状态变更 */
   const handleStatusChange = useCallback(async (bookId: number, status: string) => {
@@ -179,7 +176,7 @@ export default function SearchPage() {
     }
     try {
       await reportProgress({ bookId, progress: newProgress, currentPosition: null })
-      setProgressMap(prev => ({ ...prev, [bookId]: newProgress }))
+      setOptimisticProgress(prev => ({ ...prev, [bookId]: newProgress }))
       const labels: Record<string, string> = { WANT: '想读', READING: '在读', READ: '已读' }
       toast.success(`已标记为「${labels[status]}」`)
     } catch {
@@ -187,65 +184,17 @@ export default function SearchPage() {
     }
   }, [])
 
-  useEffect(() => {
-    if (!useCache || popularTags.length === 0) {
-      loadPopularTags()
-    }
-    if (useCache) return
-    const kw = searchParams.get('keyword')
-    const t = searchParams.get('tag')
-    if (kw) {
-      const decoded = decodeURIComponent(kw)
-      setKeyword(decoded)
-      doSearch(decoded, t || '')
-    } else if (t) {
-      doSearch('', t)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // NOTE: Initial search from URL params is handled by useQuery
+  // (searchKeyword and tag are initialized from URL params above)
 
-  const loadPopularTags = async () => {
-    try {
-      const token = localStorage.getItem(import.meta.env.VITE_TOKEN_KEY || 'kbook_token')
-      const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || '/api'}/home/tags`,
-        { headers: { Authorization: token ? `Bearer ${token}` : '' } }
-      )
-      if (res.ok) {
-        const json = await res.json()
-        const tags = json?.data || []
-        const tagNames = tags.map((c: any) => c.name)
-        setPopularTags(tagNames)
-        if (isCacheValid) {
-          savePageData(CACHE_KEY, { ...cached, popularTags: tagNames })
-        }
-      }
-    } catch { /* ignore */ }
-  }
-
-  const doSearch = useCallback(async (kw: string, t: string) => {
+  const doSearch = useCallback((kw: string, t: string) => {
     if (!kw && !t) return
+    setSearchKeyword(kw)
+    setTag(t)
     setSearchTriggerKey(prev => prev + 1)
-    searchInputRef.current?.blur()
-    setLoading(true)
-    setSearched(true)
     setShowSuggest(false)
-    try {
-      const res = await searchBooks({
-        keyword: kw || undefined,
-        tag: t || undefined,
-        page: 1,
-        size: 50,
-      })
-      const list = (res as any)?.list || []
-      setResults(list)
-      savePageData(CACHE_KEY, { query: kw, tag: t, results: list, popularTags, timestamp: Date.now() })
-    } catch {
-      setResults([])
-    } finally {
-      setLoading(false)
-    }
-  }, [savePageData])
+    searchInputRef.current?.blur()
+  }, [])
 
   const handleInputChange = (value: string) => {
     setKeyword(value)
@@ -283,9 +232,9 @@ export default function SearchPage() {
   }
 
   const handleTagChange = (t: string) => {
-    setTag(t === '全部' ? '' : t)
+    const newTag = t === '全部' ? '' : t
     if (scrollRef.current) scrollRef.current.scrollTop = 0
-    doSearch(keyword, t === '全部' ? '' : t)
+    doSearch(keyword, newTag)
   }
 
   return (
@@ -348,7 +297,7 @@ export default function SearchPage() {
         {loading ? (
           <div className="columns-1 sm:columns-2 lg:columns-3 gap-3 space-y-3">
             {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className="rounded-2xl bg-card p-3 shadow-sm border border-border/50 break-inside-avoid">
+              <Card key={i} padding="sm" className="break-inside-avoid">
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <div className="flex gap-3">
@@ -363,7 +312,7 @@ export default function SearchPage() {
                     <div className="mt-1 h-4 w-4/5 rounded bg-muted animate-pulse" />
                   </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         ) : searched && results.length === 0 ? (

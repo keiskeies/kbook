@@ -14,6 +14,7 @@ import { updateBookChatStyle } from '@/api/auth'
 import type { AiMessage } from '@/types/ai'
 import type { AiSessionItem } from '@/types/ai'
 import type { Book } from '@/types/book'
+import ChatHistoryPanel from './ChatHistoryPanel'
 
 interface BookChatSheetProps {
   book: Book
@@ -64,7 +65,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     if (open && book.id) {
       getBookSuggestedQuestions(book.id)
         .then((res) => {
-          const data = (res as any)?.data || (res as any)
+          const data = res
           if (Array.isArray(data)) setSuggestions(data)
         })
         .catch(() => {})
@@ -150,7 +151,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
   const loadHistorySessions = async () => {
     try {
       const res = await getBookChatSessions(book.id)
-      const data = (res as any)?.data || (res as any)
+      const data = res
       if (Array.isArray(data)) {
         setHistorySessions(data)
       }
@@ -160,7 +161,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
   const loadSessionHistory = async (targetSessionId: string, title?: string) => {
     try {
       const res = await getBookChatHistory(book.id, targetSessionId)
-      const data = (res as any)?.data || (res as any)
+      const data = res
       if (Array.isArray(data)) {
         const history: AiMessage[] = data
           .filter((r: any) => r.role === 'user' || r.role === 'assistant')
@@ -294,7 +295,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
               answer: fullAnswerContent,
               sessionId: streamSessionIdRef.current || undefined,
             })
-            const data = (res as any)?.data || (res as any)
+            const data = res
             if (Array.isArray(data) && data.length > 0) {
               setMessages((prev) =>
                 prev.map((m) =>
@@ -465,7 +466,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
 
     try {
       const res = await exportBookChatHistory(book.id, sessionId)
-      const data = (res as any)?.data || (res as any)
+      const data = res
 
       if (data.error) {
         return
@@ -543,37 +544,15 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
           onClose={handleClose}
         />
 
-        {showHistory ? (
-          <div className="flex-1 overflow-y-auto overscroll-y-contain">
-            <div className="flex items-center justify-between border-b px-4 py-2">
-              <span className="text-sm font-medium">历史问答</span>
-              <button onClick={() => setShowHistory(false)} className="text-xs text-muted-foreground">
-                关闭
-              </button>
-            </div>
-            {historySessions.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <History className="mb-2 h-8 w-8 opacity-40" />
-                <p className="text-sm">暂无历史问答记录</p>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {historySessions.map((session) => (
-                  <button
-                    key={session.id}
-                    className={`w-full px-4 py-3 text-left transition-colors hover:bg-muted/50 ${
-                      session.sessionId === sessionId ? 'bg-muted' : ''
-                    }`}
-                    onClick={() => loadSessionHistory(session.sessionId, session.title)}
-                  >
-                    <p className="truncate text-sm font-medium">{session.title || '未命名对话'}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{formatTime(session.updatedAt)}</p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
+        <ChatHistoryPanel
+          showHistory={showHistory}
+          historySessions={historySessions}
+          currentSessionId={sessionId}
+          onSessionClick={loadSessionHistory}
+          onClose={() => setShowHistory(false)}
+          formatTime={formatTime}
+        />
+        {!showHistory && (
           <div
             ref={scrollContainerRef}
             onScroll={handleUserScroll}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Tag, Clock } from 'lucide-react'
 import DOMPurify from 'dompurify'
 import { parseFormatTags } from '@/types/book'
+import { Card } from '@/components/ui/card'
 import BookCover from './BookCover'
 import { BookActionButtons } from './BookActionButtons'
 import { ReadingStatusButtons } from './ReadingStatusButtons'
@@ -112,11 +113,12 @@ export function BookCard({ book, onClick, highlight, readingStatus, onStatusChan
   }
 
   return (
-    <div
+    <Card
+      padding="none"
       className={`cursor-pointer btn-press ${
         isList
-          ? 'rounded-xl bg-transparent hover:bg-muted/50 border-b border-border/30 last:border-b-0'
-          : 'rounded-2xl bg-card shadow-sm border border-border/50'
+          ? 'rounded-xl bg-transparent hover:bg-muted/50 shadow-none border-0 border-b border-border/30 last:border-b-0'
+          : ''
       }`}
       onClick={onClick}
     >
@@ -201,6 +203,6 @@ export function BookCard({ book, onClick, highlight, readingStatus, onStatusChan
           <BookActionButtons bookId={book.id} />
         </div>
       </div>
-    </div>
+    </Card>
   )
 }

@@ -1,7 +1,8 @@
-﻿import { useEffect, useState } from 'react'
+﻿import { useState } from 'react'
 import { Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { getMatchScoreDetail } from '@/api/book'
-import type { MatchScoreDetail, DimensionScore } from '@/api/book'
+import type { DimensionScore } from '@/api/book'
 import { CircularProgress } from './CircularProgress'
 
 interface MatchScoreCardProps {
@@ -10,21 +11,13 @@ interface MatchScoreCardProps {
 }
 
 export function MatchScoreCard({ bookId, ms }: MatchScoreCardProps) {
-  const [detail, setDetail] = useState<MatchScoreDetail | null>(null)
   const [expanded, setExpanded] = useState(false)
-  const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    if (!bookId) return
-    setLoading(true)
-    getMatchScoreDetail(bookId)
-      .then((res: unknown) => {
-        const data = (res as { data?: MatchScoreDetail })?.data ?? res as MatchScoreDetail
-        if (data) setDetail(data)
-      })
-      .catch(() => { /* ignore */ })
-      .finally(() => setLoading(false))
-  }, [bookId])
+  const { data: detail, isLoading: loading } = useQuery({
+    queryKey: ['match-score-detail', bookId],
+    queryFn: () => getMatchScoreDetail(bookId),
+    enabled: !!bookId,
+  })
 
   const overallPct = Math.round(Math.max(0, detail?.overallScore ?? ms ?? 0) * 100)
 

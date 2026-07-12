@@ -99,7 +99,7 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
   const loadHistorySessions = async () => {
     try {
       const res = await getSessions()
-      const data = (res as any)?.data || (res as any)
+      const data = res
       if (Array.isArray(data)) {
         setHistorySessions(data)
       }
@@ -109,7 +109,7 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
   const loadSessionHistory = async (targetSessionId: string) => {
     try {
       const res = await getHistory(targetSessionId)
-      const data = (res as any)?.data || (res as any)
+      const data = res
       if (Array.isArray(data)) {
         const history: AiMessage[] = data
           .filter((r: any) => r.role === 'user' || r.role === 'assistant')

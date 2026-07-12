@@ -1,6 +1,7 @@
 import { Palette, Info, Shield, ChevronRight } from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { Card } from '@/components/ui/card'
 
 interface Props {
   onNavigate: (path: string) => void
@@ -21,7 +22,7 @@ export default function ProfileAppGroup({ onNavigate }: Props) {
   ]
 
   return (
-    <div className="rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
+    <Card padding="none" className="overflow-hidden">
       {/* Theme toggle row — special: no ChevronRight, has ThemeToggle */}
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border/50">
         <div className="flex items-center gap-3">
@@ -53,6 +54,6 @@ export default function ProfileAppGroup({ onNavigate }: Props) {
           </button>
         )
       })}
-    </div>
+    </Card>
   )
 }

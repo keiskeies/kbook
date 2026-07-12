@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, BookOpen, ChevronRight, Tag,
@@ -8,7 +9,8 @@ import {
   getHomePersonalized,
   getHomeCategories,
 } from '@/api/home'
-import type { RecommendedBook, TagStat } from '@/api/home'
+import type { RecommendedBook } from '@/api/home'
+import { Card } from '@/components/ui/card'
 import { BookCard } from '@/components/book/BookCard'
 import MoodQuickSwitch from '@/components/home/MoodQuickSwitch'
 import { useAuthStore } from '@/store/auth'
@@ -62,10 +64,10 @@ function HeroSection({ onSearchClick }: {
         </h2>
       </div>
       <div onClick={onSearchClick}>
-        <div className="flex items-center gap-2.5 rounded-2xl bg-card border border-border px-4 py-3 text-muted-foreground cursor-pointer hover:border-primary/50 transition-colors shadow-sm">
+        <Card className="flex items-center gap-2.5 border border-border px-4 py-3 text-muted-foreground cursor-pointer hover:border-primary/50 transition-colors">
           <Search className="h-4 w-4" />
           <span className="text-sm">搜索书籍、作者...</span>
-        </div>
+        </Card>
       </div>
     </div>
   )
@@ -74,7 +76,7 @@ function HeroSection({ onSearchClick }: {
 /** 为你推荐 — 空状态 */
 function EmptyRecommendState({ onGoProfile }: { onGoProfile: () => void }) {
   return (
-    <div className="rounded-2xl bg-card border border-border/50 p-5 text-center shadow-sm">
+    <Card padding="lg" className="text-center">
       <div className="flex justify-center mb-3">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-100">
           <Frown className="h-6 w-6 text-brand-400" />
@@ -89,7 +91,7 @@ function EmptyRecommendState({ onGoProfile }: { onGoProfile: () => void }) {
         <Target className="h-3.5 w-3.5" />
         去完善画像
       </button>
-    </div>
+    </Card>
   )
 }
 
@@ -136,12 +138,19 @@ export default function HomePage() {
   const navigate = useNavigate()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const fetchUserInfo = useAuthStore((s) => s.fetchUserInfo)
-  const hasFetchedRef = useRef(false)
+  const queryClient = useQueryClient()
 
-  const [personalizedBooks, setPersonalizedBooks] = useState<RecommendedBook[]>([])
-  const [personalizedLoading, setPersonalizedLoading] = useState(true)
-  const [categories, setCategories] = useState<TagStat[]>([])
-  const [categoriesLoading, setCategoriesLoading] = useState(true)
+  const { data: personalizedBooks = [], isLoading: personalizedLoading } = useQuery({
+    queryKey: ['home', 'personalized'],
+    queryFn: () => getHomePersonalized().then(res => res ?? []),
+    enabled: isAuthenticated,
+  })
+
+  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
+    queryKey: ['home', 'categories'],
+    queryFn: () => getHomeCategories().then(res => res ?? []),
+    enabled: isAuthenticated,
+  })
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -149,23 +158,11 @@ export default function HomePage() {
     }
   }, [isAuthenticated, fetchUserInfo])
 
-  useEffect(() => {
-    if (!isAuthenticated || hasFetchedRef.current) {
-      setPersonalizedLoading(false)
-      setCategoriesLoading(false)
-      return
-    }
-    hasFetchedRef.current = true
-    getHomePersonalized().then((res) => setPersonalizedBooks((res as any)?.data || (res as any) || [])).catch(() => {}).finally(() => setPersonalizedLoading(false))
-    getHomeCategories().then((res) => setCategories((res as any)?.data || (res as any) || [])).catch(() => {}).finally(() => setCategoriesLoading(false))
-  }, [isAuthenticated])
-
   const recommendRefreshKey = useUiStore((s) => s.recommendRefreshKey)
   useEffect(() => {
     if (!isAuthenticated || recommendRefreshKey === 0) return
-    setPersonalizedLoading(true)
-    getHomePersonalized().then((res) => setPersonalizedBooks((res as any)?.data || (res as any) || [])).catch(() => {}).finally(() => setPersonalizedLoading(false))
-  }, [recommendRefreshKey, isAuthenticated])
+    queryClient.invalidateQueries({ queryKey: ['home', 'personalized'] })
+  }, [recommendRefreshKey, isAuthenticated, queryClient])
 
   const goToBook = (id: number) => navigate(`/book/${id}`)
 
@@ -189,35 +186,37 @@ export default function HomePage() {
           </div>
 
           {personalizedLoading ? (
-            <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+            <Card>
               <div className="mb-3 flex items-center gap-2">
                 <div className="h-7 w-7 skeleton rounded-lg" />
                 <div className="h-4 w-16 skeleton rounded" />
               </div>
               <VerticalListSkeleton />
-            </div>
+            </Card>
           ) : personalizedBooks.length > 0 ? (
-            <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="flex items-center gap-2 text-sm font-bold">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-100">
-                    <Target className="h-4 w-4 text-brand-500" />
-                  </div>
-                  为你推荐
-                  <span className="text-xs font-normal text-muted-foreground ml-1">基于你的画像</span>
-                </h2>
-                <button onClick={() => navigate(ROUTES.RECOMMEND)} className="flex items-center text-xs text-primary font-medium hover:underline">
-                  查看更多 <ChevronRight className="h-3 w-3" />
+            <Card asChild>
+              <section>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="flex items-center gap-2 text-sm font-bold">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-100">
+                      <Target className="h-4 w-4 text-brand-500" />
+                    </div>
+                    为你推荐
+                    <span className="text-xs font-normal text-muted-foreground ml-1">基于你的画像</span>
+                  </h2>
+                  <button onClick={() => navigate(ROUTES.RECOMMEND)} className="flex items-center text-xs text-primary font-medium hover:underline">
+                    查看更多 <ChevronRight className="h-3 w-3" />
+                  </button>
+                </div>
+                <VerticalBookList books={personalizedBooks.slice(0, 10)} onBookClick={goToBook} />
+                <button
+                  onClick={() => navigate(ROUTES.RECOMMEND)}
+                  className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl bg-muted border border-border/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press"
+                >
+                  查看更多推荐 <ChevronRight className="h-3.5 w-3.5" />
                 </button>
-              </div>
-              <VerticalBookList books={personalizedBooks.slice(0, 10)} onBookClick={goToBook} />
-              <button
-                onClick={() => navigate(ROUTES.RECOMMEND)}
-                className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl bg-muted border border-border/50 py-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors btn-press"
-              >
-                查看更多推荐 <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-            </section>
+              </section>
+            </Card>
           ) : (
             <EmptyRecommendState onGoProfile={() => navigate(ROUTES.PROFILE)} />
           )}
@@ -227,7 +226,7 @@ export default function HomePage() {
         <div className="hidden lg:flex lg:flex-col lg:gap-4">
           <MoodQuickSwitch />
           {categoriesLoading ? (
-            <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+            <Card>
               <div className="mb-3 flex items-center gap-2">
                 <div className="h-7 w-7 skeleton rounded-lg" />
                 <div className="h-4 w-16 skeleton rounded" />
@@ -237,9 +236,57 @@ export default function HomePage() {
                   <div key={i} className="h-9 skeleton rounded-xl" style={{ width: `${60 + (i % 3) * 20}px` }} />
                 ))}
               </div>
-            </div>
+            </Card>
           ) : categories.length > 0 ? (
-            <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+            <Card asChild>
+              <section>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="flex items-center gap-2 text-sm font-bold">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-100">
+                      <Tag className="h-4 w-4 text-brand-500" />
+                    </div>
+                    热门标签
+                  </h2>
+                  <button onClick={() => navigate(`${ROUTES.DISCOVER}?tab=books`)} className="flex items-center text-xs text-primary font-medium">
+                    搜索 <ChevronRight className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {categories.map((cat) => (
+                    <button
+                      key={cat.name}
+                      onClick={() => navigate(`${ROUTES.DISCOVER}?tab=books&tag=${encodeURIComponent(cat.name)}`)}
+                      className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-muted px-3 py-2 btn-press transition-all duration-150 hover:bg-muted/80"
+                    >
+                      <Tag className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-xs font-medium">{cat.name}</span>
+                      <span className="text-xs text-muted-foreground">{cat.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </Card>
+          ) : null}
+        </div>
+      </div>
+
+      {/* 移动端：统计和标签在底部 */}
+      <div className="lg:hidden mt-6 space-y-6">
+        {categoriesLoading ? (
+          <Card>
+            <div className="mb-3 flex items-center gap-2">
+              <div className="h-7 w-7 skeleton rounded-lg" />
+              <div className="h-4 w-16 skeleton rounded" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {Array.from({ length: 8 }, (_, i) => (
+                <div key={i} className="h-9 skeleton rounded-xl" style={{ width: `${60 + (i % 3) * 20}px` }} />
+              ))}
+            </div>
+          </Card>
+        ) : categories.length > 0 ? (
+          <Card asChild>
+            <section>
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-sm font-bold">
                   <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-100">
@@ -265,51 +312,7 @@ export default function HomePage() {
                 ))}
               </div>
             </section>
-          ) : null}
-        </div>
-      </div>
-
-      {/* 移动端：统计和标签在底部 */}
-      <div className="lg:hidden mt-6 space-y-6">
-        {categoriesLoading ? (
-          <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="h-7 w-7 skeleton rounded-lg" />
-              <div className="h-4 w-16 skeleton rounded" />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {Array.from({ length: 8 }, (_, i) => (
-                <div key={i} className="h-9 skeleton rounded-xl" style={{ width: `${60 + (i % 3) * 20}px` }} />
-              ))}
-            </div>
-          </div>
-        ) : categories.length > 0 ? (
-          <section className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-bold">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-100">
-                  <Tag className="h-4 w-4 text-brand-500" />
-                </div>
-                热门标签
-              </h2>
-              <button onClick={() => navigate(`${ROUTES.DISCOVER}?tab=books`)} className="flex items-center text-xs text-primary font-medium">
-                搜索 <ChevronRight className="h-3 w-3" />
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {categories.map((cat) => (
-                <button
-                  key={cat.name}
-                  onClick={() => navigate(`${ROUTES.DISCOVER}?tab=books&tag=${encodeURIComponent(cat.name)}`)}
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-muted px-3 py-2 btn-press transition-all duration-150 hover:bg-muted/80"
-                >
-                  <Tag className="h-3.5 w-3.5 text-primary" />
-                  <span className="text-xs font-medium">{cat.name}</span>
-                  <span className="text-xs text-muted-foreground">{cat.count}</span>
-                </button>
-              ))}
-            </div>
-          </section>
+          </Card>
         ) : null}
       </div>
 

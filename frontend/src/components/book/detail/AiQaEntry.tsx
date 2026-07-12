@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { MessageCircle, Sparkles } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { getBookSuggestedQuestions } from '@/api/bookChat'
 
 interface AiQaEntryProps {
@@ -10,21 +11,13 @@ interface AiQaEntryProps {
 }
 
 export function AiQaEntry({ bookId, onOpenChat, isMobile }: AiQaEntryProps) {
-  const [questions, setQuestions] = useState<string[]>([])
-  const [loading, setLoading] = useState(false)
   const [showAll, setShowAll] = useState(false)
 
-  useEffect(() => {
-    if (!bookId) return
-    setLoading(true)
-    getBookSuggestedQuestions(bookId)
-      .then((res: unknown) => {
-        const data = (res as { data?: string[] })?.data ?? res as string[]
-        if (Array.isArray(data)) setQuestions(data)
-      })
-      .catch(() => { /* ignore */ })
-      .finally(() => setLoading(false))
-  }, [bookId])
+  const { data: questions = [], isLoading: loading } = useQuery({
+    queryKey: ['suggested-questions', bookId],
+    queryFn: () => getBookSuggestedQuestions(bookId),
+    enabled: !!bookId,
+  })
 
   // 分类问题：第一个通常是"这本书主要讲了什么"，后面是深度问题
   const overviewQuestions = questions.filter(q => q.includes('主要讲') || q.includes('讲了什么'))

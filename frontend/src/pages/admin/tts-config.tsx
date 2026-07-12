@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { ArrowLeft, Save, Trash2, Plus, Star, StarOff, Pencil, X, Volume2, Cpu, Mic, Zap } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { toast } from 'sonner'
@@ -11,7 +12,6 @@ import {
   switchDefaultTtsConfig,
   listGptSovitsVoices,
   type TtsConfig,
-  type GptSovitsVoicePreset,
 } from '@/api/adminTts'
 
 const PROVIDER_OPTIONS: { value: string; label: string; type: string }[] = [
@@ -23,14 +23,23 @@ const PROVIDER_OPTIONS: { value: string; label: string; type: string }[] = [
 
 export default function TtsConfigPage() {
   const goBack = useGoBack()
-  const [configs, setConfigs] = useState<TtsConfig[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isCustomVoice, setIsCustomVoice] = useState(false)
-  const [gptSovitsVoices, setGptSovitsVoices] = useState<GptSovitsVoicePreset[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const { handleScroll } = useScrollRestore(scrollRef)
+
+  const { data: configs = [], isLoading: loading, refetch } = useQuery({
+    queryKey: ['admin', 'tts-configs'],
+    queryFn: () => listTtsConfigs().then(d => Array.isArray(d) ? d : []),
+  })
+
+  const { data: gptSovitsVoices = [] } = useQuery({
+    queryKey: ['admin', 'gpt-sovits-voices'],
+    queryFn: listGptSovitsVoices,
+    enabled: false,
+  })
 
   const xiaomiVoices = [
     { id: 'mimo_default', label: 'MiMo-默认（冰糖/Mia）', lang: '混合', gender: '-' },
@@ -61,22 +70,6 @@ export default function TtsConfigPage() {
     isDefault: false,
     streaming: false,
   })
-
-  const loadConfigs = useCallback(async () => {
-    try {
-      setLoading(true)
-      const data = await listTtsConfigs()
-      setConfigs(Array.isArray(data) ? data : [])
-    } catch (err: any) {
-      toast.error(err.message || '加载配置失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    loadConfigs()
-  }, [loadConfigs])
 
   const resetForm = () => {
     setForm({
@@ -130,7 +123,7 @@ export default function TtsConfigPage() {
       voicePresetId: provider === 'GPT_SOVITS' ? '' : undefined,
     }))
     if (provider === 'GPT_SOVITS' && gptSovitsVoices.length === 0) {
-      listGptSovitsVoices().then(setGptSovitsVoices).catch(() => {})
+      queryClient.fetchQuery({ queryKey: ['admin', 'gpt-sovits-voices'], queryFn: listGptSovitsVoices })
     }
   }
 
@@ -160,7 +153,7 @@ export default function TtsConfigPage() {
       }
       resetForm()
       setShowForm(false)
-      loadConfigs()
+      refetch()
     } catch (err: any) {
       toast.error(err.message || '保存失败')
     }
@@ -173,7 +166,7 @@ export default function TtsConfigPage() {
       await deleteTtsConfig(id)
       toast.success('配置已删除')
       if (editingId === id) { resetForm(); setShowForm(false) }
-      loadConfigs()
+      refetch()
     } catch (err: any) {
       toast.error(err.message || '删除失败')
     }
@@ -183,7 +176,7 @@ export default function TtsConfigPage() {
     try {
       await switchDefaultTtsConfig(id)
       toast.success('已切换默认配置')
-      loadConfigs()
+      refetch()
     } catch (err: any) {
       toast.error(err.message || '切换失败')
     }

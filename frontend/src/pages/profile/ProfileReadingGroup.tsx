@@ -1,5 +1,6 @@
 import { BookOpen, SlidersHorizontal, Trash2, Sparkles, ChevronRight } from 'lucide-react'
 import { ROUTES } from '@/constants'
+import { Card } from '@/components/ui/card'
 
 const BOOK_CHAT_STYLES = [
   { value: 'CASUAL', label: '随和聊天', desc: '口语化，像朋友在聊书' },
@@ -45,7 +46,7 @@ export default function ProfileReadingGroup({ totalBooks, trashCount, bookChatSt
   ]
 
   return (
-    <div className="rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
+    <Card padding="none" className="overflow-hidden">
       {items.map((item, i) => {
         const Icon = item.icon
         return (
@@ -71,6 +72,6 @@ export default function ProfileReadingGroup({ totalBooks, trashCount, bookChatSt
           </button>
         )
       })}
-    </div>
+    </Card>
   )
 }

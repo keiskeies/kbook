@@ -101,6 +101,16 @@ export function AppLayout() {
     }
   }, [currentTabPath, setActiveTab])
 
+  // 空闲时预加载高频路由，加速页面切换
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      import('@/pages/search')
+      import('@/pages/profile/reading-list')
+      import('@/pages/book/detail')
+    }, 2000)
+    return () => clearTimeout(timeout)
+  }, [])
+
   const isOnTabPage = currentTabPath !== null
 
   return (
@@ -130,7 +140,7 @@ export function AppLayout() {
             })}
 
             {!isOnTabPage && (
-              <div className="absolute inset-0 overflow-hidden">
+              <div className="absolute inset-0 overflow-hidden animate-page-enter">
                 <Outlet />
               </div>
             )}

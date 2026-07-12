@@ -1,6 +1,4 @@
-import { useState, useEffect } from 'react'
-import {
-  ArrowLeft, Users, BookOpen, MessageSquare, Swords,
+import { ArrowLeft, Users, BookOpen, MessageSquare, Swords,
   TrendingUp, Activity, BarChart3, RefreshCw,
 } from 'lucide-react'
 import {
@@ -8,8 +6,8 @@ import {
   ResponsiveContainer, Legend, CartesianGrid,
 } from 'recharts'
 import { useGoBack } from '@/hooks/useGoBack'
-import { toast } from 'sonner'
-import { getDashboard, type DashboardData } from '@/api/adminDashboard'
+import { useQuery } from '@tanstack/react-query'
+import { getDashboard } from '@/api/adminDashboard'
 
 const COLORS = {
   chat: '#5B8C5A',
@@ -35,24 +33,13 @@ function formatTokens(n: number): string {
 
 export default function AdminDashboardPage() {
   const goBack = useGoBack()
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
 
-  const load = async () => {
-    setLoading(true)
-    try {
-      const res = await getDashboard()
-      setData(res)
-    } catch (e: any) {
-      toast.error(e.message || '加载失败')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['admin', 'dashboard'],
+    queryFn: getDashboard,
+  })
 
-  useEffect(() => { load() }, [])
-
-  if (loading && !data) {
+  if (isLoading && !data) {
     return (
       <div className="absolute inset-0 flex flex-col overflow-hidden bg-background">
         <header className="shrink-0 flex items-center gap-3 border-b bg-navbar/95 px-4 md:px-6 py-3 backdrop-blur z-20">
@@ -100,10 +87,10 @@ export default function AdminDashboardPage() {
         </button>
         <h1 className="text-h4">数据看板</h1>
         <button
-          onClick={load}
+          onClick={() => refetch()}
           className="ml-auto flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/80"
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           刷新
         </button>
       </header>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { ArrowLeft, Star, Eye, MessageSquare, Users } from 'lucide-react'
@@ -19,39 +20,38 @@ import {
 } from '@/components/book/detail'
 import { useMatchScores } from '@/hooks/useMatchScores'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
-import { useKeepAliveStore } from '@/store/keepAlive'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
 import { createSsePostConnection } from '@/utils/sse-request'
-
-const DETAIL_CACHE_PREFIX = '/book/'
-const DETAIL_CACHE_TTL = 10 * 60 * 1000
-
-interface DetailCache {
-  book: Book
-  progress: number | null
-  userRating: number
-  speedReadData: BookSpeedRead | null
-  timestamp: number
-}
+import { Card } from '@/components/ui/card'
 
 export default function BookDetailPage() {
   const { bookId } = useParams<{ bookId: string }>()
   const navigate = useNavigate()
   const goBack = useGoBack()
-  const savePageData = useKeepAliveStore((s) => s.savePageData)
-  const getPageData = useKeepAliveStore((s) => s.getPageData)
+  const queryClient = useQueryClient()
 
-  const cacheKey = `${DETAIL_CACHE_PREFIX}${bookId}`
-  const cached = getPageData<DetailCache>(cacheKey)
-  const isCacheValid = cached && Date.now() - cached.timestamp < DETAIL_CACHE_TTL
-  const hasSpeedReadCache = isCacheValid && cached.speedReadData != null && cached.speedReadData.corePoints?.length > 0
+  const id = Number(bookId)
 
-  const [book, setBook] = useState<Book | null>(() => isCacheValid ? cached.book : null)
-  const [progress, setProgress] = useState<number | null>(() => isCacheValid ? cached.progress : null)
-  const [loading, setLoading] = useState(() => !isCacheValid)
+  const bookQuery = useQuery({
+    queryKey: ['book', 'detail', bookId],
+    queryFn: () => Promise.all([
+      getBook(id),
+      getProgress(id).catch(() => null),
+    ]).then(([bookRes, progressRes]) => ({
+      book: bookRes as unknown as Book,
+      progress: (progressRes as any)?.progress ?? null,
+      userRating: (progressRes as any)?.userRating || 0,
+    })),
+    enabled: !!bookId,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const book = bookQuery.data?.book ?? null
+  const userRating = bookQuery.data?.userRating ?? 0
+  const loading = bookQuery.isLoading
+
   const [showRating, setShowRating] = useState(false)
-  const [userRating, setUserRating] = useState(() => isCacheValid ? cached.userRating : 0)
   const [hoverStar, setHoverStar] = useState(0)
   const [showBookChat, setShowBookChat] = useState(false)
   const [chatInitialQuestion, setChatInitialQuestion] = useState<string | undefined>(undefined)
@@ -61,64 +61,14 @@ export default function BookDetailPage() {
 
   const isMobile = useIsMobile()
 
-  const id = Number(bookId)
   const matchScores = useMatchScores(book ? [book.id] : [])
   const ms = book ? matchScores?.[String(book.id)] : null
-  const [speedReadData, setSpeedReadData] = useState<BookSpeedRead | null>(() => hasSpeedReadCache ? cached.speedReadData : null)
-  const [speedReadLoading, setSpeedReadLoading] = useState(() => !hasSpeedReadCache)
-  const speedReadDataRef = useRef(speedReadData)
+  const [speedReadData, setSpeedReadData] = useState<BookSpeedRead | null>(null)
+  const [speedReadLoading, setSpeedReadLoading] = useState(true)
 
-  // sync ref for updateCache
-  useEffect(() => { speedReadDataRef.current = speedReadData }, [speedReadData])
-
-  // Refs for SSE onDone callback to access latest state (avoids stale closure)
-  const bookRef = useRef(book)
-  const progressRef = useRef(progress)
-  const userRatingRef = useRef(userRating)
-  const hasSpeedReadCacheRef = useRef(hasSpeedReadCache)
-  bookRef.current = book
-  progressRef.current = progress
-  userRatingRef.current = userRating
-  hasSpeedReadCacheRef.current = hasSpeedReadCache
-
-  const updateCache = useCallback((
-    b: Book | null,
-    prog: number | null,
-    rating: number,
-  ) => {
-    if (!b) return
-    savePageData(cacheKey, {
-      book: b,
-      progress: prog,
-      userRating: rating,
-      speedReadData: speedReadDataRef.current,
-      timestamp: Date.now(),
-    })
-  }, [savePageData, cacheKey])
-
+  // Speed read SSE
   useEffect(() => {
     if (!bookId) return
-    if (isCacheValid) return
-    Promise.all([
-      getBook(id),
-      getProgress(id).catch(() => ({ data: null })),
-    ]).then(([bookRes, progressRes]) => {
-      const b = bookRes as unknown as Book
-      const progressData = progressRes as any
-      const prog: number | null = progressData?.progress ?? null
-      const rating = progressData?.userRating || 0
-      setBook(b)
-      setProgress(prog)
-      if (rating) setUserRating(rating)
-      setLoading(false)
-      updateCache(b, prog, rating)
-    })
-  }, [bookId, id, isCacheValid, updateCache])
-
-  // Speed read SSE — only when no speed read cache
-  useEffect(() => {
-    if (!bookId) return
-    if (hasSpeedReadCacheRef.current) return
     setSpeedReadLoading(true)
     setSpeedReadData({ bookId: id, corePoints: [], suitableFor: [], notSuitableFor: [], takeaways: [], difficulty: '' })
     const bufferRef = { current: '' }
@@ -186,30 +136,27 @@ export default function BookDetailPage() {
             flushCurrentItem()
           }
           setSpeedReadLoading(false)
-          setSpeedReadData(prev => {
-            if (prev) updateCache(bookRef.current, progressRef.current, userRatingRef.current)
-            return prev
-          })
         },
         onError: () => {
           flushCurrentItem()
           setSpeedReadLoading(false)
-          setSpeedReadData(prev => {
-            if (prev && prev.corePoints?.length > 0) updateCache(bookRef.current, progressRef.current, userRatingRef.current)
-            return prev
-          })
         },
       },
     )
     return () => controller.abort()
-  }, [bookId, id, updateCache])
+  }, [bookId, id])
 
   const handleRate = async (rating: number) => {
     if (!book || userRating > 0) return
     try {
       const updatedBook = await rateBook(book.id, rating) as unknown as Book
-      setBook(updatedBook)
-      setUserRating(rating)
+      queryClient.setQueryData(
+        ['book', 'detail', bookId],
+        (old: { book: Book; progress: number | null; userRating: number } | undefined) => {
+          if (!old) return old
+          return { ...old, book: updatedBook, userRating: rating }
+        },
+      )
       setShowRating(false)
       toast.success(`评分 ${rating} 星已保存`)
     } catch (err: any) {
@@ -447,7 +394,7 @@ export default function BookDetailPage() {
         )}
 
         {showRating && (
-          <div className="mt-4 rounded-2xl bg-card p-4 border border-border/50">
+          <Card className="mt-4">
             <p className="text-sm font-semibold mb-3">为这本书评分</p>
             <div className="flex items-center gap-1">
               {[1, 2, 3, 4, 5].map((star) => (
@@ -472,7 +419,7 @@ export default function BookDetailPage() {
               </span>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">点击星星评分（1-5 星）</p>
-          </div>
+          </Card>
         )}
       </div>
 
@@ -552,7 +499,7 @@ export default function BookDetailPage() {
 
                 {/* 评分 */}
                 {showRating && (
-                  <div className="mb-4 rounded-2xl bg-card p-4 border border-border/50 inline-flex flex-col mx-auto">
+                  <Card className="mb-4 inline-flex flex-col mx-auto">
                     <p className="text-sm font-semibold mb-3">为这本书评分</p>
                     <div className="flex items-center gap-1">
                       {[1, 2, 3, 4, 5].map((star) => (
@@ -563,7 +510,7 @@ export default function BookDetailPage() {
                       <span className="ml-2 text-sm font-semibold text-foreground">{hoverStar || userRating || ''}{(hoverStar || userRating) ? ' 星' : ''}</span>
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">点击星星评分（1-5 星）</p>
-                  </div>
+                  </Card>
                 )}
 
                 {/* 简介 */}

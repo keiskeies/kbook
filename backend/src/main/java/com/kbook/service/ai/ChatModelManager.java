@@ -245,7 +245,7 @@ public class ChatModelManager {
                     String.format("title=%s", title),
                     chatModelFactory::buildToolChatModel, messages);
             if (aiText != null) {
-                return parseQuestions(aiText).stream().limit(3).collect(Collectors.toList());
+                return parseQuestions(aiText).stream().limit(5).collect(Collectors.toList());
             }
         } catch (Exception e) {
             log.debug("生成深入追问问题失败: {}", e.getMessage());

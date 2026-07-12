@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { getMatchScores } from '@/api/book'
 import { useAuthStore } from '@/store/auth'
 
@@ -8,19 +8,13 @@ import { useAuthStore } from '@/store/auth'
  * @returns Map<bookId, matchScore>，0~1 之间，无画像时为空
  */
 export function useMatchScores(bookIds: number[]) {
-  const [scores, setScores] = useState<Record<string, number>>({})
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
-  useEffect(() => {
-    if (!isAuthenticated || !bookIds || bookIds.length === 0) return
-
-    getMatchScores(bookIds)
-      .then((res) => {
-        const data = (res as any)?.data || (res as any) || {}
-        setScores(data)
-      })
-      .catch(() => setScores({}))
-  }, [isAuthenticated, bookIds.join(',')])
+  const { data: scores = {} } = useQuery({
+    queryKey: ['match-scores', ...bookIds],
+    queryFn: () => getMatchScores(bookIds),
+    enabled: isAuthenticated && bookIds.length > 0,
+  })
 
   return scores
 }

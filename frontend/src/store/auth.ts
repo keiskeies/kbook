@@ -45,7 +45,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (!token) return
     try {
       const res = await getCurrentUser()
-      const data = (res as any)?.data || (res as any)
+      const data = res
       if (!data) return
       const userInfo = data as UserInfo
       localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo))

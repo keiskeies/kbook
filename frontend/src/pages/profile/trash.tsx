@@ -1,13 +1,15 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useGoBack } from '@/hooks/useGoBack'
-import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { ArrowLeft, Trash2, RotateCcw, Star } from 'lucide-react'
 import { getTrashList, removeFromTrash } from '@/api/bookTrash'
 import type { BookTrashItem } from '@/api/bookTrash'
 import BookCover from '@/components/book/BookCover'
 import { parseFormatTags, formatFileSize } from '@/types/book'
+import { Card } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
+import { List, type RowComponentProps } from 'react-window'
 
 function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   if (rating == null || rating < 0) return null
@@ -27,32 +29,22 @@ function RatingBadgeCN({ rating }: { rating: number | undefined | null }) {
   )
 }
 
+const TRASH_QUERY_KEY = ['profile', 'trash-list'] as const
+
 export default function BookTrashPage() {
   const goBack = useGoBack()
-  const [books, setBooks] = useState<BookTrashItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false)
   const [restoreTarget, setRestoreTarget] = useState<BookTrashItem | null>(null)
   const [restoring, setRestoring] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const { handleScroll } = useScrollRestore(scrollRef)
 
-  const fetchList = useCallback(async () => {
-    setLoading(true)
-    try {
+  const { data: books = [], isLoading: loading } = useQuery<BookTrashItem[]>({
+    queryKey: TRASH_QUERY_KEY,
+    queryFn: async () => {
       const res = await getTrashList()
-      const data = (res as any)?.data || (res as any) || []
-      setBooks(Array.isArray(data) ? data : [])
-    } catch {
-      setBooks([])
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchList()
-  }, [fetchList])
+      return Array.isArray(res) ? res : []
+    },
+  })
 
   const handleRestoreClick = (book: BookTrashItem) => {
     setRestoreTarget(book)
@@ -65,9 +57,12 @@ export default function BookTrashPage() {
     try {
       await removeFromTrash(restoreTarget.bookId)
       toast.success('已从垃圾桶移出，图书将重新出现在推荐列表中')
-      setBooks(prev => prev.filter(b => b.bookId !== restoreTarget.bookId))
-    } catch (err: any) {
-      toast.error(err?.message || '操作失败')
+      queryClient.setQueryData<BookTrashItem[]>(TRASH_QUERY_KEY, (old) =>
+        old?.filter((b) => b.bookId !== restoreTarget.bookId) ?? [],
+      )
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '操作失败'
+      toast.error(message)
     } finally {
       setRestoring(false)
       setRestoreDialogOpen(false)
@@ -92,11 +87,12 @@ export default function BookTrashPage() {
         </header>
       </div>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-6 lg:px-8 py-3">
+      {/* 🗑️ 虚拟列表 — FixedSizeList + AutoSizer */}
+      <div className="flex-1 px-4 md:px-6 lg:px-8 py-3">
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }, (_, i) => (
-              <div key={i} className="rounded-2xl bg-card p-3 shadow-sm border border-border/50">
+              <Card key={i} padding="sm">
                 <div className="flex gap-3">
                   <div className="h-24 w-16 flex-shrink-0 rounded-lg bg-muted animate-pulse" />
                   <div className="flex-1 space-y-2">
@@ -104,72 +100,14 @@ export default function BookTrashPage() {
                     <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
                   </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         ) : books.length > 0 ? (
-          <div className="space-y-2.5">
-            {books.map((book) => {
-              const tags = parseFormatTags(book.formatTags || '')
-              return (
-                <div
-                  key={book.trashId}
-                  className="rounded-2xl bg-card p-3 shadow-sm border border-border/50"
-                >
-                  <div className="flex gap-3">
-                    <BookCover
-                      coverUrl={book.coverUrl}
-                      title={book.title}
-                      author={book.author}
-                      format={book.format}
-                      size="md"
-                      className="flex-shrink-0"
-                    />
-                    <div className="flex-1 min-w-0 flex flex-col justify-between">
-                      <div>
-                        <p className="truncate text-sm font-semibold">{book.title}</p>
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {book.author || '未知作者'}
-                        </p>
-                      </div>
-
-                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                        <RatingBadgeCN rating={book.rating} />
-                        {book.fileSize && (
-                          <span className="text-xs text-muted-foreground">
-                            {formatFileSize(book.fileSize)}
-                          </span>
-                        )}
-                      </div>
-
-                      {tags.length > 0 && (
-                        <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-                          {tags.map((t) => (
-                            <span
-                              key={t}
-                              className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-                            >
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-2 flex justify-end">
-                    <button
-                      onClick={() => handleRestoreClick(book)}
-                      className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors active:scale-95"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      移出垃圾桶
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <TrashList
+            books={books}
+            onRestoreClick={handleRestoreClick}
+          />
         ) : (
           <div className="flex h-[50vh] flex-col items-center justify-center">
             <Trash2 className="mb-4 h-12 w-12 text-muted-foreground/30" />
@@ -204,6 +142,104 @@ export default function BookTrashPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+// ─── 虚拟列表 (react-window v2 List) ──────────────────────────────────────
+
+interface TrashRowExtraProps {
+  books: BookTrashItem[]
+  onRestoreClick: (book: BookTrashItem) => void
+}
+
+function TrashRow({ index, style, books, onRestoreClick }: RowComponentProps<TrashRowExtraProps>) {
+  const book = books[index]
+  const tags = parseFormatTags(book.formatTags || '')
+  return (
+    <div style={style}>
+      <Card padding="sm" className="mr-0">
+        <div className="flex gap-3">
+          <BookCover
+            coverUrl={book.coverUrl}
+            title={book.title}
+            author={book.author}
+            format={book.format}
+            size="md"
+            className="flex-shrink-0"
+          />
+          <div className="flex-1 min-w-0 flex flex-col justify-between">
+            <div>
+              <p className="truncate text-sm font-semibold">{book.title}</p>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {book.author || '未知作者'}
+              </p>
+            </div>
+            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+              <RatingBadgeCN rating={book.rating} />
+              {book.fileSize && (
+                <span className="text-xs text-muted-foreground">
+                  {formatFileSize(book.fileSize)}
+                </span>
+              )}
+            </div>
+            {tags.length > 0 && (
+              <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+                {tags.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="mt-2 flex justify-end">
+          <button
+            onClick={() => onRestoreClick(book)}
+            className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors active:scale-95"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            移出垃圾桶
+          </button>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+function TrashList({
+  books,
+  onRestoreClick,
+}: {
+  books: BookTrashItem[]
+  onRestoreClick: (book: BookTrashItem) => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState(600)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => {
+      setHeight(entry.contentRect.height)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  return (
+    <div ref={containerRef} className="h-full">
+      <List<TrashRowExtraProps>
+        rowComponent={TrashRow}
+        rowCount={books.length}
+        rowHeight={178}
+        rowProps={{ books, onRestoreClick }}
+        style={{ height, width: '100%' }}
+      />
     </div>
   )
 }

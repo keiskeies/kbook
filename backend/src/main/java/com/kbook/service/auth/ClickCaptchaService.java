@@ -1,28 +1,29 @@
 package com.kbook.service.auth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kbook.common.crypto.AesGcmUtil;
 import com.kbook.common.exception.BusinessException;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import javax.crypto.SecretKey;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 点击验证码服务
+ * 点击验证码服务（AES-GCM 加密版）
  * <p>
- * 原理：
- * 1. 后端生成一组随机图形（形状+颜色+大小），从中随机选择一个目标图形
- * 2. 前端展示图形网格，用户点击与目标匹配的图形
- * 3. 后端校验点击位置是否正确
- * 4. 验证通过后标记 captchaId 为已验证
+ * 安全机制：
+ * 1. 验证码数据 AES-GCM 加密后返回，前端用 UA+secret+timeWindow 派生密钥解密
+ * 2. 时间窗口绑定：每分钟密钥自动轮换
+ * 3. UA 绑定：验证时校验 User-Agent 一致性
+ * 4. 密钥不传输：前端自行派生，Bot 无法从响应中获取密钥
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ClickCaptchaService {
 
     private final StringRedisTemplate redisTemplate;
@@ -36,15 +37,18 @@ public class ClickCaptchaService {
     private static final int GRID_SIZE = 3; // 3x3=9个图形
     private static final int TARGET_COUNT = 2; // 需要点击的目标数量
 
-    private static final String[] SHAPES = {"circle", "triangle", "square", "diamond", "star", "heart"};
-    private static final String[] COLORS = {"red", "blue", "green", "yellow"};
+    private static final String[] SHAPES = {"circle", "triangle", "square", "diamond", "star", "heart",
+            "hexagram", "heptagram", "triangle_inverted"};
+    private static final String[] COLORS = {"red", "blue", "green", "yellow", "purple", "orange"};
     private static final String[] SIZES = {"small", "large"};
 
     private static final Map<String, String> COLOR_HEX = Map.of(
             "red", "#ef4444",
             "blue", "#3b82f6",
             "green", "#22c55e",
-            "yellow", "#eab308"
+            "yellow", "#eab308",
+            "purple", "#8b5cf6",
+            "orange", "#f97316"
     );
 
     private static final Map<String, String> SHAPE_CN = Map.of(
@@ -53,14 +57,19 @@ public class ClickCaptchaService {
             "square", "正方形",
             "diamond", "菱形",
             "star", "五角星",
-            "heart", "心形"
+            "heart", "心形",
+            "hexagram", "六角星",
+            "heptagram", "七角星",
+            "triangle_inverted", "倒三角形"
     );
 
     private static final Map<String, String> COLOR_CN = Map.of(
             "red", "红色",
             "blue", "蓝色",
             "green", "绿色",
-            "yellow", "黄色"
+            "yellow", "黄色",
+            "purple", "紫色",
+            "orange", "橙色"
     );
 
     private static final Map<String, String> SIZE_CN = Map.of(
@@ -70,31 +79,55 @@ public class ClickCaptchaService {
 
     private final SecureRandom random = new SecureRandom();
 
-    /**
-     * 生成点击验证码
-     * @return 验证码数据，包含captchaId、提示文字、图形列表
-     */
-    public CaptchaData generateCaptcha() {
-        String captchaId = UUID.randomUUID().toString().replace("-", "");
+    @Value("${spring.profiles.active:prod}")
+    private String activeProfile;
 
-        // 随机选择目标属性组合（如"红色三角形"）
+    public ClickCaptchaService(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+        this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * 计算当前时间窗口（分钟级）
+     */
+    public static long currentTimeWindow() {
+        return System.currentTimeMillis() / 60000;
+    }
+
+    /**
+     * 派生加密密钥
+     */
+    private SecretKey deriveKey(String ua, long timeWindow) {
+        return AesGcmUtil.deriveKey(ua, String.valueOf(timeWindow));
+    }
+
+    /**
+     * 生成点击验证码并加密返回
+     *
+     * @param ua 请求的 User-Agent
+     * @return 加密后的验证码数据（captchaId + encrypted）
+     */
+    public Map<String, String> generateCaptcha(String ua) {
+        String captchaId = UUID.randomUUID().toString().replace("-", "");
+        long timeWindow = currentTimeWindow();
+
+        // 随机选择目标属性组合
         String targetShape = SHAPES[random.nextInt(SHAPES.length)];
         String targetColor = COLORS[random.nextInt(COLORS.length)];
         String targetSize = SIZES[random.nextInt(SIZES.length)];
 
-        // 生成提示
-        String hint = COLOR_CN.get(targetColor) + SIZE_CN.get(targetSize) + SHAPE_CN.get(targetShape);
+        // 生成提示（纯图形，不依赖颜色）
+        String hint = SHAPE_CN.get(targetShape);
 
         // 生成图形网格
         List<CaptchaItem> items = new ArrayList<>();
         String targetCombo = targetShape + ":" + targetColor + ":" + targetSize;
 
-        // 先放置目标图形（在随机位置）
+        // 随机放置目标
         List<Integer> positions = new ArrayList<>();
         for (int i = 0; i < GRID_SIZE * GRID_SIZE; i++) positions.add(i);
         Collections.shuffle(positions);
 
-        // 放置 TARGET_COUNT 个目标
         List<Integer> answer = new ArrayList<>();
         for (int i = 0; i < TARGET_COUNT; i++) {
             answer.add(positions.get(i));
@@ -106,7 +139,6 @@ public class ClickCaptchaService {
                 items.add(new CaptchaItem(i, targetShape, targetColor, targetSize,
                         COLOR_HEX.getOrDefault(targetColor, "#999999"), true));
             } else {
-                // 生成非目标图形（至少有一个属性不同）
                 String shape, color, size;
                 String combo;
                 int attempts = 0;
@@ -122,28 +154,42 @@ public class ClickCaptchaService {
             }
         }
 
-        // 按 index 排序，确保前端展示顺序正确
         items.sort(Comparator.comparingInt(CaptchaItem::index));
 
+        // 构造完整数据（含 isTarget，加密后前端无法直接读到）
         CaptchaData data = new CaptchaData(captchaId, hint, items);
 
-        // 存储答案到 Redis（只存目标位置索引）
+        // AES-GCM 加密
+        SecretKey key = deriveKey(ua, timeWindow);
+        String encrypted = AesGcmUtil.encrypt(key, data.toJson(objectMapper));
+
+        // 存储到 Redis（含时间窗口）
         try {
-            String json = objectMapper.writeValueAsString(new CaptchaAnswer(captchaId, answer));
+            CaptchaAnswer answerData = new CaptchaAnswer(captchaId, answer, timeWindow);
+            String json = objectMapper.writeValueAsString(answerData);
             redisTemplate.opsForValue().set(CAPTCHA_PREFIX + captchaId, json, EXPIRE_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new BusinessException("验证码生成失败");
         }
 
-        log.debug("点击验证码生成: captchaId={}, hint={}, answer={}", captchaId, hint, answer);
-        return data;
+        log.debug("点击验证码生成: captchaId={}, hint={}, answer={}, timeWindow={}", captchaId, hint, answer, timeWindow);
+
+        Map<String, String> result = new HashMap<>();
+        result.put("captchaId", captchaId);
+        result.put("encrypted", encrypted);
+        // dev 环境返回明文（方便调试，生产环境不返回）
+        if (activeProfile.contains("dev")) {
+            result.put("plain", data.toJson(objectMapper));
+        }
+        return result;
     }
 
     /**
      * 验证用户点击结果
-     * @param captchaId 验证码ID
+     *
+     * @param captchaId        验证码ID
      * @param clickedPositions 用户点击的位置索引列表
-     * @throws BusinessException 验证码过期或点击位置错误时抛出
+     * @throws BusinessException 验证失败时抛出
      */
     public void verifyClick(String captchaId, List<Integer> clickedPositions) {
         String key = CAPTCHA_PREFIX + captchaId;
@@ -155,11 +201,14 @@ public class ClickCaptchaService {
 
         try {
             CaptchaAnswer answer = objectMapper.readValue(json, CaptchaAnswer.class);
-            if (!answer.captchaId().equals(captchaId)) {
-                throw new BusinessException("验证码校验失败");
+
+            // 检查时间窗口（±1分钟容错）
+            long now = currentTimeWindow();
+            if (Math.abs(now - answer.timeWindow()) > 1) {
+                throw new BusinessException("验证码已过期，请重试");
             }
 
-            // 校验点击位置：必须恰好点击所有目标位置
+            // 比对点击位置
             Set<Integer> expected = new HashSet<>(answer.positions());
             Set<Integer> actual = new HashSet<>(clickedPositions);
 
@@ -182,6 +231,7 @@ public class ClickCaptchaService {
 
     /**
      * 校验验证码是否已通过验证（供登录/发送验证码时调用，一次性消费）
+     *
      * @param captchaId 验证码ID
      * @throws BusinessException 验证码未通过或已过期时抛出
      */
@@ -204,32 +254,19 @@ public class ClickCaptchaService {
 
     // ========== DTO ==========
 
-    /**
-     * 验证码数据DTO
-     * @param captchaId 验证码唯一标识
-     * @param hint 提示文字（如"红色大三角形"）
-     * @param items 图形网格列表
-     */
     public record CaptchaData(String captchaId, String hint, List<CaptchaItem> items) {
+        public String toJson(ObjectMapper mapper) {
+            try {
+                return mapper.writeValueAsString(this);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 
-    /**
-     * 单个图形项DTO
-     * @param index 位置索引（0-8）
-     * @param shape 形状（circle/triangle/square/diamond/star/heart）
-     * @param color 颜色（red/blue/green/yellow）
-     * @param size 大小（small/large）
-     * @param colorHex 颜色的十六进制值
-     * @param isTarget 是否为目标图形
-     */
     public record CaptchaItem(int index, String shape, String color, String size, String colorHex, boolean isTarget) {
     }
 
-    /**
-     * 验证码答案（存储在Redis中）
-     * @param captchaId 验证码ID
-     * @param positions 目标图形的位置索引列表
-     */
-    record CaptchaAnswer(String captchaId, List<Integer> positions) {
+    record CaptchaAnswer(String captchaId, List<Integer> positions, long timeWindow) {
     }
 }

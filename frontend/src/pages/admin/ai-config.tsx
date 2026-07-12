@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { useState, useMemo, useRef, type ReactNode } from 'react'
 import {
   ArrowLeft, Save, Trash2, RefreshCw, Eye, EyeOff,
   ExternalLink, ChevronDown, ChevronUp, Globe, MapPin,
   Plus, Pencil, MessageSquare, Wrench, Layers, Users, Star,
 } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { toast } from 'sonner'
@@ -171,18 +172,27 @@ function ModelColumn(props: {
 
 export default function AiConfigPage() {
   const goBack = useGoBack()
+  const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<ActiveTab>('CHAT')
-  const [chatConfigs, setChatConfigs] = useState<AiProviderConfig[]>([])
-  const [embeddingConfigs, setEmbeddingConfigs] = useState<AiProviderConfig[]>([])
-  const [loadingChat, setLoadingChat] = useState(true)
-  const [loadingEmbedding, setLoadingEmbedding] = useState(true)
-  const [presets, setPresets] = useState<AiProviderPreset[]>([])
   const [showPresets, setShowPresets] = useState(false)
   const [regionFilter, setRegionFilter] = useState<'ALL' | 'CN' | 'GLOBAL'>('ALL')
   const [testing, setTesting] = useState<number | null>(null)
   const [changingRole, setChangingRole] = useState<{ id: number; role: string } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { handleScroll } = useScrollRestore(scrollRef)
+
+  const { data: chatConfigs = [], isLoading: loadingChat } = useQuery({
+    queryKey: ['admin', 'ai-config', 'CHAT'],
+    queryFn: () => listAiConfigsByPurpose(CHAT).then(d => Array.isArray(d) ? d : []),
+  })
+  const { data: embeddingConfigs = [], isLoading: loadingEmbedding } = useQuery({
+    queryKey: ['admin', 'ai-config', 'EMBEDDING'],
+    queryFn: () => listAiConfigsByPurpose(EMBEDDING).then(d => Array.isArray(d) ? d : []),
+  })
+  const { data: presets = [] } = useQuery({
+    queryKey: ['admin', 'ai-presets'],
+    queryFn: () => fetchProviderPresets().then(d => Array.isArray(d) ? d : [] as AiProviderPreset[]),
+  })
 
   const [expandedId, setExpandedId] = useState<number | 'new' | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -208,20 +218,6 @@ export default function AiConfigPage() {
     if (regionFilter === 'ALL') return presets
     return presets.filter(p => p.region === regionFilter)
   }, [regionFilter, presets])
-
-  const loadPresets = useCallback(async () => {
-    try { const data = await fetchProviderPresets(); setPresets(Array.isArray(data) ? data : []) } catch { setPresets([]) }
-  }, [])
-
-  const loadChatConfigs = useCallback(async () => {
-    try { setLoadingChat(true); const data = await listAiConfigsByPurpose(CHAT); setChatConfigs(Array.isArray(data) ? data : []) } catch (err: any) { toast.error(err.message || '加载对话模型失败') } finally { setLoadingChat(false) }
-  }, [])
-
-  const loadEmbeddingConfigs = useCallback(async () => {
-    try { setLoadingEmbedding(true); const data = await listAiConfigsByPurpose(EMBEDDING); setEmbeddingConfigs(Array.isArray(data) ? data : []) } catch (err: any) { toast.error(err.message || '加载嵌入模型失败') } finally { setLoadingEmbedding(false) }
-  }, [])
-
-  useEffect(() => { loadPresets(); loadChatConfigs(); loadEmbeddingConfigs() }, [loadPresets, loadChatConfigs, loadEmbeddingConfigs])
 
   const configs = activeTab === EMBEDDING ? embeddingConfigs : chatConfigs
   const loading = activeTab === EMBEDDING ? loadingEmbedding : loadingChat
@@ -257,9 +253,8 @@ export default function AiConfigPage() {
     toast.success(`已选择 ${preset.name}`, { description: '请填写名称和 API Key 后保存' })
   }
 
-  const reloadContext = () => {
-    if (form.purpose === EMBEDDING) loadEmbeddingConfigs()
-    else loadChatConfigs()
+  const invalidateConfigs = (purpose: string) => {
+    queryClient.invalidateQueries({ queryKey: ['admin', 'ai-config', purpose] })
   }
 
   const handleSave = async () => {
@@ -270,7 +265,7 @@ export default function AiConfigPage() {
       const payload = { ...form, apiKey: form.apiKey?.trim() || undefined }
       if (expandedId === 'new') { await createAiConfig(payload); toast.success('配置已创建') }
       else { await updateAiConfig(expandedId as number, payload); toast.success('配置已更新') }
-      resetForm(); reloadContext()
+      resetForm(); invalidateConfigs(form.purpose)
     } catch (err: any) { toast.error(err.message || '保存失败') }
   }
 
@@ -281,7 +276,7 @@ export default function AiConfigPage() {
     try {
       await deleteAiConfig(id); toast.success('配置已删除')
       if (expandedId === id) resetForm()
-      reloadContext()
+      invalidateConfigs(config.purpose)
     } catch (err: any) { toast.error(err.message || '删除失败') }
   }
 
@@ -290,7 +285,7 @@ export default function AiConfigPage() {
       setChangingRole({ id, role })
       await setConfigRole(id, role)
       toast.success(`角色 ${roleLabel(role)} 已切换`)
-      loadChatConfigs()
+      invalidateConfigs(CHAT)
     } catch (err: any) { toast.error(err.message || '切换失败') } finally { setChangingRole(null) }
   }
 
@@ -298,7 +293,7 @@ export default function AiConfigPage() {
     try {
       await activateAiConfig(id)
       toast.success('已切换激活嵌入模型')
-      loadEmbeddingConfigs()
+      invalidateConfigs(EMBEDDING)
     } catch (err: any) { toast.error(err.message || '激活失败') }
   }
 

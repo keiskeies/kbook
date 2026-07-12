@@ -1,9 +1,9 @@
-﻿import { useState, useEffect, useRef } from 'react'
+﻿import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Star, Sparkles, Tag, ChevronDown, ChevronUp } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { getBook } from '@/api/book'
 import { useMatchScores } from '@/hooks/useMatchScores'
-import type { Book } from '@/types/book'
 import { parseFormatTags } from '@/types/book'
 import BookCover from '@/components/book/BookCover'
 
@@ -103,8 +103,6 @@ function fmtReadCount(n: number): string {
   return `${n}次阅读`
 }
 
-const bookCache = new Map<number, Book>()
-
 export interface InlineBookCardData {
   bookId: number
   title: string
@@ -118,37 +116,15 @@ export interface InlineBookCardData {
 
 export default function InlineBookCard({ book }: { book: InlineBookCardData }) {
   const navigate = useNavigate()
-  const [bookDetail, setBookDetail] = useState<Book | null>(null)
-  const [loading, setLoading] = useState(false)
   const matchScores = useMatchScores([book.bookId])
-  const fetchedRef = useRef(false)
+
+  const { data: bookDetail, isLoading: loading } = useQuery({
+    queryKey: ['book-detail', book.bookId],
+    queryFn: () => getBook(book.bookId),
+    enabled: !!book.bookId,
+  })
 
   const tags = bookDetail?.formatTags ? parseFormatTags(bookDetail.formatTags) : []
-
-  useEffect(() => {
-    if (fetchedRef.current) return
-    fetchedRef.current = true
-
-    const cached = bookCache.get(book.bookId)
-    if (cached) {
-      setBookDetail(cached)
-      return
-    }
-
-    setLoading(true)
-    getBook(book.bookId)
-      .then((data) => {
-        const b = data as unknown as Book
-        bookCache.set(book.bookId, b)
-        setBookDetail(b)
-      })
-      .catch(() => {
-        setBookDetail(null)
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [book.bookId])
 
   const matchScore = book.matchScore ?? matchScores?.[String(book.bookId)]
 

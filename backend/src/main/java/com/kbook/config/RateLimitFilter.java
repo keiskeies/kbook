@@ -23,6 +23,7 @@ import java.time.Duration;
  * <p>
  * 策略：
  * - 登录/注册：5 请求/分钟/IP
+ * - 验证码：10 请求/分钟/IP
  * - AI 对话：10 请求/分钟/用户
  * - 搜索：20 请求/分钟/IP
  * <p>
@@ -55,6 +56,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (uri.startsWith("/api/auth/login") || uri.startsWith("/api/auth/register")) {
             if (!tryConsume("auth:" + clientIp, 5, Duration.ofMinutes(1))) {
                 sendTooManyRequests(response, "请求过于频繁，请1分钟后重试");
+                return;
+            }
+        }
+
+        // 验证码生成：10 次/分钟/IP（防刷爆 Redis）
+        if (uri.startsWith("/api/captcha/")) {
+            if (!tryConsume("captcha:" + clientIp, 10, Duration.ofMinutes(1))) {
+                sendTooManyRequests(response, "验证码请求过于频繁，请稍后重试");
                 return;
             }
         }

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth'
 import {
   getReviewStats,
@@ -12,7 +13,6 @@ import {
   unbanUser,
   sendInvitation,
   type AdminUser,
-  type ReviewStats,
 } from '@/api/adminUser'
 import { ArrowLeft, Check, X, Unlock, RefreshCw, CheckCircle2, Mail, Copy, CheckCheck, Ban, Search } from 'lucide-react'
 import { useGoBack } from '@/hooks/useGoBack'
@@ -26,11 +26,7 @@ export default function AdminReviewPage() {
   useAuthStore()
 
   const [activeTab, setActiveTab] = useState<StatusFilter>('PENDING')
-  const [users, setUsers] = useState<AdminUser[]>([])
-  const [stats, setStats] = useState<ReviewStats | null>(null)
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [loading, setLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   // 搜索
@@ -40,13 +36,13 @@ export default function AdminReviewPage() {
   // 邀请功能
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteLoading, setInviteLoading] = useState(false)
   const [inviteResult, setInviteResult] = useState<{ email: string; inviteCode: string } | null>(null)
   const [copied, setCopied] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { handleScroll } = useScrollRestore(scrollRef)
 
   const pageSize = 10
+  const queryClient = useQueryClient()
 
   // 格式化大数字（如 1000000 -> 100万）
   const formatCount = (n: number) => {
@@ -55,41 +51,27 @@ export default function AdminReviewPage() {
     return String(n)
   }
 
-  // 加载统计
-  const loadStats = useCallback(async () => {
-    try {
-      const data = await getReviewStats() as any
-      setStats(data)
-    } catch (err: any) {
-      toast.error(err.message || '加载统计失败')
-    }
-  }, [])
+  const { data: stats } = useQuery({
+    queryKey: ['admin', 'review-stats'],
+    queryFn: getReviewStats,
+  })
 
-  // 加载用户列表
-  const loadUsers = useCallback(async () => {
-    setLoading(true)
-    try {
-      let data
+  const { data: usersData, isLoading } = useQuery({
+    queryKey: ['admin', 'review', activeTab, page, isSearching, searchKeyword],
+    queryFn: async () => {
       if (isSearching && searchKeyword.trim()) {
         const status = activeTab === 'ALL' ? undefined : activeTab
-        data = await searchUsers(searchKeyword.trim(), status, page, pageSize) as any
-      } else if (activeTab === 'ALL') {
-        data = await getUsersByStatus([], page, pageSize) as any
-      } else {
-        data = await getUsersByStatus([activeTab], page, pageSize) as any
+        return searchUsers(searchKeyword.trim(), status, page, pageSize) as any
       }
-      setUsers(data.list || [])
-      setTotal(data.total)
-    } catch (err: any) {
-      toast.error(err.message || '加载列表失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [activeTab, page, isSearching, searchKeyword])
+      if (activeTab === 'ALL') {
+        return getUsersByStatus([], page, pageSize) as any
+      }
+      return getUsersByStatus([activeTab], page, pageSize) as any
+    },
+  })
 
-  useEffect(() => {
-    loadStats()
-  }, [loadStats])
+  const users: AdminUser[] = usersData?.list ?? []
+  const total: number = usersData?.total ?? 0
 
   // 搜索处理
   const handleSearch = () => {
@@ -110,97 +92,66 @@ export default function AdminReviewPage() {
 
   useEffect(() => {
     setSelectedIds(new Set())
-    loadUsers()
-  }, [activeTab, page, loadUsers])
+  }, [activeTab, page])
 
-  // 审核操作
-  const handleApprove = async (userId: number) => {
-    try {
-      await approveUser(userId)
-      toast.success('已通过审核')
-      loadUsers()
-      loadStats()
-    } catch (err: any) {
-      toast.error(err.message || '操作失败')
-    }
+  // Mutations
+  const invalidateReviewQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin', 'review'] })
+    queryClient.invalidateQueries({ queryKey: ['admin', 'review-stats'] })
   }
 
-  const handleReject = async (userId: number) => {
-    try {
-      await rejectUser(userId)
-      toast.success('已拒绝审核')
-      loadUsers()
-      loadStats()
-    } catch (err: any) {
-      toast.error(err.message || '操作失败')
-    }
-  }
+  const approveMutation = useMutation({
+    mutationFn: approveUser,
+    onSuccess: () => { toast.success('已通过审核'); invalidateReviewQueries() },
+    onError: (err: any) => toast.error(err.message || '操作失败'),
+  })
 
-  const handleUnban = async (userId: number) => {
-    try {
-      await unbanUser(userId)
-      toast.success('已解封')
-      loadUsers()
-      loadStats()
-    } catch (err: any) {
-      toast.error(err.message || '操作失败')
-    }
-  }
+  const rejectMutation = useMutation({
+    mutationFn: rejectUser,
+    onSuccess: () => { toast.success('已拒绝审核'); invalidateReviewQueries() },
+    onError: (err: any) => toast.error(err.message || '操作失败'),
+  })
 
-  const handleBan = async (userId: number) => {
-    try {
-      await banUser(userId)
-      toast.success('已封禁')
-      loadUsers()
-      loadStats()
-    } catch (err: any) {
-      toast.error(err.message || '操作失败')
-    }
-  }
+  const unbanMutation = useMutation({
+    mutationFn: unbanUser,
+    onSuccess: () => { toast.success('已解封'); invalidateReviewQueries() },
+    onError: (err: any) => toast.error(err.message || '操作失败'),
+  })
 
-  const handleBatchApprove = async () => {
-    if (selectedIds.size === 0) return
-    try {
-      const result = await batchApprove(Array.from(selectedIds)) as any
+  const banMutation = useMutation({
+    mutationFn: banUser,
+    onSuccess: () => { toast.success('已封禁'); invalidateReviewQueries() },
+    onError: (err: any) => toast.error(err.message || '操作失败'),
+  })
+
+  const batchApproveMutation = useMutation({
+    mutationFn: (ids: number[]) => batchApprove(ids),
+    onSuccess: (result: any) => {
       toast.success(`已通过 ${result.count} 个用户`)
       setSelectedIds(new Set())
-      loadUsers()
-      loadStats()
-    } catch (err: any) {
-      toast.error(err.message || '批量操作失败')
-    }
-  }
+      invalidateReviewQueries()
+    },
+    onError: (err: any) => toast.error(err.message || '批量操作失败'),
+  })
 
-  const handleBatchReject = async () => {
-    if (selectedIds.size === 0) return
-    try {
-      const result = await batchReject(Array.from(selectedIds)) as any
+  const batchRejectMutation = useMutation({
+    mutationFn: (ids: number[]) => batchReject(ids),
+    onSuccess: (result: any) => {
       toast.success(`已拒绝 ${result.count} 个用户`)
       setSelectedIds(new Set())
-      loadUsers()
-      loadStats()
-    } catch (err: any) {
-      toast.error(err.message || '批量操作失败')
-    }
-  }
+      invalidateReviewQueries()
+    },
+    onError: (err: any) => toast.error(err.message || '批量操作失败'),
+  })
 
-  // 发送邀请
-  const handleSendInvite = async () => {
-    if (!inviteEmail.trim()) {
-      toast.error('请输入邮箱地址')
-      return
-    }
-    setInviteLoading(true)
-    try {
-      const result = await sendInvitation(inviteEmail.trim()) as any
+  const sendInviteMutation = useMutation({
+    mutationFn: (email: string) => sendInvitation(email),
+    onSuccess: (result: any) => {
       setInviteResult(result)
       toast.success('邀请邮件已发送')
-    } catch (err: any) {
-      toast.error(err.message || '发送失败')
-    } finally {
-      setInviteLoading(false)
-    }
-  }
+    },
+    onError: (err: any) => toast.error(err.message || '发送失败'),
+  })
 
   // 复制邀请链接
   const handleCopyInviteLink = async () => {
@@ -263,7 +214,7 @@ export default function AdminReviewPage() {
             <Mail className="h-3.5 w-3.5" />
             邀请注册
           </button>
-          <button onClick={() => { loadStats(); loadUsers() }} className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+          <button onClick={() => { queryClient.invalidateQueries({ queryKey: ['admin', 'review'] }); queryClient.invalidateQueries({ queryKey: ['admin', 'review-stats'] }) }} className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
             <RefreshCw className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
@@ -291,7 +242,7 @@ export default function AdminReviewPage() {
         {(['PENDING', 'APPROVED', 'BANNED', 'ALL'] as StatusFilter[]).map((tab) => (
           <button
             key={tab}
-            onClick={() => { setActiveTab(tab); setPage(1); if (isSearching) loadUsers() }}
+            onClick={() => { setActiveTab(tab); setPage(1) }}
             className={`shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
               activeTab === tab
                 ? 'bg-primary text-primary-foreground'
@@ -344,14 +295,14 @@ export default function AdminReviewPage() {
         <div className="flex items-center gap-2 border-b px-4 py-2 bg-muted">
           <span className="text-sm text-muted-foreground">已选 {selectedIds.size} 项</span>
           <button
-              onClick={handleBatchApprove}
+              onClick={() => { if (selectedIds.size === 0) return; batchApproveMutation.mutate(Array.from(selectedIds)) }}
               className="ml-auto flex items-center gap-1 rounded-lg bg-success px-3 py-1.5 text-xs font-medium text-white"
             >
             <CheckCircle2 className="h-3 w-3" />
             批量通过
           </button>
           <button
-              onClick={handleBatchReject}
+              onClick={() => { if (selectedIds.size === 0) return; batchRejectMutation.mutate(Array.from(selectedIds)) }}
               className="flex items-center gap-1 rounded-lg bg-danger px-3 py-1.5 text-xs font-medium text-white"
             >
             <X className="h-3 w-3" />
@@ -362,7 +313,7 @@ export default function AdminReviewPage() {
 
       {/* 用户列表 */}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 py-2 space-y-2">
-        {loading ? (
+        {isLoading ? (
           <div className="py-12 text-center text-sm text-muted-foreground">加载中...</div>
         ) : users.length === 0 ? (
           <div className="py-12 text-center text-sm text-muted-foreground">暂无数据</div>
@@ -407,14 +358,14 @@ export default function AdminReviewPage() {
                 {user.status === 'PENDING' && (
                   <>
                     <button
-                      onClick={() => handleApprove(user.id)}
+                      onClick={() => approveMutation.mutate(user.id)}
                       className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10 text-success"
                       title="通过"
                     >
                       <Check className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={() => handleReject(user.id)}
+                      onClick={() => rejectMutation.mutate(user.id)}
                       className="flex h-8 w-8 items-center justify-center rounded-full bg-danger/10 text-danger"
                       title="拒绝"
                     >
@@ -424,7 +375,7 @@ export default function AdminReviewPage() {
                 )}
                 {user.status === 'APPROVED' && (
                   <button
-                    onClick={() => handleBan(user.id)}
+                      onClick={() => banMutation.mutate(user.id)}
                     className="flex h-8 w-8 items-center justify-center rounded-full bg-danger/10 text-danger"
                     title="封禁"
                   >
@@ -433,7 +384,7 @@ export default function AdminReviewPage() {
                 )}
                 {user.status === 'BANNED' && (
                   <button
-                    onClick={() => handleUnban(user.id)}
+                      onClick={() => unbanMutation.mutate(user.id)}
                     className="flex h-8 w-8 items-center justify-center rounded-full bg-info/10 text-info"
                     title="解封"
                   >
@@ -485,7 +436,7 @@ export default function AdminReviewPage() {
                   onChange={(e) => setInviteEmail(e.target.value)}
                   placeholder="请输入邮箱地址"
                   className="mb-4 w-full rounded-lg border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendInvite()}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && inviteEmail.trim()) sendInviteMutation.mutate(inviteEmail.trim()) }}
                 />
                 <div className="flex gap-2">
                   <button
@@ -495,11 +446,11 @@ export default function AdminReviewPage() {
                     取消
                   </button>
                   <button
-                    onClick={handleSendInvite}
-                    disabled={inviteLoading}
+                    onClick={() => { if (!inviteEmail.trim()) { toast.error('请输入邮箱地址'); return }; sendInviteMutation.mutate(inviteEmail.trim()) }}
+                    disabled={sendInviteMutation.isPending}
                     className="flex-1 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
                   >
-                    {inviteLoading ? '发送中...' : '发送邀请'}
+                    {sendInviteMutation.isPending ? '发送中...' : '发送邀请'}
                   </button>
                 </div>
               </>

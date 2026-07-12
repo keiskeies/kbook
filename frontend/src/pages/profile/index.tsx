@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Settings, ChevronRight, LogOut, Sparkles, Camera, Book, Users, Bot, Volume2, Mail, BarChart3 } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
@@ -11,6 +12,7 @@ import { getTrashCount } from '@/api/bookTrash'
 import FooterVersion from '@/components/common/FooterVersion'
 import AvatarCropModal from '@/components/common/AvatarCropModal'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { Card } from '@/components/ui/card'
 
 import ProfileEditSheet from './ProfileEditSheet'
 import ProfileTraitsSheet from './ProfileTraitsSheet'
@@ -21,15 +23,24 @@ import ProfileAccountGroup from './ProfileAccountGroup'
 import ProfileAppGroup from './ProfileAppGroup'
 
 export default function ProfilePage() {
-  const { userInfo, updateUserInfo, fetchUserInfo, logout } = useAuthStore()
+  const { userInfo, isAuthenticated, updateUserInfo, fetchUserInfo, logout } = useAuthStore()
   const setTabBarVisible = useUiStore((s) => s.setTabBarVisible)
   const navigate = useNavigate()
-  const [stats, setStats] = useState<ReadingStatsVO | null>(null)
-  const [trashCount, setTrashCount] = useState<number>(0)
 
   useEffect(() => {
     fetchUserInfo()
   }, [fetchUserInfo])
+
+  const { data: stats } = useQuery<ReadingStatsVO>({
+    queryKey: ['profile', 'stats'],
+    queryFn: getHomeStats,
+    enabled: isAuthenticated,
+  })
+  const { data: trashCount = 0 } = useQuery<number>({
+    queryKey: ['profile', 'trashCount'],
+    queryFn: getTrashCount,
+    enabled: isAuthenticated,
+  })
 
   const [showTraitsModal, setShowTraitsModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
@@ -52,16 +63,6 @@ export default function ProfilePage() {
     userInfo?.birthday ||
     userInfo?.married != null
   )
-
-  useEffect(() => {
-    getHomeStats().then((res) => {
-      const data = (res as any)?.data || (res as any)
-      if (data) setStats(data as ReadingStatsVO)
-    }).catch(() => {})
-    getTrashCount().then((res) => {
-      setTrashCount((res as any)?.data ?? (res as any) ?? 0)
-    }).catch(() => {})
-  }, [])
 
   useEffect(() => {
     const anyModalOpen = showProfileModal || showTraitsModal || showStylePicker || showPreferenceModal
@@ -146,7 +147,7 @@ export default function ProfilePage() {
           )}
 
           {/* 用户卡片 */}
-          <div className="rounded-2xl bg-card p-4 md:p-6 shadow-sm border border-border/50">
+          <Card padding="md" className="md:p-6">
             <div className="flex items-center gap-4">
               <button
                 onClick={() => fileInputRef.current?.click()}
@@ -192,11 +193,11 @@ export default function ProfilePage() {
                 <Settings className="h-4.5 w-4.5 text-muted-foreground" />
               </button>
             </div>
-          </div>
+          </Card>
 
           {/* 管理员功能 */}
           {isAdmin && (
-            <div className="mt-4 rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
+            <Card padding="none" className="mt-4 overflow-hidden">
               <div className="px-4 pt-3 pb-1">
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">管理员功能</h3>
               </div>
@@ -222,7 +223,7 @@ export default function ProfilePage() {
                   )
                 })}
               </div>
-            </div>
+            </Card>
           )}
         </div>
 

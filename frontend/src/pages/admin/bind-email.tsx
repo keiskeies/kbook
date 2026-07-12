@@ -5,6 +5,7 @@ import { useCountdown } from '@/hooks/useCountdown'
 import { ArrowLeft, Mail } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
+import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
 /**
@@ -20,51 +21,28 @@ export default function BindEmailPage() {
 
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [sendingCode, setSendingCode] = useState(false)
 
-  const handleSendCode = async () => {
-    if (!email.trim()) {
-      toast.error('输入邮箱')
-      return
-    }
-    try {
-      setSendingCode(true)
-      await sendBindEmailCode(email)
+  const sendCodeMutation = useMutation({
+    mutationFn: sendBindEmailCode,
+    onSuccess: () => {
       startCountdown()
       toast.success('验证码已发送')
-    } catch (err: any) {
-      toast.error(err.message || '发送失败')
-    } finally {
-      setSendingCode(false)
-    }
-  }
+    },
+    onError: (err: any) => toast.error(err.message || '发送失败'),
+  })
 
-  const handleBind = async () => {
-    if (!email.trim()) {
-      toast.error('输入邮箱')
-      return
-    }
-    if (!code.trim()) {
-      toast.error('输入验证码')
-      return
-    }
-
-    try {
-      setLoading(true)
-      const updatedUser = await bindEmail(email, code) as any
+  const bindEmailMutation = useMutation({
+    mutationFn: (vars: { email: string; code: string }) => bindEmail(vars.email, vars.code),
+    onSuccess: (updatedUser: any) => {
       updateUserInfo({
         email: updatedUser.email,
         emailBound: updatedUser.emailBound,
       })
       toast.success('邮箱已绑定，现在可以重置密码了')
       navigate('/home', { replace: true })
-    } catch (err: any) {
-      toast.error(err.message || '绑定失败')
-    } finally {
-      setLoading(false)
-    }
-  }
+    },
+    onError: (err: any) => toast.error(err.message || '绑定失败'),
+  })
 
   return (
     <div className="flex min-h-screen flex-col px-6 pt-safe-top">
@@ -109,20 +87,27 @@ export default function BindEmailPage() {
             className="flex-1 rounded-xl border bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary"
           />
           <button
-            onClick={handleSendCode}
-            disabled={countdown > 0 || sendingCode}
+            onClick={() => {
+              if (!email.trim()) { toast.error('输入邮箱'); return }
+              sendCodeMutation.mutate(email)
+            }}
+            disabled={countdown > 0 || sendCodeMutation.isPending}
             className="flex-shrink-0 rounded-xl bg-primary px-4 py-3 text-sm text-primary-foreground disabled:opacity-50"
           >
-            {sendingCode ? '发送中...' : countdown > 0 ? `${countdown}s` : '获取验证码'}
+            {sendCodeMutation.isPending ? '发送中...' : countdown > 0 ? `${countdown}s` : '获取验证码'}
           </button>
         </div>
 
         <button
-          onClick={handleBind}
-          disabled={loading}
+          onClick={() => {
+            if (!email.trim()) { toast.error('输入邮箱'); return }
+            if (!code.trim()) { toast.error('输入验证码'); return }
+            bindEmailMutation.mutate({ email, code })
+          }}
+          disabled={bindEmailMutation.isPending}
           className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
-          {loading ? '绑定中...' : '确认绑定'}
+          {bindEmailMutation.isPending ? '绑定中...' : '确认绑定'}
         </button>
       </div>
     </div>

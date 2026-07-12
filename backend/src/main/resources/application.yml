@@ -24,7 +24,7 @@ server:
 # ========================
 spring:
   profiles:
-    active: dev
+    active: ${PROFILE_ACTIVE:dev}
   config:
     import: classpath:tts-voices.yml
   servlet:

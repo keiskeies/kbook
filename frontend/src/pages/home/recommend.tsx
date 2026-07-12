@@ -9,6 +9,7 @@ import { useInView } from 'react-intersection-observer'
 import { getRecommendationsPage, generateRecommendationsStream } from '@/api/book'
 import { moveToTrash } from '@/api/bookTrash'
 import type { RecommendedItem, RecommendProgress } from '@/api/book'
+import { Card } from '@/components/ui/card'
 import { BookCard } from '@/components/book/BookCard'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
@@ -348,7 +349,7 @@ export default function RecommendPage() {
         ) : loading && books.length === 0 ? (
           <div className="columns-1 sm:columns-2 lg:columns-3 gap-3 space-y-3">
             {Array.from({ length: 12 }, (_, i) => (
-              <div key={i} className="break-inside-avoid rounded-2xl bg-card p-3 shadow-sm border border-border/50">
+              <Card key={i} padding="sm" className="break-inside-avoid">
                 <div className="flex gap-3 pb-2">
                   <div className="h-24 w-16 flex-shrink-0 rounded-lg bg-muted animate-pulse" />
                   <div className="flex-1 space-y-2">
@@ -364,7 +365,7 @@ export default function RecommendPage() {
                   <div className="h-5 w-10 rounded bg-muted animate-pulse" />
                   <div className="h-5 w-5 rounded bg-muted animate-pulse" />
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         ) : books.length > 0 ? (

@@ -103,4 +103,14 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-recharts': ['recharts'],
+          'vendor-speech': ['microsoft-cognitiveservices-speech-sdk'],
+        },
+      },
+    },
+  },
 })

@@ -2,26 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { ShieldCheck, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import request from '@/utils/request'
+import { decryptCaptcha, type CaptchaData } from '@/utils/captcha-crypto'
 
 interface ClickCaptchaProps {
   open: boolean
   onSuccess: (captchaId: string) => void
   onCancel: () => void
-}
-
-interface CaptchaItem {
-  index: number
-  shape: string
-  color: string
-  size: string
-  colorHex: string
-  isTarget: boolean
-}
-
-interface CaptchaData {
-  captchaId: string
-  hint: string
-  items: CaptchaItem[]
 }
 
 const SIZE_MAP: Record<string, number> = {
@@ -39,6 +25,8 @@ function Shape({ shape, color, size }: { shape: string; color: string; size: num
       return <circle cx={half} cy={half} r={half - 2} fill={color} />
     case 'triangle':
       return <polygon points={`${half},2 ${s - 2},${s - 2} 2,${s - 2}`} fill={color} />
+    case 'triangle_inverted':
+      return <polygon points={`2,2 ${s - 2},2 ${half},${s - 2}`} fill={color} />
     case 'square':
       return <rect x={3} y={3} width={s - 6} height={s - 6} fill={color} rx={2} />
     case 'diamond':
@@ -48,6 +36,34 @@ function Shape({ shape, color, size }: { shape: string; color: string; size: num
       const pts = Array.from({ length: 10 }, (_, i) => {
         const r = i % 2 === 0 ? or_ : ir
         const angle = (Math.PI / 5) * i - Math.PI / 2
+        return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`
+      }).join(' ')
+      return <polygon points={pts} fill={color} />
+    }
+    case 'hexagram': {
+      // 六角星：两个三角形叠加
+      const cx = half, cy = half, r = half - 2
+      const pts1 = Array.from({ length: 3 }, (_, i) => {
+        const angle = (Math.PI * 2 / 3) * i - Math.PI / 2
+        return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`
+      }).join(' ')
+      const pts2 = Array.from({ length: 3 }, (_, i) => {
+        const angle = (Math.PI * 2 / 3) * i + Math.PI / 2
+        return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`
+      }).join(' ')
+      return (
+        <>
+          <polygon points={pts1} fill={color} />
+          <polygon points={pts2} fill={color} />
+        </>
+      )
+    }
+    case 'heptagram': {
+      // 七角星
+      const cx = half, cy = half, or_ = half - 2, ir = or_ * 0.5
+      const pts = Array.from({ length: 14 }, (_, i) => {
+        const r = i % 2 === 0 ? or_ : ir
+        const angle = (Math.PI / 7) * i - Math.PI / 2
         return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`
       }).join(' ')
       return <polygon points={pts} fill={color} />
@@ -79,8 +95,16 @@ export default function ClickCaptcha({ open, onSuccess, onCancel }: ClickCaptcha
     setStatus('loading')
     // request 拦截器在 code=0 时直接返回 data
     request.get('/captcha/click/generate')
-      .then((res: any) => {
-        setData(res)
+      .then(async (res: any) => {
+        // res = { captchaId, encrypted } 或 { captchaId, encrypted, plain }
+        // dev 环境有 plain 字段时直接用，否则解密 encrypted
+        let captchaData: CaptchaData
+        if (res.plain) {
+          captchaData = JSON.parse(res.plain)
+        } else {
+          captchaData = await decryptCaptcha(res.encrypted, res.captchaId)
+        }
+        setData(captchaData)
         setStatus('ready')
       })
       .catch((err: any) => {

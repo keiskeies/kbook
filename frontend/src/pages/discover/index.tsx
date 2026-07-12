@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useKeepAliveStore } from '@/store/keepAlive'
 import {
@@ -10,11 +11,11 @@ import { getGlobalDebateSessions } from '@/api/debate'
 import { getGlobalRoundTableSessions } from '@/api/roundTable'
 import { getHomeTags } from '@/api/home'
 import { searchBooks, getHotRank, getMatchScores } from '@/api/book'
-import type { TagStat } from '@/api/home'
 import type { Book } from '@/types/book'
 import { DEBATE_PERSONALITY_NAMES, DEBATE_PERSONALITY_ICONS } from '@/types/debate'
 import { ROLE_NAMES, ROLE_ICONS } from '@/types/roundTable'
 import BookCover from '@/components/book/BookCover'
+import { Card } from '@/components/ui/card'
 import { BookCard } from '@/components/book/BookCard'
 
 // ==================== 类型 ====================
@@ -217,7 +218,7 @@ function RoundTableSkeleton() {
 
 function BookSkeleton() {
   return (
-    <div className="rounded-2xl bg-card border border-border/50">
+    <Card padding="none">
       <div className="flex gap-3 p-3 pb-2">
         {/* 封面 h-24 w-16 */}
         <div className="w-16 shrink-0 h-24 skeleton rounded-none" />
@@ -255,7 +256,7 @@ function BookSkeleton() {
         <div className="h-5 w-5 skeleton rounded" />
         <div className="h-5 w-5 skeleton rounded" />
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -517,9 +518,18 @@ export default function DiscoverPage() {
   const [bookLoading, setBookLoading] = useState(false)
   const [bookPage, setBookPage] = useState(1)
   const [bookHasMore, setBookHasMore] = useState(true)
-  const [categories, setCategories] = useState<TagStat[]>([])
   const [activeTag, setActiveTag] = useState(initialTag)
-  const [bookMatchScores, setBookMatchScores] = useState<Record<string, number>>({})
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['discover', 'tags'],
+    queryFn: () => getHomeTags().then(res => res ?? []),
+  })
+
+  const { data: bookMatchScores = {} } = useQuery({
+    queryKey: ['discover', 'matchScores', books.map(b => b.id).join(',')],
+    queryFn: () => getMatchScores(books.map(b => b.id)).then(res => res ?? {}),
+    enabled: books.length > 0,
+  })
 
   // 同步 URL 参数到 state（keep-alive 场景下外部导航会改变 URL 参数）
   useEffect(() => {
@@ -539,7 +549,7 @@ export default function DiscoverPage() {
     setDebateLoading(true)
     try {
       const res = await getGlobalDebateSessions(pageNum, 18, currentSort === 'mine' ? 'recent' : currentSort, currentSort === 'mine')
-      const data = (res as any)?.data || (res as any)
+      const data = res
       const content: DebateFeedItem[] = data?.content || []
       // 最热/最新不展示未结束的辩论（ACTIVE）
       const filtered = currentSort !== 'mine' ? content.filter(i => i.status === 'COMPLETED' || i.status === 'ABANDONED') : content
@@ -559,7 +569,7 @@ export default function DiscoverPage() {
     setRtLoading(true)
     try {
       const res = await getGlobalRoundTableSessions(pageNum, 18, currentSort === 'mine' ? 'recent' : currentSort, currentSort === 'mine')
-      const data = (res as any)?.data || (res as any)
+      const data = res
       const content: RoundTableFeedItem[] = data?.content || []
       setRoundTables(prev => pageNum === 0 ? content : [...prev, ...content])
       setRtHasMore(!(data?.last ?? true))
@@ -578,14 +588,14 @@ export default function DiscoverPage() {
       // 无筛选条件时用综合热度接口，保证"全部"标签下有数据
       if (!tag && !query) {
         const res = await getHotRank(pageNum, 18)
-        const result = (res as any)?.data || (res as any)
+        const result = res
         const list: Book[] = result?.list || []
         setBooks(prev => pageNum === 1 ? list : [...prev, ...list])
         setBookHasMore(list.length >= 18)
         setBookPage(pageNum)
       } else {
         const res = await searchBooks({ tag: tag || undefined, keyword: query || undefined, page: pageNum, size: 18 })
-        const result = (res as any)?.data || (res as any)
+        const result = res
         const list: Book[] = result?.list || []
         setBooks(prev => pageNum === 1 ? list : [...prev, ...list])
         setBookHasMore(list.length >= 18)
@@ -603,10 +613,6 @@ export default function DiscoverPage() {
     loadDebates(0)
     loadRoundTables(0)
     loadBooks(initialTag, 1)
-    getHomeTags().then(res => {
-      const data = (res as any)?.data || (res as any) || []
-      setCategories(data)
-    }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -616,16 +622,6 @@ export default function DiscoverPage() {
       loadBooks(initialTag, 1)
     }
   }, [initialTag, loadBooks])
-
-  // 加载完书籍后获取匹配度分数
-  useEffect(() => {
-    if (books.length === 0) { setBookMatchScores({}); return }
-    const ids = books.map(b => b.id)
-    getMatchScores(ids).then(res => {
-      const data = (res as any)?.data || (res as any) || {}
-      setBookMatchScores(prev => ({ ...prev, ...data }))
-    }).catch(() => {})
-  }, [books])
 
   // ====== 内部滚动位置保存/恢复 ======
   const scrollRef = useRef<HTMLDivElement>(null)

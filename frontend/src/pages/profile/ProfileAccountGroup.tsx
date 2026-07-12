@@ -1,5 +1,6 @@
 import { UserCircle, Lock, ChevronRight } from 'lucide-react'
 import { ROUTES } from '@/constants'
+import { Card } from '@/components/ui/card'
 
 interface Props {
   onNavigate: (path: string) => void
@@ -21,7 +22,7 @@ export default function ProfileAccountGroup({ onNavigate, onOpenTraits }: Props)
   ]
 
   return (
-    <div className="rounded-2xl bg-card shadow-sm border border-border/50 overflow-hidden">
+    <Card padding="none" className="overflow-hidden">
       {items.map((item, i) => {
         const Icon = item.icon
         return (
@@ -42,6 +43,6 @@ export default function ProfileAccountGroup({ onNavigate, onOpenTraits }: Props)
           </button>
         )
       })}
-    </div>
+    </Card>
   )
 }

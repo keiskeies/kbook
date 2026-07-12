@@ -1,4 +1,5 @@
 ﻿import { useState } from 'react'
+import { LazyImage } from '@/components/ui/lazy-image'
 
 /** 预定义渐变色，基于书名 hash 选取 */
 const GRADIENTS = [
@@ -99,11 +100,10 @@ export default function BookCover({
       className={`relative overflow-hidden bg-muted shadow-md ${sizeMap[size]} ${className}`}
     >
       {hasCover ? (
-        <img
-          src={coverUrl}
+        <LazyImage
+          src={coverUrl ?? ''}
           alt={title}
-          className="h-full w-full object-cover"
-          loading="lazy"
+          className="h-full w-full"
           onError={() => setImgError(true)}
         />
       ) : (

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Loader2, Target, BookOpen, Tag, Sparkles, CheckCircle, AlertTriangle, Lightbulb } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
+import { useQuery } from '@tanstack/react-query'
 import { getRoundTableCoverage } from '@/api/roundTable'
 import type { RoundTableCoverage, BlockCoverageDetail } from '@/types/roundTable'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
@@ -31,41 +31,16 @@ const LEVEL_LABELS: Record<number, { text: string; rowBg: string; rowBorder: str
 }
 
 export default function CoveragePanel({ sessionId, open, onClose, isMobile, version }: CoveragePanelProps) {
-  const [coverage, setCoverage] = useState<RoundTableCoverage | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-
-  const fetchCoverage = useCallback(async () => {
-    if (!sessionId) return
-    setLoading(true)
-    try {
-      const res = await getRoundTableCoverage(sessionId)
-      const data = (res as { data?: RoundTableCoverage })?.data ?? res as RoundTableCoverage
-      setCoverage(data)
-    } catch {
-      // 首次可能还没有数据
-    } finally {
-      setLoading(false)
-    }
-  }, [sessionId])
-
-  const handleRefresh = useCallback(async () => {
-    if (!sessionId) return
-    setRefreshing(true)
-    try {
-      const res = await getRoundTableCoverage(sessionId)
-      const data = (res as { data?: RoundTableCoverage })?.data ?? res as RoundTableCoverage
-      setCoverage(data)
-    } catch {
-      // ignore
-    } finally {
-      setRefreshing(false)
-    }
-  }, [sessionId])
-
-  useEffect(() => {
-    if (open && sessionId) fetchCoverage()
-  }, [open, sessionId, fetchCoverage, version])
+  const {
+    data: coverage = null,
+    isLoading: loading,
+    isRefetching,
+    refetch,
+  } = useQuery({
+    queryKey: ['round-table', 'coverage', sessionId, version],
+    queryFn: () => getRoundTableCoverage(sessionId!) as Promise<RoundTableCoverage>,
+    enabled: open && !!sessionId,
+  })
 
   if (!open) return null
 
@@ -106,11 +81,11 @@ export default function CoveragePanel({ sessionId, open, onClose, isMobile, vers
         </h3>
         <div className="flex items-center gap-2 mr-7">
           <button
-            onClick={handleRefresh}
-            disabled={refreshing}
+            onClick={() => refetch()}
+            disabled={isRefetching}
             className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3 w-3 ${isRefetching ? 'animate-spin' : ''}`} />
             刷新
           </button>
         </div>

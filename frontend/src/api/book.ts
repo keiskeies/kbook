@@ -138,7 +138,7 @@ export function uploadBookWithProgress(
   const formData = new FormData()
   formData.append('file', file)
   if (title) formData.append('title', title)
-  return (request as any).post('/admin/books/upload', formData, {
+  return request.post('/admin/books/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 300000,
     onUploadProgress: (e: any) => {

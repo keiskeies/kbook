@@ -3,6 +3,7 @@ import { useAuthStore } from '@/store/auth'
 import { updateMood } from '@/api/auth'
 import { toast } from 'sonner'
 import { Zap, Heart, Coffee, Compass, Lightbulb } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 
 // ---- 阅读意图 ----
 const INTENTS = [
@@ -80,7 +81,7 @@ export default function MoodQuickSwitch() {
   if (!visible) return null
 
   return (
-    <div className="rounded-2xl bg-card border border-border/50 shadow-sm p-4">
+    <Card>
       {/* 顶栏：标题 + 关闭 */}
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -154,6 +155,6 @@ export default function MoodQuickSwitch() {
           {MOODS.find((m) => m.key === mood)?.label}
         </span>
       </div>
-    </div>
+    </Card>
   )
 }
