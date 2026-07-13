@@ -4,8 +4,10 @@ import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
+import com.kbook.service.embedding.event.RagHitEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -87,6 +89,27 @@ public class RagHitStatisticsService {
      * 防止并发重复重建的标记（内存级）
      */
     private final Set<Long> rebuildingBooks = ConcurrentHashMap.newKeySet();
+
+    /**
+     * 监听 RAG 检索命中事件 — 由 EmbeddingService.searchContent 发布
+     * <p>
+     * 此监听器是 EmbeddingService 与 RagHitStatisticsService 解耦的关键：
+     * EmbeddingService 不再注入 RagHitStatisticsService，改为发布事件；
+     * 本监听器接收事件后调用 recordHit/recordMiss 业务方法。
+     * 异常隔离：单个监听器抛异常不影响 EmbeddingService 主流程
+     */
+    @EventListener
+    public void onRagHitEvent(RagHitEvent event) {
+        try {
+            if (event.type() == RagHitEvent.Type.HIT) {
+                recordHit(event.bookId(), event.topScore());
+            } else {
+                recordMiss(event.bookId());
+            }
+        } catch (Exception e) {
+            log.warn("处理 RagHitEvent 失败: bookId={}, type={} - {}", event.bookId(), event.type(), e.getMessage());
+        }
+    }
 
     /**
      * 记录一次向量检索命中

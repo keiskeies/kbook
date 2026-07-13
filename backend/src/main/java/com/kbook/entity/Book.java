@@ -159,6 +159,19 @@ public class Book extends BaseEntity {
     @Builder.Default
     private Boolean contentEmbedded = false;
 
+    /**
+     * 内容向量生成时使用的 embedding 模型标识（baseUrl + "/" + modelName）
+     * 用于一致性校验：当前配置模型与此处不一致时，标记需要重建向量
+     */
+    @Column(name = "content_embedding_model", length = 255)
+    private String contentEmbeddingModel;
+
+    /**
+     * 内容向量维度（冗余校验字段，防止同名模型维度变更）
+     */
+    @Column(name = "content_embedding_dim")
+    private Integer contentEmbeddingDim;
+
     @Override
     public Long getId() {
         return id;

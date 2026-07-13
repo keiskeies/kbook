@@ -49,6 +49,9 @@ spring:
   # ========================
   jpa:
     hibernate:
+      # 现阶段保留 update：历史 schema 由 Hibernate 自动维护
+      # Flyway baseline 之后逐步用 V*__*.sql 管理 schema 演进
+      # 待 schema 稳定后切换为 validate，由 Flyway 作为唯一真相源
       ddl-auto: update
     show-sql: false
     open-in-view: false
@@ -56,6 +59,19 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: false
+
+  # ========================
+  # Flyway
+  # ========================
+  # baseline-on-migrate=true：现有数据库首次启动时打 V0 基线，不改动已有 schema
+  # 后续 V1+ 迁移脚本位于 classpath:db/migration，逐步接管 schema 演进
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
+    table: flyway_schema_history
+    validate-on-migrate: true
 
   # ========================
   # Redis

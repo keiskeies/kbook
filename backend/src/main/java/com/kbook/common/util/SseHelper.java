@@ -36,6 +36,11 @@ public final class SseHelper {
      */
     public static String extractFriendlyError(Throwable e) {
         if (e == null) return "AI 响应异常，请稍后重试。";
+        // 熔断器开启 — provider 故障保护中
+        if (e.getClass().getName().startsWith("io.github.resilience4j.circuitbreaker.CallNotPermittedException")
+                || (e.getMessage() != null && e.getMessage().contains("circuit breaker"))) {
+            return "AI 服务当前暂不可用，正在自动恢复中，请稍后重试。";
+        }
         String msg = e.getMessage();
         if (msg == null) return "AI 响应异常，请稍后重试。";
         if (msg.contains("not found")) return "AI 模型不存在，请管理员检查模型配置。";

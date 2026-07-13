@@ -64,7 +64,7 @@ public class BookChatController extends BaseController {
         // 将图书加入最近阅读（已有记录则更新时间，无记录则设进度为 0%）
         readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
-        return bookChatService.streamBookChat(userId, bookId, message, sessionId);
+        return withSseLimit(userId, () -> bookChatService.streamBookChat(userId, bookId, message, sessionId));
     }
 
     /**

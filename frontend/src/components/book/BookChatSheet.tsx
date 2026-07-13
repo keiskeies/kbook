@@ -11,6 +11,7 @@ import { useTtsStore } from '@/store/tts'
 import { getActiveTtsConfig } from '@/api/adminTts'
 import { useAuthStore } from '@/store/auth'
 import { updateBookChatStyle } from '@/api/auth'
+import { createStreamBatcher } from '@/utils/stream-batcher'
 import type { AiMessage } from '@/types/ai'
 import type { AiSessionItem } from '@/types/ai'
 import type { Book } from '@/types/book'
@@ -264,18 +265,29 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
 
     let fullAnswerContent = ''
 
+    // 流式 token 批量更新：rAF 累积 chunk 后一次性 setState，避免每 token re-render
+    const mainBatcher = createStreamBatcher<AiMessage>(
+      setMessages,
+      assistantMsg.id,
+      (m, bufferedChunk) => ({ ...m, content: m.content + bufferedChunk, thinkingStatus: undefined })
+    )
+    const thinkingBatcher = createStreamBatcher<AiMessage>(
+      setMessages,
+      assistantMsg.id,
+      (m, bufferedChunk) => ({ ...m, thinkingContent: (m.thinkingContent || '') + bufferedChunk })
+    )
+
     const controller = streamBookChat(
       book.id,
       { message, sessionId: sessionId || undefined, regenerate: isRegenerate || undefined },
       (chunk) => {
         fullAnswerContent += chunk
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, content: m.content + chunk, thinkingStatus: undefined } : m
-          )
-        )
+        mainBatcher.append(chunk)
       },
       async () => {
+        // 流结束前 flush 残余 buffer，确保最终内容完整
+        mainBatcher.flush()
+        thinkingBatcher.flush()
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id ? { ...m, streaming: false, thinkingStatus: undefined } : m
@@ -328,6 +340,8 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
         loadHistorySessions()
       },
       (_) => {
+        // 错误时 flush 残余 thinking buffer（主内容会被错误提示覆盖，无需 flush）
+        thinkingBatcher.flush()
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
@@ -345,11 +359,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
         )
       },
       (chunk) => {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, thinkingContent: (m.thinkingContent || '') + chunk } : m
-          )
-        )
+        thinkingBatcher.append(chunk)
       },
       (newSessionId) => {
         streamSessionIdRef.current = newSessionId

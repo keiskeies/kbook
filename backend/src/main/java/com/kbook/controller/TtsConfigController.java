@@ -27,7 +27,7 @@ import java.util.concurrent.ExecutorService;
 @Slf4j
 @RestController
 @Tag(name = "语音合成")
-public class TtsConfigController {
+public class TtsConfigController extends BaseController {
 
     private final TtsConfigService ttsConfigService;
 
@@ -75,19 +75,23 @@ public class TtsConfigController {
         log.info("TTS stream request: textLength={}, configId={}",
                 request.getText() != null ? request.getText().length() : 0, request.getConfigId());
 
-        // 超时 5 分钟，与引擎层流式超时对齐
-        SseEmitter emitter = new SseEmitter(300_000L);
+        Long userId = extractUserId();
 
-        emitter.onTimeout(() -> {
-            log.warn("TTS stream SSE timeout: configId={}", request.getConfigId());
-            emitter.complete();
+        return withSseLimit(userId, () -> {
+            // 超时 5 分钟，与引擎层流式超时对齐
+            SseEmitter emitter = new SseEmitter(300_000L);
+
+            emitter.onTimeout(() -> {
+                log.warn("TTS stream SSE timeout: configId={}", request.getConfigId());
+                emitter.complete();
+            });
+            emitter.onError(e -> log.warn("TTS stream SSE error: configId={}, msg={}", request.getConfigId(), e.getMessage()));
+
+            CompletableFuture.runAsync(() ->
+                    ttsConfigService.synthesizeStream(request.getText(), request.getConfigId(), emitter), sseExecutor);
+
+            return emitter;
         });
-        emitter.onError(e -> log.warn("TTS stream SSE error: configId={}, msg={}", request.getConfigId(), e.getMessage()));
-
-        CompletableFuture.runAsync(() ->
-                ttsConfigService.synthesizeStream(request.getText(), request.getConfigId(), emitter), sseExecutor);
-
-        return emitter;
     }
 
     @Operation(summary = "是否支持流式合成")

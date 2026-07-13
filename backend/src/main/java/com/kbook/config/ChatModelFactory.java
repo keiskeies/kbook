@@ -16,6 +16,7 @@ import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -46,6 +47,9 @@ public class ChatModelFactory {
     /** AI 提供商配置仓库 */
     private final AiProviderConfigRepository configRepository;
 
+    /** AI 熔断器注册表 — 按 provider+model 维度管理熔断器 */
+    private final AiCircuitBreakerRegistry cbRegistry;
+
     // ======================== QA 模型（大型问答）=======================
 
     /**
@@ -58,7 +62,7 @@ public class ChatModelFactory {
      */
     public ChatModel buildChatModel() {
         AiProviderConfig config = resolveQaConfig();
-        return wrap(buildChat(config, true));
+        return wrap(buildChat(config, true), config);
     }
 
     /**
@@ -69,7 +73,7 @@ public class ChatModelFactory {
      */
     public ChatModel buildChatModelWithoutThinking() {
         AiProviderConfig config = resolveQaConfig();
-        return wrap(buildChat(config, false));
+        return wrap(buildChat(config, false), config);
     }
 
     /**
@@ -80,7 +84,7 @@ public class ChatModelFactory {
      */
     public StreamingChatModel buildStreamingChatModel() {
         AiProviderConfig config = resolveQaConfig();
-        return buildStreaming(config, true);
+        return wrapStreaming(buildStreaming(config, true), config);
     }
 
     /**
@@ -91,7 +95,7 @@ public class ChatModelFactory {
      */
     public StreamingChatModel buildStreamingChatModelWithoutThinking() {
         AiProviderConfig config = resolveQaConfig();
-        return buildStreaming(config, false);
+        return wrapStreaming(buildStreaming(config, false), config);
     }
 
     // ======================== TOOL 模型（小型工具）=======================
@@ -107,7 +111,7 @@ public class ChatModelFactory {
      */
     public ChatModel buildToolChatModel() {
         AiProviderConfig config = resolveToolConfig();
-        return wrap(buildChat(config, false));
+        return wrap(buildChat(config, false), config);
     }
 
     /**
@@ -122,9 +126,9 @@ public class ChatModelFactory {
         Duration t = timeout(config.getTimeout());
         return config.getProvider() == AiProviderConfig.Provider.OPENAI
                 ? wrap(buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
-                0.1, t, config.getApiKey(), false))
+                0.1, t, config.getApiKey(), false), config)
                 : wrap(buildOllamaChat(config.getBaseUrl(), config.getModelName(),
-                0.1, t, false));
+                0.1, t, false), config);
     }
 
     /**
@@ -135,7 +139,7 @@ public class ChatModelFactory {
      */
     public StreamingChatModel buildStreamingToolChatModel() {
         AiProviderConfig config = resolveToolConfig();
-        return buildStreaming(config, false);
+        return wrapStreaming(buildStreaming(config, false), config);
     }
 
     // ======================== 其他公开方法 ========================
@@ -158,9 +162,9 @@ public class ChatModelFactory {
 
         return qaConfig.getProvider() == AiProviderConfig.Provider.OPENAI
                 ? wrap(buildOpenAiChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
-                        temperature, timeout, qaConfig.getApiKey(), false))
+                        temperature, timeout, qaConfig.getApiKey(), false), qaConfig)
                 : wrap(buildOllamaChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
-                        temperature, timeout, false));
+                        temperature, timeout, false), qaConfig);
     }
 
     /**
@@ -173,7 +177,7 @@ public class ChatModelFactory {
     public ChatModel buildChatModelForTest(Long configId) {
         AiProviderConfig config = configRepository.findById(configId)
                 .orElseThrow(() -> new IllegalArgumentException("配置不存在: " + configId));
-        return wrap(buildChat(config, true));
+        return wrap(buildChat(config, true), config);
     }
 
     /**
@@ -287,8 +291,27 @@ public class ChatModelFactory {
         return Duration.ofSeconds(seconds != null ? seconds : 600);
     }
 
-    private ChatModel wrap(ChatModel model) {
-        return new RetryableChatModel(model);
+    /**
+     * 包装 ChatModel：熔断器 → 重试 → 实际模型
+     * <p>
+     * 熔断器在外层：provider 故障时直接拒绝请求，不进入重试排队。
+     * providerKey 按 provider+model 维度隔离，一个 provider 挂了不影响另一个。
+     */
+    private ChatModel wrap(ChatModel model, AiProviderConfig config) {
+        String providerKey = config.getProvider() + ":" + config.getModelName();
+        CircuitBreaker cb = cbRegistry.getOrCreate(providerKey);
+        return new CircuitBreakerChatModel(new RetryableChatModel(model), cb);
+    }
+
+    /**
+     * 包装 StreamingChatModel：熔断器 → 实际流式模型
+     * <p>
+     * 流式模型不套重试（StreamingSseHandler 已有重试逻辑），只套熔断器。
+     */
+    private StreamingChatModel wrapStreaming(StreamingChatModel model, AiProviderConfig config) {
+        String providerKey = config.getProvider() + ":" + config.getModelName();
+        CircuitBreaker cb = cbRegistry.getOrCreate(providerKey);
+        return new CircuitBreakerStreamingChatModel(model, cb);
     }
 
     // ---- DB config 组合器 ----

@@ -136,6 +136,19 @@ public interface BookRepository extends BaseRepository<Book, Long> {
     long countByContentEmbeddedTrue();
 
     /**
+     * 查找内容已向量化但模型标识与当前不一致的书籍（用于向量层一致性校验）
+     */
+    @Query("SELECT b FROM Book b WHERE b.contentEmbedded = true " +
+            "AND (b.contentEmbeddingModel IS NULL OR b.contentEmbeddingModel <> :currentModel)")
+    List<Book> findBooksNeedingContentRebuild(@Param("currentModel") String currentModel);
+
+    /**
+     * 统计内容已向量化的书籍（仅取 id/title/contentEmbeddingModel/contentEmbeddingDim 字段，轻量扫描）
+     */
+    @Query("SELECT b.id FROM Book b WHERE b.contentEmbedded = true")
+    List<Long> findIdsByContentEmbeddedTrue();
+
+    /**
      * 随机采样书籍（MySQL）
      */
     @Query(value = "SELECT * FROM books ORDER BY RAND() LIMIT :limit", nativeQuery = true)

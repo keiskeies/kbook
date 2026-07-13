@@ -4,8 +4,8 @@ import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
-import com.kbook.service.book.BookService;
-import org.springframework.context.annotation.Lazy;
+import com.kbook.service.embedding.event.RagHitEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -49,22 +49,19 @@ public class EmbeddingService {
     private final QdrantClient qdrantClient;
     private final ChatModelFactory chatModelFactory;
     private final QdrantProperties qdrantProps;
-    private final BookService bookService;
     private final BookRepository bookRepository;
-    private final RagHitStatisticsService ragHitStatisticsService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public EmbeddingService(QdrantClient qdrantClient,
                             ChatModelFactory chatModelFactory,
                             QdrantProperties qdrantProps,
-                            @Lazy BookService bookService,
                             BookRepository bookRepository,
-                            @Lazy RagHitStatisticsService ragHitStatisticsService) {
+                            ApplicationEventPublisher eventPublisher) {
         this.qdrantClient = qdrantClient;
         this.chatModelFactory = chatModelFactory;
         this.qdrantProps = qdrantProps;
-        this.bookService = bookService;
         this.bookRepository = bookRepository;
-        this.ragHitStatisticsService = ragHitStatisticsService;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -85,6 +82,11 @@ public class EmbeddingService {
      * 当前 embedding 模型标识（用于写入和校验向量一致性）
      */
     private String currentEmbeddingModelName;
+
+    /**
+     * 当前 embedding 模型维度（与 currentEmbeddingModelName 同时记录，用于交叉校验）
+     */
+    private Integer currentEmbeddingDim;
 
     /**
      * 初始化：创建 Qdrant Collection + 构建 EmbeddingModel 和 Store
@@ -155,7 +157,8 @@ public class EmbeddingService {
             try {
                 var testResult = embeddingModel.embed("测试");
                 if (testResult != null) {
-                    log.info("Embedding 模型初始化验证成功: vectorDim={}", testResult.content().vector().length);
+                    currentEmbeddingDim = testResult.content().vector().length;
+                    log.info("Embedding 模型初始化验证成功: vectorDim={}", currentEmbeddingDim);
                 } else {
                     log.error("Embedding 模型初始化验证失败: embed 返回空结果");
                     embeddingModel = null;
@@ -167,6 +170,23 @@ public class EmbeddingService {
         } else {
             log.error("Embedding 模型构建返回 null");
         }
+    }
+
+    /**
+     * 当前 embedding 模型标识（baseUrl + "/" + modelName）
+     * 用于写入 Book.contentEmbeddingModel 字段，做向量一致性校验
+     */
+    public String getCurrentEmbeddingModelName() {
+        ensureEmbeddingModelInitialized();
+        return currentEmbeddingModelName;
+    }
+
+    /**
+     * 当前 embedding 模型维度
+     */
+    public Integer getCurrentEmbeddingDim() {
+        ensureEmbeddingModelInitialized();
+        return currentEmbeddingDim;
     }
 
     /**
@@ -751,15 +771,16 @@ public class EmbeddingService {
             }
 
             // 记录命中统计（有结果 = 命中，无结果 = 未命中）
-            if (book != null && ragHitStatisticsService != null) {
+            // 通过事件解耦：EmbeddingService 发布 RagHitEvent，RagHitStatisticsService 监听处理
+            if (book != null) {
                 if (results.isEmpty()) {
-                    ragHitStatisticsService.recordMiss(book.getId());
+                    eventPublisher.publishEvent(RagHitEvent.miss(book.getId()));
                 } else {
                     double topScore = results.stream()
                             .mapToDouble(EmbeddingMatch::score)
                             .max()
                             .orElse(0.0);
-                    ragHitStatisticsService.recordHit(book.getId(), topScore);
+                    eventPublisher.publishEvent(RagHitEvent.hit(book.getId(), topScore));
                 }
             }
 
@@ -767,8 +788,8 @@ public class EmbeddingService {
         } catch (Exception e) {
             log.error("RAG 内容检索失败: {}", e.getMessage());
             // 异常时也记录未命中
-            if (book != null && ragHitStatisticsService != null) {
-                ragHitStatisticsService.recordMiss(book.getId());
+            if (book != null) {
+                eventPublisher.publishEvent(RagHitEvent.miss(book.getId()));
             }
             return List.of();
         }
@@ -1763,13 +1784,6 @@ public class EmbeddingService {
         } else {
             sb.append("简介:;");
         }
-
-//        String summary = bookService.resolveBookSummary(book);
-//        if (summary != null && !summary.isBlank()) {
-//            sb.append("摘要:").append(summary).append(";");
-//        } else if (book.getToc() != null && !book.getToc().isBlank()) {
-//            sb.append("目录:").append(book.getToc()).append(";");
-//        }
 
         return sb.toString();
     }

@@ -83,7 +83,8 @@ public class AiController extends BaseController {
         }
 
         log.debug("流式对话: userId={}, sessionId={}, message={}", userId, sessionId, message);
-        return chatService.streamChat(userId, sessionId, message);
+        final String sid = sessionId;
+        return withSseLimit(userId, () -> chatService.streamChat(userId, sid, message));
     }
 
 

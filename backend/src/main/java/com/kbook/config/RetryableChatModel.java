@@ -1,5 +1,6 @@
 package com.kbook.config;
 
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -8,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
+import java.util.List;
 
 /**
  * ChatModel 重试包装器 — 对 AI API 429 限速/5xx/网络错误自动重试
@@ -23,13 +25,48 @@ public class RetryableChatModel implements ChatModel {
     private final long baseDelayMs;
 
     public RetryableChatModel(ChatModel delegate) {
-        this(delegate, 3, 1000L);
+        this(delegate, 1, 1000L);
     }
 
     public RetryableChatModel(ChatModel delegate, int maxRetries, long baseDelayMs) {
         this.delegate = delegate;
         this.maxRetries = maxRetries;
         this.baseDelayMs = baseDelayMs;
+    }
+
+    /**
+     * 覆写 chat(List&lt;ChatMessage&gt;) — 委托给 delegate.chat(messages) 而非走默认接口方法。
+     * <p>
+     * 关键：OpenAiChatModel 覆写了 chat() 来构建 OpenAiChatRequestParameters。
+     * 若走默认接口方法，会构建 DefaultChatRequestParameters，传给 delegate.doChat()
+     * 时触发 ClassCastException。
+     * <p>
+     * 重试逻辑在此层实现，每次重试都调 delegate.chat(messages) 让 delegate
+     * 用自己的参数构建逻辑。
+     */
+    @Override
+    public ChatResponse chat(List<ChatMessage> messages) {
+        int retries = 0;
+        while (true) {
+            try {
+                return delegate.chat(messages);
+            } catch (Exception e) {
+                if (isRetryable(e) && retries < maxRetries) {
+                    retries++;
+                    long delay = computeDelay(retries);
+                    log.warn("AI 请求失败可重试 (第{}/{}次重试)，等待 {}ms 后重试: {}",
+                            retries, maxRetries, delay, e.getMessage());
+                    try {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new AiRetryInterruptedException("AI 重试被中断", ie);
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        }
     }
 
     @Override

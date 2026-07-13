@@ -6,6 +6,7 @@ import { streamChat, getHistory, getSessions } from '@/api/ai'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import { BlinkingBot } from '@/components/BlinkingBot'
+import { createStreamBatcher } from '@/utils/stream-batcher'
 import type { AiMessage } from '@/types/ai'
 import type { AiSessionItem } from '@/types/ai'
 
@@ -195,17 +196,28 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
 
     let fullAnswerContent = ''
 
+    // 流式 token 批量更新：rAF 累积 chunk 后一次性 setState，避免每 token re-render
+    const mainBatcher = createStreamBatcher<AiMessage>(
+      setMessages,
+      assistantMsg.id,
+      (m, bufferedChunk) => ({ ...m, content: m.content + bufferedChunk, thinkingStatus: undefined })
+    )
+    const thinkingBatcher = createStreamBatcher<AiMessage>(
+      setMessages,
+      assistantMsg.id,
+      (m, bufferedChunk) => ({ ...m, thinkingContent: (m.thinkingContent || '') + bufferedChunk })
+    )
+
     const controller = streamChat(
       { message, sessionId: sessionId || undefined },
       (chunk) => {
         fullAnswerContent += chunk
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, content: m.content + chunk, thinkingStatus: undefined } : m
-          )
-        )
+        mainBatcher.append(chunk)
       },
       () => {
+        // 流结束前 flush 残余 buffer
+        mainBatcher.flush()
+        thinkingBatcher.flush()
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id ? { ...m, streaming: false, thinkingStatus: undefined, loadingFollowUps: false } : m
@@ -216,6 +228,8 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
         loadHistorySessions()
       },
       () => {
+        // 错误时 flush 残余 thinking buffer（主内容会被错误提示覆盖）
+        thinkingBatcher.flush()
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
@@ -233,11 +247,7 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
         )
       },
       (chunk) => {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, thinkingContent: (m.thinkingContent || '') + chunk } : m
-          )
-        )
+        thinkingBatcher.append(chunk)
       },
       () => {
         // onBookMap — currently unused

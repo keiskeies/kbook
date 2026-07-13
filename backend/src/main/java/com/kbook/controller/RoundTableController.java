@@ -194,7 +194,7 @@ public class RoundTableController extends BaseController {
             @Valid @RequestBody SpeakRequest request
     ) {
         Long userId = extractUserId();
-        return roundTableService.streamCharacterSpeak(userId, bookId, request);
+        return withSseLimit(userId, () -> roundTableService.streamCharacterSpeak(userId, bookId, request));
     }
 
     /**

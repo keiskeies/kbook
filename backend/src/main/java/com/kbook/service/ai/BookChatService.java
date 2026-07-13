@@ -92,6 +92,7 @@ public class BookChatService {
     private final ListQueryDetector listQueryDetector;
     private final ListQueryStrategySelector listQueryStrategySelector;
     private final ListQueryRetriever listQueryRetriever;
+    private final RagAnswerCache ragAnswerCache;
 
     public BookChatService(
             EmbeddingService embeddingService,
@@ -112,6 +113,7 @@ public class BookChatService {
             ListQueryDetector listQueryDetector,
             ListQueryStrategySelector listQueryStrategySelector,
             ListQueryRetriever listQueryRetriever,
+            RagAnswerCache ragAnswerCache,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -131,6 +133,7 @@ public class BookChatService {
         this.listQueryDetector = listQueryDetector;
         this.listQueryStrategySelector = listQueryStrategySelector;
         this.listQueryRetriever = listQueryRetriever;
+        this.ragAnswerCache = ragAnswerCache;
         this.sseExecutor = sseExecutor;
     }
 
@@ -244,6 +247,26 @@ public class BookChatService {
 
         Future<?> aiFuture = sseExecutor.submit(() -> {
             try {
+                // 0. RAG 答案缓存检查（仅首问缓存，无对话上下文依赖）
+                String lastAiAnswer = getLastAiAnswer(userId, effectiveSessionId);
+                final boolean cacheable = (lastAiAnswer == null || lastAiAnswer.isBlank());
+                final String modelName = chatModelFactory.getModelName();
+
+                if (cacheable) {
+                    String cached = ragAnswerCache.get(bookId, question, modelName);
+                    if (cached != null) {
+                        // 缓存命中 — 流式回放 + 保存对话记录
+                        final String answer = cached;
+                        ragAnswerCache.replay(emitter, cached, () -> {
+                            ensureSession(userId, effectiveSessionId, question, bookId);
+                            saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
+                            saveMessage(userId, effectiveSessionId, "assistant", answer, bookId, null);
+                            updateSessionTimestamp(effectiveSessionId);
+                        });
+                        return;
+                    }
+                }
+
                 // 1. 按需生成内容向量（首次问答时触发）
                 if (!ensureContentEmbedded(book, bookId, emitter)) return;
 
@@ -253,7 +276,6 @@ public class BookChatService {
                 int ragTopK = Optional.ofNullable(aiProviderConfigService.getActiveRagTopK())
                         .orElse(qdrantProperties.getRagTopK());
                 int ragMaxChars = getRagMaxChars();
-                String lastAiAnswer = getLastAiAnswer(userId, effectiveSessionId);
                 String ragContext = null;
                 if (embeddingService.isAvailable() && waitForContentEmbedding(book.getId())) {
                     try {
@@ -322,6 +344,11 @@ public class BookChatService {
 
                         CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
                                 String.format("bookId=%d, question=%s", bookId, question.substring(0, Math.min(30, question.length()))));
+
+                        // 写入 RAG 答案缓存（仅首问，追问不缓存）
+                        if (cacheable) {
+                            ragAnswerCache.put(bookId, question, modelName, answer);
+                        }
                     }
 
                     @Override

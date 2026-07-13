@@ -13,6 +13,8 @@ import com.kbook.service.book.BookScanService;
 import com.kbook.service.book.BookSearchService;
 import com.kbook.service.book.BookService;
 import com.kbook.service.embedding.EmbeddingService;
+import com.kbook.service.embedding.EmbeddingConsistencyChecker;
+import com.kbook.service.ai.RagAnswerCache;
 import com.kbook.config.properties.BookStorageProperties;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,6 +35,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 管理员图书管理控制器 — 扫描、上传、图书 CRUD、AI 对话
@@ -52,13 +55,16 @@ public class AdminBookController extends BaseController {
     private final BookSearchService bookSearchService;
     private final BookStorageProperties storageProps;
     private final BookAdminChatService adminChatService;
+    private final EmbeddingConsistencyChecker embeddingConsistencyChecker;
+    private final RagAnswerCache ragAnswerCache;
 
     // ==================== 扫描图书 ====================
 
     @Operation(summary = "扫描图书")
     @GetMapping(value = "/scan", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter scanBooks(@RequestParam(value = "skipBeforeId", required = false) Long skipBeforeId) {
-        return bookScanService.scanAllWithProgress(skipBeforeId);
+        Long userId = extractUserId();
+        return withSseLimit(userId, () -> bookScanService.scanAllWithProgress(skipBeforeId));
     }
 
     @Operation(summary = "获取扫描状态")
@@ -216,50 +222,104 @@ public class AdminBookController extends BaseController {
     @PostMapping("/vector/clear-content")
     public Result<Map<String, Object>> clearContentVectors() {
         long deletedCount = embeddingService.clearAllContentEmbeddings();
+        // 全量清空向量后，同步失效所有 RAG 答案缓存（旧缓存基于已删除的向量，不再有效）
+        ragAnswerCache.invalidateAll();
         return Result.ok(Map.of(
                 "deletedCount", deletedCount,
                 "message", "内容向量库已清空"
         ));
     }
 
+    @Operation(summary = "向量层一致性校验 — 列出需要重建内容向量的书籍")
+    @GetMapping("/embeddings/consistency")
+    public Result<Map<String, Object>> embeddingConsistency() {
+        List<Book> needingRebuild = embeddingConsistencyChecker.findBooksNeedingRebuild();
+        String currentModel = embeddingConsistencyChecker.currentModel();
+        Integer currentDim = embeddingConsistencyChecker.currentDim();
+        long totalEmbedded = bookRepository.countByContentEmbeddedTrue();
+
+        List<Map<String, Object>> bookList = needingRebuild.stream()
+                .map(b -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("bookId", b.getId());
+                    m.put("title", b.getTitle());
+                    m.put("storedModel", b.getContentEmbeddingModel());
+                    m.put("storedDim", b.getContentEmbeddingDim());
+                    m.put("mismatchType",
+                            b.getContentEmbeddingModel() == null ? "HISTORICAL_NULL"
+                                    : (b.getContentEmbeddingDim() != null && currentDim != null
+                                        && !b.getContentEmbeddingDim().equals(currentDim) ? "DIM_MISMATCH" : "MODEL_MISMATCH"));
+                    return m;
+                })
+                .toList();
+
+        return Result.ok(Map.of(
+                "currentModel", currentModel != null ? currentModel : "N/A",
+                "currentDim", currentDim != null ? currentDim : "N/A",
+                "totalEmbeddedBooks", totalEmbedded,
+                "needsRebuildCount", needingRebuild.size(),
+                "books", bookList
+        ));
+    }
+
     @Operation(summary = "全量刷新书籍向量库(kbook_books)")
     @GetMapping(value = "/vector/rebuild-books", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter rebuildBooksVector() {
-        SseEmitter emitter = new SseEmitter(600_000L);
+        Long userId = extractUserId();
+        return withSseLimit(userId, () -> {
+            SseEmitter emitter = new SseEmitter(600_000L);
+            AtomicBoolean clientConnected = new AtomicBoolean(true);
 
-        CompletableFuture.runAsync(() -> {
-            try {
-                long startTime = System.currentTimeMillis();
-                embeddingService.rebuildAllBookEmbeddings((processed, total) -> {
-                    try {
-                        emitter.send(SseEmitter.event()
-                                .name("progress")
-                                .data(Map.of(
-                                        "current", processed,
-                                        "total", total,
-                                        "status", "processing"
-                                )));
-                    } catch (IOException e) {
-                        log.warn("SSE 发送失败: {}", e.getMessage());
-                    }
-                });
-                long elapsed = System.currentTimeMillis() - startTime;
-                emitter.send(SseEmitter.event()
-                        .name("done")
-                        .data(Map.of("elapsed", elapsed)));
-                emitter.complete();
-            } catch (Exception e) {
-                log.error("书籍向量全量刷新失败", e);
+            emitter.onCompletion(() -> clientConnected.set(false));
+            emitter.onTimeout(() -> clientConnected.set(false));
+            emitter.onError(e -> clientConnected.set(false));
+
+            CompletableFuture.runAsync(() -> {
                 try {
-                    emitter.send(SseEmitter.event()
-                            .name("error")
-                            .data(Map.of("message", e.getMessage() != null ? e.getMessage() : "书籍向量刷新失败")));
-                } catch (IOException ignored) {}
-                emitter.completeWithError(e);
-            }
-        });
+                    long startTime = System.currentTimeMillis();
+                    embeddingService.rebuildAllBookEmbeddings((processed, total) -> {
+                        if (!clientConnected.get()) return;
+                        try {
+                            emitter.send(SseEmitter.event()
+                                    .name("progress")
+                                    .data(Map.of(
+                                            "current", processed,
+                                            "total", total,
+                                            "status", "processing"
+                                    )));
+                        } catch (IOException e) {
+                            log.warn("SSE 发送失败(客户端可能已断开): {}", e.getMessage());
+                            clientConnected.set(false);
+                        }
+                    });
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    if (clientConnected.get()) {
+                        try {
+                            emitter.send(SseEmitter.event()
+                                    .name("done")
+                                    .data(Map.of("elapsed", elapsed)));
+                            emitter.complete();
+                        } catch (Exception e) {
+                            log.warn("SSE done 事件发送失败: {}", e.getMessage());
+                        }
+                    } else {
+                        log.info("书籍向量全量刷新完成(客户端已断开): elapsed={}ms", elapsed);
+                    }
+                } catch (Exception e) {
+                    log.error("书籍向量全量刷新失败", e);
+                    if (clientConnected.get()) {
+                        try {
+                            emitter.send(SseEmitter.event()
+                                    .name("error")
+                                    .data(Map.of("message", e.getMessage() != null ? e.getMessage() : "书籍向量刷新失败")));
+                            emitter.completeWithError(e);
+                        } catch (IOException ignored) {}
+                    }
+                }
+            });
 
-        return emitter;
+            return emitter;
+        });
     }
 
     // ==================== ES 索引管理 ====================
@@ -273,41 +333,61 @@ public class AdminBookController extends BaseController {
     @Operation(summary = "重建ES索引(流式)")
     @GetMapping(value = "/es/reindex", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter rebuildEsIndex() {
-        SseEmitter emitter = new SseEmitter(600_000L);
+        Long userId = extractUserId();
+        return withSseLimit(userId, () -> {
+            SseEmitter emitter = new SseEmitter(600_000L);
+            AtomicBoolean clientConnected = new AtomicBoolean(true);
 
-        CompletableFuture.runAsync(() -> {
-            try {
-                long startTime = System.currentTimeMillis();
-                bookSearchService.rebuildIndexWithProgress((processed, total) -> {
-                    try {
-                        emitter.send(SseEmitter.event()
-                                .name("progress")
-                                .data(Map.of(
-                                        "current", processed,
-                                        "total", total,
-                                        "status", "scanning"
-                                )));
-                    } catch (IOException e) {
-                        log.warn("SSE 发送失败: {}", e.getMessage());
-                    }
-                });
-                long elapsed = System.currentTimeMillis() - startTime;
-                emitter.send(SseEmitter.event()
-                        .name("done")
-                        .data(Map.of("elapsed", elapsed)));
-                emitter.complete();
-            } catch (Exception e) {
-                log.error("ES 重建索引失败", e);
+            emitter.onCompletion(() -> clientConnected.set(false));
+            emitter.onTimeout(() -> clientConnected.set(false));
+            emitter.onError(e -> clientConnected.set(false));
+
+            CompletableFuture.runAsync(() -> {
                 try {
-                    emitter.send(SseEmitter.event()
-                            .name("error")
-                            .data(Map.of("message", e.getMessage() != null ? e.getMessage() : "ES 重建失败")));
-                } catch (IOException ignored) {}
-                emitter.completeWithError(e);
-            }
-        });
+                    long startTime = System.currentTimeMillis();
+                    bookSearchService.rebuildIndexWithProgress((processed, total) -> {
+                        if (!clientConnected.get()) return;
+                        try {
+                            emitter.send(SseEmitter.event()
+                                    .name("progress")
+                                    .data(Map.of(
+                                            "current", processed,
+                                            "total", total,
+                                            "status", "scanning"
+                                    )));
+                        } catch (IOException e) {
+                            log.warn("SSE 发送失败(客户端可能已断开): {}", e.getMessage());
+                            clientConnected.set(false);
+                        }
+                    });
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    if (clientConnected.get()) {
+                        try {
+                            emitter.send(SseEmitter.event()
+                                    .name("done")
+                                    .data(Map.of("elapsed", elapsed)));
+                            emitter.complete();
+                        } catch (Exception e) {
+                            log.warn("SSE done 事件发送失败: {}", e.getMessage());
+                        }
+                    } else {
+                        log.info("ES 重建索引完成(客户端已断开): elapsed={}ms", elapsed);
+                    }
+                } catch (Exception e) {
+                    log.error("ES 重建索引失败", e);
+                    if (clientConnected.get()) {
+                        try {
+                            emitter.send(SseEmitter.event()
+                                    .name("error")
+                                    .data(Map.of("message", e.getMessage() != null ? e.getMessage() : "ES 重建失败")));
+                            emitter.completeWithError(e);
+                        } catch (IOException ignored) {}
+                    }
+                }
+            });
 
-        return emitter;
+            return emitter;
+        });
     }
 
     // ==================== AI 管理员对话 ====================
@@ -336,7 +416,8 @@ public class AdminBookController extends BaseController {
             return emitter;
         }
 
-        return adminChatService.streamChat(userId, sessionId, message);
+        final String sid = sessionId;
+        return withSseLimit(userId, () -> adminChatService.streamChat(userId, sid, message));
     }
 
     @Operation(summary = "AI管理员非流式对话")

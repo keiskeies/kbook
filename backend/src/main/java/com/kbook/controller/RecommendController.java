@@ -35,7 +35,7 @@ import java.util.concurrent.CompletableFuture;
 @RequestMapping("/api/recommend")
 @RequiredArgsConstructor
 @Tag(name = "推荐")
-public class RecommendController {
+public class RecommendController extends BaseController {
 
     private final RecommendService recommendService;
     private final EmbeddingService embeddingService;
@@ -94,15 +94,17 @@ public class RecommendController {
     public SseEmitter generateRecommendations(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
 
-        SseEmitter emitter = new SseEmitter(600_000L);
+        return withSseLimit(userId, () -> {
+            SseEmitter emitter = new SseEmitter(600_000L);
 
-        emitter.onTimeout(() -> log.warn("推荐生成SSE超时: userId={}", userId));
-        emitter.onError(e -> log.warn("推荐生成SSE错误: userId={}", userId));
+            emitter.onTimeout(() -> log.warn("推荐生成SSE超时: userId={}", userId));
+            emitter.onError(e -> log.warn("推荐生成SSE错误: userId={}", userId));
 
-        CompletableFuture.runAsync(() ->
-                recommendService.generateWithProgress(userId, emitter));
+            CompletableFuture.runAsync(() ->
+                    recommendService.generateWithProgress(userId, emitter));
 
-        return emitter;
+            return emitter;
+        });
     }
 
     /**

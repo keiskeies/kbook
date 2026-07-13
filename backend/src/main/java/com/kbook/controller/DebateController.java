@@ -147,7 +147,7 @@ public class DebateController extends BaseController {
             @PathVariable Long bookId,
             @Valid @RequestBody DebateSpeakRequest request) {
         Long userId = extractUserId();
-        return debateService.streamOpeningSpeech(userId, bookId, request);
+        return withSseLimit(userId, () -> debateService.streamOpeningSpeech(userId, bookId, request));
     }
 
     @Operation(summary = "奇袭攻辩发言（SSE）— 已废弃，使用交叉质询+驳论")
@@ -165,7 +165,7 @@ public class DebateController extends BaseController {
                         ? (Integer) body.get("roundNumber") : 2)
                 .build();
         String opponentSpeech = (String) body.get("opponentSpeech");
-        return debateService.streamAttackSpeech(userId, bookId, request, opponentSpeech);
+        return withSseLimit(userId, () -> debateService.streamAttackSpeech(userId, bookId, request, opponentSpeech));
     }
 
     @Operation(summary = "交叉质询发言（SSE）— 二辩质询对方一辩")
@@ -186,7 +186,7 @@ public class DebateController extends BaseController {
 
         String defenderOpening = (String) body.get("defenderOpening");
         String questionContent = (String) body.get("questionContent");
-        return debateService.streamCrossExamSpeech(userId, bookId, request, defenderOpening, questionContent);
+        return withSseLimit(userId, () -> debateService.streamCrossExamSpeech(userId, bookId, request, defenderOpening, questionContent));
     }
 
     @Operation(summary = "驳论发言（SSE）— 二辩集中反驳")
@@ -206,7 +206,7 @@ public class DebateController extends BaseController {
 
         String opponentOpening = (String) body.get("opponentOpening");
         String crossExamContext = (String) body.get("crossExamContext");
-        return debateService.streamRebuttalSpeech(userId, bookId, request, opponentOpening, crossExamContext);
+        return withSseLimit(userId, () -> debateService.streamRebuttalSpeech(userId, bookId, request, opponentOpening, crossExamContext));
     }
 
     @Operation(summary = "自由辩论发言（SSE）")
@@ -223,7 +223,7 @@ public class DebateController extends BaseController {
                         ? (Integer) body.get("roundNumber") : 4)
                 .build();
         String lastSpeech = (String) body.get("lastSpeech");
-        return debateService.streamFreeSpeech(userId, bookId, request, lastSpeech);
+        return withSseLimit(userId, () -> debateService.streamFreeSpeech(userId, bookId, request, lastSpeech));
     }
 
     @Operation(summary = "总结陈词发言（SSE）")
@@ -232,7 +232,7 @@ public class DebateController extends BaseController {
             @PathVariable Long bookId,
             @Valid @RequestBody DebateSpeakRequest request) {
         Long userId = extractUserId();
-        return debateService.streamClosingSpeech(userId, bookId, request);
+        return withSseLimit(userId, () -> debateService.streamClosingSpeech(userId, bookId, request));
     }
 
     // ==================== 自由辩论发言人 ====================
@@ -264,7 +264,7 @@ public class DebateController extends BaseController {
         Long userId = extractUserId();
         String type = body.getOrDefault("type", "TRANSITION");
         String context = body.getOrDefault("context", "");
-        return debateService.streamHostCommentary(userId, sessionId, type, context);
+        return withSseLimit(userId, () -> debateService.streamHostCommentary(userId, sessionId, type, context));
     }
 
     // ==================== 评分 ====================

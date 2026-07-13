@@ -44,7 +44,7 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "图书")
-public class BookController {
+public class BookController extends BaseController {
 
     private final BookService bookService;
     private final RankService rankService;
@@ -232,7 +232,8 @@ public class BookController {
                 log.debug("获取当前用户ID失败: {}", e.getMessage());
             }
         }
-        return bookParserService.streamSpeedRead(id, userId);
+        final Long uid = userId;
+        return withSseLimit(uid, () -> bookParserService.streamSpeedRead(id, uid));
     }
 
 }

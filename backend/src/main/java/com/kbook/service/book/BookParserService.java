@@ -89,6 +89,7 @@ public class BookParserService {
     private final ObjectMapper objectMapper; // JSON对象映射器
     private final BookStorageProperties storageProps; // 书籍存储配置属性
     private final ExecutorService sseExecutor;
+    private final com.kbook.service.ai.RagAnswerCache ragAnswerCache;
 
     public BookParserService(
             ChatModelFactory chatModelFactory,
@@ -98,6 +99,7 @@ public class BookParserService {
             EmbeddingService embeddingService,
             ObjectMapper objectMapper,
             BookStorageProperties storageProps,
+            com.kbook.service.ai.RagAnswerCache ragAnswerCache,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.chatModelFactory = chatModelFactory;
         this.chatModelManager = chatModelManager;
@@ -106,6 +108,7 @@ public class BookParserService {
         this.embeddingService = embeddingService;
         this.objectMapper = objectMapper;
         this.storageProps = storageProps;
+        this.ragAnswerCache = ragAnswerCache;
         this.sseExecutor = sseExecutor;
     }
 
@@ -1416,8 +1419,22 @@ public class BookParserService {
             int chunkCount = embeddingService.generateContentEmbeddingWithCount(bookId, content);
             book = bookService.getBookById(bookId);
             book.setContentEmbedded(chunkCount > 0);
+            // 记录向量层一致性指纹（模型标识 + 维度），用于后续启动校验和重建风控
+            if (chunkCount > 0) {
+                book.setContentEmbeddingModel(embeddingService.getCurrentEmbeddingModelName());
+                book.setContentEmbeddingDim(embeddingService.getCurrentEmbeddingDim());
+            } else {
+                book.setContentEmbeddingModel(null);
+                book.setContentEmbeddingDim(null);
+            }
             bookService.updateBook(bookId, book);
-            log.info("图书全文重新向量化完成: bookId={}, chunks={}", bookId, chunkCount);
+            // 内容向量重建后，失效该书的 RAG 答案缓存（基于旧内容的缓存不再有效）
+            if (chunkCount > 0) {
+                ragAnswerCache.invalidateBook(bookId);
+            }
+            log.info("图书全文重新向量化完成: bookId={}, chunks={}, model={}",
+                    bookId, chunkCount,
+                    chunkCount > 0 ? embeddingService.getCurrentEmbeddingModelName() : "N/A");
             return chunkCount;
         } catch (Exception e) {
             log.warn("图书全文重新向量化失败: bookId={} - {}", bookId, e.getMessage());

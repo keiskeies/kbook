@@ -29,6 +29,7 @@ import { useAuthStore } from '@/store/auth'
 import { getSortedChineseVoices, assignVoiceForRole } from '@/utils/browserTts'
 import { speechService } from '@/utils/speechService'
 import { getAzureVoiceForRole, DEBATE_AZURE_VOICE } from '@/utils/speechVoices'
+import { createStreamBatcher } from '@/utils/stream-batcher'
 
 type Phase = 'loading' | 'OPENING' | 'CROSS_EXAM' | 'REBUTTAL' | 'FREE' | 'CLOSING' | 'completed' | 'error'
 
@@ -768,6 +769,14 @@ export default function DebateSessionPage() {
     }
     setMessages(prev => [...prev, placeholder])
 
+    // 流式 token 批量更新：rAF 累积 chunk 后一次性 setState，避免每 token re-render
+    // 注意：仍用 currentContentRef 同步累积，供 finish() 读取做 TTS / lastStreamedContentRef
+    const contentBatcher = createStreamBatcher<DisplayMessage>(
+      setMessages,
+      msgId,
+      (m, bufferedChunk) => ({ ...m, content: m.content + bufferedChunk })
+    )
+
     // 安全兜底：若 60s 内 SSE 既没 done 也没 error，自动推进链
     // 关键：用 streamCompleted 标志防双重触发——safety / done / error 三者仅第一个生效
     let streamCompleted = false
@@ -775,6 +784,8 @@ export default function DebateSessionPage() {
       if (streamCompleted) return
       streamCompleted = true
       clearTimeout(safetyTimer)
+      // flush 残余 buffer 到 state，确保 content 完整
+      contentBatcher.flush()
       setSpeakingKey(null)
       if (currentContentRef.current.trim()) {
         setMessages(prev => prev.map(m =>
@@ -811,10 +822,8 @@ export default function DebateSessionPage() {
 
     onMessage((text: string) => {
       currentContentRef.current += text
-      // 实时更新消息内容
-      setMessages(prev => prev.map(m =>
-        m.id === msgId ? { ...m, content: currentContentRef.current } : m
-      ))
+      // 批量累积，rAF 内部会合并多 token 一次性 setState
+      contentBatcher.append(text)
     })
 
     onStreamDone(() => {
@@ -862,17 +871,24 @@ export default function DebateSessionPage() {
     }
     setMessages(prev => [...prev, placeholder])
 
+    // 流式 token 批量更新：rAF 累积 chunk 后一次性 setState，避免每 token re-render
+    const contentBatcher = createStreamBatcher<DisplayMessage>(
+      setMessages,
+      placeholderId,
+      (m, bufferedChunk) => ({ ...m, content: m.content + bufferedChunk })
+    )
+
     try {
       const { onMessage, onDone, onError } = streamHostCommentary(sessionId, type, context)
 
       onMessage((text: string) => {
         content += text
-        setMessages(prev => prev.map(m =>
-          m.id === placeholderId ? { ...m, content } : m
-        ))
+        contentBatcher.append(text)
       })
 
       onDone(() => {
+        // flush 残余 buffer，确保 content 完整
+        contentBatcher.flush()
         setMessages(prev => {
           // LLM 返回空内容 → 移除占位，骨架保留（与 startStreaming 行为一致）
           if (!content.trim()) {
@@ -891,6 +907,7 @@ export default function DebateSessionPage() {
 
       onError(() => {
         // 静默失败，移除占位消息，骨架消息保留
+        contentBatcher.flush()
         setMessages(prev => prev.filter(m => m.id !== placeholderId))
       })
     } catch {
