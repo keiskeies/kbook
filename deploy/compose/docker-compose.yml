@@ -112,6 +112,8 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-prod}
       TZ: ${TZ:-Asia/Shanghai}
+      # ---- CORS 允许的 Origin 模式 ----
+      KBOOK_CORS_ORIGINS: ${KBOOK_CORS_ORIGINS}
       # ---- 数据库 ----
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306

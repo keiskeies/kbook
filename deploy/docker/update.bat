@@ -208,6 +208,7 @@ docker run -d ^
     -p !APP_PORT_HOST!:80 ^
     -e TZ=!TZ! ^
     -e SPRING_PROFILES_ACTIVE=!SPRING_PROFILE! ^
+    -e KBOOK_CORS_ORIGINS=!KBOOK_CORS_ORIGINS! ^
     -e MYSQL_HOST=!MYSQL_HOST! ^
     -e MYSQL_PORT=!MYSQL_PORT! ^
     -e MYSQL_DB=!MYSQL_DB! ^
