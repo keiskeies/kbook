@@ -36,10 +36,11 @@ export function streamChat(
   onThinkingContent?: (chunk: string) => void,
   onBookMap?: (bookMap: Record<string, number>) => void,
   onSessionId?: (sessionId: string) => void,
+  onReplace?: (safeText: string) => void,
 ): AbortController {
   return createSsePostConnection(
     '/ai/chat/stream',
     data,
-    { onChunk, onDone, onError, onThinking, onThinkingContent, onBookMap, onSessionId },
+    { onChunk, onDone, onError, onThinking, onThinkingContent, onBookMap, onSessionId, onReplace },
   )
 }

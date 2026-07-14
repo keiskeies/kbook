@@ -85,9 +85,14 @@ public class BookSearchService {
     /**
      * 关键词优先搜索（用于前端 /api/books/search）
      * 优先返回 ES 书名/作者匹配的书籍，适合用户精确查找
+     * <p>
+     * 安全措施：keyword 经过 sanitizeSearchKeyword 清理（长度限制、控制字符移除、
+     * JSON 特殊字符转义、SQL 注入模式过滤），防止 ES JSON 查询注入和 SQL 注入。
      */
     public PageResult<BookDocument> keywordSearch(String keyword, String tag, int page, int size) {
-        if (keyword == null || keyword.isBlank()) {
+        // 安全清理：防止 ES JSON 注入 + SQL 注入模式
+        String sanitizedKeyword = CommonUtils.sanitizeSearchKeyword(keyword);
+        if (sanitizedKeyword == null || sanitizedKeyword.isBlank()) {
             if (tag != null && !tag.isBlank()) {
                 return searchByTag(tag, page, size);
             }
@@ -97,7 +102,7 @@ public class BookSearchService {
         // 1. 尝试 ES 搜索
         if (esAvailable) {
             try {
-                return esKeywordSearch(keyword, tag, page, size);
+                return esKeywordSearch(sanitizedKeyword, tag, page, size);
             } catch (Exception e) {
                 log.warn("ES 关键词搜索异常，降级到 MySQL: {}", e.getMessage());
                 esAvailable = false;
@@ -105,7 +110,7 @@ public class BookSearchService {
         }
 
         // 2. 降级 MySQL
-        return mysqlKeywordSearch(keyword, tag, page, size);
+        return mysqlKeywordSearch(sanitizedKeyword, tag, page, size);
     }
 
     /**
@@ -162,7 +167,9 @@ public class BookSearchService {
      */
     public PageResult<BookDocument> hybridSearch(String keyword, String tag,
                                                   List<Long> excludeBookIds, int page, int size) {
-        if (keyword == null || keyword.isBlank()) {
+        // 安全清理：防止 ES JSON 注入 + SQL 注入模式
+        String sanitizedKeyword = CommonUtils.sanitizeSearchKeyword(keyword);
+        if (sanitizedKeyword == null || sanitizedKeyword.isBlank()) {
             if (tag != null && !tag.isBlank()) {
                 return searchByTag(tag, page, size);
             }
@@ -173,16 +180,16 @@ public class BookSearchService {
         Set<Long> exclude = excludeBookIds != null ? new HashSet<>(excludeBookIds) : Set.of();
 
         // 查询扩展（同义+反义方向），一次调用两路共用
-        List<String> expandedQueries = chatModelManager.expandVectorSearchQuery(keyword);
+        List<String> expandedQueries = chatModelManager.expandVectorSearchQuery(sanitizedKeyword);
 
         // ES 关键词召回（主路，扩展词用真实排名+折扣）
-        Map<Long, Integer> keywordRanks = keywordRecall(keyword, expandedQueries, exclude);
+        Map<Long, Integer> keywordRanks = keywordRecall(sanitizedKeyword, expandedQueries, exclude);
 
         // 向量召回降级为补充：ES 结果不足时才触发，跨概念兜底
         Map<Long, Double> vectorScores = Map.of();
         if (keywordRanks.size() < VECTOR_FALLBACK_THRESHOLD) {
             log.debug("ES 召回不足({}本)，触发向量兜底", keywordRanks.size());
-            vectorScores = vectorRecall(keyword, expandedQueries, exclude);
+            vectorScores = vectorRecall(sanitizedKeyword, expandedQueries, exclude);
         }
 
         // 权重：ES 主(0.7)，向量辅(0.3)
@@ -512,12 +519,13 @@ public class BookSearchService {
      * 搜索建议（前缀匹配）
      */
     public List<String> suggest(String keyword) {
-        if (!esAvailable || keyword == null || keyword.isBlank()) {
+        String sanitized = CommonUtils.sanitizeSearchKeyword(keyword);
+        if (!esAvailable || sanitized == null || sanitized.isBlank()) {
             return List.of();
         }
         try {
             Pageable limit = PageRequest.of(0, 8);
-            List<BookDocument> docs = searchRepository.suggestByTitle(keyword, limit);
+            List<BookDocument> docs = searchRepository.suggestByTitle(sanitized, limit);
             return docs.stream().map(BookDocument::getTitle).distinct().collect(Collectors.toList());
         } catch (Exception e) {
             log.warn("ES 搜索建议异常: {}", e.getMessage());

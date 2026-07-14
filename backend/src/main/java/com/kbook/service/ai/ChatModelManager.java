@@ -340,7 +340,6 @@ public class ChatModelManager {
                     chatModelFactory::buildToolChatModel, chatMessages);
             if (result != null) {
                 // 解析 AI 响应，按行分割并过滤无效内容
-                // 格式约束在代码层完成，prompt 不做硬性字数限制
                 List<String> raw = Arrays.stream(result.split("\n"))
                         .map(String::trim)
                         .filter(line -> !line.isBlank() && line.length() <= 20)
@@ -349,9 +348,10 @@ public class ChatModelManager {
                         .toList();
 
                 // 去除与原词高度相似的扩展词（包含关系），避免重复查询
+                // 放宽到 18 个：覆盖同义/反义/根因/跨学科/学术/经典/路径/场景/人群/流派/共现 等维度
                 List<String> expanded = raw.stream()
                         .filter(line -> !isSimilarToQuery(line, query))
-                        .limit(5)
+                        .limit(18)
                         .collect(Collectors.toList());
 
                 if (!expanded.isEmpty()) {

@@ -5,8 +5,10 @@ import com.kbook.common.exception.BusinessException;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.service.book.BookService;
+import com.kbook.service.book.BookshelfService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
@@ -14,6 +16,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.File;
@@ -25,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * 图书文件服务控制器 - 提供图书文件的流式读取
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/books")
 @RequiredArgsConstructor
@@ -33,15 +38,31 @@ public class BookFileController {
 
     private final BookService bookService;
     private final BookStorageProperties storageProps;
+    private final BookshelfService bookshelfService;
 
     /**
      * 流式获取图书文件（支持 Range 请求）
      * 用于 PDF/EPUB 等大文件的分块加载
+     * <p>
+     * 权限校验（P3 #3 IDOR 修复）：
+     * - 管理员可下载任意书籍
+     * - 普通用户只能下载已加入书架的书籍
      */
     @GetMapping(value = "/{id}/file", produces = {"application/pdf", "application/epub+zip", "text/plain", "application/octet-stream"})
     public ResponseEntity<Resource> getBookFile(
             @PathVariable Long id,
-            @RequestHeader(value = "Range", required = false) String rangeHeader) {
+            @RequestHeader(value = "Range", required = false) String rangeHeader,
+            Authentication authentication) {
+
+        // 权限校验：管理员放行，普通用户必须先将书加入书架
+        Long userId = (Long) authentication.getPrincipal();
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch("ROLE_ADMIN"::equals);
+        if (!isAdmin && !bookshelfService.isInBookshelf(userId, id)) {
+            log.warn("书籍下载越权拦截: userId={}, bookId={}", userId, id);
+            throw new BusinessException(403, "请先将书籍加入书架再下载");
+        }
 
         BookProjection book = bookService.getBookProjectionById(id);
 

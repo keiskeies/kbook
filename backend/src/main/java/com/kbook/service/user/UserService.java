@@ -6,6 +6,7 @@ import com.kbook.service.recommend.RecommendService;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
+import com.kbook.common.util.CommonUtils;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.BookStorageProperties;
@@ -254,6 +255,8 @@ public class UserService {
 
     /**
      * 更新用户基本信息（昵称、头像、简介）
+     * <p>
+     * 安全措施：昵称和简介进行 HTML 实体编码（防止存储型 XSS）
      * @param userId 用户ID
      * @param nickname 新昵称（null则不更新）
      * @param avatar 新头像URL（null则不更新）
@@ -264,14 +267,42 @@ public class UserService {
     @LogAction("更新用户信息")
     public User updateProfile(Long userId, String nickname, String avatar, String bio) {
         User user = getUserById(userId);
-        if (nickname != null) user.setNickname(nickname);
-        if (avatar != null) user.setAvatar(avatar);
-        if (bio != null) user.setBio(bio);
+        if (nickname != null) user.setNickname(CommonUtils.sanitizeHtml(nickname));
+        if (avatar != null) user.setAvatar(CommonUtils.sanitizeHtml(avatar));
+        if (bio != null) user.setBio(CommonUtils.sanitizeHtml(bio));
         return userRepository.save(user);
     }
 
     /**
+     * 更新个人简介（专用接口）
+     * <p>
+     * 安全措施：HTML 实体编码（防止存储型 XSS）
+     * @param userId 用户ID
+     * @param bio 新简介内容
+     * @return 更新后的用户实体
+     */
+    @Transactional
+    @LogAction("更新个人简介")
+    public User updateBio(Long userId, String bio) {
+        User user = getUserById(userId);
+        user.setBio(CommonUtils.sanitizeHtml(bio));
+        return userRepository.save(user);
+    }
+
+    /** 合法的 MBTI 类型白名单 */
+    private static final java.util.Set<String> VALID_MBTI = java.util.Set.of(
+            "INTJ", "INTP", "ENTJ", "ENTP",
+            "INFJ", "INFP", "ENFJ", "ENFP",
+            "ISTJ", "ISFJ", "ESTJ", "ESFJ",
+            "ISTP", "ISFP", "ESTP", "ESFP"
+    );
+
+    /**
      * 更新用户画像（出生日期/性别/婚否/孩子年龄区间/MBTI/职业/期望学历/创业意向/期望年收入）
+     * <p>
+     * 安全措施：
+     * - mbti 字段强制白名单校验（仅接受 16 种标准 MBTI 类型）
+     * - 其余文本字段进行 HTML 实体编码（防止存储型 XSS）
      */
     @Transactional
     @LogAction("更新用户画像")
@@ -281,15 +312,25 @@ public class UserService {
                              String aspirationEducation, String entrepreneurship, String aspirationIncome) {
         User user = getUserById(userId);
         if (birthday != null) user.setBirthday(birthday);
-        if (gender != null) user.setGender(gender);
+        if (gender != null) user.setGender(CommonUtils.sanitizeHtml(gender));
         if (married != null) user.setMarried(married);
         if (hasChildren != null) user.setHasChildren(hasChildren);
-        if (childrenAgeRanges != null) user.setChildrenAgeRanges(childrenAgeRanges);
-        if (mbti != null) user.setMbti(mbti.toUpperCase());
-        if (occupation != null) user.setOccupation(occupation);
-        if (aspirationEducation != null) user.setAspirationEducation(aspirationEducation);
-        if (entrepreneurship != null) user.setEntrepreneurship(entrepreneurship);
-        if (aspirationIncome != null) user.setAspirationIncome(aspirationIncome);
+        if (childrenAgeRanges != null)
+            user.setChildrenAgeRanges(CommonUtils.sanitizeHtml(childrenAgeRanges));
+        if (mbti != null) {
+            String normalizedMbti = mbti.trim().toUpperCase();
+            if (!VALID_MBTI.contains(normalizedMbti)) {
+                throw new BusinessException("无效的 MBTI 类型");
+            }
+            user.setMbti(normalizedMbti);
+        }
+        if (occupation != null) user.setOccupation(CommonUtils.sanitizeHtml(occupation));
+        if (aspirationEducation != null)
+            user.setAspirationEducation(CommonUtils.sanitizeHtml(aspirationEducation));
+        if (entrepreneurship != null)
+            user.setEntrepreneurship(CommonUtils.sanitizeHtml(entrepreneurship));
+        if (aspirationIncome != null)
+            user.setAspirationIncome(CommonUtils.sanitizeHtml(aspirationIncome));
         user = userRepository.save(user);
         recommendService.asyncRecompute(userId);
         return user;

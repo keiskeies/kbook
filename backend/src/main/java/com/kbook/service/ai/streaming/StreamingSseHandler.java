@@ -150,6 +150,8 @@ public final class StreamingSseHandler {
             StringBuilder fullThinking = new StringBuilder();
             final int[] thinkingTokenCount = {0};
             AtomicReference<Throwable> errorRef = new AtomicReference<>();
+            // Google AI 的 <thought> 标签解析器 — 从普通 content 中分离思考内容
+            final ThoughtTagParser thoughtParser = new ThoughtTagParser();
 
             model.chat(messages, new StreamingChatResponseHandler() {
                 StreamingHandle streamingHandle;
@@ -185,13 +187,26 @@ public final class StreamingSseHandler {
                     if (text == null || text.isEmpty()) {
                         return;
                     }
-                    fullResponse.append(text);
 
-                    String eventData = callback.formatMessageEvent(text);
-                    if (!SseHelper.safeSendEvent(emitter, "message", eventData)) {
-                        connectionClosed[0] = true;
-                        if (streamingHandle != null) {
-                            streamingHandle.cancel();
+                    // 通过 <thought> 标签解析器分离思考内容和正常回复
+                    ThoughtTagParser.Result parsed = thoughtParser.process(text);
+
+                    // 处理分离出的思考内容
+                    if (parsed.hasThinking()) {
+                        thinkingTokenCount[0]++;
+                        fullThinking.append(parsed.thinking());
+                        callback.onThinkingToken(parsed.thinking(), emitter);
+                    }
+
+                    // 处理正常回复内容
+                    if (parsed.hasMessage()) {
+                        fullResponse.append(parsed.message());
+                        String eventData = callback.formatMessageEvent(parsed.message());
+                        if (!SseHelper.safeSendEvent(emitter, "message", eventData)) {
+                            connectionClosed[0] = true;
+                            if (streamingHandle != null) {
+                                streamingHandle.cancel();
+                            }
                         }
                     }
                 }

@@ -367,8 +367,10 @@ public class DebateService {
      * 只返回公开会话或当前用户创建的会话
      */
     public Page<DebateSessionFeedVO> getGlobalSessions(int page, int size, String sort, boolean mine) {
+        // 安全措施：sort 参数白名单校验，仅接受 "hot" 或 "recent"（默认）
+        String safeSort = "hot".equals(sort) ? "hot" : "recent";
         var pageable = PageRequest.of(page, size,
-                Sort.by("hot".equals(sort)
+                Sort.by("hot".equals(safeSort)
                         ? Sort.Order.desc("updatedAt")
                         : Sort.Order.desc("createdAt")));
 

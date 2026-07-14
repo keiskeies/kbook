@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.entity.AiConversation;
+import com.kbook.service.ai.streaming.ThoughtTagParser;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
@@ -139,6 +140,8 @@ public class AiChatService {
             StringBuilder fullResponse = new StringBuilder();
             StringBuilder fullThinking = new StringBuilder();
             AtomicBoolean cancelled = new AtomicBoolean(false);
+            // Google AI 的 <thought> 标签解析器
+            ThoughtTagParser thoughtParser = new ThoughtTagParser();
             try {
                 long startTime = System.currentTimeMillis();
                 AiAssistant assistant = providerConfigService.getChatAssistant();
@@ -172,13 +175,27 @@ public class AiChatService {
                                 }
                             }
                         })
-                        // 处理部分响应（逐 token）
+                        // 处理部分响应（逐 token）— 解析 <thought> 标签分离思考内容
                         .onPartialResponse(token -> {
                             if (cancelled.get()) return;
-                            fullResponse.append(token);
-                            if (!token.isEmpty()) {
-                                // 发送 token 到前端
-                                if (!SseHelper.safeSendEvent(emitter, "message", token)) {
+
+                            ThoughtTagParser.Result parsed = thoughtParser.process(token);
+
+                            // 处理分离出的思考内容
+                            if (parsed.hasThinking()) {
+                                fullThinking.append(parsed.thinking());
+                                if (!SseHelper.safeSendEvent(emitter, "thinking_content", parsed.thinking())) {
+                                    cancelled.set(true);
+                                    Thread.currentThread().interrupt();
+                                    log.warn("SSE 连接已关闭，停止 AI 输出: sessionId={}", sessionId);
+                                    throw new RuntimeException("Client disconnected");
+                                }
+                            }
+
+                            // 处理正常回复内容
+                            if (parsed.hasMessage()) {
+                                fullResponse.append(parsed.message());
+                                if (!SseHelper.safeSendEvent(emitter, "message", parsed.message())) {
                                     cancelled.set(true);
                                     Thread.currentThread().interrupt();
                                     log.warn("SSE 连接已关闭，停止 AI 输出: sessionId={}", sessionId);
@@ -205,9 +222,21 @@ public class AiChatService {
                             // 记录 AI 调用日志
                             CommonUtils.logAiCall("流式对话", elapsed, apiInputTokens, apiOutputTokens, text);
 
+                            // 输出审查 P1 #17：检测系统提示泄露
+                            String safeText = CommonUtils.sanitizeAiOutput(text);
+
                             if (cancelled.get()) {
                                 log.warn("SSE 连接已断开，跳过发送done事件，仅保存已输出内容: sessionId={}", sessionId);
                             } else {
+                                // 检测到泄露时发送 replace 事件覆盖前端已显示的流式内容
+                                if (!safeText.equals(text)) {
+                                    try {
+                                        emitter.send(SseEmitter.event().name("replace").data(safeText));
+                                        log.warn("已发送 replace 事件覆盖泄露内容: sessionId={}", sessionId);
+                                    } catch (Exception ignored) {
+                                    }
+                                }
+
                                 // 如果有书籍工具调用结果，发送 book_map 事件
                                 try {
                                     if (ctx.hasBooks()) {
@@ -226,9 +255,9 @@ public class AiChatService {
                                 }
                             }
 
-                            // 持久化对话消息
+                            // 持久化对话消息（输出审查 P1 #17：使用已审查的 safeText）
                             saveMessage(userId, sessionId, "user", userMessage);
-                            saveMessage(userId, sessionId, "assistant", text,
+                            saveMessage(userId, sessionId, "assistant", safeText,
                                     fullThinking.length() > 0 ? fullThinking.toString() : null);
                             updateSessionTimestamp(sessionId);
                         })
@@ -239,7 +268,8 @@ public class AiChatService {
                                 // 仍然保存已输出的部分内容
                                 if (!fullResponse.isEmpty()) {
                                     saveMessage(userId, sessionId, "user", userMessage);
-                                    saveMessage(userId, sessionId, "assistant", fullResponse.toString().trim());
+                                    saveMessage(userId, sessionId, "assistant",
+                                            CommonUtils.sanitizeAiOutput(fullResponse.toString().trim()));
                                     updateSessionTimestamp(sessionId);
                                 }
                                 return;
@@ -262,7 +292,7 @@ public class AiChatService {
                                 } catch (Exception ignored) {
                                 }
                                 saveMessage(userId, sessionId, "user", userMessage);
-                                saveMessage(userId, sessionId, "assistant", text);
+                                saveMessage(userId, sessionId, "assistant", CommonUtils.sanitizeAiOutput(text));
                                 updateSessionTimestamp(sessionId);
                                 return;
                             }
@@ -282,7 +312,8 @@ public class AiChatService {
                             // 如果有部分响应，仍然保存
                             if (!fullResponse.isEmpty()) {
                                 saveMessage(userId, sessionId, "user", userMessage);
-                                saveMessage(userId, sessionId, "assistant", fullResponse.toString());
+                                saveMessage(userId, sessionId, "assistant",
+                                        CommonUtils.sanitizeAiOutput(fullResponse.toString()));
                                 updateSessionTimestamp(sessionId);
                             }
                         })

@@ -14,6 +14,7 @@ import com.kbook.service.user.UserBookPreferenceService;
 import com.kbook.service.user.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
@@ -57,7 +58,7 @@ public class UserController {
     @Operation(summary = "更新用户特征")
     @PutMapping("/profile/traits")
     public Result<UserInfo> updateTraits(Authentication authentication,
-                                      @RequestBody UpdateTraitsRequest req) {
+                                      @RequestBody @Valid UpdateTraitsRequest req) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(UserInfo.from(userService.updateTraits(userId, req.getBirthday(), req.getGender(),
                 req.getMarried(), req.getHasChildren(), req.getChildrenAgeRanges(),
@@ -104,12 +105,9 @@ public class UserController {
 
     @Operation(summary = "更新个人简介")
     @PutMapping("/profile/bio")
-    public Result<UserInfo> updateBio(Authentication auth, @RequestBody UpdateBioRequest req) {
+    public Result<UserInfo> updateBio(Authentication auth, @RequestBody @Valid UpdateBioRequest req) {
         Long userId = (Long) auth.getPrincipal();
-        User user = userService.getUserById(userId);
-        user.setBio(req.getBio());
-        userRepository.save(user);
-        return Result.ok(UserInfo.from(user));
+        return Result.ok(UserInfo.from(userService.updateBio(userId, req.getBio())));
     }
 
     // ==================== 阅读偏好 ====================

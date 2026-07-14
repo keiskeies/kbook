@@ -134,8 +134,11 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
     ? injectBookIds(content, bookMap)
     : content
 
+  // AI 模型可能输出 LaTeX 数学符号（如 $\rightarrow$），替换为对应 Unicode 字符
+  const latexFixed = replaceLatexSymbols(enrichedContent)
+
   // AI 模型可能输出转义的 \*\*，将其还原为 **
-  const unescapedContent = enrichedContent.replace(/\\\*\*/g, '**')
+  const unescapedContent = latexFixed.replace(/\\\*\*/g, '**')
 
   // CommonMark 中 ** 前面是中文、后面紧跟标点时不会识别为粗体（如 验证**"大胆"**），
   // 手动将 **...** 替换为 <strong>...</strong> 绕过此限制
@@ -387,6 +390,57 @@ const markdownComponents = {
     }
     return <input type={type} {...props} />
   },
+}
+
+// ==================== LaTeX 符号替换 ====================
+
+const LATEX_SYMBOL_MAP: Record<string, string> = {
+  // 箭头
+  rightarrow: '→', leftarrow: '←', Rightarrow: '⇒', Leftarrow: '⇐',
+  leftrightarrow: '↔', longrightarrow: '⟶', longleftarrow: '⟵',
+  uparrow: '↑', downarrow: '↓', updownarrow: '↕',
+  nearrow: '↗', searrow: '↘', nwarrow: '↖', swarrow: '↙',
+  // 关系与比较
+  neq: '≠', leq: '≤', geq: '≥', approx: '≈', equiv: '≡',
+  sim: '∼', simeq: '≃', propto: '∝', perp: '⊥', parallel: '∥',
+  ll: '≪', gg: '≫', prec: '≺', succ: '≻',
+  // 集合与逻辑
+  in: '∈', notin: '∉', subset: '⊂', supset: '⊃',
+  subseteq: '⊆', supseteq: '⊇', cup: '∪', cap: '∩',
+  setminus: '∖', emptyset: '∅', forall: '∀', exists: '∃',
+  neg: '¬', land: '∧', lor: '∨',oplus: '⊕', otimes: '⊗',
+  // 运算
+  times: '×', cdot: '·', div: '÷', pm: '±', mp: '∓',
+  circ: '∘', bullet: '•', star: '⋆', dagger: '†',
+  // 数学函数与符号
+  infty: '∞', partial: '∂', nabla: '∇', sqrt: '√',
+  sum: '∑', prod: '∏', int: '∫', oint: '∮',
+  // 希腊字母小写
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε',
+  varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', vartheta: 'ϑ',
+  iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν',
+  xi: 'ξ', omicron: 'ο', pi: 'π', varpi: 'ϖ', rho: 'ρ',
+  varrho: 'ϱ', sigma: 'σ', varsigma: 'ς', tau: 'τ', upsilon: 'υ',
+  phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  // 希腊字母大写
+  Alpha: 'Α', Beta: 'Β', Gamma: 'Γ', Delta: 'Δ', Epsilon: 'Ε',
+  Zeta: 'Ζ', Eta: 'Η', Theta: 'Θ', Iota: 'Ι', Kappa: 'Κ',
+  Lambda: 'Λ', Mu: 'Μ', Nu: 'Ν', Xi: 'Ξ', Omicron: 'Ο',
+  Pi: 'Π', Rho: 'Ρ', Sigma: 'Σ', Tau: 'Τ', Upsilon: 'Υ',
+  Phi: 'Φ', Chi: 'Χ', Psi: 'Ψ', Omega: 'Ω',
+  // 标点与排版
+  dots: '…', ldots: '…', cdots: '⋯', vdots: '⋮', ddots: '⋱',
+  prime: '′', angle: '∠', degree: '°',
+  // 函数名（保持原样不替换，避免破坏公式语义）
+  log: 'log', ln: 'ln', sin: 'sin', cos: 'cos', tan: 'tan',
+  max: 'max', min: 'min', lim: 'lim', exp: 'exp', det: 'det',
+}
+
+/** 将文本中 $\xxx$ 形式的 LaTeX 符号替换为 Unicode 字符 */
+function replaceLatexSymbols(text: string): string {
+  return text.replace(/\$\\([a-zA-Z]+)\$/g, (_, cmd: string) => {
+    return LATEX_SYMBOL_MAP[cmd] ?? `\\${cmd}`
+  })
 }
 
 // ==================== 辅助函数 ====================

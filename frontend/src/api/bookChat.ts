@@ -12,11 +12,12 @@ export function streamBookChat(
   onThinkingContent?: (chunk: string) => void,
   onSessionId?: (sessionId: string) => void,
   onFollowUpQuestions?: (questionsJson: string) => void,
+  onReplace?: (safeText: string) => void,
 ): AbortController {
   return createSsePostConnection(
     `/books/${bookId}/chat/stream`,
     data,
-    { onChunk, onDone, onError, onThinking, onThinkingContent, onSessionId, onFollowUpQuestions },
+    { onChunk, onDone, onError, onThinking, onThinkingContent, onSessionId, onFollowUpQuestions, onReplace },
   )
 }
 

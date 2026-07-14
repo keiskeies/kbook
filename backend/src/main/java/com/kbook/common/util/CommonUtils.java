@@ -6,6 +6,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.util.HtmlUtils;
 
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -259,6 +260,150 @@ public class CommonUtils {
         log.info("耗时: {}ms | 输入tokens: {} | 输出tokens: {} | 总tokens: {} | 速度: {} tokens/s | 总吞吐: {} t/s",
                 elapsed, inputTokens, outputTokens, (int) totalTokens, String.format("%.2f", tokensPerSecond), tokensAllSecond);
         log.info("====================================\n");
+    }
+
+    /**
+     * HTML 实体编码 — 用于防止存储型 XSS
+     * <p>
+     * 对 <, >, ", ', & 等特殊字符进行 HTML 实体转义，
+     * 配合前端的反序列化（默认不解析 HTML）实现纵深防御。
+     * <p>
+     * 使用场景：所有用户输入的文本字段在持久化前都应经过此方法处理。
+     *
+     * @param input 用户输入的原始文本
+     * @return HTML 实体编码后的安全文本，input 为 null 时返回 null
+     */
+    public static String sanitizeHtml(String input) {
+        if (input == null) {
+            return null;
+        }
+        return HtmlUtils.htmlEscape(input);
+    }
+
+    /**
+     * 搜索关键词清理 — 用于防止 ES JSON 查询注入 + 限制输入长度
+     * <p>
+     * 安全措施：
+     * 1. 限制最大长度 100 字符（防止内存耗尽）
+     * 2. 移除控制字符（\0-\x1f, \x7f）和 Unicode 全角斜杠（U+FF0F）
+     * 3. 转义反斜杠和双引号（防止破坏 ES @Query 的 JSON 结构）
+     * 4. 不移除 SQL 关键字（JPA 参数化查询已免疫，移除会破坏正常搜索如"SELECT 语句教程"）
+     * <p>
+     * 注意：JPA @Query 使用 :param 参数化查询本身安全，但 ES @Query 使用 ?0 字符串替换，
+     * 特殊字符（如 " \）会破坏 JSON 结构导致异常行为。
+     *
+     * @param keyword 用户输入的搜索关键词
+     * @return 清理后的安全关键词，null/空白返回 null
+     */
+    public static String sanitizeSearchKeyword(String keyword) {
+        if (keyword == null || keyword.isBlank()) {
+            return null;
+        }
+        // 1. 截断到最大长度
+        String result = keyword.length() > 100 ? keyword.substring(0, 100) : keyword;
+        // 2. 移除控制字符和全角斜杠
+        result = result.replaceAll("[\\x00-\\x1f\\x7f\\uFF0F]", "");
+        // 3. 转义反斜杠和双引号（防止破坏 ES @Query 的 JSON 结构）
+        //    注意：JPA @Query 使用 :param 参数化查询，对 SQL 注入天然免疫，
+        //    不需要移除 SQL 关键字（移除会破坏 "SELECT 语句教程" 等正常搜索）
+        result = result.replace("\\", "\\\\").replace("\"", "\\\"");
+        return result.trim();
+    }
+
+    /** AI 用户输入最大长度（字符）— 防止超大输入消耗资源 */
+    private static final int AI_INPUT_MAX_LENGTH = 5000;
+
+    /**
+     * 提示词注入检测正则（不区分大小写）— 仅拦截最明显的攻击模式。
+     * 保守策略：只拦截明确的"忽略指令/泄露系统提示/角色劫持/Base64 解码执行"，
+     * 不拦截正常的书籍咨询、角色扮演读书场景。
+     */
+    private static final java.util.regex.Pattern PROMPT_INJECTION_PATTERN = java.util.regex.Pattern.compile(
+            "(?i)("
+            // 中英文"忽略之前的所有指令/ignore previous instructions"
+            + "忽略(?:之前|上面|前面|以上|所有)(?:的)?(?:指令|提示|规则|设定|约束)"
+            + "|ignore\\s+(?:previous|prior|above|all)\\s+(?:instructions?|prompts?|rules?)"
+            // 系统提示/指令提取
+            + "|你(?:的)?(?:系统|初始|原始)(?:指令|提示|提示词|prompt|设定)"
+            + "|(?:reveal|show|print|display|output)\\s+(?:your\\s+)?(?:system\\s+)?(?:prompt|instructions?|rules?)"
+            + "|what\\s+(?:are|is)\\s+your\\s+(?:system\\s+)?(?:instructions?|prompts?|rules?)"
+            // 角色劫持：你现在是没有限制的 AI / 你现在是一个...
+            + "|你现在是(?:一个|没有|无)(?:限制|约束|边界)的"
+            + "|you\\s+are\\s+now\\s+(?:an?\\s+)?(?:unrestricted|uncensored|unlimited|free)\\s+(?:ai|assistant|model)"
+            + "|你(?:现在)?(?:不再|没有)(?:需要|需要遵守|受)(?:遵守|限制|约束|规则)"
+            // Base64 解码执行
+            + "|请(?:解码|解密|解析)(?:以下|下面)(?:内容|文本|编码)(?:并)?(?:执行|运行|按照.*?做|遵循)"
+            + "|decode\\s+(?:the\\s+following|this).*(?:and\\s+(?:execute|follow|run)|然后执行)"
+            // 模拟开发者/管理员模式
+            + "|(?:进入|切换到|模拟)(?:开发者|管理员|root|debug|维护| DAN)模式"
+            + "|act\\s+as\\s+(?:a\\s+)?(?:developer|admin|root|DAN)"
+            + ")"
+    );
+
+    /**
+     * 系统提示泄露检测正则 — 用于过滤 AI 输出中的系统提示内容。
+     * 匹配 AiPromptConstants 中具有标识性的片段。
+     */
+    private static final java.util.regex.Pattern SYSTEM_PROMPT_LEAK_PATTERN = java.util.regex.Pattern.compile(
+            "(?s)("
+            + "你是 KBook 智能阅读平台的 AI 助理"
+            + "|【语言规则（最重要！）】"
+            + "|【核心原则：推荐优先"
+            + "|【工具使用指南】"
+            + "|【禁止编造图书（铁律！）】"
+            + "|searchBooks\\(keyword,\\s*tag,\\s*excludeBookIds"
+            + "|personalizeRecommend\\(userId,\\s*count\\)"
+            + "|getUserBookshelf\\(userId\\)"
+            + ")"
+    );
+
+    /**
+     * AI 用户输入清理 — 防御提示词注入（P1 #17）
+     * <p>
+     * 安全措施：
+     * 1. 限制最大长度 {@value #AI_INPUT_MAX_LENGTH} 字符
+     * 2. 检测明显的提示词注入模式（忽略指令、系统提示提取、角色劫持、Base64 解码执行）
+     * 3. 检测到注入时返回 null，由调用方拒绝请求
+     * <p>
+     * 设计原则：保守拦截，只拒绝明确的攻击模式，不影响正常书籍咨询对话。
+     *
+     * @param input 用户输入的原始消息
+     * @return 清理后的安全消息；null 表示检测到注入攻击，应拒绝请求
+     */
+    public static String sanitizeAiInput(String input) {
+        if (input == null || input.isBlank()) {
+            return null;
+        }
+        // 1. 截断到最大长度
+        String result = input.length() > AI_INPUT_MAX_LENGTH
+                ? input.substring(0, AI_INPUT_MAX_LENGTH) : input;
+        // 2. 检测提示词注入模式
+        if (PROMPT_INJECTION_PATTERN.matcher(result).find()) {
+            log.warn("检测到 AI 提示词注入尝试: {}",
+                    truncateText(result.replace("\n", " "), 80));
+            return null;
+        }
+        return result;
+    }
+
+    /**
+     * AI 输出审查 — 检测并清除系统提示泄露（P1 #17）
+     * <p>
+     * 如果 LLM 输出中包含系统提示的标识性片段，将其替换为安全提示。
+     * 作为系统提示加固的纵深防御层。
+     *
+     * @param output AI 的原始输出
+     * @return 审查后的安全输出
+     */
+    public static String sanitizeAiOutput(String output) {
+        if (output == null || output.isEmpty()) {
+            return output;
+        }
+        if (SYSTEM_PROMPT_LEAK_PATTERN.matcher(output).find()) {
+            log.warn("检测到 AI 输出包含系统提示泄露，已拦截");
+            return "抱歉，我无法回答这个问题。我可以帮你推荐书籍或解答阅读相关的疑问。";
+        }
+        return output;
     }
 
     /** 去掉 AI 返回文本中的 ```json / ``` 代码围栏 */

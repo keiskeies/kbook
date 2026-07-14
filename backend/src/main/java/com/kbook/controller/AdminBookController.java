@@ -1,6 +1,7 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.common.enums.ConditionEnum;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.user.UpdateTagsRequest;
@@ -36,6 +37,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static com.kbook.common.util.QueryBuilder.eq;
 
 /**
  * 管理员图书管理控制器 — 扫描、上传、图书 CRUD、AI 对话
@@ -224,6 +227,7 @@ public class AdminBookController extends BaseController {
         long deletedCount = embeddingService.clearAllContentEmbeddings();
         // 全量清空向量后，同步失效所有 RAG 答案缓存（旧缓存基于已删除的向量，不再有效）
         ragAnswerCache.invalidateAll();
+        bookRepository.update().where(Book::getContentEmbedded, eq( Boolean.TRUE)).execute((b, a) -> b.setContentEmbedded(false));
         return Result.ok(Map.of(
                 "deletedCount", deletedCount,
                 "message", "内容向量库已清空"

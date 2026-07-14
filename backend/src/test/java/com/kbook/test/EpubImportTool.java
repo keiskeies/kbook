@@ -40,6 +40,12 @@ public class EpubImportTool {
     @Autowired
     private BookService bookService;
 
+
+    @Test
+    public void updateEpub() {
+        bookScanService.processBookFile(Paths.get("G:\\图书\\pdf1\\走进魔法店 揭秘战胜人性脆弱与苦难的心之力量.pdf"), "EPUB", "走进魔法店 揭秘战胜人性脆弱与苦难的心之力量");
+    }
+
     @Test
     public void importMissingEpubs() {
         Path sourceDir = Paths.get(SOURCE_DIR);

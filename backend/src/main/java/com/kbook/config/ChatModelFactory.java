@@ -50,6 +50,9 @@ public class ChatModelFactory {
     /** AI 熔断器注册表 — 按 provider+model 维度管理熔断器 */
     private final AiCircuitBreakerRegistry cbRegistry;
 
+    /** AI 模型配置属性（视觉 OCR 模型等仅 YML 配置的部分） */
+    private final AiModelProperties aiModelProperties;
+
     // ======================== QA 模型（大型问答）=======================
 
     /**
@@ -147,24 +150,50 @@ public class ChatModelFactory {
     /**
      * 构建视觉模型（用于 OCR/PDF 处理）。
      * <p>
-     * 直接复用 CHAT-QA 配置（支持 Ollama / OpenAI 兼容多模态模型），
+     * 优先从 YML 的 {@code kbook.ai.vision} 配置读取（专用的本地 OCR 模型，
+     * 如 Ollama 的 Unlimited-OCR:Q4_K_M），避免云端模型（如 Gemini）对
+     * data URI 格式图片的兼容性问题。
+     * <p>
+     * 如果 vision 配置缺失（base-url 或 model-name 留空），则回退到 CHAT-QA 配置。
      * 关闭思考过程、使用低温度以提高 OCR 准确率。
      *
      * @return 聊天模型实例，已包装重试机制
      */
     public ChatModel buildVisionChatModel() {
-        AiProviderConfig qaConfig = resolveQaConfig();
-        Duration timeout = Duration.ofSeconds(600);
+        AiModelProperties.VisionConfig vision = aiModelProperties.getVision();
+
+        // 回退逻辑：vision 配置缺失时使用 QA 配置
+        if (vision == null
+                || vision.getBaseUrl() == null || vision.getBaseUrl().isBlank()
+                || vision.getModelName() == null || vision.getModelName().isBlank()) {
+            log.warn("Vision 配置缺失，回退到 CHAT-QA 配置构建 OCR 模型");
+            AiProviderConfig qaConfig = resolveQaConfig();
+            Duration timeout = Duration.ofSeconds(600);
+            double temperature = 0.3;
+            return qaConfig.getProvider() == AiProviderConfig.Provider.OPENAI
+                    ? wrap(buildOpenAiChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
+                            temperature, timeout, qaConfig.getApiKey(), false), qaConfig)
+                    : wrap(buildOllamaChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
+                            temperature, timeout, false), qaConfig);
+        }
+
+        AiProviderConfig.Provider provider = AiProviderConfig.Provider.from(vision.getProvider());
+        if (provider == null) {
+            provider = AiProviderConfig.Provider.OLLAMA;
+        }
+        Duration timeout = vision.getTimeout() != null ? vision.getTimeout() : Duration.ofSeconds(600);
         double temperature = 0.3;
 
-        log.info("构建 OCR 视觉 ChatModel (from QA): provider={}, model={}, baseUrl={}, thinking=false",
-                qaConfig.getProvider(), qaConfig.getModelName(), qaConfig.getBaseUrl());
+        log.info("构建 OCR 视觉 ChatModel (from vision config): provider={}, model={}, baseUrl={}, thinking=false",
+                provider, vision.getModelName(), vision.getBaseUrl());
 
-        return qaConfig.getProvider() == AiProviderConfig.Provider.OPENAI
-                ? wrap(buildOpenAiChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
-                        temperature, timeout, qaConfig.getApiKey(), false), qaConfig)
-                : wrap(buildOllamaChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
-                        temperature, timeout, false), qaConfig);
+        String providerKey = provider + ":" + vision.getModelName();
+        ChatModel model = provider == AiProviderConfig.Provider.OPENAI
+                ? buildOpenAiChat(vision.getBaseUrl(), vision.getModelName(),
+                        temperature, timeout, null, false)
+                : buildOllamaChat(vision.getBaseUrl(), vision.getModelName(),
+                        temperature, timeout, false);
+        return wrap(model, providerKey);
     }
 
     /**
@@ -298,7 +327,13 @@ public class ChatModelFactory {
      * providerKey 按 provider+model 维度隔离，一个 provider 挂了不影响另一个。
      */
     private ChatModel wrap(ChatModel model, AiProviderConfig config) {
-        String providerKey = config.getProvider() + ":" + config.getModelName();
+        return wrap(model, config.getProvider() + ":" + config.getModelName());
+    }
+
+    /**
+     * 包装 ChatModel（按 providerKey 字符串）— 用于非 DB 配置来源（如 YML vision 配置）。
+     */
+    private ChatModel wrap(ChatModel model, String providerKey) {
         CircuitBreaker cb = cbRegistry.getOrCreate(providerKey);
         return new CircuitBreakerChatModel(new RetryableChatModel(model), cb);
     }
@@ -369,30 +404,55 @@ public class ChatModelFactory {
 
     private OpenAiChatModel buildOpenAiChat(String baseUrl, String modelName,
                                             Double temperature, Duration timeout, String apiKey, boolean thinking) {
+        boolean gemini = isGeminiModel(baseUrl, modelName);
         var builder = OpenAiChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
-                .reasoningEffort(thinking ? null : "none")
-                .returnThinking(thinking).sendThinking(thinking)
+                // Gemini 模型不支持 reasoningEffort 参数，跳过设置
+                .reasoningEffort(gemini ? null : (thinking ? null : "none"))
 //                .logRequests(true)
                 .listeners(List.of(new DiagnosticChatListener()));
+        // Gemini 模型不设置 returnThinking/sendThinking：
+        // 某些 Gemini 模型不支持 thinking 功能，设置后会在请求中携带 thinkingBudget 参数导致 400 错误
+        if (!gemini) {
+            builder.returnThinking(thinking).sendThinking(thinking);
+        }
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
     }
 
     private OpenAiStreamingChatModel buildOpenAiStreaming(String baseUrl, String modelName,
                                                           Double temperature, Duration timeout, String apiKey, boolean thinking) {
+        boolean gemini = isGeminiModel(baseUrl, modelName);
         var builder = OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
-                .reasoningEffort(thinking ? null : "none")
-                .returnThinking(thinking).sendThinking(thinking)
+                // Gemini 模型不支持 reasoningEffort 参数，跳过设置
+                .reasoningEffort(gemini ? null : (thinking ? null : "none"))
 //                .logRequests(true)
                 .listeners(List.of(new DiagnosticChatListener()));
+        // Gemini 模型不设置 returnThinking/sendThinking：
+        // 某些 Gemini 模型不支持 thinking 功能，设置后会在请求中携带 thinkingBudget 参数导致 400 错误
+        if (!gemini) {
+            builder.returnThinking(thinking).sendThinking(thinking);
+        }
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
+    }
+
+    /**
+     * 判断是否为 Google Gemini 模型（通过 baseUrl 或模型名识别）。
+     * Gemini 模型不支持 reasoningEffort 参数，需要跳过。
+     */
+    private static boolean isGeminiModel(String baseUrl, String modelName) {
+        if (baseUrl != null && baseUrl.contains("generativelanguage.googleapis.com")) return true;
+        if (modelName != null) {
+            String lower = modelName.toLowerCase(Locale.ROOT);
+            return lower.contains("gemini") || lower.contains("gemma4-31b");
+        }
+        return false;
     }
 
     // ======================== Ollama KV 缓存管理 ========================

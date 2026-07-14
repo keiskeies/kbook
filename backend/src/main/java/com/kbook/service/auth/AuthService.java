@@ -60,37 +60,55 @@ public class AuthService {
     private static final String CODE_ATTEMPT_PREFIX = "verify:attempt:";
     private static final int MAX_CODE_ATTEMPTS = 5;
 
+    /** 账户锁定相关常量 */
+    private static final String LOGIN_FAIL_PREFIX = "login:fail:";
+    private static final String LOGIN_LOCK_PREFIX = "login:lock:";
+    private static final int MAX_LOGIN_FAILURES = 5;
+    private static final int LOCK_MINUTES = 30;
+    /** 密码重置场景的发送频率限制（秒）— 5分钟 */
+    private static final int RESET_RATE_LIMIT_SECONDS = 300;
+    /** 用于消除时序差异的 dummy BCrypt 哈希（固定字符串的 BCrypt 编码） */
+    private static final String DUMMY_PASSWORD_HASH =
+            "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
     /**
      * 发送验证码
      * - 场景：register(注册) / login(登录) / reset(重置密码) / bind(绑定邮箱)
-     * - 限频：60秒内不可重复发送
+     * - 限频：reset 场景 5 分钟内不可重复发送，其他场景 60 秒
      * - 日限：每天最多10次
      * - 有效期：5分钟
+     * - 安全：不泄露邮箱是否已注册（统一返回成功）
      *
      * @param captchaId 点击验证码ID（需先通过点击验证）
      */
     @Transactional
     @LogAction("发送验证码")
     public void sendVerificationCode(String email, String scene, String captchaId) {
-        // 场景校验
-        if ("register".equals(scene) && userRepository.query()
-                .where(User::getEmail, eq(email)).exists()) {
-            throw new BusinessException("该邮箱已注册");
-        }
-        if ("reset".equals(scene) && !userRepository.query()
-                .where(User::getEmail, eq(email)).exists()) {
-            throw new BusinessException("该邮箱未注册");
-        }
-
-        // 校验点击验证码
+        // 校验点击验证码（在任何场景检查之前执行，防止通过场景选择绕过验证码）
         if (captchaId != null && !captchaId.isBlank()) {
             clickCaptchaService.checkCaptchaVerified(captchaId);
         }
 
+        // 场景校验 — 不再抛出"已注册"/"未注册"错误，防止账户枚举
+        // 对于不符合条件的邮箱，静默跳过发送（对外仍返回成功）
+        boolean shouldSendCode = true;
+        if ("register".equals(scene)) {
+            // 注册场景：邮箱已注册时不发送验证码（但不暴露存在性）
+            shouldSendCode = !userRepository.query()
+                    .where(User::getEmail, eq(email)).exists();
+        } else if ("reset".equals(scene)) {
+            // 重置场景：邮箱未注册时不发送验证码（但不暴露存在性）
+            shouldSendCode = userRepository.query()
+                    .where(User::getEmail, eq(email)).exists();
+        }
+
+        // 限频检查 — reset 场景使用 5 分钟间隔，其他场景使用配置默认值
+        int rateLimitSeconds = "reset".equals(scene)
+                ? RESET_RATE_LIMIT_SECONDS
+                : verificationProps.getRateLimitSeconds();
         String rateKey = RATE_KEY_PREFIX + scene + ":" + email;
         String dailyKey = DAILY_KEY_PREFIX + scene + ":" + email;
 
-        // 限频检查
         if (Boolean.TRUE.equals(redisTemplate.hasKey(rateKey))) {
             Long ttl = redisTemplate.getExpire(rateKey, TimeUnit.SECONDS);
             throw new BusinessException("发送太频繁，请" + ttl + "秒后再试");
@@ -102,21 +120,25 @@ public class AuthService {
             throw new BusinessException("今日发送次数已达上限");
         }
 
+        // 无论是否发送验证码，都设置限频和日限计数（防止通过响应时间/行为差异枚举账户）
+        redisTemplate.opsForValue().set(rateKey, "1", rateLimitSeconds, TimeUnit.SECONDS);
+        Long count = redisTemplate.opsForValue().increment(dailyKey);
+        if (count != null && count == 1) {
+            redisTemplate.expire(dailyKey, 1, TimeUnit.DAYS);
+        }
+
+        if (!shouldSendCode) {
+            // 邮箱不符合场景条件，静默返回（不发送邮件，但对外表现为已发送）
+            log.info("验证码发送跳过（场景条件不满足）: email={}, scene={}", email, scene);
+            return;
+        }
+
         // 生成验证码
         String code = generateCode();
 
         // 存储验证码（按场景隔离）
         String codeKey = CODE_KEY_PREFIX + scene + ":" + email;
         redisTemplate.opsForValue().set(codeKey, code, verificationProps.getExpireMinutes(), TimeUnit.MINUTES);
-
-        // 设置限频
-        redisTemplate.opsForValue().set(rateKey, "1", verificationProps.getRateLimitSeconds(), TimeUnit.SECONDS);
-
-        // 更新日限计数
-        Long count = redisTemplate.opsForValue().increment(dailyKey);
-        if (count != null && count == 1) {
-            redisTemplate.expire(dailyKey, 1, TimeUnit.DAYS);
-        }
 
         // 发送邮件
         sendCodeEmail(email, code, scene);
@@ -156,6 +178,11 @@ public class AuthService {
 
     /**
      * 密码登录
+     * <p>
+     * 安全措施：
+     * - 统一错误消息"邮箱或密码错误"，不泄露账户存在性（P1 #5）
+     * - 账户锁定机制：5次失败后锁定30分钟（P2 #6）
+     * - 消除时序差异：用户不存在时也执行 BCrypt 比较（P2 #9）
      *
      * @param captchaId 点击验证码ID（需先通过点击验证）
      */
@@ -166,17 +193,40 @@ public class AuthService {
             clickCaptchaService.checkCaptchaVerified(captchaId);
         }
 
+        // 账户锁定检查
+        String lockKey = LOGIN_LOCK_PREFIX + email;
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(lockKey))) {
+            Long ttl = redisTemplate.getExpire(lockKey, TimeUnit.MINUTES);
+            log.warn("账户已锁定: email={}", email);
+            throw new BusinessException("账户已锁定，请" + (ttl != null ? ttl : LOCK_MINUTES) + "分钟后再试");
+        }
+
         log.info("密码登录: email={}", email);
         User user = userRepository.query()
                 .where(User::getEmail, eq(email))
                 .list(1)
                 .stream().findFirst()
-                .orElseThrow(() -> new BusinessException("邮箱未注册"));
+                .orElse(null);
 
-        if (user.getPassword() == null || !passwordEncoder.matches(password, user.getPassword())) {
-            log.warn("密码错误: email={}", email);
-            throw new BusinessException("密码错误");
+        // 消除时序差异：用户不存在时也执行 BCrypt 比较（使用 dummy hash）
+        boolean passwordMatched;
+        if (user != null && user.getPassword() != null) {
+            passwordMatched = passwordEncoder.matches(password, user.getPassword());
+        } else {
+            // 用户不存在时执行 dummy BCrypt 比较，消除时序差异
+            passwordEncoder.matches(password, DUMMY_PASSWORD_HASH);
+            passwordMatched = false;
         }
+
+        if (!passwordMatched) {
+            // 记录登录失败次数
+            recordLoginFailure(email);
+            log.warn("登录失败: email={}", email);
+            throw new BusinessException("邮箱或密码错误");
+        }
+
+        // 登录成功，清除失败计数
+        clearLoginFailures(email);
 
         if ("BANNED".equals(user.getStatus())) {
             log.warn("账号已被封禁: userId={}", user.getId());
@@ -185,6 +235,31 @@ public class AuthService {
 
         log.info("登录成功: userId={}, status={}, role={}", user.getId(), user.getStatus(), user.getRole());
         return generateLoginResult(user);
+    }
+
+    /**
+     * 记录登录失败次数，达到阈值时锁定账户
+     */
+    private void recordLoginFailure(String email) {
+        String failKey = LOGIN_FAIL_PREFIX + email;
+        Long count = redisTemplate.opsForValue().increment(failKey);
+        if (count != null && count == 1) {
+            redisTemplate.expire(failKey, LOCK_MINUTES, TimeUnit.MINUTES);
+        }
+        if (count != null && count >= MAX_LOGIN_FAILURES) {
+            // 达到阈值，锁定账户
+            String lockKey = LOGIN_LOCK_PREFIX + email;
+            redisTemplate.opsForValue().set(lockKey, "1", LOCK_MINUTES, TimeUnit.MINUTES);
+            redisTemplate.delete(failKey);
+            log.warn("账户已锁定（连续{}次登录失败）: email={}", MAX_LOGIN_FAILURES, email);
+        }
+    }
+
+    /**
+     * 登录成功后清除失败计数
+     */
+    private void clearLoginFailures(String email) {
+        redisTemplate.delete(LOGIN_FAIL_PREFIX + email);
     }
 
     /**

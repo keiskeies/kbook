@@ -255,6 +255,13 @@ export default function AiChatSheet({ open, onOpenChange }: AiChatSheetProps) {
       (sid) => {
         setSessionId(sid)
       },
+      (safeText) => {
+        // onReplace — 后端检测到系统提示泄露时，用安全文本覆盖已显示的流式内容
+        fullAnswerContent = safeText
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: safeText } : m))
+        )
+      },
     )
     abortRef.current = controller
   }, [input, loading, sessionId])

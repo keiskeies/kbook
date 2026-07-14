@@ -8,6 +8,7 @@ import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
+import com.kbook.service.ai.streaming.ThoughtTagParser;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
@@ -113,6 +114,8 @@ public class BookAdminChatService {
             StringBuilder fullResponse = new StringBuilder();
             StringBuilder fullThinking = new StringBuilder();
             AtomicBoolean cancelled = new AtomicBoolean(false);
+            // Google AI 的 <thought> 标签解析器
+            ThoughtTagParser thoughtParser = new ThoughtTagParser();
             try {
                 long startTime = System.currentTimeMillis();
                 BookAdminAssistant assistant = getAdminAssistant();
@@ -134,9 +137,24 @@ public class BookAdminChatService {
                         })
                         .onPartialResponse(token -> {
                             if (cancelled.get()) return;
-                            fullResponse.append(token);
-                            if (!token.isEmpty()) {
-                                if (!SseHelper.safeSendEvent(emitter, "message", token)) {
+
+                            ThoughtTagParser.Result parsed = thoughtParser.process(token);
+
+                            // 处理分离出的思考内容
+                            if (parsed.hasThinking()) {
+                                fullThinking.append(parsed.thinking());
+                                if (!SseHelper.safeSendEvent(emitter, "thinking_content", parsed.thinking())) {
+                                    cancelled.set(true);
+                                    Thread.currentThread().interrupt();
+                                    log.warn("SSE 连接已关闭，停止 AI 输出: sessionId={}", sessionId);
+                                    throw new RuntimeException("Client disconnected");
+                                }
+                            }
+
+                            // 处理正常回复内容
+                            if (parsed.hasMessage()) {
+                                fullResponse.append(parsed.message());
+                                if (!SseHelper.safeSendEvent(emitter, "message", parsed.message())) {
                                     cancelled.set(true);
                                     Thread.currentThread().interrupt();
                                     log.warn("SSE 连接已关闭，停止 AI 输出: sessionId={}", sessionId);

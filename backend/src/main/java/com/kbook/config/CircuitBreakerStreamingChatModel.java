@@ -42,7 +42,11 @@ public class CircuitBreakerStreamingChatModel implements StreamingChatModel {
         circuitBreaker.acquirePermission();
 
         StreamingChatResponseHandler wrappedHandler = wrapHandler(handler, start);
-        delegate.doChat(request, wrappedHandler);
+        // 关键：调用 delegate.chat(request, handler) 而非 delegate.doChat(request, handler)。
+        // doChat 直接转发会把 DefaultChatRequestParameters 传给 OpenAiStreamingChatModel.doChat()，
+        // 触发 ClassCastException（无法强转为 OpenAiChatRequestParameters）。
+        // chat() 是接口默认方法，会调用 delegate.defaultRequestParameters() 构建正确的参数类型。
+        delegate.chat(request, wrappedHandler);
     }
 
     /**

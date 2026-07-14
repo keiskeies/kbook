@@ -228,13 +228,15 @@ public class AiToolService {
         }
     }
 
-    @Tool("获取某个用户的书架图书列表。")
-    public String getUserBookshelf(
-            @P("用户ID") Long userId
-    ) {
-        log.debug("[AI Tool] getUserBookshelf: userId={}", userId);
+    @Tool("获取当前用户的书架图书列表。")
+    public String getUserBookshelf() {
+        Long currentUserId = getCurrentUserId();
+        if (currentUserId == null) {
+            return "无法识别当前用户，请先登录。";
+        }
+        log.debug("[AI Tool] getUserBookshelf: userId={}", currentUserId);
         try {
-            var items = bookshelfService.getBookshelf(userId);
+            var items = bookshelfService.getBookshelf(currentUserId);
             if (items.isEmpty()) {
                 return "书架为空。";
             }
@@ -250,6 +252,24 @@ public class AiToolService {
             log.error("[AI Tool] getUserBookshelf error", e);
             return "获取书架信息时发生错误。";
         }
+    }
+
+    /**
+     * 从 SecurityContext 获取当前登录用户ID（AI 工具调用场景下安全上下文已传播到异步线程）
+     * @return 当前用户ID，未认证时返回 null
+     */
+    private Long getCurrentUserId() {
+        var authentication = org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication instanceof org.springframework.security.authentication.AnonymousAuthenticationToken) {
+            return null;
+        }
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof Long userId) {
+            return userId;
+        }
+        return null;
     }
 
     @Tool("在指定书籍的内容中搜索相关片段。当用户询问某本书的具体内容、人物关系、情节细节时使用此工具。返回与查询最相关的原文片段。")
@@ -292,7 +312,7 @@ public class AiToolService {
     @Tool("根据指定书籍推荐相关书籍。通过分析该书的标签、评分维度、作者等，查询书中引用的其他书籍，并找出评分维度相似度高的书籍。")
     public String recommendRelatedBooks(
             @P("源图书ID") Long bookId,
-            @P("推荐数量，默认5") Integer count
+            @P("推荐数量，默认10") Integer count
     ) {
         log.debug("[AI Tool] recommendRelatedBooks: bookId={}, count={}", bookId, count);
         try {
@@ -301,7 +321,7 @@ public class AiToolService {
                 return "未找到该书籍。";
             }
 
-            int limit = (count != null && count > 0 && count <= 20) ? count : 5;
+            int limit = (count != null && count > 0 && count <= 20) ? count : 10;
             List<Map<String, Object>> recommendations = new ArrayList<>();
 
             // 1. 向量语义相似度推荐
@@ -388,10 +408,11 @@ public class AiToolService {
 
     @Tool("记录用户不想看的书籍类型偏好。之后的推荐中将不再推荐该类书籍，除非用户再次恢复。支持标签(TAG)、作者(AUTHOR)、格式(FORMAT)三种类别。")
     public String addExcludePreference(
-            @P("用户ID") Long userId,
             @P("偏好类别：TAG(标签)、AUTHOR(作者)、FORMAT(格式)") String category,
             @P("偏好值，如'科幻'、'金庸'、'TXT'") String value
     ) {
+        Long userId = getCurrentUserId();
+        if (userId == null) return "无法识别当前用户，请先登录。";
         log.info("[AI Tool] addExcludePreference: userId={}, category={}, value={}", userId, category, value);
         try {
             String cat = category.toUpperCase();
@@ -399,8 +420,8 @@ public class AiToolService {
                 return "无效的类别，请使用 TAG、AUTHOR 或 FORMAT。";
             }
             preferenceService.addExcludePreference(userId, cat, value);
-            return String.format("已记录：用户 %d 不想看 %s 类型的 \"%s\"，后续推荐将排除该类型。如需恢复，请说\"我想看%s的%s了\"。",
-                    userId, cat.equals("TAG") ? "标签" : (cat.equals("AUTHOR") ? "作者" : "格式"),
+            return String.format("已记录：您不想看 %s 类型的 \"%s\"，后续推荐将排除该类型。如需恢复，请说\"我想看%s的%s了\"。",
+                    cat.equals("TAG") ? "标签" : (cat.equals("AUTHOR") ? "作者" : "格式"),
                     value, cat.equals("TAG") ? "标签" : (cat.equals("AUTHOR") ? "作者" : "格式"), value);
         } catch (Exception e) {
             log.error("[AI Tool] addExcludePreference error", e);
@@ -410,16 +431,17 @@ public class AiToolService {
 
     @Tool("恢复用户之前排除的书籍类型偏好。恢复后，该类书籍将重新出现在推荐中。")
     public String removeExcludePreference(
-            @P("用户ID") Long userId,
             @P("偏好类别：TAG(标签)、AUTHOR(作者)、FORMAT(格式)") String category,
             @P("偏好值，如'科幻'、'金庸'、'TXT'") String value
     ) {
+        Long userId = getCurrentUserId();
+        if (userId == null) return "无法识别当前用户，请先登录。";
         log.info("[AI Tool] removeExcludePreference: userId={}, category={}, value={}", userId, category, value);
         try {
             String cat = category.toUpperCase();
             boolean removed = preferenceService.removeExcludePreference(userId, cat, value);
             if (removed) {
-                return String.format("已恢复：用户 %d 可以再次看到 %s \"%s\" 类型的书籍推荐。", userId,
+                return String.format("已恢复：您可以再次看到 %s \"%s\" 类型的书籍推荐。",
                         cat.equals("TAG") ? "标签" : (cat.equals("AUTHOR") ? "作者" : "格式"), value);
             } else {
                 return "未找到该排除记录，可能已经恢复过了。";
@@ -430,17 +452,17 @@ public class AiToolService {
         }
     }
 
-    @Tool("查询用户的所有书籍偏好（包括不想看的标签、作者、格式）。")
-    public String getUserPreferences(
-            @P("用户ID") Long userId
-    ) {
+    @Tool("查询当前用户的所有书籍偏好（包括不想看的标签、作者、格式）。")
+    public String getUserPreferences() {
+        Long userId = getCurrentUserId();
+        if (userId == null) return "无法识别当前用户，请先登录。";
         log.debug("[AI Tool] getUserPreferences: userId={}", userId);
         try {
             List<UserBookPreference> prefs = preferenceService.getAllPreferences(userId);
             if (prefs.isEmpty()) {
-                return "该用户暂无书籍偏好记录。";
+                return "您暂无书籍偏好记录。";
             }
-            StringBuilder sb = new StringBuilder("用户书籍偏好：\n");
+            StringBuilder sb = new StringBuilder("您的书籍偏好：\n");
             for (UserBookPreference p : prefs) {
                 String catName = switch (p.getCategory()) {
                     case "TAG" -> "标签";
@@ -460,10 +482,11 @@ public class AiToolService {
 
     @Tool("记录用户喜欢/想看的书籍类型偏好。之后的推荐中会优先推荐该类书籍。支持标签(TAG)、作者(AUTHOR)、格式(FORMAT)三种类别。")
     public String addIncludePreference(
-            @P("用户ID") Long userId,
             @P("偏好类别：TAG(标签)、AUTHOR(作者)、FORMAT(格式)") String category,
             @P("偏好值，如'科幻'、'金庸'、'EPUB'") String value
     ) {
+        Long userId = getCurrentUserId();
+        if (userId == null) return "无法识别当前用户，请先登录。";
         log.info("[AI Tool] addIncludePreference: userId={}, category={}, value={}", userId, category, value);
         try {
             String cat = category.toUpperCase();
@@ -471,8 +494,8 @@ public class AiToolService {
                 return "无效的类别，请使用 TAG、AUTHOR 或 FORMAT。";
             }
             preferenceService.addIncludePreference(userId, cat, value);
-            return String.format("已记录：用户 %d 喜欢看 %s 类型的 \"%s\"，后续推荐会优先推荐该类型。",
-                    userId, cat.equals("TAG") ? "标签" : (cat.equals("AUTHOR") ? "作者" : "格式"), value);
+            return String.format("已记录：您喜欢看 %s 类型的 \"%s\"，后续推荐会优先推荐该类型。",
+                    cat.equals("TAG") ? "标签" : (cat.equals("AUTHOR") ? "作者" : "格式"), value);
         } catch (Exception e) {
             log.error("[AI Tool] addIncludePreference error", e);
             return "记录偏好时发生错误。";
@@ -481,16 +504,17 @@ public class AiToolService {
 
     @Tool("取消用户之前标记为喜欢/想看的书籍类型偏好。取消后，该类书籍不再获得优先推荐。")
     public String removeIncludePreference(
-            @P("用户ID") Long userId,
             @P("偏好类别：TAG(标签)、AUTHOR(作者)、FORMAT(格式)") String category,
             @P("偏好值，如'科幻'、'金庸'、'EPUB'") String value
     ) {
+        Long userId = getCurrentUserId();
+        if (userId == null) return "无法识别当前用户，请先登录。";
         log.info("[AI Tool] removeIncludePreference: userId={}, category={}, value={}", userId, category, value);
         try {
             String cat = category.toUpperCase();
             boolean removed = preferenceService.removeIncludePreference(userId, cat, value);
             if (removed) {
-                return String.format("已取消：用户 %d 不再偏好 %s \"%s\" 类型的书籍。", userId,
+                return String.format("已取消：您不再偏好 %s \"%s\" 类型的书籍。",
                         cat.equals("TAG") ? "标签" : (cat.equals("AUTHOR") ? "作者" : "格式"), value);
             } else {
                 return "未找到该偏好记录，可能已经取消过了。";
@@ -505,12 +529,13 @@ public class AiToolService {
 
     @Tool("根据用户画像（年龄、性别、MBTI、阅读偏好等）进行个性化推荐。当用户说\"推荐适合我的书\"、\"猜我喜欢\"、\"我适合看什么\"时使用。返回20本供你挑选最合适的推荐。")
     public String personalizeRecommend(
-            @P("用户ID") Long userId,
-            @P("推荐数量，默认5") Integer count
+            @P("推荐数量，默认10") Integer count
     ) {
+        Long userId = getCurrentUserId();
+        if (userId == null) return "无法识别当前用户，请先登录。";
         log.debug("[AI Tool] personalizeRecommend: userId={}, count={}", userId, count);
         try {
-            int limit = (count != null && count > 0 && count <= 20) ? count : 5;
+            int limit = (count != null && count > 0 && count <= 20) ? count : 10;
             List<RecommendedItem> items = recommendService.getPersonalizedRecommendations(userId, Math.max(limit, 20));
             if (items.isEmpty()) {
                 return "暂无个性化推荐数据，可以尝试搜索或查看排行榜。";

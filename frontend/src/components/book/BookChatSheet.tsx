@@ -378,6 +378,13 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
           }
         } catch { /* ignore */ }
       },
+      (safeText) => {
+        // onReplace — 后端检测到系统提示泄露时，用安全文本覆盖已显示的流式内容
+        fullAnswerContent = safeText
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: safeText } : m))
+        )
+      },
     )
     abortRef.current = controller
   }, [input, loading, book.id, sessionId])

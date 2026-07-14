@@ -209,6 +209,7 @@ public class BookParserService {
             String fullText = extractEpubTextViaZip(filePath); // 通过ZIP方式提取文本
             if (fullText != null && !fullText.isBlank()) {
                 book.setRagContent(fullText); // 设置RAG全文内容
+                book.setFullText(fullText); // 持久化全文，用于向量重建
                 // 构建用于AI标签生成的内容（分层采样全文）
                 book.setParsedContent(buildContentForTags(book, stratifiedSample(fullText)));
             }
@@ -223,6 +224,7 @@ public class BookParserService {
         String fullText = extractEpubTextViaZip(filePath);
         if (fullText != null && !fullText.isBlank()) {
             book.setRagContent(fullText);
+            book.setFullText(fullText); // 持久化全文，用于向量重建
             book.setParsedContent(buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), 15000))));
         }
     }
@@ -315,6 +317,7 @@ public class BookParserService {
 
         // 提取用于RAG的完整全文内容
         book.setRagContent(extractEpubFullTextFromEpubBook(epubBook));
+        book.setFullText(book.getRagContent()); // 持久化全文，用于向量重建
     }
 
     /**
@@ -791,6 +794,7 @@ public class BookParserService {
                 String fullText = extractPdfFullTextFromDocument(book, document, isScanned); // 提取全文
                 if (fullText != null && !fullText.isBlank()) {
                     book.setRagContent(fullText); // 设置RAG全文内容
+                    book.setFullText(fullText); // 持久化全文，用于向量重建
                 }
             } catch (Exception e) {
                 log.debug("PDF全文提取（RAG缓存）失败: {} - {}", book.getTitle(), e.getMessage());
@@ -875,7 +879,7 @@ public class BookParserService {
             List<Content> contents = new ArrayList<>();
             contents.add(TextContent.from(ocrPrompt));
             for (String dataUri : imageDataUris) {
-                contents.add(ImageContent.from(dataUri));
+                contents.add(toImageContent(dataUri));
             }
 
             UserMessage userMessage =
@@ -1015,6 +1019,7 @@ public class BookParserService {
 
             // 缓存全文用于RAG（避免后续 generateContentEmbedding 二次读取文件）
             book.setRagContent(content);
+            book.setFullText(content); // 持久化全文，用于向量重建
 
             // 取前15000字符用于 AI 评分和标签生成
             String preview = content.length() > 15000 ? content.substring(0, 15000) : content;
@@ -1231,8 +1236,11 @@ public class BookParserService {
     public void generateAllAiData(Book book) {
         Long bookId = book.getId(); // 获取图书ID
         try {
-            // 获取图书内容，优先使用已解析的内容
-            String content = book.getParsedContent();
+            // 获取图书内容：DB fullText > 同请求缓存 parsedContent > 文件提取
+            String content = book.getFullText();
+            if (content == null || content.isBlank()) {
+                content = book.getParsedContent();
+            }
             if (content == null || content.isBlank()) {
                 content = extractContentForTags(book); // 从文件中提取内容
             }
@@ -1324,7 +1332,11 @@ public class BookParserService {
     public void generateContentEmbedding(Long bookId) {
         try {
             Book book = bookService.getBookById(bookId);
-            String content = extractContentForRAG(book);
+            // 优先从 DB 的 fullText 读取，避免重新解析文件
+            String content = book.getFullText();
+            if (content == null || content.isBlank()) {
+                content = extractContentForRAG(book);
+            }
             generateContentEmbedding(bookId, content);
         } catch (Exception e) {
             log.warn("触发RAG内容向量生成失败: bookId={} - {}", bookId, e.getMessage());
@@ -1342,9 +1354,12 @@ public class BookParserService {
     public void generateContentEmbedding(Long bookId, String content) {
         try {
             if (content == null || content.isBlank()) {
-                // 优先从缓存的 ragContent 获取（parseAndFill 时已提取）
                 Book book = bookService.getBookById(bookId);
-                if (book.getRagContent() != null && !book.getRagContent().isBlank()) {
+                // 优先从 DB fullText 读取，避免重新解析文件
+                if (book.getFullText() != null && !book.getFullText().isBlank()) {
+                    content = book.getFullText();
+                    log.debug("使用DB全书内容: bookId={}, contentLen={}", bookId, content.length());
+                } else if (book.getRagContent() != null && !book.getRagContent().isBlank()) {
                     content = book.getRagContent();
                     log.debug("使用缓存的RAG内容: bookId={}, contentLen={}", bookId, content.length());
                 } else {
@@ -1411,7 +1426,11 @@ public class BookParserService {
     public int generateContentEmbeddingWithCount(Long bookId) {
         try {
             Book book = bookService.getBookById(bookId);
-            String content = extractContentForRAG(book);
+            // 优先从 DB 的 fullText 读取，避免重新解析文件
+            String content = book.getFullText();
+            if (content == null || content.isBlank()) {
+                content = extractContentForRAG(book);
+            }
             if (content == null || content.isBlank()) {
                 log.debug("图书无内容可供生成RAG向量: bookId={}", bookId);
                 return 0;
@@ -1685,6 +1704,35 @@ public class BookParserService {
     }
 
     /**
+     * 将 data URI 或纯 base64 字符串转换为 ImageContent。
+     * <p>
+     * langchain4j 的 Ollama 客户端不支持 data URI（会报 "Unsupported url scheme: data"），
+     * 需要提取纯 base64 数据后用 {@code ImageContent.from(base64, mimeType)} 构建，
+     * 这样 Image 对象的 base64Data 字段被设置，Ollama 会直接用 base64 数据而非 URL 加载。
+     * OpenAI 兼容客户端同样支持这种方式。
+     *
+     * @param dataUri data URI（"data:image/jpeg;base64,xxxx"）或纯 base64 字符串
+     * @return ImageContent 实例
+     */
+    private static ImageContent toImageContent(String dataUri) {
+        String base64 = dataUri;
+        String mimeType = "image/jpeg";
+        if (dataUri.startsWith("data:")) {
+            int commaIdx = dataUri.indexOf(',');
+            if (commaIdx > 0) {
+                // 解析 data:image/jpeg;base64,xxxx 格式
+                String header = dataUri.substring(5, commaIdx); // image/jpeg;base64
+                int semiIdx = header.indexOf(';');
+                if (semiIdx > 0) {
+                    mimeType = header.substring(0, semiIdx);
+                }
+                base64 = dataUri.substring(commaIdx + 1);
+            }
+        }
+        return ImageContent.from(base64, mimeType);
+    }
+
+    /**
      * 调用大模型视觉能力进行 OCR 识别
      * <p>
      * 将多张图片 + OCR 提示词发送给支持视觉的 ChatModel，
@@ -1706,7 +1754,7 @@ public class BookParserService {
             List<Content> contents = new ArrayList<>();
             contents.add(TextContent.from(ocrPrompt));
             for (String dataUri : imageDataUris) {
-                contents.add(ImageContent.from(dataUri));
+                contents.add(toImageContent(dataUri));
             }
 
             UserMessage userMessage =

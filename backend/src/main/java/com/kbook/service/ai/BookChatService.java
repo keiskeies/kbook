@@ -339,7 +339,17 @@ public class BookChatService {
                         ensureSession(userId, effectiveSessionId, question, bookId);
                         saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
                         String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
-                        saveMessage(userId, effectiveSessionId, "assistant", answer, bookId, thinkingText);
+                        // 输出审查 P1 #17：过滤可能的系统提示泄露后再持久化和缓存
+                        String safeAnswer = CommonUtils.sanitizeAiOutput(answer);
+                        // 检测到泄露时发送 replace 事件覆盖前端已显示的流式内容
+                        if (!safeAnswer.equals(answer)) {
+                            try {
+                                emitter.send(SseEmitter.event().name("replace").data(safeAnswer));
+                                log.warn("已发送 replace 事件覆盖泄露内容: bookId={}, sessionId={}", bookId, effectiveSessionId);
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        saveMessage(userId, effectiveSessionId, "assistant", safeAnswer, bookId, thinkingText);
                         updateSessionTimestamp(effectiveSessionId);
 
                         CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
@@ -347,7 +357,7 @@ public class BookChatService {
 
                         // 写入 RAG 答案缓存（仅首问，追问不缓存）
                         if (cacheable) {
-                            ragAnswerCache.put(bookId, question, modelName, answer);
+                            ragAnswerCache.put(bookId, question, modelName, safeAnswer);
                         }
                     }
 
@@ -357,7 +367,8 @@ public class BookChatService {
                         ensureSession(userId, effectiveSessionId, question, bookId);
                         saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
                         String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
-                        saveMessage(userId, effectiveSessionId, "assistant", partialContent, bookId, thinkingText);
+                        saveMessage(userId, effectiveSessionId, "assistant",
+                                CommonUtils.sanitizeAiOutput(partialContent), bookId, thinkingText);
                         updateSessionTimestamp(effectiveSessionId);
                     }
 

@@ -304,10 +304,11 @@ export function createSsePostConnection(
     onBookMap?: (bookMap: Record<string, number>) => void
     onSessionId?: (sessionId: string) => void
     onFollowUpQuestions?: (questionsJson: string) => void
+    onReplace?: (safeText: string) => void
   },
 ): AbortController {
   const controller = new AbortController()
-  const { onChunk, onDone, onError, onThinking, onThinkingContent, onBookMap, onSessionId, onFollowUpQuestions } = handlers
+  const { onChunk, onDone, onError, onThinking, onThinkingContent, onBookMap, onSessionId, onFollowUpQuestions, onReplace } = handlers
   const fullUrl = `${BASE_URL}${url}`
 
   let hasRetried = false
@@ -323,6 +324,7 @@ export function createSsePostConnection(
     }
     if (eventName === 'session_id') { onSessionId?.(data); return false }
     if (eventName === 'follow_up_questions') { onFollowUpQuestions?.(data); return false }
+    if (eventName === 'replace') { onReplace?.(data); return false }
     if (data === '[DONE]') { onDone(); return true }
     onChunk(data)
     return false

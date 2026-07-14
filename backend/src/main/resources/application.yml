@@ -20,6 +20,21 @@ server:
     mime-types: application/json,text/html,text/xml,text/plain
 
 # ========================
+# Actuator 端点配置
+# ========================
+# 显式声明只暴露安全端点，防止 Spring Boot 版本升级时默认值变化带来意外。
+# 配合 SecurityConfig 中 /actuator/** 需 ADMIN 角色的双重防护。
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      # 健康详情仅授权用户可见（防止泄露数据库/Redis 等组件连接状态）
+      show-details: when-authorized
+
+# ========================
 # 数据源 - MySQL + HikariCP
 # ========================
 spring:
@@ -166,6 +181,13 @@ notification:
 # 初始管理员配置
 # ========================
 kbook:
+  # CORS 允许的 Origin 模式（逗号分隔）
+  # 安全要求：禁止使用 http://*:* 等通配符模式（等同 Origin 反射）
+  # 开发环境默认：本机任意端口
+  # 生产环境必须覆盖为具体域名，例如：
+  #   allowed-origin-patterns: https://book.keiskei.top,https://www.book.keiskei.top
+  cors:
+    allowed-origin-patterns: ${KBOOK_CORS_ORIGINS:http://localhost,http://localhost:*,http://127.0.0.1,http://127.0.0.1:*}
   admin:
     email: ${KBOOK_ADMIN_EMAIL:admin@kbook.com}
     password: ${KBOOK_ADMIN_PASSWORD:admin123456}
@@ -236,13 +258,16 @@ kbook:
       quantile: ${QDRANT_QUANTIZATION_QUANTILE:0.99}    # 分位数，裁剪异常值
       always-ram: ${QDRANT_QUANTIZATION_ALWAYS_RAM:false} # 量化向量常驻 RAM（关闭可大幅节省内存，搜索稍慢）
   # ========================
-  # AI 视觉模型配置（PDF OCR 用）
-  # 需支持图片输入的模型，如 Ollama 的 llava、gemma4:e4b、minicpm-v 等
-  # 如果留空，则使用 CHAT 用途中 roles 包含 QA 的模型的 baseUrl 和 modelName
+  # AI 视觉模型配置（PDF OCR 专用）
+  # 默认使用本地 Ollama 的 Unlimited-OCR:Q4_K_M 模型，避免云端模型（如 Gemini）对 data URI 的兼容性问题。
+  # 如果 base-url 和 model-name 都留空，则回退到 CHAT-QA 配置。
+  # 注意：默认值含冒号(:)必须用引号包裹，否则 Spring 占位符解析会把冒号当成分隔符导致默认值丢失。
   # ========================
   ai:
     vision:
-      model-name: ${AI_VISION_MODEL:}
+      provider: ${AI_VISION_PROVIDER:OLLAMA}
+      base-url: ${AI_VISION_BASE_URL:http://192.168.1.10:11434}
+      model-name: ${AI_VISION_MODEL:frob/unlimited-ocr:Q8_0}
       timeout: ${AI_VISION_TIMEOUT:600s}
 # ========================
 # 日志

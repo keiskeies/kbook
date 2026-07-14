@@ -130,6 +130,10 @@ public class Book extends BaseEntity {
     @Transient
     private String ragContent;
 
+    /** 全书文字内容（持久化，用于 RAG 向量重建时避免重新解析文件） */
+    @Column(name = "full_text", columnDefinition = "MEDIUMTEXT")
+    private String fullText;
+
     /** 总字符数（TXT/Epub）或总页数（PDF） */
     @Column(name = "total_units")
     private Long totalUnits;

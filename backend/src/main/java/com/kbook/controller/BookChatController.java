@@ -1,6 +1,7 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.common.util.CommonUtils;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.service.ai.BookChatService;
@@ -61,10 +62,21 @@ public class BookChatController extends BaseController {
             return emitter;
         }
 
+        // 提示词注入检测（P1 #17）：截断超长输入 + 拦截明显注入模式
+        String safeMessage = CommonUtils.sanitizeAiInput(message);
+        if (safeMessage == null) {
+            SseEmitter emitter = new SseEmitter();
+            try {
+                emitter.send(SseEmitter.event().name("error").data("该问题包含不允许的内容，请正常提问"));
+                emitter.complete();
+            } catch (Exception ignored) {}
+            return emitter;
+        }
+
         // 将图书加入最近阅读（已有记录则更新时间，无记录则设进度为 0%）
         readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
-        return withSseLimit(userId, () -> bookChatService.streamBookChat(userId, bookId, message, sessionId));
+        return withSseLimit(userId, () -> bookChatService.streamBookChat(userId, bookId, safeMessage, sessionId));
     }
 
     /**

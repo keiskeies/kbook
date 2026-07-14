@@ -32,6 +32,8 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     /** 跨域过滤器 */
     private final CorsFilter corsFilter;
+    /** 请求安全过滤器（CSRF 防护 + 路径绕过防护） */
+    private final RequestSecurityFilter requestSecurityFilter;
 
     /**
      * 配置安全过滤链 — JWT 无状态认证 + 接口权限控制
@@ -98,7 +100,9 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 // JWT 过滤器
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // 请求安全过滤器（CSRF + 路径绕过防护）— 在 JWT 之前执行
+                .addFilterBefore(requestSecurityFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

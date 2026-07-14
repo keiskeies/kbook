@@ -1,6 +1,7 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.common.util.CommonUtils;
 import com.kbook.config.properties.AiProviderProperties;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
@@ -82,9 +83,20 @@ public class AiController extends BaseController {
             return emitter;
         }
 
-        log.debug("流式对话: userId={}, sessionId={}, message={}", userId, sessionId, message);
+        // 提示词注入检测（P1 #17）：截断超长输入 + 拦截明显注入模式
+        String safeMessage = CommonUtils.sanitizeAiInput(message);
+        if (safeMessage == null) {
+            SseEmitter emitter = new SseEmitter();
+            try {
+                emitter.send(SseEmitter.event().name("error").data("该消息包含不允许的内容，请正常提问"));
+                emitter.complete();
+            } catch (Exception ignored) {}
+            return emitter;
+        }
+
+        log.debug("流式对话: userId={}, sessionId={}, message={}", userId, sessionId, safeMessage);
         final String sid = sessionId;
-        return withSseLimit(userId, () -> chatService.streamChat(userId, sid, message));
+        return withSseLimit(userId, () -> chatService.streamChat(userId, sid, safeMessage));
     }
 
 
