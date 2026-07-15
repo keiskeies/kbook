@@ -68,6 +68,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
             }
         }
 
+        // 邮件验证码发送：5 次/分钟/IP（防止邮件轰炸，service 层另有 email 维度限频）
+        if (uri.startsWith("/api/auth/send-code")) {
+            if (!tryConsume("sendcode:" + clientIp, 5, Duration.ofMinutes(1))) {
+                sendTooManyRequests(response, "验证码发送过于频繁，请稍后重试");
+                return;
+            }
+        }
+
         if (uri.startsWith("/api/ai/chat/")
                 || uri.startsWith("/api/books/") && (uri.endsWith("/chat/stream") || uri.endsWith("/chat/suggestions"))) {
             String userKey = resolveAiUserKey(request, clientIp);
@@ -128,18 +136,49 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     /**
      * 获取客户端真实 IP 地址
+     * <p>
+     * 安全策略：仅在请求来自可信代理（内网/nginx）时才信任 X-Forwarded-For / X-Real-IP。
+     * 否则直接使用 TCP 连接的 RemoteAddr，防止攻击者伪造 XFF 绕过限流。
      */
     private String getClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
-        if (ip == null || ip.isBlank()) {
-            ip = request.getHeader("X-Real-IP");
+        String remoteAddr = request.getRemoteAddr();
+
+        // 仅信任可信代理转发的 IP 头
+        if (isTrustedProxy(remoteAddr)) {
+            String xff = request.getHeader("X-Forwarded-For");
+            if (xff != null && !xff.isBlank() && !"unknown".equalsIgnoreCase(xff)) {
+                // XFF 可能是链式："客户端IP, 代理1, 代理2"，取第一个（最原始的客户端）
+                return xff.split(",")[0].trim();
+            }
+            String xri = request.getHeader("X-Real-IP");
+            if (xri != null && !xri.isBlank() && !"unknown".equalsIgnoreCase(xri)) {
+                return xri.trim();
+            }
         }
-        if (ip == null || ip.isBlank()) {
-            ip = request.getRemoteAddr();
+
+        return remoteAddr;
+    }
+
+    /**
+     * 判断 IP 是否为可信代理（内网地址）
+     * <p>
+     * 包括：127.0.0.1（本地）、10.x.x.x（A 类私有）、172.16-31.x.x（B 类私有，含 Docker 网桥 172.17.x.x）、
+     * 192.168.x.x（C 类私有）、::1（IPv6 本地回环）
+     */
+    private static boolean isTrustedProxy(String ip) {
+        if (ip == null || ip.isBlank()) return false;
+        if ("127.0.0.1".equals(ip) || "::1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip)) return true;
+        try {
+            String[] parts = ip.split("\\.");
+            if (parts.length != 4) return false;
+            int a = Integer.parseInt(parts[0]);
+            int b = Integer.parseInt(parts[1]);
+            if (a == 10) return true;                       // 10.0.0.0/8
+            if (a == 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+            if (a == 192 && b == 168) return true;           // 192.168.0.0/16
+            return false;
+        } catch (NumberFormatException e) {
+            return false;
         }
-        if (ip.contains(",")) {
-            ip = ip.split(",")[0].trim();
-        }
-        return ip;
     }
 }

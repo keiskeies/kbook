@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { refreshAccessToken, getAccessToken } from '@/utils/token-refresh'
 import { useAuthStore } from '@/store/auth'
 
-const REFRESH_THRESHOLD = 5 * 60 * 1000
+const REFRESH_THRESHOLD = 2 * 60 * 1000
 const CHECK_INTERVAL = 60 * 1000
 
 function isTokenExpiringSoon(): boolean {

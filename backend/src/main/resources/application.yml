@@ -147,7 +147,7 @@ spring:
 # ========================
 jwt:
   secret: ${JWT_SECRET:kbook-default-secret-key-must-be-at-least-256-bits-long-for-hs256}
-  access-token-expiration: ${JWT_ACCESS_EXPIRATION:7200000}     # 2小时
+  access-token-expiration: ${JWT_ACCESS_EXPIRATION:900000}      # 15分钟（短时效缩小 XSS 窃取后的冒用窗口，refresh token 兜底）
   refresh-token-expiration: ${JWT_REFRESH_EXPIRATION:604800000} # 7天
 
 # ========================

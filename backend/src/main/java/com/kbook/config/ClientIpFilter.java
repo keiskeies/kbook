@@ -36,14 +36,40 @@ public class ClientIpFilter extends OncePerRequestFilter {
     }
 
     private String getClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            return ip.split(",")[0].trim();
+        String remoteAddr = request.getRemoteAddr();
+
+        // 仅信任可信代理转发的 IP 头（防止伪造 XFF）
+        if (isTrustedProxy(remoteAddr)) {
+            String xff = request.getHeader("X-Forwarded-For");
+            if (StringUtils.hasText(xff) && !"unknown".equalsIgnoreCase(xff)) {
+                return xff.split(",")[0].trim();
+            }
+            String xri = request.getHeader("X-Real-IP");
+            if (StringUtils.hasText(xri) && !"unknown".equalsIgnoreCase(xri)) {
+                return xri.trim();
+            }
         }
-        ip = request.getHeader("X-Real-IP");
-        if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            return ip.trim();
+
+        return remoteAddr;
+    }
+
+    /**
+     * 判断 IP 是否为可信代理（内网地址）
+     */
+    private static boolean isTrustedProxy(String ip) {
+        if (ip == null || ip.isBlank()) return false;
+        if ("127.0.0.1".equals(ip) || "::1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip)) return true;
+        try {
+            String[] parts = ip.split("\\.");
+            if (parts.length != 4) return false;
+            int a = Integer.parseInt(parts[0]);
+            int b = Integer.parseInt(parts[1]);
+            if (a == 10) return true;
+            if (a == 172 && b >= 16 && b <= 31) return true;
+            if (a == 192 && b == 168) return true;
+            return false;
+        } catch (NumberFormatException e) {
+            return false;
         }
-        return request.getRemoteAddr();
     }
 }
