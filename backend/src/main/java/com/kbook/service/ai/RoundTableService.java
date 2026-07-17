@@ -11,6 +11,7 @@ import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.dto.roundtable.NextSpeakerResult;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
 import com.kbook.dto.roundtable.SpeakRequest;
@@ -54,6 +55,8 @@ import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
@@ -743,21 +746,40 @@ public class RoundTableService {
     }
 
     /**
-     * 纯 LLM 判断下一轮发言人
+     * 谢幕触发硬上限：轮次达到此值时强制 shouldEnd=true（防 LLM 误判导致失控）
+     */
+    private static final int MAX_ROUNDS_BEFORE_FORCED_END = 60;
+    /**
+     * 结束判断频控：轮次是此值的倍数时打开"结束判断窗口"，让 LLM 输出 shouldEnd 字段。
+     * 避免每轮都让 LLM 思考"该不该结束"，浪费 token。
+     */
+    private static final int END_CHECK_INTERVAL_ROUNDS = 3;
+    /**
+     * 结束判断预热：轮次小于 角色数 × 此值 时不判断结束（讨论还在预热阶段）。
+     */
+    private static final int END_CHECK_WARMUP_ROLE_MULTIPLIER = 3;
+
+    /**
+     * 纯 LLM 判断下一轮发言人（同时判断是否应该结束讨论）
      * <p>
      * 核心设计：
      * 1. 给 LLM 完整的角色信息（含性格参数、专业领域、说话风格）
      * 2. 给加权对话历史——越靠后的发言权重越高，让 LLM 能感知对话流向
      * 3. 给公平性约束——禁止连续发言、鼓励沉默者、主持人控场
-     * 4. LLM 直接返回一个角色 key，不再经过算法二次调整
+     * 4. LLM 返回 nextSpeaker + shouldEnd + closingSummary，不再经过算法二次调整
+     * <p>
+     * 结束判断频控：
+     * - 轮次 < 角色数 × 3：不判断（讨论预热）
+     * - 轮次 % 3 == 0：判断窗口打开
+     * - 轮次 >= 60：硬上限强制 shouldEnd=true
      *
      * @param userId    用户ID
      * @param sessionId 会话ID
-     * @return 选中的角色 key
+     * @return 下一发言人结果（含 shouldEnd / closingSummary）
      */
     @LogAction("纯LLM判断下一发言人")
     @RedisLock(key = "'rt:speaker:' + #sessionId", leaseTime = 30)
-    public String getNextSpeakerOnlyLLM(Long userId, String sessionId) {
+    public NextSpeakerResult getNextSpeakerOnlyLLM(Long userId, String sessionId) {
         // 1. 加载会话 + 书籍信息
         RoundTableSession session = sessionRepository.query()
                 .where(RoundTableSession::getSessionId, eq(sessionId))
@@ -799,14 +821,27 @@ public class RoundTableService {
                     .list();
         }
         if (CollectionUtils.isEmpty(allMessages)) {
-            return "HOST";
+            return NextSpeakerResult.builder().nextSpeaker("HOST").shouldEnd(false).build();
         }
 
         // 4. 统计发言数据
         String[] roleKeys = session.getRoleKeys().split(",");
+        int roleCount = roleKeys.length;
+        // 轮次口径：消息总数 / 角色数（与前端 currentRound 显示一致）
+        int currentRound = roleCount > 0 ? allMessages.size() / roleCount : allMessages.size();
         Map<String, Long> speakCounts = allMessages.stream()
                 .collect(Collectors.groupingBy(RoundTableMessage::getRoleKey, Collectors.counting()));
         String lastSpeaker = allMessages.get(allMessages.size() - 1).getRoleKey();
+
+        // 5. 判断是否打开"结束判断窗口"
+        int warmupRounds = Math.max(roleCount * END_CHECK_WARMUP_ROLE_MULTIPLIER, roleCount + 3);
+        boolean endCheckWindow = currentRound >= warmupRounds
+                && currentRound % END_CHECK_INTERVAL_ROUNDS == 0;
+        boolean hardLimitHit = currentRound >= MAX_ROUNDS_BEFORE_FORCED_END;
+        if (hardLimitHit) {
+            log.warn("轮次 {} 达到硬上限 {}，强制触发谢幕: sessionId={}",
+                    currentRound, MAX_ROUNDS_BEFORE_FORCED_END, sessionId);
+        }
 
         // [消息3 - UserMessage] 讨论历史（每次只追加一条新发言，前缀可大量复用 KV-cache）
         String weightedHistory = buildWeightedHistoryForLLM(allMessages);
@@ -814,10 +849,49 @@ public class RoundTableService {
 
         // [消息4 - UserMessage] 公平性约束 + 输出格式（每轮完全变化，放最后不破坏前缀缓存）
         String fairnessConstraints = buildFairnessConstraints(roleKeys, speakCounts, allMessages);
-        messages.add(UserMessage.from(fairnessConstraints
-                + "\n\n只返回JSON：{\"nextSpeaker\": \"角色KEY\"}"));
+        // 构建 角色中文名 → key 反向映射，用于解析 LLM 返回中文名时的容错
+        Map<String, String> nameToKey = buildNameToKeyMap(session, roleKeys);
+        // 明确列出所有合法 KEY，避免 LLM 把中文名当 key 返回（历史/约束里用的是中文名）
+        String validKeysList = Arrays.stream(roleKeys).map(String::trim)
+                .collect(Collectors.joining(", "));
 
-        // 5. 调用 LLM
+        // 输出格式：行式 KV（比 JSON 更不容易出格式错误，LLM 训练数据中大量存在）
+        String outputFormat;
+        if (hardLimitHit) {
+            outputFormat = "【强制结束】当前轮次已达硬上限 " + MAX_ROUNDS_BEFORE_FORCED_END
+                    + "，必须 END=true，NEXT=HOST，并给出谢幕提纲。\n\n"
+                    + "请按以下格式返回（每行一个字段，不要输出 JSON、不要输出 markdown 代码块）：\n\n"
+                    + "NEXT: HOST\n"
+                    + "END: true\n"
+                    + "SUMMARY: 不超过200字的谢幕提纲\n\n"
+                    + "规则：\n"
+                    + "- KEY 必须是以下英文标识符之一（区分大小写，原样返回）：" + validKeysList + "\n";
+        } else if (endCheckWindow) {
+            outputFormat = "请同时判断讨论是否应该结束（见系统提示词的【结束判断】规则）。\n\n"
+                    + "请按以下格式返回（每行一个字段，不要输出 JSON、不要输出 markdown 代码块）：\n\n"
+                    + "NEXT: 候选1, 候选2, 候选3\n"
+                    + "END: true|false\n"
+                    + "SUMMARY: 不超过200字的谢幕提纲（END=false 时留空）\n\n"
+                    + "规则：\n"
+                    + "- NEXT 行：列出 top-3 候选角色 key，用英文逗号分隔，按接话意愿从高到低排序\n"
+                    + "- END 行：true 或 false\n"
+                    + "- SUMMARY 行：END=true 时填写谢幕提纲，END=false 时留空\n"
+                    + "- END=true 时 NEXT 必须只包含 HOST\n"
+                    + "- KEY 必须是以下英文标识符之一（区分大小写，原样返回）：" + validKeysList + "\n";
+        } else {
+            outputFormat = "请按以下格式返回（每行一个字段，不要输出 JSON、不要输出 markdown 代码块）：\n\n"
+                    + "NEXT: 候选1, 候选2, 候选3\n"
+                    + "END: false\n"
+                    + "SUMMARY: \n\n"
+                    + "规则：\n"
+                    + "- NEXT 行：列出 top-3 候选角色 key，用英文逗号分隔，按接话意愿从高到低排序\n"
+                    + "- END 行：固定 false（本轮不判断是否结束）\n"
+                    + "- SUMMARY 行：留空\n"
+                    + "- KEY 必须是以下英文标识符之一（区分大小写，原样返回）：" + validKeysList + "\n";
+        }
+        messages.add(UserMessage.from(fairnessConstraints + "\n\n" + outputFormat));
+
+        // 6. 调用 LLM
         try {
             String response = chatModelManager.callAi(
                     "圆桌派纯LLM发言人选择",
@@ -825,24 +899,203 @@ public class RoundTableService {
                     messages);
             response = CommonUtils.stripCodeFence(response).trim();
 
-            String selectedKey = parseLlmSpeakerResponse(response, roleKeys);
+            // 解析候选集（top-3，容错：无 NEXT 行时回退到 parseLlmSpeakerResponse）
+            List<String> candidates = parseCandidateKeysFromResponse(response, roleKeys, nameToKey);
+            boolean shouldEnd = parseShouldEndFromResponse(response);
+            String closingSummary = parseClosingSummaryFromResponse(response);
 
-            if (!allMessages.isEmpty() && selectedKey.equals(lastSpeaker)) {
-                throw new BusinessException("连续发言者禁止");
+            // 硬上限兜底：LLM 没判断 shouldEnd=true 时强制改
+            if (hardLimitHit && !shouldEnd) {
+                shouldEnd = true;
+                if (closingSummary == null || closingSummary.isBlank()) {
+                    closingSummary = "讨论已达硬上限轮次，请做总结谢幕。";
+                }
+                log.warn("硬上限触发强制谢幕: sessionId={}, llmShouldEnd=false→true", sessionId);
             }
 
-            log.info("纯LLM选择发言人: sessionId={}, selected={}, speakCounts={}",
-                    sessionId, selectedKey, speakCounts);
+            // shouldEnd=true 时强制 nextSpeaker=HOST，不走候选过滤
+            String selectedKey;
+            if (shouldEnd) {
+                selectedKey = "HOST";
+            } else {
+                // 从候选中按公平性过滤选择
+                selectedKey = selectSpeakerFromCandidates(candidates, lastSpeaker, speakCounts, roleKeys);
+                if (selectedKey == null) {
+                    throw new BusinessException("候选集为空，无法选择发言人");
+                }
+            }
 
-            return selectedKey;
+            log.info("纯LLM选择发言人: sessionId={}, selected={}, candidates={}, shouldEnd={}, round={}, speakCounts={}",
+                    sessionId, selectedKey, candidates, shouldEnd, currentRound, speakCounts);
+
+            return NextSpeakerResult.builder()
+                    .nextSpeaker(selectedKey)
+                    .shouldEnd(shouldEnd)
+                    .closingSummary(closingSummary != null ? closingSummary : "")
+                    .build();
         } catch (Exception e) {
             log.warn("纯LLM发言人选择失败，回退到简单模式: {}", e.getMessage());
-            return Arrays.stream(roleKeys)
+            // 硬上限触发时即使 LLM 失败也强制结束，避免"硬上限→LLM失败→回退→继续→硬上限→..."死循环
+            if (hardLimitHit) {
+                log.warn("硬上限触发+LLM失败，强制谢幕: sessionId={}", sessionId);
+                return NextSpeakerResult.builder()
+                        .nextSpeaker("HOST")
+                        .shouldEnd(true)
+                        .closingSummary("讨论已达硬上限轮次，请做总结谢幕。")
+                        .build();
+            }
+            String fallbackSpeaker = Arrays.stream(roleKeys)
                     .map(String::trim)
                     .filter(k -> !k.equals(lastSpeaker))
                     .min(Comparator.comparingLong(k -> speakCounts.getOrDefault(k, 0L)))
                     .orElse(roleKeys[0].trim());
+            return NextSpeakerResult.builder()
+                    .nextSpeaker(fallbackSpeaker)
+                    .shouldEnd(false)
+                    .closingSummary("")
+                    .build();
         }
+    }
+
+    /**
+     * 从 LLM 返回中解析候选 key 列表（行式 KV 格式：`NEXT: key1, key2, key3`）
+     * <p>
+     * 容错策略：
+     * 1. 有 NEXT 行 → split by [,，]（兼容中英文逗号），逐个 key 容错匹配
+     * 2. 无 NEXT 行 → 回退到 parseLlmSpeakerResponse（子串匹配），返回单元素列表
+     * 3. 解析出的 key 去重，保持顺序
+     */
+    private List<String> parseCandidateKeysFromResponse(String response, String[] validRoleKeys,
+                                                         Map<String, String> nameToKey) {
+        Set<String> validKeys = Arrays.stream(validRoleKeys).map(String::trim).collect(Collectors.toSet());
+        List<String> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+
+        // 提取 NEXT: 行（大小写不敏感）
+        Matcher m = Pattern.compile("(?im)^\\s*NEXT\\s*:\\s*(.+)$").matcher(response);
+        if (m.find()) {
+            String rest = m.group(1).trim();
+            // split by 中英文逗号
+            String[] parts = rest.split("[,，]");
+            for (String part : parts) {
+                String key = part.trim();
+                if (key.isEmpty()) continue;
+                // 去掉可能的列表前缀（如 "1." "- " "• "）
+                key = key.replaceAll("^[\\d]+[.)\\-]\\s*", "").replaceAll("^[-•*]\\s*", "").trim();
+                // 1. 直接匹配英文 key
+                if (validKeys.contains(key)) {
+                    if (seen.add(key)) result.add(key);
+                    continue;
+                }
+                // 2. 反查中文名 → key
+                String mapped = nameToKey.get(key);
+                if (mapped != null) {
+                    if (seen.add(mapped)) result.add(mapped);
+                    continue;
+                }
+                // 3. 子串匹配英文 key（大小写不敏感）
+                String upperKey = key.toUpperCase();
+                for (String vk : validKeys) {
+                    if (upperKey.contains(vk.toUpperCase()) && seen.add(vk)) {
+                        result.add(vk);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // NEXT 行没解析出任何候选 → 回退到旧解析（子串匹配整段文本）
+        if (result.isEmpty()) {
+            try {
+                String single = parseLlmSpeakerResponse(response, validRoleKeys, nameToKey);
+                if (single != null) result.add(single);
+            } catch (Exception ignored) {
+                // 旧解析也失败，返回空列表让上层兜底
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 从候选列表中按公平性过滤选择发言人
+     * <p>
+     * 过滤逻辑：
+     * 1. 跳过 lastSpeaker（禁止连续发言）
+     * 2. 跳过 speakCount > avg × 1.5 的角色（已超标，给其他人机会）
+     * 3. 从剩余候选中选 top-1（LLM 最想让他说的）
+     * 4. 候选全部超标 → 选 candidates 中 speakCount 最少的
+     * 5. 候选为空或全是 lastSpeaker → 回退到全局 speakCount 最少的非 lastSpeaker
+     *
+     * @param candidates  LLM 返回的 top-3 候选（按意愿排序）
+     * @param lastSpeaker 上一位发言人
+     * @param speakCounts 各角色发言次数统计
+     * @param roleKeys    所有在场角色 key
+     * @return 选中的角色 key，null 表示无可用候选（上层兜底）
+     */
+    private String selectSpeakerFromCandidates(List<String> candidates, String lastSpeaker,
+                                                Map<String, Long> speakCounts, String[] roleKeys) {
+        // 1. 过滤掉 lastSpeaker
+        List<String> filtered = candidates == null ? List.of() : candidates.stream()
+                .filter(k -> !k.equals(lastSpeaker))
+                .collect(Collectors.toList());
+
+        // 候选为空或全是 lastSpeaker → 回退到全局 speakCount 最少的非 lastSpeaker
+        if (filtered.isEmpty()) {
+            return Arrays.stream(roleKeys)
+                    .map(String::trim)
+                    .filter(k -> !k.equals(lastSpeaker))
+                    .min(Comparator.comparingLong(k -> speakCounts.getOrDefault(k, 0L)))
+                    .orElse(null);
+        }
+
+        // 2. 计算 avg speakCount 和超标阈值
+        double avg = speakCounts.values().stream().mapToLong(Long::longValue).average().orElse(0);
+        double threshold = avg * 1.5;
+
+        // 3. 过滤掉超标的（speakCount > avg × 1.5）
+        List<String> notOverweight = filtered.stream()
+                .filter(k -> speakCounts.getOrDefault(k, 0L) <= threshold)
+                .collect(Collectors.toList());
+
+        if (!notOverweight.isEmpty()) {
+            // 从未超标候选中选 top-1
+            return notOverweight.get(0);
+        }
+
+        // 4. 全部超标 → 选 candidates 中 speakCount 最少的
+        return filtered.stream()
+                .min(Comparator.comparingLong(k -> speakCounts.getOrDefault(k, 0L)))
+                .orElse(filtered.get(0));
+    }
+
+    /**
+     * 从 LLM 返回中解析 END 字段（行式 KV：`END: true|false`）
+     * <p>
+     * 容错：缺失或非 true 视为 false（继续讨论）
+     */
+    private boolean parseShouldEndFromResponse(String response) {
+        Matcher m = Pattern.compile("(?im)^\\s*END\\s*:\\s*(\\w+)").matcher(response);
+        if (m.find()) {
+            String val = m.group(1).trim().toLowerCase();
+            return "true".equals(val) || "yes".equals(val) || "1".equals(val) || "是".equals(val);
+        }
+        return false;
+    }
+
+    /**
+     * 从 LLM 返回中解析 SUMMARY 字段（行式 KV：`SUMMARY: ...`）
+     * <p>
+     * 容错：缺失返回空串；支持多行内容（取到下一个 `KEY:` 行或文件末尾）
+     */
+    private String parseClosingSummaryFromResponse(String response) {
+        // 匹配 SUMMARY: 后到下一个 "KEY:" 行开头或字符串末尾
+        Matcher m = Pattern.compile("(?im)^\\s*SUMMARY\\s*:\\s*(.*(?:\\r?\\n(?!\\s*[A-Z_]+\\s*:).*)*)",
+                Pattern.MULTILINE).matcher(response);
+        if (m.find()) {
+            return m.group(1).trim();
+        }
+        return "";
     }
 
     /**
@@ -941,40 +1194,41 @@ public class RoundTableService {
     }
 
     /**
-     * 构建加权对话历史（用于纯 LLM 发言人选择）
+     * 构建「发言人选择」专用的对话历史
      * <p>
-     * 越靠后的发言权重越高，让 LLM 能感知对话流向：
-     * - 最近1条：标记为「当前焦点」，权重最高
-     * - 最近2-3条：标记为「近期讨论」，权重次高
-     * - 更早的：标记为「背景讨论」，权重较低
+     * 只保留最近 {@value #SPEAKER_SELECTION_RECENT_COUNT} 条消息的完整内容：
+     * - 判断下一发言人主要靠"最近对话流"——谁刚发言、谁被质疑、话题朝哪个方向走
+     * - 更早的消息对"谁该接话"判断价值极低（前 80 字符看不出立场，完整内容又占太多 token）
+     * - 想知道"之前聊过什么"已有发言次数统计和覆盖度信息兜底
      * <p>
-     * 直接使用 compressedContent（消息保存时已同步写入），不做二次截断。
+     * 权重标签仍保留：【当前焦点】最后一条 / 【近期讨论】倒数 2-5 条
      */
+    private static final int SPEAKER_SELECTION_RECENT_COUNT = 5;
+
     private String buildWeightedHistoryForLLM(List<RoundTableMessage> allMessages) {
         if (allMessages.isEmpty()) {
             return "（暂无发言记录，这是讨论的开始）";
         }
 
-        StringBuilder sb = new StringBuilder();
         int total = allMessages.size();
+        int start = Math.max(0, total - SPEAKER_SELECTION_RECENT_COUNT);
 
-        for (int i = 0; i < total; i++) {
+        StringBuilder sb = new StringBuilder();
+        // 不足 5 条时（讨论初期）省略提示，直接列出即可
+        if (start > 0) {
+            sb.append("（为节省篇幅，仅展示最近 ").append(SPEAKER_SELECTION_RECENT_COUNT)
+                    .append(" 条发言；更早的发言已省略）\n\n");
+        }
+
+        for (int i = start; i < total; i++) {
             RoundTableMessage msg = allMessages.get(i);
             String content = msg.getCompressedContent();
             if (content == null || content.isBlank()) {
                 content = msg.getContent();
             }
 
-            // 根据位置标记权重
-            String weightLabel;
-            if (i == total - 1) {
-                weightLabel = "【当前焦点】";
-            } else if (i >= total - 3) {
-                weightLabel = "【近期讨论】";
-            } else {
-                weightLabel = "【背景讨论】";
-            }
-
+            // 最近一条标"当前焦点"，其余标"近期讨论"
+            String weightLabel = (i == total - 1) ? "【当前焦点】" : "【近期讨论】";
             sb.append(weightLabel).append(msg.getRoleName()).append("：").append(content).append("\n\n");
         }
 
@@ -1034,18 +1288,33 @@ public class RoundTableService {
 
     /**
      * 解析 LLM 返回的发言人选择结果。
-     * 如果无法解析出有效的在场角色 key，抛出异常让外层回退到简单模式。
+     * <p>
+     * 支持三种返回形式（容错优先级）：
+     * 1. JSON {"nextSpeaker": "KEY"} 中 KEY 为英文标识符 → 直接匹配
+     * 2. JSON {"nextSpeaker": "中文名"} → 通过 nameToKey 反查
+     * 3. 非 JSON 文本 → 子串匹配英文 key 或中文名
+     * <p>
+     * 无法解析出有效角色时抛异常，让外层回退到简单模式。
+     *
+     * @param response     LLM 原始返回（已去代码块围栏）
+     * @param validRoleKeys 合法角色 key 数组（来自 session.roleKeys）
+     * @param nameToKey    角色中文名 → key 反向映射（预置+自定义角色）
      */
-    private String parseLlmSpeakerResponse(String response, String[] validRoleKeys) {
+    private String parseLlmSpeakerResponse(String response, String[] validRoleKeys,
+                                           Map<String, String> nameToKey) {
         Set<String> validKeys = Arrays.stream(validRoleKeys).map(String::trim).collect(Collectors.toSet());
 
-        // 尝试解析 JSON {"nextSpeaker": "KEY"}
+        // 尝试解析 JSON {"nextSpeaker": "..."}
         try {
             var jsonNode = objectMapper.readTree(response);
             if (jsonNode.has("nextSpeaker")) {
                 String key = jsonNode.get("nextSpeaker").asText().trim();
+                // 1. 直接匹配英文 key
                 if (validKeys.contains(key)) return key;
-                // JSON 解析成功但 key 不合法 → 直接抛，不进入子串匹配
+                // 2. 反查中文名 → key（LLM 可能把历史/约束里的中文名当 key 返回）
+                String mapped = nameToKey.get(key);
+                if (mapped != null) return mapped;
+                // JSON 解析成功但既不是合法 key 也不是已知中文名 → 抛，不进入子串匹配
                 throw new BusinessException("LLM返回了不在场角色: " + key);
             }
         } catch (BusinessException e) {
@@ -1054,16 +1323,69 @@ public class RoundTableService {
             // JSON 解析失败，进入子串匹配兜底
         }
 
-        // 尝试直接匹配角色 key
+        // 3a. 子串匹配英文 key（大小写不敏感）
         String upperResponse = response.toUpperCase();
         for (String key : validKeys) {
-            if (upperResponse.contains(key)) {
+            if (upperResponse.contains(key.toUpperCase())) {
                 return key;
+            }
+        }
+
+        // 3b. 子串匹配中文名
+        for (Map.Entry<String, String> entry : nameToKey.entrySet()) {
+            if (response.contains(entry.getKey())) {
+                return entry.getValue();
             }
         }
 
         // LLM 返回了数据但不在在场角色中 → 抛异常，让外层回退简单模式
         throw new BusinessException("LLM返回的角色不在在场角色列表中: " + response);
+    }
+
+    /**
+     * 构建 角色中文名 → key 的反向映射（用于 LLM 返回中文名时的容错解析）。
+     * <p>
+     * 同时覆盖两类角色：
+     * - 预置角色：name 来自 AiConfig.RoundTableRole
+     * - 自定义角色：name 来自 session.roleConfigs JSON（自定义角色不在 ai-config.json 中）
+     * <p>
+     * roleConfigs 中的 name 优先于 AiConfig 默认 name（允许会话级覆盖）。
+     */
+    private Map<String, String> buildNameToKeyMap(RoundTableSession session, String[] roleKeys) {
+        Map<String, String> nameToKey = new HashMap<>();
+
+        // 解析 roleConfigs JSON，建立 key → JsonNode 映射（与 buildRolesInfoForLLMSpeakerSelection 同源）
+        Map<String, JsonNode> configMap = new LinkedHashMap<>();
+        try {
+            if (session.getRoleConfigs() != null && !session.getRoleConfigs().isBlank()) {
+                var configs = objectMapper.readTree(session.getRoleConfigs());
+                if (configs.isArray()) {
+                    for (var config : configs) {
+                        String key = config.has("key") ? config.get("key").asText() : "";
+                        if (!key.isBlank()) {
+                            configMap.put(key.trim(), config);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析 roleConfigs 失败: {}", e.getMessage());
+        }
+
+        for (String key : roleKeys) {
+            String k = key.trim();
+            if (k.isBlank()) continue;
+
+            AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(k);
+            JsonNode config = configMap.get(k);
+            // roleConfigs 中的 name 优先，其次 AiConfig 默认 name
+            String name = (config != null && config.has("name")) ? config.get("name").asText()
+                    : (role != null ? role.getName() : null);
+            if (name != null && !name.isBlank()) {
+                nameToKey.put(name.trim(), k);
+            }
+        }
+        return nameToKey;
     }
 
     // ==================== 单角色发言（SSE + DB 持久化） ====================
@@ -1273,10 +1595,21 @@ public class RoundTableService {
     // ==================== 提示词构建 ====================
 
     /**
+     * 谢幕指令前缀 — 前端把 closingSummary 作为 topic 传入时加此前缀，
+     * 后端据此切换 HOST 的系统提示词为谢幕 prompt。
+     */
+    private static final String CLOSING_TOPIC_PREFIX = "[CLOSING]";
+
+    /**
      * 构建单角色系统提示词（含语言风格、性格维度和 domainRelevance）
+     * <p>
+     * HOST 检测到 topic 以 [CLOSING] 开头时切换为谢幕 prompt。
      */
     private String buildCharacterSystemPrompt(AiConfig.RoundTableRole role, int domainRelevance, String topic, String languageStyle, boolean isOpening) {
         if ("HOST".equals(role.getKey())) {
+            if (topic != null && topic.startsWith(CLOSING_TOPIC_PREFIX)) {
+                return AiPromptConstants.ROUND_TABLE_HOST_CLOSING_PROMPT;
+            }
             return AiPromptConstants.ROUND_TABLE_HOST_PROMPT;
         } else {
             return AiPromptConstants.ROUND_TABLE_CHARACTER_PROMPT;
@@ -1316,10 +1649,21 @@ public class RoundTableService {
     }
 
     /**
-     * 构建额外指令（话题方向 / 开场引导 / 覆盖度），作为发言指令的前缀
+     * 构建额外指令（话题方向 / 开场引导 / 覆盖度 / 谢幕），作为发言指令的前缀
+     * <p>
+     * 谢幕指令（topic 以 [CLOSING] 开头）走独立分支：
+     * - 系统提示词已在 buildCharacterSystemPrompt 中切换为 ROUND_TABLE_HOST_CLOSING_PROMPT
+     * - 这里只提取 closingSummary 主体作为 UserMessage，让 HOST 自由发挥
      */
     private String buildExtraInstructions(AiConfig.RoundTableRole role, String topic, boolean isOpening) {
         if ("HOST".equals(role.getKey())) {
+            // 谢幕指令：topic 格式为 "[CLOSING]<closingSummary>"
+            if (topic != null && topic.startsWith(CLOSING_TOPIC_PREFIX)) {
+                String closingSummary = topic.substring(CLOSING_TOPIC_PREFIX.length()).trim();
+                return "【谢幕提纲】\n" + (closingSummary.isBlank()
+                        ? "请对本次讨论做总结谢幕。"
+                        : closingSummary);
+            }
             if (topic != null && !topic.isBlank()) {
                 return "【话题方向】\n请围绕以下方向引导讨论：" + topic;
             } else if (isOpening) {

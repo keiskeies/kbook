@@ -466,3 +466,18 @@ providers:
       - name: "mixtral-8x7b-32768"
         label: "Mixtral 8x7B"
         maxTokens: 32768
+
+  - id: agnes
+    name: "Agnes AI"
+    provider: OPENAI
+    baseUrl: "https://apihub.agnes-ai.com/v1"
+    region: GLOBAL
+    description: "Agnes 2.0 Flash 多模态（文本+图像理解），OpenAI 兼容，当前永久免费"
+    apiKeyUrl: "https://platform.agnes-ai.com/"
+    tokenPlanUrl: "https://platform.agnes-ai.com/"
+    websiteUrl: "https://agnes-ai.com"
+    models:
+      - name: "agnes-2.0-flash"
+        label: "Agnes 2.0 Flash (免费)"
+        free: true
+        maxTokens: 524288

@@ -23,7 +23,7 @@ data:
   # JPA
   SPRING_PROFILES_ACTIVE: "prod"
   # JWT
-  JWT_ACCESS_EXPIRATION: "7200000"
+  JWT_ACCESS_EXPIRATION: "900000"
   JWT_REFRESH_EXPIRATION: "604800000"
 # ---
 # AI 配置文件（kbook-ai-config）需要通过以下命令创建：

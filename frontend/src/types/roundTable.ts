@@ -19,6 +19,16 @@ export interface RoundTableRole {
   rate?: number
 }
 
+/** LLM 判断下一发言人的结果（含是否应该结束讨论） */
+export interface NextSpeakerResult {
+  /** 下一发言人的角色 key（如 HOST、PHILOSOPHER） */
+  nextSpeaker: string
+  /** 是否应该结束讨论：true 时 nextSpeaker 必为 HOST，前端应让 HOST 做谢幕发言后调 endDiscussion */
+  shouldEnd: boolean
+  /** 谢幕要点：shouldEnd=true 时传给 streamCharacterSpeak 的 topic 字段（前端需加 [CLOSING] 前缀） */
+  closingSummary: string
+}
+
 /** 圆桌派讨论消息 */
 export interface RoundTableMessage {
   id: number

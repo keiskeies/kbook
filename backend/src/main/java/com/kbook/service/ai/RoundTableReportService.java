@@ -288,6 +288,12 @@ public class RoundTableReportService {
         List<String> segments = splitByHost(messages);
         log.info("讨论分为 {} 段进行评估", segments.size());
 
+        // 只切成 1 段：不需要分段评估，改走整体解读逻辑，避免输出"本段概要/本段讨论"格式的残缺报告
+        if (segments.size() <= 1) {
+            log.info("实际只切成 1 段，改用整体解读逻辑生成完整报告");
+            return interpretWithRetry(fullDiscussion, session, book, messages);
+        }
+
         // 2. 逐段评估，传递前文概要
         List<String> segmentReports = new ArrayList<>();
         String previousSummary = "";

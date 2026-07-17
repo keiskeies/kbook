@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 import { createSsePostConnectionWithEvents } from '@/utils/sse-request'
-import type { RoundTableRole, RoundTableSession, RoundTableMessage, RoundTableCoverage, RoundTableReport } from '@/types/roundTable'
+import type { RoundTableRole, RoundTableSession, RoundTableMessage, RoundTableCoverage, RoundTableReport, NextSpeakerResult } from '@/types/roundTable'
 
 /** 获取推荐角色列表（LLM选角） */
 export function getRoundTableRoles(bookId: number, refresh?: boolean) {
@@ -88,9 +88,9 @@ export async function exportRoundTableSession(sessionId: string) {
   URL.revokeObjectURL(url)
 }
 
-/** LLM 判断下一轮发言人 */
+/** LLM 判断下一轮发言人（含是否应该结束讨论） */
 export function getNextSpeaker(sessionId: string) {
-  return request.post<string>(`/round-table/sessions/${sessionId}/next-speaker`)
+  return request.post<NextSpeakerResult>(`/round-table/sessions/${sessionId}/next-speaker`)
 }
 
 /** 单角色发言 SSE */

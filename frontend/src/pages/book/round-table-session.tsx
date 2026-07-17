@@ -13,7 +13,7 @@ import {
   triggerRoundTableReport, getRoundTableReport, exportRoundTableSession,
 } from '@/api/roundTable'
 import { getBook } from '@/api/book'
-import type { RoundTableRole, RoundTableMessage, RoundTableReport, RoundTableSession } from '@/types/roundTable'
+import type { RoundTableRole, RoundTableMessage, RoundTableReport, RoundTableSession, NextSpeakerResult } from '@/types/roundTable'
 import {
   ROLE_COLORS, ROLE_NAMES, ROLE_ICONS, ROLE_TTS_CONFIG,
   hexToRgba,
@@ -355,6 +355,8 @@ export default function RoundTableSessionPage() {
   const userScrollingRef = useRef(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const discussionLoopRef = useRef<boolean>(false)
+  /** 谢幕待决标记：shouldEnd=true 时置 true，HOST 谢幕发言 onDone 后调 endDiscussion */
+  const pendingClosingRef = useRef<boolean>(false)
   const ttsEnabledSpeakerRef = useRef<string | null>(null)
   const zhVoicesRef = useRef<SpeechSynthesisVoice[]>([])
   const roleVoiceMapRef = useRef<Map<string, SpeechSynthesisVoice>>(new Map())
@@ -804,6 +806,7 @@ export default function RoundTableSessionPage() {
 
   const stopDiscussion = useCallback(() => {
     discussionLoopRef.current = false
+    pendingClosingRef.current = false
     abortRef.current?.abort()
     abortRef.current = null
     ttsGenerationRef.current += 1
@@ -853,20 +856,34 @@ export default function RoundTableSessionPage() {
 
     try {
       const nextSpeakerRes = await getNextSpeaker(sessionId!)
-      let nextSpeaker = (nextSpeakerRes as { data?: string })?.data ?? nextSpeakerRes as string
+      const result = (nextSpeakerRes as { data?: NextSpeakerResult })?.data
+        ?? nextSpeakerRes as NextSpeakerResult
+      let nextSpeaker = result.nextSpeaker
+      const shouldEnd = result.shouldEnd === true
+      const closingSummary = result.closingSummary || ''
+
       if (!nextSpeaker) {
         setPhase('paused')
         return
       }
 
-      // 前端兜底：禁止连续发言
-      if (lastSpeakerKey && nextSpeaker === lastSpeakerKey) {
-        // 后端返回了连续发言者，从其他角色中随机选择
-        const otherRoles = activeRolesRef.current
-          .filter(r => r.key !== lastSpeakerKey && r.selected)
-          .map(r => r.key)
-        if (otherRoles.length > 0) {
-          nextSpeaker = otherRoles[Math.floor(Math.random() * otherRoles.length)]
+      // shouldEnd=true：强制 HOST 做谢幕发言，结束后调 endDiscussion
+      let speakTopic: string | undefined
+      if (shouldEnd) {
+        nextSpeaker = 'HOST'
+        pendingClosingRef.current = true
+        speakTopic = `[CLOSING]${closingSummary}`
+      } else {
+        pendingClosingRef.current = false
+        // 前端兜底：禁止连续发言
+        if (lastSpeakerKey && nextSpeaker === lastSpeakerKey) {
+          // 后端返回了连续发言者，从其他角色中随机选择
+          const otherRoles = activeRolesRef.current
+            .filter(r => r.key !== lastSpeakerKey && r.selected)
+            .map(r => r.key)
+          if (otherRoles.length > 0) {
+            nextSpeaker = otherRoles[Math.floor(Math.random() * otherRoles.length)]
+          }
         }
       }
 
@@ -893,7 +910,7 @@ export default function RoundTableSessionPage() {
       setMessages(prev => [...prev, displayMsg])
 
       abortRef.current?.abort()
-      const stream = streamCharacterSpeak(bookIdNum, nextSpeaker, sessionId!)
+      const stream = streamCharacterSpeak(bookIdNum, nextSpeaker, sessionId!, speakTopic)
       abortRef.current = stream.abortController
 
       stream.onMessage((text: string) => {
@@ -926,12 +943,20 @@ export default function RoundTableSessionPage() {
         setCurrentRound(roleCount > 0 ? Math.floor(messagesRef.current.length / roleCount) + 1 : 1)
         setCoverageVersion(prev => prev + 1)
 
+        // 谢幕发言结束后 → 正式结束讨论，不再递归 grabMicAndSpeak
+        if (pendingClosingRef.current) {
+          pendingClosingRef.current = false
+          setTimeout(() => { endDiscussion() }, 1500)
+          return
+        }
+
         setTimeout(() => {
           if (discussionLoopRef.current) grabMicAndSpeak(nextSpeaker)
         }, 1500)
       })
 
       stream.onError((_err: Error) => {
+        const wasClosing = pendingClosingRef.current
         setMessages(prev => {
           const updated = [...prev]
           const idx = updated.findIndex(m => m.id === msgId)
@@ -940,20 +965,33 @@ export default function RoundTableSessionPage() {
         })
         setSpeakingKey(null)
         speakingKeyRef.current = null
+        pendingClosingRef.current = false
+        // 谢幕发言失败 → 直接结束讨论，不重试（重试会再次触发 shouldEnd=true 导致死循环）
+        if (wasClosing) {
+          setTimeout(() => { endDiscussion() }, 1500)
+          return
+        }
         if (discussionLoopRef.current) setTimeout(() => grabMicAndSpeak(lastSpeakerKey), 2000)
       })
     } catch {
+      const wasClosing = pendingClosingRef.current
       setSpeakingKey(null)
       speakingKeyRef.current = null
+      pendingClosingRef.current = false
+      if (wasClosing) {
+        setTimeout(() => { endDiscussion() }, 1500)
+        return
+      }
       if (discussionLoopRef.current) setTimeout(() => grabMicAndSpeak(lastSpeakerKey), 2000)
     }
-  }, [bookIdNum, sessionId])
+  }, [bookIdNum, sessionId, endDiscussion])
 
   const continueDiscussion = useCallback(async () => {
     if (!sessionId) return
     try {
       await updateRoundTableSessionStatus(sessionId, 'ACTIVE')
       discussionLoopRef.current = true
+      pendingClosingRef.current = false
       setPhase('discussing')
       const lastMsg = messagesRef.current[messagesRef.current.length - 1]
       setTimeout(() => grabMicAndSpeak(lastMsg?.roleKey), 1000)

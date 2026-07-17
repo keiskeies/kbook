@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.common.api.Result;
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.dto.roundtable.NextSpeakerResult;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
 import com.kbook.dto.roundtable.SpeakRequest;
@@ -212,15 +213,15 @@ public class RoundTableController extends BaseController {
     }
 
     /**
-     * LLM 判断下一轮发言人
+     * LLM 判断下一轮发言人（同时返回是否应该结束讨论）
      */
     @Operation(summary = "LLM判断下一发言人")
     @PostMapping("/sessions/{sessionId}/next-speaker")
-    public Result<String> getNextSpeaker(
+    public Result<NextSpeakerResult> getNextSpeaker(
             @PathVariable String sessionId) {
         Long userId = extractUserId();
-        String nextSpeaker = roundTableService.getNextSpeakerOnlyLLM(userId, sessionId);
-        return Result.ok(nextSpeaker);
+        NextSpeakerResult result = roundTableService.getNextSpeakerOnlyLLM(userId, sessionId);
+        return Result.ok(result);
     }
 
     /**
