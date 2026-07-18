@@ -16,6 +16,7 @@ const AdminReviewPage = lazy(() => import('@/pages/admin/review'))
 const AdminBindEmailPage = lazy(() => import('@/pages/admin/bind-email'))
 const AdminBooksPage = lazy(() => import('@/pages/admin/books'))
 const AdminAiConfigPage = lazy(() => import('@/pages/admin/ai-config'))
+const AdminAiScenePage = lazy(() => import('@/pages/admin/ai-scene-config'))
 const AdminTtsConfigPage = lazy(() => import('@/pages/admin/tts-config'))
 
 const BookDetailPage = lazy(() => import('@/pages/book/detail'))
@@ -64,6 +65,7 @@ export const router = createBrowserRouter([
       { path: ROUTES.ADMIN_BIND_EMAIL, element: <AdminGuard><LazyLoad><AdminBindEmailPage /></LazyLoad></AdminGuard> },
       { path: ROUTES.ADMIN_BOOKS, element: <AdminGuard><LazyLoad><AdminBooksPage /></LazyLoad></AdminGuard> },
       { path: ROUTES.ADMIN_AI_CONFIG, element: <AdminGuard><LazyLoad><AdminAiConfigPage /></LazyLoad></AdminGuard> },
+      { path: ROUTES.ADMIN_AI_SCENE, element: <AdminGuard><LazyLoad><AdminAiScenePage /></LazyLoad></AdminGuard> },
       { path: ROUTES.ADMIN_TTS_CONFIG, element: <AdminGuard><LazyLoad><AdminTtsConfigPage /></LazyLoad></AdminGuard> },
     ],
   },

@@ -5,6 +5,7 @@ import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.BookSuggestedQuestion;
 import com.kbook.repository.BookSuggestedQuestionRepository;
@@ -84,7 +85,7 @@ public class BookQuestionGenService {
 
             // 使用 Future 实现超时控制，防止 AI 调用阻塞线程
             Future<String> future = sseExecutor.submit(() ->
-                    chatModelManager.callAi("生成预设问题",
+                    chatModelManager.callAiForScene(AiScene.PRESET_QUESTION, "生成预设问题",
                             String.format("bookId=%d", bookId),
                             messages));
 

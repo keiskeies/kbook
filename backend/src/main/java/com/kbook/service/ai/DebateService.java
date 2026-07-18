@@ -9,6 +9,7 @@ import com.kbook.config.ai.AiConfig;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.*;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.debate.DebateMessage;
 import com.kbook.entity.debate.DebateScore;
@@ -564,7 +565,7 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, null);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingModelForScene(AiScene.DEBATE_SPEECH);
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
@@ -616,7 +617,7 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, opponentSpeech);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingModelForScene(AiScene.DEBATE_SPEECH);
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
@@ -700,7 +701,7 @@ public class DebateService {
                 messages.remove(messages.size() - 1);
                 messages.add(UserMessage.from(examOutput + "\n\n" + examInstruction));
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingModelForScene(AiScene.DEBATE_SPEECH);
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
@@ -758,7 +759,7 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, extraContent);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingModelForScene(AiScene.DEBATE_SPEECH);
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
@@ -809,7 +810,7 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, lastSpeech);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingModelForScene(AiScene.DEBATE_SPEECH);
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
@@ -862,7 +863,7 @@ public class DebateService {
                         systemPrompt, session, request, personality,
                         side, sideName, positionLabel, sideFull, debateSummary);
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingModelForScene(AiScene.DEBATE_SPEECH);
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
@@ -922,11 +923,13 @@ public class DebateService {
                 }
                 messages.add(UserMessage.from(userCtx.toString()));
 
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingModelForScene(AiScene.DEBATE_SPEECH);
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
                 }
+
+                var logContext = chatModelManager.buildLogContext(AiScene.DEBATE_SPEECH);
 
                 StreamingSseHandler.stream(streamingChatModel, messages, emitter, new StreamingSseHandler.Callback() {
                     @Override
@@ -965,7 +968,7 @@ public class DebateService {
                             }
                         }
                     }
-                }, 2);
+                }, 2, logContext);
             } catch (Exception e) {
                 log.error("主持人点评失败: type={} - {}", type, e.getMessage(), e);
                 SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
@@ -1081,6 +1084,9 @@ public class DebateService {
             DebateSession session, DebateRole personality, String positionKey,
             DebateSpeakRequest request) {
 
+        // 所有调用方均使用 AiScene.DEBATE_SPEECH 构建模型，此处统一构建日志上下文
+        var logContext = chatModelManager.buildLogContext(AiScene.DEBATE_SPEECH);
+
         StreamingSseHandler.stream(streamingChatModel, messages, emitter, new StreamingSseHandler.Callback() {
             @Override
             public String getOperationName() { return "辩论发言"; }
@@ -1112,7 +1118,7 @@ public class DebateService {
                     saveMessage(userId, bookId, session, personality, positionKey, request, partialContent);
                 }
             }
-        }, 2);
+        }, 2, logContext);
     }
 
     // ==================== 消息持久化 ====================

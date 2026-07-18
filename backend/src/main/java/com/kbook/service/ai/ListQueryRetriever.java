@@ -1,6 +1,7 @@
 package com.kbook.service.ai;
 
 import com.kbook.config.ChatModelFactory;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.service.embedding.EmbeddingService;
 import com.kbook.service.embedding.EmbeddingService.ChunkInfo;
@@ -372,7 +373,7 @@ public class ListQueryRetriever {
      * LLM 精筛单次调用。
      */
     private List<Integer> callLlmRefine(List<ChunkInfo> chunks, String listTopic) {
-        var model = chatModelFactory.buildToolChatModel();
+        var model = chatModelFactory.buildForScene(AiScene.LIST_QUERY_REFINE);
         if (model == null) {
             log.warn("TOOL 模型未配置，跳过 LLM 精筛");
             return null;
@@ -423,7 +424,7 @@ public class ListQueryRetriever {
             return null;
         }
 
-        var model = chatModelFactory.buildToolChatModel();
+        var model = chatModelFactory.buildForScene(AiScene.LIST_QUERY_CHAPTER_RANGE);
         if (model == null) {
             log.warn("{} TOOL 模型未配置，无法推断章节范围", logPrefix);
             return null;

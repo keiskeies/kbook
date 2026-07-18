@@ -2,18 +2,19 @@ import { useState, useMemo, useRef, type ReactNode } from 'react'
 import {
   ArrowLeft, Save, Trash2, RefreshCw, Eye, EyeOff,
   ExternalLink, ChevronDown, ChevronUp, Globe, MapPin,
-  Plus, Pencil, MessageSquare, Wrench, Layers, Users, Star,
+  Plus, Pencil, MessageSquare, Layers, Users, Star, Sliders,
 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
+import { ROUTES } from '@/constants'
 import { toast } from 'sonner'
 import {
   listAiConfigsByPurpose,
   createAiConfig,
   updateAiConfig,
   deleteAiConfig,
-  setConfigRole,
   testAiConfig,
   fetchProviderPresets,
   reloadAiConfig,
@@ -26,19 +27,6 @@ const CHAT = 'CHAT'
 const EMBEDDING = 'EMBEDDING'
 type ActiveTab = 'CHAT' | 'EMBEDDING' | 'ROLES'
 
-function roleLabel(role: string) {
-  switch (role) {
-    case 'QA': return 'QA'
-    case 'TOOL': return 'TOOL'
-    default: return role
-  }
-}
-
-function hasRole(config: AiProviderConfig, role: string) {
-  if (!config.roles) return false
-  return config.roles.split(',').map(r => r.trim().toUpperCase()).includes(role.toUpperCase())
-}
-
 /** 提取配置列表的渲染逻辑，按用途区分 */
 function renderConfigRow(
   c: AiProviderConfig,
@@ -46,17 +34,15 @@ function renderConfigRow(
   opts: {
     activeEmbeddingId: number | null
     testing: number | null
-    changingRole: { id: number; role: string } | null
     expandedId: number | 'new' | null
     onActivateEmbedding: (id: number) => void
-    onToggleRole: (id: number, role: string) => void
     onTest: (id: number) => void
     onEdit: (c: AiProviderConfig) => void
     onDelete: (id: number) => void
     renderForm: () => React.ReactNode
   }
 ) {
-  const { activeEmbeddingId, testing, changingRole, expandedId, onActivateEmbedding, onToggleRole, onTest, onEdit, onDelete, renderForm } = opts
+  const { activeEmbeddingId, testing, expandedId, onActivateEmbedding, onTest, onEdit, onDelete, renderForm } = opts
 
   if (purpose === EMBEDDING) {
     const isActive = c.id === activeEmbeddingId
@@ -104,11 +90,9 @@ function renderConfigRow(
   }
 
   // CHAT config row
-  const isQa = hasRole(c, 'QA')
-  const isTool = hasRole(c, 'TOOL')
   return (
     <div key={c.id}>
-      <div className={`flex items-center gap-2 px-3 py-2.5 ${isQa || isTool ? 'bg-primary/5' : ''}`}>
+      <div className="flex items-center gap-2 px-3 py-2.5">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="font-medium text-sm truncate">{c.name}</span>
@@ -118,25 +102,12 @@ function renderConfigRow(
           </div>
           <p className="text-xs text-muted-foreground truncate">
             {c.provider} / {c.modelName}
-            {c.roles ? ` / ${c.roles}` : ''}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <button onClick={() => onToggleRole(c.id!, 'QA')} disabled={changingRole?.id === c.id && changingRole?.role === 'QA'}
-            className={`flex items-center gap-0.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${isQa ? 'bg-primary text-primary-foreground' : 'border border-border text-muted-foreground hover:bg-muted'} disabled:opacity-50`}
-            title={isQa ? '移除 QA 角色' : '设为 QA 角色'}>
-            <MessageSquare className="h-3 w-3" />QA
-          </button>
-          <button onClick={() => onToggleRole(c.id!, 'TOOL')} disabled={changingRole?.id === c.id && changingRole?.role === 'TOOL'}
-            className={`flex items-center gap-0.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${isTool ? 'bg-amber-600 text-white' : 'border border-border text-muted-foreground hover:bg-muted'} disabled:opacity-50`}
-            title={isTool ? '移除 TOOL 角色' : '设为 TOOL 角色'}>
-            <Wrench className="h-3 w-3" />TOOL
-          </button>
-          <div className="ml-1 flex items-center gap-0.5">
-            <button onClick={() => onTest(c.id!)} disabled={testing === c.id} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50" title="测试连接"><RefreshCw className={`h-4 w-4 ${testing === c.id ? 'animate-spin' : ''}`} /></button>
-            <button onClick={() => onEdit(c)} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="编辑"><Pencil className="h-4 w-4" /></button>
-            <button onClick={() => onDelete(c.id!)} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="删除"><Trash2 className="h-4 w-4" /></button>
-          </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button onClick={() => onTest(c.id!)} disabled={testing === c.id} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50" title="测试连接"><RefreshCw className={`h-4 w-4 ${testing === c.id ? 'animate-spin' : ''}`} /></button>
+          <button onClick={() => onEdit(c)} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="编辑"><Pencil className="h-4 w-4" /></button>
+          <button onClick={() => onDelete(c.id!)} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="删除"><Trash2 className="h-4 w-4" /></button>
         </div>
       </div>
       {expandedId === c.id && (
@@ -172,12 +143,12 @@ function ModelColumn(props: {
 
 export default function AiConfigPage() {
   const goBack = useGoBack()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<ActiveTab>('CHAT')
   const [showPresets, setShowPresets] = useState(false)
   const [regionFilter, setRegionFilter] = useState<'ALL' | 'CN' | 'GLOBAL'>('ALL')
   const [testing, setTesting] = useState<number | null>(null)
-  const [changingRole, setChangingRole] = useState<{ id: number; role: string } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { handleScroll } = useScrollRestore(scrollRef)
 
@@ -201,6 +172,7 @@ export default function AiConfigPage() {
     name: '', purpose: CHAT, provider: 'OLLAMA', baseUrl: 'http://localhost:11434',
     modelName: '', apiKey: '', temperature: 0.7, timeout: 120,
     toolsEnabled: null, enabled: true, ragTopK: 5, roles: '', embeddingDimension: 1024,
+    thinkingMode: 'SWITCH',
   })
 
   const isChatForm = form.purpose === CHAT
@@ -227,6 +199,7 @@ export default function AiConfigPage() {
       name: '', purpose: CHAT, provider: 'OLLAMA', baseUrl: 'http://localhost:11434',
       modelName: '', apiKey: '', temperature: 0.7, timeout: 120,
       toolsEnabled: null, enabled: true, ragTopK: 5, roles: '', embeddingDimension: 1024,
+      thinkingMode: 'SWITCH',
     })
     setExpandedId(null); setShowApiKey(false); setIsCustomModel(false)
   }
@@ -278,15 +251,6 @@ export default function AiConfigPage() {
       if (expandedId === id) resetForm()
       invalidateConfigs(config.purpose)
     } catch (err: any) { toast.error(err.message || '删除失败') }
-  }
-
-  const handleToggleRole = async (id: number, role: string) => {
-    try {
-      setChangingRole({ id, role })
-      await setConfigRole(id, role)
-      toast.success(`角色 ${roleLabel(role)} 已切换`)
-      invalidateConfigs(CHAT)
-    } catch (err: any) { toast.error(err.message || '切换失败') } finally { setChangingRole(null) }
   }
 
   const handleActivateEmbedding = async (id: number) => {
@@ -451,6 +415,27 @@ export default function AiConfigPage() {
         )}
 
         {isChatForm && (
+          <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+            <div>
+              <span className="text-sm font-medium">思考模式</span>
+              <p className="mt-0.5 text-xs text-muted-foreground">声明该模型支持的思考能力。场景配置时根据此模式联动渲染思考选项。</p>
+            </div>
+            <select value={form.thinkingMode ?? 'SWITCH'} onChange={e => setForm(f => ({ ...f, thinkingMode: e.target.value }))} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
+              <option value="SWITCH">SWITCH — 仅支持开/关（大多数模型）</option>
+              <option value="REASONING_EFFORT">REASONING_EFFORT — 支持 low/medium/high 强度</option>
+              <option value="THINKING_BUDGET">THINKING_BUDGET — 支持 token 预算（o 系列）</option>
+              <option value="NONE">NONE — 不支持思考参数（Gemini 等）</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {form.thinkingMode === 'NONE' && '该模型发送任何思考参数都会 400，场景配置时不会显示思考选项。'}
+              {form.thinkingMode === 'SWITCH' && '场景配置时仅显示开/关 toggle。'}
+              {form.thinkingMode === 'REASONING_EFFORT' && '场景配置时显示开/关 + low/medium/high 下拉。'}
+              {form.thinkingMode === 'THINKING_BUDGET' && '场景配置时显示开/关 + token 预算输入。'}
+            </p>
+          </div>
+        )}
+
+        {isChatForm && (
           <div>
             <label className="mb-1.5 block text-sm font-medium">Tool Calling 支持</label>
             <div className="grid grid-cols-3 gap-2">
@@ -479,7 +464,7 @@ export default function AiConfigPage() {
 
   // ==================== 面板渲染 ====================
 
-  const rowOpts = { activeEmbeddingId, testing, changingRole, expandedId, onActivateEmbedding: handleActivateEmbedding, onToggleRole: handleToggleRole, onTest: handleTest, onEdit: openEditForm, onDelete: handleDelete, renderForm: renderFormContent }
+  const rowOpts = { activeEmbeddingId, testing, expandedId, onActivateEmbedding: handleActivateEmbedding, onTest: handleTest, onEdit: openEditForm, onDelete: handleDelete, renderForm: renderFormContent }
 
   // ==================== 页面 ====================
 
@@ -488,6 +473,9 @@ export default function AiConfigPage() {
       <header className="shrink-0 flex items-center gap-3 border-b bg-navbar/95 px-4 md:px-6 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-navbar/60 z-20">
         <button onClick={() => goBack()} className="rounded-full p-1.5 active:bg-muted"><ArrowLeft className="h-5 w-5" /></button>
         <h1 className="text-h3 font-bold flex-1">AI 配置管理</h1>
+        <button onClick={() => navigate(ROUTES.ADMIN_AI_SCENE)} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted">
+          <Sliders className="h-3.5 w-3.5" />场景配置
+        </button>
       </header>
 
       {/* 手机版 Tabs */}
@@ -539,7 +527,7 @@ export default function AiConfigPage() {
              <ModelColumn
                purpose={activeTab} configs={configs} loading={loading}
                title={activeTab === EMBEDDING ? '嵌入模型配置' : '对话模型配置'}
-               desc={activeTab === EMBEDDING ? '配置向量嵌入模型供应商，用于生成图书内容向量。最新更新的启用模型自动激活。' : '配置 AI 对话模型供应商。QA：图书问答、AI 助理、圆桌派、奇葩说等大任务；TOOL：内容压缩、元数据推断、查询扩展等后台小任务。各角色唯一，点击即切换。'}
+               desc={activeTab === EMBEDDING ? '配置向量嵌入模型供应商，用于生成图书内容向量。最新更新的启用模型自动激活。' : '配置 AI 对话模型供应商。为每个模型声明 thinkingMode（思考能力），然后在「场景配置」中为每个业务场景独立绑定模型 + 思考参数。'}
                expandedId={expandedId} formPurpose={form.purpose} renderFormContent={renderFormContent} openCreateForm={openCreateForm} rowOpts={rowOpts}
              />
           )}

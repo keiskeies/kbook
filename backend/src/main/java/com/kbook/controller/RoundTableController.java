@@ -8,6 +8,7 @@ import com.kbook.dto.roundtable.NextSpeakerResult;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
 import com.kbook.dto.roundtable.SpeakRequest;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
 import com.kbook.entity.RoundTableReport;
@@ -367,7 +368,7 @@ public class RoundTableController extends BaseController {
      */
     private String generateExportHook(String reportContent) {
         try {
-            String hook = chatModelManager.callAi("导出钩子", "report→hook",
+            String hook = chatModelManager.callAiForScene(AiScene.ROUND_TABLE_EXPORT_HOOK, "导出钩子", "report→hook",
                     List.of(
                             SystemMessage.from(AiPromptConstants.ROUND_TABLE_EXPORT_HOOK_PROMPT),
                             UserMessage.from(reportContent)));

@@ -2,6 +2,7 @@ package com.kbook.config;
 import com.kbook.service.ai.AiProviderConfigService;
 
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.entity.AiScene;
 import com.kbook.service.ai.AiChatMemory;
 import com.kbook.service.ai.AiToolService;
 import com.kbook.service.ai.AiAssistant;
@@ -65,7 +66,7 @@ public class LangChain4jConfig {
         log.info("初始化默认 AI Assistant (Ollama)...");
         AiToolService realToolService = toolServiceProvider.getObject();
         return AiServices.builder(AiAssistant.class)
-                .chatModel(chatModelFactory.buildChatModel())
+                .chatModel(chatModelFactory.buildForScene(AiScene.AI_ASSISTANT))
                 .chatMemoryProvider(sessionId -> MessageWindowChatMemory.builder()
                         .id(sessionId)
                         .maxMessages(AiPromptConstants.ADMIN_MAX_MESSAGES)

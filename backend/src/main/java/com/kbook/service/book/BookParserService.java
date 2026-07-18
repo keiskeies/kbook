@@ -16,6 +16,7 @@ import com.kbook.config.annotation.RedisLock;
 import com.kbook.config.properties.BookStorageProperties;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.book.BookSpeedReadVO;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import dev.langchain4j.data.message.*;
@@ -1771,8 +1772,9 @@ public class BookParserService {
 
             String result = response.aiMessage().text();
 
-            // 记录 AI 调用日志
-            CommonUtils.logAiCall("PDF OCR", elapsed, 0, CommonUtils.estimateTokens(result), batchDesc);
+            // 记录 AI 调用摘要日志
+            CommonUtils.logAiSummarySimple("PDF OCR", elapsed, 0, CommonUtils.estimateTokens(result),
+                    batchDesc, CommonUtils.truncateText(result, 80));
 
             return result;
         } catch (Exception e) {
@@ -1791,7 +1793,7 @@ public class BookParserService {
      * 一次 LLM 调用同时生成标签、评分、8维度相关度得分
      */
     private CombinedAiResult callAiCombined(String content) {
-        String rawResult = chatModelManager.callAiWithoutThinking(AI_OP_COMBINED,
+        String rawResult = chatModelManager.callAiForScene(AiScene.BOOK_PARSE_COMBINED, AI_OP_COMBINED,
                 String.format("输入: %s", content.replaceAll("\\n", " ").substring(0, Math.min(100, content.length()))),
                 Lists.newArrayList(
                         SystemMessage.from(AiPromptConstants.COMBINED_PROMPT_SYSTEM_PROMPT),

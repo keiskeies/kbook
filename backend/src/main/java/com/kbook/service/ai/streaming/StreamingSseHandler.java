@@ -2,9 +2,11 @@ package com.kbook.service.ai.streaming;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.service.ai.ChatModelManager.AiCallLogContext;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.*;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -117,7 +119,7 @@ public final class StreamingSseHandler {
             List<ChatMessage> messages,
             SseEmitter emitter,
             Callback callback) {
-        stream(model, messages, emitter, callback, 0);
+        stream(model, messages, emitter, callback, 0, null);
     }
 
     /**
@@ -139,9 +141,29 @@ public final class StreamingSseHandler {
             SseEmitter emitter,
             Callback callback,
             int maxRetries) {
+        stream(model, messages, emitter, callback, maxRetries, null);
+    }
+
+    /**
+     * 执行流式聊天并推送 SSE 事件（带重试 + 日志上下文）。
+     *
+     * @param logContext 日志上下文（场景/模型/思考配置），可为 null（摘要中显示"未知"）
+     */
+    public static void stream(
+            StreamingChatModel model,
+            List<ChatMessage> messages,
+            SseEmitter emitter,
+            Callback callback,
+            int maxRetries,
+            AiCallLogContext logContext) {
 
         // DEBUG: 打印完整对话消息
         CommonUtils.logAiMessages(callback.getOperationName(), messages);
+
+        // 记录流式调用开始时间，用于统一摘要日志
+        final long startTime = System.currentTimeMillis();
+        // 提取 SystemMessage 文本，用于统一摘要日志的请求预览
+        final String systemPromptText = extractSystemPromptText(messages);
 
         int retries = 0;
         while (true) {
@@ -214,12 +236,25 @@ public final class StreamingSseHandler {
                 @Override
                 public void onCompleteResponse(ChatResponse completeResponse) {
                     String content = fullResponse.toString().trim();
+                    String thinking = !fullThinking.isEmpty() ? fullThinking.toString() : null;
 
-                    if (thinkingTokenCount[0] > 0) {
-                        log.info("流式完成，共收到 {} 个思考 token", thinkingTokenCount[0]);
-                    }
-                    CommonUtils.logAiResponse(callback.getOperationName(), content,
-                            !fullThinking.isEmpty() ? fullThinking.toString() : null);
+                    // INFO: 统一流式摘要日志（一次 LLM 调用只打一条）
+                    int inputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
+                            ? completeResponse.tokenUsage().inputTokenCount() : 0;
+                    int outputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
+                            ? completeResponse.tokenUsage().outputTokenCount() : 0;
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    String scene = logContext != null ? logContext.scene() : null;
+                    String modelName = logContext != null ? logContext.modelName() : null;
+                    String configName = logContext != null ? logContext.configName() : null;
+                    String thinkingMode = logContext != null ? logContext.thinkingMode() : null;
+                    boolean thinkingEnabled = logContext != null && logContext.thinkingEnabled();
+                    String reasoningEffort = logContext != null ? logContext.reasoningEffort() : null;
+                    CommonUtils.logAiStreamingSummary(callback.getOperationName(), scene, modelName, configName,
+                            thinkingMode, thinkingEnabled, reasoningEffort,
+                            messages.size(), systemPromptText,
+                            content, thinking,
+                            elapsed, inputTokens, outputTokens);
 
                     if (connectionClosed[0]) {
                         if (!content.isBlank()) {
@@ -293,6 +328,19 @@ public final class StreamingSseHandler {
                 break;
             }
         }
+    }
+
+    /**
+     * 从消息列表中提取第一条 SystemMessage 的文本（用于摘要日志的请求预览）。
+     */
+    private static String extractSystemPromptText(List<ChatMessage> messages) {
+        if (messages == null) return null;
+        for (ChatMessage msg : messages) {
+            if (msg instanceof SystemMessage sm) {
+                return sm.text();
+            }
+        }
+        return null;
     }
 
     /**

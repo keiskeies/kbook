@@ -2,6 +2,7 @@ package com.kbook.service.ai.core;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.entity.AiScene;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -45,7 +46,7 @@ public class ChatHistoryCompressor {
         if (original == null || original.length() <= COMPRESS_THRESHOLD) return original;
         long startTime = System.currentTimeMillis();
         try {
-            var model = chatModelFactory.buildCompressionChatModel();
+            var model = chatModelFactory.buildCompressionForScene(AiScene.CHAT_COMPRESSION);
             if (model == null) {
                 log.warn("AI 模型未配置，跳过历史压缩");
                 return null;
@@ -64,8 +65,9 @@ public class ChatHistoryCompressor {
                     ? response.tokenUsage().outputTokenCount() : 0;
             String text = response.aiMessage().text();
             if (text != null) text = text.trim();
-            CommonUtils.logAiCall("历史压缩", elapsed, inputTokens, outputTokens,
-                    String.format("%d→%d chars", original.length(), text != null ? text.length() : 0));
+            CommonUtils.logAiSummarySimple("历史压缩", elapsed, inputTokens, outputTokens,
+                    String.format("%d→%d chars", original.length(), text != null ? text.length() : 0),
+                    CommonUtils.truncateText(text, 80));
             return text;
         } catch (Exception e) {
             log.warn("调用 AI 压缩内容失败: {}", e.getMessage());
@@ -78,7 +80,7 @@ public class ChatHistoryCompressor {
         if (original == null || original.length() <= COMPRESS_THRESHOLD) return original;
         long startTime = System.currentTimeMillis();
         try {
-            var model = chatModelFactory.buildCompressionChatModel();
+            var model = chatModelFactory.buildCompressionForScene(AiScene.ROUND_TABLE_COMPRESSION);
             if (model == null) {
                 log.warn("AI 模型未配置，跳过圆桌派历史压缩");
                 return null;
@@ -109,8 +111,9 @@ public class ChatHistoryCompressor {
                     ? response.tokenUsage().outputTokenCount() : 0;
             String text = response.aiMessage().text();
             if (text != null) text = text.trim();
-            CommonUtils.logAiCall("圆桌派历史压缩", elapsed, inputTokens, outputTokens,
-                    String.format("%d→%d chars", original.length(), text != null ? text.length() : 0));
+            CommonUtils.logAiSummarySimple("圆桌派历史压缩", elapsed, inputTokens, outputTokens,
+                    String.format("%d→%d chars", original.length(), text != null ? text.length() : 0),
+                    CommonUtils.truncateText(text, 80));
             return text;
         } catch (Exception e) {
             log.warn("调用 AI 压缩圆桌派内容失败: {}", e.getMessage());
@@ -173,7 +176,7 @@ public class ChatHistoryCompressor {
 
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             try {
-                var model = chatModelFactory.buildCompressionChatModel();
+                var model = chatModelFactory.buildCompressionForScene(roundTable ? AiScene.ROUND_TABLE_COMPRESSION : AiScene.CHAT_COMPRESSION);
                 if (model == null) {
                     log.warn("AI 模型未配置，跳过批量历史压缩");
                     return null;
@@ -200,10 +203,11 @@ public class ChatHistoryCompressor {
                 }
                 int inputTokens = tokenCount(response, true);
                 int outputTokens = tokenCount(response, false);
-                CommonUtils.logAiCall(roundTable ? "圆桌派批量历史压缩" : "批量历史压缩", elapsed, inputTokens, outputTokens,
+                CommonUtils.logAiSummarySimple(roundTable ? "圆桌派批量历史压缩" : "批量历史压缩", elapsed, inputTokens, outputTokens,
                         String.format("%d条 %d→%d chars", toSend.size(),
                                 toSend.stream().mapToInt(String::length).sum(),
-                                parsed.stream().mapToInt(s -> s != null ? s.length() : 0).sum()));
+                                parsed.stream().mapToInt(s -> s != null ? s.length() : 0).sum()),
+                        CommonUtils.truncateText(text, 80));
                 return result;
             } catch (Exception e) {
                 log.warn("批量压缩内容失败(第{}次): {}", attempt + 1, e.getMessage());

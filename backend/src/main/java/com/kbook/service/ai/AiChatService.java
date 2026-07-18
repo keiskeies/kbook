@@ -214,13 +214,10 @@ public class AiChatService {
                                     ? response.tokenUsage().outputTokenCount() : 0;
 
                             String text = fullResponse.toString().trim();
-                            log.info("========== AI 流式对话响应完成 ==========");
-                            log.info("耗时: {}ms", elapsed);
-                            log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-                            log.info("Answer: {}", text);
 
-                            // 记录 AI 调用日志
-                            CommonUtils.logAiCall("流式对话", elapsed, apiInputTokens, apiOutputTokens, text);
+                            // 记录 AI 调用摘要日志（一次 LLM 调用只打一条 INFO）
+                            CommonUtils.logAiSummarySimple("流式对话", elapsed, apiInputTokens, apiOutputTokens,
+                                    String.format("sessionId=%s", sessionId), CommonUtils.truncateText(text, 80));
 
                             // 输出审查 P1 #17：检测系统提示泄露
                             String safeText = CommonUtils.sanitizeAiOutput(text);
@@ -281,7 +278,8 @@ public class AiChatService {
                                         sessionId, fullResponse.length());
                                 String text = fullResponse.toString().trim();
                                 long elapsed = System.currentTimeMillis() - startTime;
-                                CommonUtils.logAiCall("流式对话(连接重置)", elapsed, 0, 0, text);
+                                CommonUtils.logAiSummarySimple("流式对话(连接重置)", elapsed, 0, 0,
+                                        String.format("sessionId=%s", sessionId), CommonUtils.truncateText(text, 80));
                                 try {
                                     if (ctx.hasBooks()) {
                                         String bookMapJson = objectMapper.writeValueAsString(ctx.getBookMap());

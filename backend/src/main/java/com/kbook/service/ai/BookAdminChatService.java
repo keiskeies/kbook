@@ -5,6 +5,7 @@ import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
@@ -171,12 +172,10 @@ public class BookAdminChatService {
                                     ? response.tokenUsage().outputTokenCount() : 0;
 
                             String responseText = fullResponse.toString().trim();
-                            log.info("========== 管理员 AI 流式响应完成 ==========");
-                            log.info("耗时: {}ms", elapsed);
-                            log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-                            log.info("Answer: {}", responseText);
 
-                            CommonUtils.logAiCall("管理员对话", elapsed, apiInputTokens, apiOutputTokens, responseText);
+                            // 记录 AI 调用摘要日志（一次 LLM 调用只打一条 INFO）
+                            CommonUtils.logAiSummarySimple("管理员对话", elapsed, apiInputTokens, apiOutputTokens,
+                                    String.format("sessionId=%s", sessionId), CommonUtils.truncateText(responseText, 80));
 
                             if (cancelled.get()) {
                                 log.warn("SSE 连接已断开，跳过发送done事件，仅保存已输出内容: sessionId={}", sessionId);
@@ -325,8 +324,8 @@ public class BookAdminChatService {
 
     /** 构建管理员 Assistant 实例，配置 ChatModel、StreamingChatModel、工具和记忆 */
     private BookAdminAssistant buildAdminAssistant() {
-        ChatModel chatModel = chatModelFactory.buildChatModel();
-        StreamingChatModel streamingChatModel = chatModelFactory.buildStreamingChatModel();
+        ChatModel chatModel = chatModelFactory.buildForScene(AiScene.ADMIN_ASSISTANT);
+        StreamingChatModel streamingChatModel = chatModelFactory.buildStreamingForScene(AiScene.ADMIN_ASSISTANT);
 
         log.info("构建管理员 AI Assistant (BookAdminAssistant)...");
         return AiServices.builder(BookAdminAssistant.class)

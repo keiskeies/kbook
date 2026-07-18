@@ -1,6 +1,7 @@
 package com.kbook.service.ai;
 
 import com.kbook.config.ChatModelFactory;
+import com.kbook.entity.AiScene;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -152,7 +153,7 @@ public class ListQueryDetector {
 
     private String callDetect(List<ChatMessage> messages) {
         try {
-            var model = chatModelFactory.buildToolChatModel();
+            var model = chatModelFactory.buildForScene(AiScene.LIST_QUERY_DETECT);
             if (model == null) {
                 log.warn("TOOL 模型未配置，跳过列表型问题检测");
                 return null;

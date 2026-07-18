@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -40,7 +41,7 @@ public class BookMetadataInferrer {
                     "只返回JSON，不要其他文字。\n\n" +
                     "书籍内容：\n" + CommonUtils.truncateText(content, CONTENT_LIMIT);
 
-            var model = chatModelFactory.buildToolChatModel();
+            var model = chatModelFactory.buildForScene(AiScene.BOOK_METADATA_INFER);
             if (model == null) {
                 log.debug("AI 模型未配置，跳过元数据推断: {}", book.getTitle());
                 return;
@@ -57,8 +58,9 @@ public class BookMetadataInferrer {
 
             String result = response.aiMessage().text();
             if (result != null) result = result.trim();
-            CommonUtils.logAiCall("元数据推断", elapsed, inputTokens, outputTokens,
-                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
+            CommonUtils.logAiSummarySimple("元数据推断", elapsed, inputTokens, outputTokens,
+                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()),
+                    CommonUtils.truncateText(result, 80));
 
             result = CommonUtils.stripCodeFence(result);
             if (result != null) {

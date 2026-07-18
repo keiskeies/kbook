@@ -3,6 +3,7 @@ package com.kbook.service.ai;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiProviderConfig;
+import com.kbook.entity.AiScene;
 import com.kbook.repository.AiProviderConfigRepository;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -185,8 +186,8 @@ public class AiProviderConfigService {
         log.info("构建对话 AI Assistant: role={}, model={}, toolsEnabled={}, baseUrl={}",
                 role, config.getModelName(), toolsSupported, config.getBaseUrl());
 
-        ChatModel chatModel = chatModelFactory.buildChatModel();
-        StreamingChatModel streamingModel = chatModelFactory.buildStreamingChatModel();
+        ChatModel chatModel = chatModelFactory.buildForScene(AiScene.BOOK_QA);
+        StreamingChatModel streamingModel = chatModelFactory.buildStreamingForScene(AiScene.BOOK_QA);
 
         var builder = AiServices.builder(AiAssistant.class)
                 .chatModel(chatModel)

@@ -53,6 +53,14 @@ public class ChatModelFactory {
     /** AI 模型配置属性（视觉 OCR 模型等仅 YML 配置的部分） */
     private final AiModelProperties aiModelProperties;
 
+    /**
+     * AI 场景配置服务 — {@code @Lazy} 打破循环依赖：
+     * ChatModelFactory ← AiSceneConfigService ← AiProviderConfigService ← ChatModelFactory
+     */
+    @org.springframework.context.annotation.Lazy
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.kbook.service.ai.AiSceneConfigService sceneConfigService;
+
     // ======================== QA 模型（大型问答）=======================
 
     /**
@@ -65,7 +73,7 @@ public class ChatModelFactory {
      */
     public ChatModel buildChatModel() {
         AiProviderConfig config = resolveQaConfig();
-        return wrap(buildChat(config, true), config);
+        return wrap(buildChat(config, ThinkingConfig.from(config, true)), config);
     }
 
     /**
@@ -76,7 +84,7 @@ public class ChatModelFactory {
      */
     public ChatModel buildChatModelWithoutThinking() {
         AiProviderConfig config = resolveQaConfig();
-        return wrap(buildChat(config, false), config);
+        return wrap(buildChat(config, ThinkingConfig.from(config, false)), config);
     }
 
     /**
@@ -87,7 +95,7 @@ public class ChatModelFactory {
      */
     public StreamingChatModel buildStreamingChatModel() {
         AiProviderConfig config = resolveQaConfig();
-        return wrapStreaming(buildStreaming(config, true), config);
+        return wrapStreaming(buildStreaming(config, ThinkingConfig.from(config, true)), config);
     }
 
     /**
@@ -98,7 +106,7 @@ public class ChatModelFactory {
      */
     public StreamingChatModel buildStreamingChatModelWithoutThinking() {
         AiProviderConfig config = resolveQaConfig();
-        return wrapStreaming(buildStreaming(config, false), config);
+        return wrapStreaming(buildStreaming(config, ThinkingConfig.from(config, false)), config);
     }
 
     // ======================== TOOL 模型（小型工具）=======================
@@ -114,7 +122,7 @@ public class ChatModelFactory {
      */
     public ChatModel buildToolChatModel() {
         AiProviderConfig config = resolveToolConfig();
-        return wrap(buildChat(config, false), config);
+        return wrap(buildChat(config, ThinkingConfig.from(config, false)), config);
     }
 
     /**
@@ -127,11 +135,12 @@ public class ChatModelFactory {
     public ChatModel buildCompressionChatModel() {
         AiProviderConfig config = resolveToolConfig();
         Duration t = timeout(config.getTimeout());
+        ThinkingConfig tc = ThinkingConfig.off(); // 压缩关闭思考，确保确定性输出
         return config.getProvider() == AiProviderConfig.Provider.OPENAI
                 ? wrap(buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
-                0.1, t, config.getApiKey(), false), config)
+                0.1, t, config.getApiKey(), tc), config)
                 : wrap(buildOllamaChat(config.getBaseUrl(), config.getModelName(),
-                0.1, t, false), config);
+                0.1, t, tc), config);
     }
 
     /**
@@ -142,7 +151,7 @@ public class ChatModelFactory {
      */
     public StreamingChatModel buildStreamingToolChatModel() {
         AiProviderConfig config = resolveToolConfig();
-        return wrapStreaming(buildStreaming(config, false), config);
+        return wrapStreaming(buildStreaming(config, ThinkingConfig.from(config, false)), config);
     }
 
     // ======================== 其他公开方法 ========================
@@ -161,6 +170,7 @@ public class ChatModelFactory {
      */
     public ChatModel buildVisionChatModel() {
         AiModelProperties.VisionConfig vision = aiModelProperties.getVision();
+        ThinkingConfig tc = ThinkingConfig.off(); // OCR 关闭思考，提高准确率
 
         // 回退逻辑：vision 配置缺失时使用 QA 配置
         if (vision == null
@@ -172,9 +182,9 @@ public class ChatModelFactory {
             double temperature = 0.3;
             return qaConfig.getProvider() == AiProviderConfig.Provider.OPENAI
                     ? wrap(buildOpenAiChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
-                            temperature, timeout, qaConfig.getApiKey(), false), qaConfig)
+                            temperature, timeout, qaConfig.getApiKey(), tc), qaConfig)
                     : wrap(buildOllamaChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
-                            temperature, timeout, false), qaConfig);
+                            temperature, timeout, tc), qaConfig);
         }
 
         AiProviderConfig.Provider provider = AiProviderConfig.Provider.from(vision.getProvider());
@@ -190,9 +200,9 @@ public class ChatModelFactory {
         String providerKey = provider + ":" + vision.getModelName();
         ChatModel model = provider == AiProviderConfig.Provider.OPENAI
                 ? buildOpenAiChat(vision.getBaseUrl(), vision.getModelName(),
-                        temperature, timeout, null, false)
+                        temperature, timeout, null, tc)
                 : buildOllamaChat(vision.getBaseUrl(), vision.getModelName(),
-                        temperature, timeout, false);
+                        temperature, timeout, tc);
         return wrap(model, providerKey);
     }
 
@@ -206,7 +216,93 @@ public class ChatModelFactory {
     public ChatModel buildChatModelForTest(Long configId) {
         AiProviderConfig config = configRepository.findById(configId)
                 .orElseThrow(() -> new IllegalArgumentException("配置不存在: " + configId));
-        return wrap(buildChat(config, true), config);
+        return wrap(buildChat(config, ThinkingConfig.from(config, true)), config);
+    }
+
+    /**
+     * 按场景构建聊天模型 — 路由层入口。
+     * <p>
+     * 由 {@link com.kbook.service.ai.AiSceneConfigService#resolveSceneConfig(AiScene)} 解析：
+     * <ul>
+     *   <li>AI 配置（providerConfig）— 优先场景绑定，回退到默认分类</li>
+     *   <li>思考参数（thinkingEnabled/reasoningEffort/thinkingBudget）— 联动 providerConfig.thinkingMode</li>
+     * </ul>
+     * 联动逻辑：
+     * <ul>
+     *   <li>NONE 模式：不发送任何思考参数（如 Gemini）</li>
+     *   <li>SWITCH 模式：think=thinkingEnabled, returnThinking=thinkingEnabled</li>
+     *   <li>REASONING_EFFORT 模式：SWITCH 行为 + reasoningEffort（非空时发送）</li>
+     *   <li>THINKING_BUDGET 模式：SWITCH 行为 + thinking_budget（非空时通过 customParameters 透传）</li>
+     * </ul>
+     */
+    public ChatModel buildForScene(com.kbook.entity.AiScene scene) {
+        com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
+                sceneConfigService.resolveSceneConfig(scene);
+        com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
+        ThinkingConfig tc = ThinkingConfig.from(resolved);
+        // 场景构建日志降级为 DEBUG，避免与统一摘要日志（logAiSummary）重复打印模型信息
+        log.debug("构建场景 ChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
+                scene, config.getName(), config.getModelName(),
+                config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
+        return wrap(buildChat(config, tc), config);
+    }
+
+    /**
+     * 按场景构建流式聊天模型 — 路由层入口。
+     */
+    public StreamingChatModel buildStreamingForScene(com.kbook.entity.AiScene scene) {
+        com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
+                sceneConfigService.resolveSceneConfig(scene);
+        com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
+        ThinkingConfig tc = ThinkingConfig.from(resolved);
+        log.debug("构建场景 StreamingChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
+                scene, config.getName(), config.getModelName(),
+                config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
+        return wrapStreaming(buildStreaming(config, tc), config);
+    }
+
+    /**
+     * 按场景构建压缩专用模型（温度 0.1、关闭思考）。
+     */
+    public ChatModel buildCompressionForScene(com.kbook.entity.AiScene scene) {
+        com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
+                sceneConfigService.resolveSceneConfig(scene);
+        com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
+        Duration t = timeout(config.getTimeout());
+        ThinkingConfig tc = ThinkingConfig.off(); // 压缩强制关闭思考
+        log.debug("构建场景压缩 ChatModel: scene={}, config={}, model={}",
+                scene, config.getName(), config.getModelName());
+        return config.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? wrap(buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
+                0.1, t, config.getApiKey(), tc), config)
+                : wrap(buildOllamaChat(config.getBaseUrl(), config.getModelName(),
+                0.1, t, tc), config);
+    }
+
+    /**
+     * 构建场景的日志上下文 — 供 callAiForScene / StreamingSseHandler 传递给 logAiSummary。
+     * <p>
+     * 注意：此方法会调用 {@code sceneConfigService.resolveSceneConfig(scene)}，
+     * 与 {@link #buildForScene} 中的调用是独立的两次 DB 查询。
+     * 可接受的代价：摘要日志需要场景/模型/思考配置信息。
+     *
+     * @param scene AI 场景
+     * @return 日志上下文（scene/modelName/configName/thinkingMode/thinkingEnabled/reasoningEffort）
+     */
+    public com.kbook.service.ai.ChatModelManager.AiCallLogContext buildLogContext(com.kbook.entity.AiScene scene) {
+        com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
+                sceneConfigService.resolveSceneConfig(scene);
+        com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
+        String thinkingMode = config.getThinkingMode() != null
+                ? config.getThinkingMode().name() : "SWITCH";
+        return new com.kbook.service.ai.ChatModelManager.AiCallLogContext(
+                scene.name(),
+                config.getModelName(),
+                config.getName(),
+                thinkingMode,
+                resolved.thinkingEnabled(),
+                resolved.reasoningEffort()
+        );
     }
 
     /**
@@ -351,92 +447,123 @@ public class ChatModelFactory {
 
     // ---- DB config 组合器 ----
 
-    private ChatModel buildChat(AiProviderConfig config, boolean thinking) {
+    private ChatModel buildChat(AiProviderConfig config, ThinkingConfig tc) {
         Duration t = timeout(config.getTimeout());
-        log.info("构建 ChatModel (from DB): provider={}, model={}, baseUrl={}, thinking={}",
-                config.getProvider(), config.getModelName(), config.getBaseUrl(), thinking);
+        log.debug("构建 ChatModel (from DB): provider={}, model={}, baseUrl={}, thinkingMode={}, thinkingEnabled={}",
+                config.getProvider(), config.getModelName(), config.getBaseUrl(),
+                config.getThinkingMode(), tc.thinkingEnabled());
         return config.getProvider() == AiProviderConfig.Provider.OPENAI
                 ? buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, config.getApiKey(), thinking)
+                config.getTemperature(), t, config.getApiKey(), tc)
                 : buildOllamaChat(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, thinking);
+                config.getTemperature(), t, tc);
     }
 
-    private StreamingChatModel buildStreaming(AiProviderConfig config, boolean thinking) {
+    private StreamingChatModel buildStreaming(AiProviderConfig config, ThinkingConfig tc) {
         Duration t = timeout(config.getTimeout());
-        log.info("构建 StreamingChatModel (from DB): provider={}, model={}, baseUrl={}, thinking={}",
-                config.getProvider(), config.getModelName(), config.getBaseUrl(), thinking);
+        log.debug("构建 StreamingChatModel (from DB): provider={}, model={}, baseUrl={}, thinkingMode={}, thinkingEnabled={}",
+                config.getProvider(), config.getModelName(), config.getBaseUrl(),
+                config.getThinkingMode(), tc.thinkingEnabled());
         return config.getProvider() == AiProviderConfig.Provider.OPENAI
                 ? buildOpenAiStreaming(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, config.getApiKey(), thinking)
+                config.getTemperature(), t, config.getApiKey(), tc)
                 : buildOllamaStreaming(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, thinking);
+                config.getTemperature(), t, tc);
     }
 
     // ======================== 底层构建器 ========================
 
     private OllamaChatModel buildOllamaChat(String baseUrl, String modelName,
-                                            Double temperature, Duration timeout, boolean thinking) {
-
+                                            Double temperature, Duration timeout, ThinkingConfig tc) {
+        // Ollama 仅支持 think + returnThinking；reasoningEffort/thinkingBudget 由 OpenAI 系模型支持
+        boolean think = tc.shouldThink();
         return OllamaChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
-                .returnThinking(thinking).think(thinking)
+                .think(think)
+                .returnThinking(think)
 //                .logRequests(true)
                 .build();
     }
 
     private OllamaStreamingChatModel buildOllamaStreaming(String baseUrl, String modelName,
-                                                          Double temperature, Duration timeout, boolean thinking) {
+                                                          Double temperature, Duration timeout, ThinkingConfig tc) {
+        boolean think = tc.shouldThink();
         return OllamaStreamingChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
-                .returnThinking(thinking).think(thinking)
+                .think(think)
+                .returnThinking(think)
 //                .logRequests(true)
                 .build();
     }
 
     private OpenAiChatModel buildOpenAiChat(String baseUrl, String modelName,
-                                            Double temperature, Duration timeout, String apiKey, boolean thinking) {
+                                            Double temperature, Duration timeout, String apiKey,
+                                            ThinkingConfig tc) {
         boolean gemini = isGeminiModel(baseUrl, modelName);
         var builder = OpenAiChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
-                // Gemini 模型不支持 reasoningEffort 参数，跳过设置
-                .reasoningEffort(gemini ? null : (thinking ? null : "none"))
-//                .logRequests(true)
                 .listeners(List.of(new DiagnosticChatListener()));
-        // Gemini 模型不设置 returnThinking/sendThinking：
-        // 某些 Gemini 模型不支持 thinking 功能，设置后会在请求中携带 thinkingBudget 参数导致 400 错误
-        if (!gemini) {
-            builder.returnThinking(thinking).sendThinking(thinking);
+        // 联动 thinkingMode 决定发送哪些思考参数
+        if (!gemini && tc.thinkingMode() != AiProviderConfig.ThinkingMode.NONE) {
+            boolean think = tc.shouldThink();
+            // SWITCH 行为：所有非 NONE 模式都有的基础行为
+            builder.returnThinking(think).sendThinking(false);
+            // 关闭思考时透传 enable_thinking=false（Qwen3 等推理模型需要此参数真正关闭思考，
+            // 其他 OpenAI 兼容 API 按约定忽略未知参数）
+            if (!think) {
+                builder.customParameters(Map.of("enable_thinking", false));
+            }
+            // REASONING_EFFORT 模式：额外发送 reasoning_effort（非空时）
+            if (tc.thinkingMode() == AiProviderConfig.ThinkingMode.REASONING_EFFORT
+                    && tc.reasoningEffort() != null && !tc.reasoningEffort().isBlank()
+                    && think) {
+                builder.reasoningEffort(tc.reasoningEffort());
+            }
+            // THINKING_BUDGET 模式：通过 customParameters 透传 thinking_budget
+            if (tc.thinkingMode() == AiProviderConfig.ThinkingMode.THINKING_BUDGET
+                    && tc.thinkingBudget() != null && think) {
+                builder.customParameters(Map.of("thinking_budget", tc.thinkingBudget()));
+            }
         }
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
     }
 
     private OpenAiStreamingChatModel buildOpenAiStreaming(String baseUrl, String modelName,
-                                                          Double temperature, Duration timeout, String apiKey, boolean thinking) {
+                                                          Double temperature, Duration timeout, String apiKey,
+                                                          ThinkingConfig tc) {
         boolean gemini = isGeminiModel(baseUrl, modelName);
         var builder = OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
-                // Gemini 模型不支持 reasoningEffort 参数，跳过设置
-                .reasoningEffort(gemini ? null : (thinking ? null : "none"))
-//                .logRequests(true)
                 .listeners(List.of(new DiagnosticChatListener()));
-        // Gemini 模型不设置 returnThinking/sendThinking：
-        // 某些 Gemini 模型不支持 thinking 功能，设置后会在请求中携带 thinkingBudget 参数导致 400 错误
-        if (!gemini) {
-            builder.returnThinking(thinking).sendThinking(thinking);
+        if (!gemini && tc.thinkingMode() != AiProviderConfig.ThinkingMode.NONE) {
+            boolean think = tc.shouldThink();
+            builder.returnThinking(think).sendThinking(false);
+            // 关闭思考时透传 enable_thinking=false
+            if (!think) {
+                builder.customParameters(Map.of("enable_thinking", false));
+            }
+            if (tc.thinkingMode() == AiProviderConfig.ThinkingMode.REASONING_EFFORT
+                    && tc.reasoningEffort() != null && !tc.reasoningEffort().isBlank()
+                    && think) {
+                builder.reasoningEffort(tc.reasoningEffort());
+            }
+            if (tc.thinkingMode() == AiProviderConfig.ThinkingMode.THINKING_BUDGET
+                    && tc.thinkingBudget() != null && think) {
+                builder.customParameters(Map.of("thinking_budget", tc.thinkingBudget()));
+            }
         }
         builder.apiKey(apiKey != null && !apiKey.isBlank() ? apiKey : "sk-placeholder");
         return builder.build();
@@ -444,7 +571,13 @@ public class ChatModelFactory {
 
     /**
      * 判断是否为 Google Gemini 模型（通过 baseUrl 或模型名识别）。
-     * Gemini 模型不支持 reasoningEffort 参数，需要跳过。
+     * <p>
+     * 仅用于防御性兜底：即使数据库 thinking_mode 误配为非 NONE，
+     * Gemini 模型也会跳过所有思考参数（发送会触发 400）。
+     * <p>
+     * 其他不支持思考参数的模型（如 gemma4-31b）应通过数据库设置
+     * {@link AiProviderConfig.ThinkingMode#NONE} 来跳过思考参数，
+     * 不再在此处硬编码模型名。
      */
     private static boolean isGeminiModel(String baseUrl, String modelName) {
         if (baseUrl != null && baseUrl.contains("generativelanguage.googleapis.com")) return true;
@@ -453,6 +586,55 @@ public class ChatModelFactory {
             return lower.contains("gemini") || lower.contains("gemma4-31b");
         }
         return false;
+    }
+
+    /**
+     * 思考参数容器 — 联动 AiProviderConfig.thinkingMode 和 AiSceneConfig 的思考字段。
+     * <p>
+     * 联动规则（{@link AiProviderConfig.ThinkingMode}）：
+     * <ul>
+     *   <li>{@link AiProviderConfig.ThinkingMode#NONE} 不发送任何思考参数（如 Gemini）</li>
+     *   <li>{@link AiProviderConfig.ThinkingMode#SWITCH} think=thinkingEnabled, returnThinking=thinkingEnabled</li>
+     *   <li>{@link AiProviderConfig.ThinkingMode#REASONING_EFFORT} SWITCH + reasoningEffort（非空时发送）</li>
+     *   <li>{@link AiProviderConfig.ThinkingMode#THINKING_BUDGET} SWITCH + thinking_budget（非空时透传）</li>
+     * </ul>
+     */
+    public record ThinkingConfig(
+            AiProviderConfig.ThinkingMode thinkingMode,
+            boolean thinkingEnabled,
+            String reasoningEffort,
+            Integer thinkingBudget
+    ) {
+        /** 从 ResolvedSceneConfig 构建思考参数（联动） */
+        public static ThinkingConfig from(com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved) {
+            AiProviderConfig.ThinkingMode mode = resolved.providerConfig().getThinkingMode();
+            if (mode == null) {
+                mode = AiProviderConfig.ThinkingMode.SWITCH; // 老配置兼容
+            }
+            return new ThinkingConfig(
+                    mode,
+                    resolved.thinkingEnabled(),
+                    resolved.reasoningEffort(),
+                    resolved.thinkingBudget()
+            );
+        }
+
+        /** 从 AiProviderConfig 直接构建（用于非场景路径：测试、压缩、OCR 等） */
+        public static ThinkingConfig from(AiProviderConfig config, boolean thinking) {
+            AiProviderConfig.ThinkingMode mode = config.getThinkingMode();
+            if (mode == null) mode = AiProviderConfig.ThinkingMode.SWITCH;
+            return new ThinkingConfig(mode, thinking, null, null);
+        }
+
+        /** 完全关闭思考（压缩、OCR 等场景） */
+        public static ThinkingConfig off() {
+            return new ThinkingConfig(AiProviderConfig.ThinkingMode.SWITCH, false, null, null);
+        }
+
+        /** 是否发送 think=true（Ollama）/ returnThinking=true（OpenAI） */
+        public boolean shouldThink() {
+            return thinkingMode != AiProviderConfig.ThinkingMode.NONE && thinkingEnabled;
+        }
     }
 
     // ======================== Ollama KV 缓存管理 ========================

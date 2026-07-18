@@ -1,15 +1,10 @@
 package com.kbook.config;
 
-import com.kbook.common.util.CommonUtils;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.model.chat.listener.ChatModelErrorContext;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.chat.listener.ChatModelRequestContext;
 import dev.langchain4j.model.chat.listener.ChatModelResponseContext;
 import lombok.extern.slf4j.Slf4j;
-
-import java.util.List;
 
 /**
  * ChatModel 请求/响应监听器 — 诊断用：打印系统消息和模型返回
@@ -18,22 +13,14 @@ import java.util.List;
 public class DiagnosticChatListener implements ChatModelListener {
 
     /**
-     * 请求发送时的回调 — 打印 SystemMessage 摘要
+     * 请求发送时的回调 — 空实现。
+     * <p>
+     * 完整请求消息已由 {@code CommonUtils.logAiMessages} 在 DEBUG 级别打印，
+     * 统一摘要由 {@code CommonUtils.logAiSummary} 打印，此处不再重复。
      */
     @Override
     public void onRequest(ChatModelRequestContext ctx) {
-        List<ChatMessage> messages = ctx.chatRequest().messages();
-        // 找 SystemMessage 打印
-        for (ChatMessage msg : messages) {
-            if (msg instanceof SystemMessage sm) {
-                String text = sm.text().replaceAll("\\n", "");
-                log.info("📤 [AI 请求] SystemMessage ({}字符): {}",
-                        text.length(),
-                        CommonUtils.truncateText(text, 100));
-                return;
-            }
-        }
-        log.warn("📤 [AI 请求] ⚠️ 未找到 SystemMessage！消息数={}", messages.size());
+        // 空实现：避免与 logAiMessages / logAiSummary 重复
     }
 
     /**

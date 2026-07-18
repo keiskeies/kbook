@@ -3,6 +3,7 @@ package com.kbook.service.ai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
@@ -764,7 +765,7 @@ public class RoundTableCoverageService {
         chatMessages.add(UserMessage.from("【图书信息】\n" + bookInfo.toString().trim()));
         chatMessages.add(UserMessage.from("【讨论实录（摘要）】\n" + discussionSummary));
 
-        String result = chatModelManager.callAi(
+        String result = chatModelManager.callAiForScene(AiScene.ROUND_TABLE_COVERAGE,
                 "圆桌派覆盖度评估",
                 "LLM综合评估",
                 chatMessages);

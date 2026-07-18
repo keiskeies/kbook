@@ -241,25 +241,164 @@ public class CommonUtils {
         return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
     }
 
+    // ================================================================
+    // 统一 AI 调用摘要日志（INFO 单行）—— 一次 LLM 调用只打一条
+    // ================================================================
+
+    /** 摘要中各段预览的最大字符数 */
+    private static final int SUMMARY_PREVIEW_LEN = 80;
+
     /**
-     * 格式化 AI 调用日志
+     * 打印 AI 调用的统一摘要日志（INFO 级别，单行）。
+     * <p>
+     * 一次 LLM 调用只打一条 INFO 日志，包含：操作名、场景、模型、思考配置、
+     * 请求摘要、回答摘要、思考摘要、耗时、token 统计。避免日志散落。
      *
-     * @param operation      操作名称（如"标签生成"、"评分生成"）
-     * @param elapsed        耗时（毫秒）
+     * @param operation       操作名（如"圆桌派发言"）
+     * @param scene           场景名（如"ROUND_TABLE_SPEECH"，可为 null）
+     * @param modelName       模型名（如"agnes-2.0-flash"，可为 null）
+     * @param configName      配置名（如"ai-gateway-agnes-2.0-flash"，可为 null）
+     * @param thinkingMode    思考模式（如"SWITCH"/"REASONING_EFFORT"/"NONE"，可为 null）
+     * @param thinkingEnabled 思考是否开启
+     * @param reasoningEffort reasoning effort（如"medium"，可为 null）
+     * @param messageCount    请求消息条数
+     * @param systemPromptText SystemMessage 全文（可为 null）
+     * @param answerText      回答全文（可为 null）
+     * @param thinkingText    思考内容全文（可为 null）
+     * @param elapsedMs       耗时毫秒
+     * @param inputTokens     输入 token 数
+     * @param outputTokens    输出 token 数
+     */
+    public static void logAiSummary(String operation, String scene, String modelName, String configName,
+                                     String thinkingMode, boolean thinkingEnabled, String reasoningEffort,
+                                     int messageCount, String systemPromptText,
+                                     String answerText, String thinkingText,
+                                     long elapsedMs, int inputTokens, int outputTokens) {
+        String scenePart = scene != null ? scene : "未知";
+        String modelPart = buildModelPart(modelName, configName);
+        String thinkingCfgPart = buildThinkingCfgPart(thinkingMode, thinkingEnabled, reasoningEffort);
+        String requestPart = buildRequestPart(messageCount, systemPromptText);
+        String answerPart = buildAnswerPart(answerText);
+        String thinkingPart = buildThinkingPart(thinkingText);
+        String statsPart = buildStatsPart(elapsedMs, inputTokens, outputTokens);
+
+        log.info("[AI调用] {} | scene={} model={} thinking={} | {} | {} | {} | {}",
+                operation, scenePart, modelPart, thinkingCfgPart,
+                requestPart, answerPart, thinkingPart, statsPart);
+    }
+
+    /**
+     * 打印流式 AI 调用的统一摘要日志（INFO 级别，单行）。
+     * <p>
+     * 场景信息可选（logContext 为 null 时显示"未知"）。
+     * 与 {@link #logAiSummary} 格式一致，仅用于区分流式调用来源。
+     */
+    public static void logAiStreamingSummary(String operation, String scene, String modelName, String configName,
+                                              String thinkingMode, boolean thinkingEnabled, String reasoningEffort,
+                                              int messageCount, String systemPromptText,
+                                              String answerText, String thinkingText,
+                                              long elapsedMs, int inputTokens, int outputTokens) {
+        logAiSummary(operation, scene, modelName, configName,
+                thinkingMode, thinkingEnabled, reasoningEffort,
+                messageCount, systemPromptText,
+                answerText, thinkingText,
+                elapsedMs, inputTokens, outputTokens);
+    }
+
+    /**
+     * 简化版 AI 调用摘要（INFO 级别，单行）— 用于无法获取场景信息的调用点。
+     * <p>
+     * 场景/模型/思考配置显示为"未知"。与 {@link #logAiSummary} 格式一致，
+     * 仅省略请求预览（无 SystemMessage 全文），用 result 代替。
+     *
+     * @param operation      操作名（如"PDF OCR"）
+     * @param elapsedMs      耗时毫秒
      * @param inputTokens    输入 token 数
      * @param outputTokens   输出 token 数
-     * @param result         结果摘要
+     * @param result         调用上下文/描述（如"bookId=1, title=xxx"），可为 null
+     * @param answerPreview  回答预览文本（建议调用方先 truncateText 到 80 字），可为 null
      */
-    public static void logAiCall(String operation, long elapsed, int inputTokens, int outputTokens, String result) {
-        double totalTokens = inputTokens + outputTokens;
-        double tokensPerSecond = (elapsed > 0) ? (outputTokens / (elapsed / 1000.0)) : 0;
-        double tokensAllSecond = (elapsed > 0) ? (totalTokens / (elapsed / 1000.0)) : 0;
+    public static void logAiSummarySimple(String operation, long elapsedMs,
+                                           int inputTokens, int outputTokens,
+                                           String result, String answerPreview) {
+        String resultPart = (result != null && !result.isBlank())
+                ? sanitizePreview(result, SUMMARY_PREVIEW_LEN) : "";
+        String answerPart = (answerPreview != null && !answerPreview.isBlank())
+                ? sanitizePreview(answerPreview, SUMMARY_PREVIEW_LEN) : "无";
+        String statsPart = buildStatsPart(elapsedMs, inputTokens, outputTokens);
 
-        log.info("========== AI {} ==========", operation);
-        log.info("结果: {}", result);
-        log.info("耗时: {}ms | 输入tokens: {} | 输出tokens: {} | 总tokens: {} | 速度: {} tokens/s | 总吞吐: {} t/s",
-                elapsed, inputTokens, outputTokens, (int) totalTokens, String.format("%.2f", tokensPerSecond), tokensAllSecond);
-        log.info("====================================\n");
+        log.info("[AI调用] {} | scene=未知 model=未知 thinking=未知 | {} | 回答:{} | {}",
+                operation, resultPart, answerPart, statsPart);
+    }
+
+    /** 构建模型段：model=xxx (configName) 或 model=未知 */
+    private static String buildModelPart(String modelName, String configName) {
+        if (modelName == null || modelName.isBlank()) {
+            return "未知";
+        }
+        return configName != null && !configName.isBlank()
+                ? modelName + "(" + configName + ")"
+                : modelName;
+    }
+
+    /** 构建思考配置段：OFF(mode=REASONING_EFFORT,effort=null) 或 ON(mode=SWITCH) */
+    private static String buildThinkingCfgPart(String thinkingMode, boolean thinkingEnabled, String reasoningEffort) {
+        String mode = thinkingMode != null ? thinkingMode : "未知";
+        String onOff = thinkingEnabled ? "ON" : "OFF";
+        return onOff + "(mode=" + mode + ",effort=" + reasoningEffort + ")";
+    }
+
+    /** 构建请求段：7条msg(sys=1305字符:前80字...) 或 7条msg(sys=无) */
+    private static String buildRequestPart(int messageCount, String systemPromptText) {
+        if (systemPromptText == null || systemPromptText.isBlank()) {
+            return messageCount + "条msg(sys=无)";
+        }
+        int len = systemPromptText.length();
+        String preview = sanitizePreview(systemPromptText, SUMMARY_PREVIEW_LEN);
+        return messageCount + "条msg(sys=" + len + "字符:" + preview + ")";
+    }
+
+    /** 构建回答段：204字符(前80字...) 或 无 */
+    private static String buildAnswerPart(String answerText) {
+        if (answerText == null || answerText.isBlank()) {
+            return "无";
+        }
+        int len = answerText.length();
+        String preview = sanitizePreview(answerText, SUMMARY_PREVIEW_LEN);
+        return len + "字符(" + preview + ")";
+    }
+
+    /** 构建思考内容段：156字符(前80字...) 或 无 */
+    private static String buildThinkingPart(String thinkingText) {
+        if (thinkingText == null || thinkingText.isBlank()) {
+            return "思考:无";
+        }
+        int len = thinkingText.length();
+        String preview = sanitizePreview(thinkingText, SUMMARY_PREVIEW_LEN);
+        return "思考:" + len + "字符(" + preview + ")";
+    }
+
+    /** 构建统计段：耗时:34016ms tokens:367→424(791) 9.18/s（token 为 0 时省略 tokens 部分） */
+    private static String buildStatsPart(long elapsedMs, int inputTokens, int outputTokens) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("耗时:").append(elapsedMs).append("ms");
+        if (inputTokens > 0 || outputTokens > 0) {
+            int total = inputTokens + outputTokens;
+            sb.append(" tokens:").append(inputTokens)
+              .append("→").append(outputTokens)
+              .append("(").append(total).append(")");
+            if (elapsedMs > 0) {
+                double tps = outputTokens / (elapsedMs / 1000.0);
+                sb.append(" ").append(String.format("%.2f", tps)).append("/s");
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 清理预览文本：去除换行、截断到指定长度 */
+    private static String sanitizePreview(String text, int maxLen) {
+        if (text == null) return "";
+        return truncateText(text.replace("\n", " ").replace("\r", " "), maxLen);
     }
 
     /**
@@ -444,16 +583,5 @@ public class CommonUtils {
         }
     }
 
-    /**
-     * DEBUG 级别打印 AI 响应内容（回答 + 可选的思考过程）。
-     */
-    public static void logAiResponse(String operation, String answer, String thinking) {
-        if (!log.isDebugEnabled()) return;
-        if (thinking != null && !thinking.isBlank()) {
-            log.debug("========== AI {} 思考过程 ({} 字) ==========", operation, thinking.length());
-            log.debug("{}", truncateText(thinking, 100).replace("\n", ""));
-        }
-        log.debug("========== AI {} 回答 ({} 字) ==========", operation, answer != null ? answer.length() : 0);
-        log.debug("{}", truncateText(answer != null ? answer : "", 100).replace("\n", ""));
-    }
 }
+

@@ -3,6 +3,7 @@ package com.kbook.service.ai;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableMessage;
 import com.kbook.entity.RoundTableReport;
@@ -500,7 +501,7 @@ public class RoundTableReportService {
         String lastError = null;
         for (int i = 1; i <= LLM_MAX_RETRIES; i++) {
             try {
-                String result = chatModelManager.callAi("圆桌派" + taskName, "", messages);
+                String result = chatModelManager.callAiForScene(AiScene.ROUND_TABLE_REPORT, "圆桌派" + taskName, "", messages);
                 if (result != null && !result.isBlank()) {
                     return result;
                 }
@@ -563,7 +564,7 @@ public class RoundTableReportService {
                 SystemMessage.from(AiPromptConstants.ROUND_TABLE_REPORT_SYSTEM_PROMPT),
                 UserMessage.from(userMessage));
 
-        return chatModelManager.callAi("圆桌派解读报告",
+        return chatModelManager.callAiForScene(AiScene.ROUND_TABLE_REPORT, "圆桌派解读报告",
                 String.format("sessionId=%s", session.getSessionId()),
                 chatMessages);
     }

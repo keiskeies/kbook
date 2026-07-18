@@ -82,6 +82,8 @@ public class AdminAiConfigController {
         if (config.getEnabled() != null) existing.setEnabled(config.getEnabled());
         if (config.getRoles() != null) existing.setRoles(config.getRoles());
         if (config.getEmbeddingDimension() != null) existing.setEmbeddingDimension(config.getEmbeddingDimension());
+        // 思考模式（声明模型支持的思考能力）
+        if (config.getThinkingMode() != null) existing.setThinkingMode(config.getThinkingMode());
 
         AiProviderConfig saved = providerConfigService.saveConfig(existing);
         log.info("AI 配置已更新: id={}, name={}, purpose={}, roles={}, provider={}, model={}",

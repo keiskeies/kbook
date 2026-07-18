@@ -16,6 +16,7 @@ export const ROUTES = {
   ADMIN_BIND_EMAIL: '/admin/bind-email',
   ADMIN_BOOKS: '/admin/books',
   ADMIN_AI_CONFIG: '/admin/ai-config',
+  ADMIN_AI_SCENE: '/admin/ai-scene',
   ADMIN_TTS_CONFIG: '/admin/tts-config',
   ROUND_TABLE: '/book/:bookId/round-table',
   ROUND_TABLE_SESSION: '/book/:bookId/round-table/sessions/:sessionId',

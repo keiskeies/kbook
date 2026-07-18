@@ -2,6 +2,7 @@ package com.kbook.service.ai.core;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.entity.AiScene;
 import com.kbook.constants.AiPromptConstants;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -33,7 +34,7 @@ public class ExternalKnowledgeGenerator {
     public String generateForRoundTable(String roleDomain, String topic) {
         long startTime = System.currentTimeMillis();
         try {
-            var model = chatModelFactory.buildChatModelWithoutThinking();
+            var model = chatModelFactory.buildForScene(AiScene.ROUND_TABLE_KNOWLEDGE);
             if (model == null) {
                 log.warn("AI 模型未配置，跳过外部知识生成");
                 return null;
@@ -49,8 +50,9 @@ public class ExternalKnowledgeGenerator {
                     ? response.tokenUsage().outputTokenCount() : 0;
             String text = response.aiMessage().text();
             if (text != null) text = text.trim();
-            CommonUtils.logAiCall("外部知识生成", elapsed, inputTokens, outputTokens,
-                    "领域=" + roleDomain + ", 话题=" + topic);
+            CommonUtils.logAiSummarySimple("外部知识生成", elapsed, inputTokens, outputTokens,
+                    "领域=" + roleDomain + ", 话题=" + topic,
+                    CommonUtils.truncateText(text, 80));
             return text;
         } catch (Exception e) {
             log.warn("外部知识生成失败: {}", e.getMessage());
@@ -62,7 +64,7 @@ public class ExternalKnowledgeGenerator {
     public String generateForDebate(String topic, String side, String stance) {
         long startTime = System.currentTimeMillis();
         try {
-            var model = chatModelFactory.buildChatModelWithoutThinking();
+            var model = chatModelFactory.buildForScene(AiScene.DEBATE_KNOWLEDGE);
             if (model == null) {
                 log.warn("AI 模型未配置，跳过辩论外部知识生成");
                 return null;
@@ -78,8 +80,9 @@ public class ExternalKnowledgeGenerator {
                     ? response.tokenUsage().outputTokenCount() : 0;
             String text = response.aiMessage().text();
             if (text != null) text = text.trim();
-            CommonUtils.logAiCall("辩论外部知识生成", elapsed, inputTokens, outputTokens,
-                    "辩题=" + topic + ", 立场=" + side);
+            CommonUtils.logAiSummarySimple("辩论外部知识生成", elapsed, inputTokens, outputTokens,
+                    "辩题=" + topic + ", 立场=" + side,
+                    CommonUtils.truncateText(text, 80));
             return text;
         } catch (Exception e) {
             log.warn("辩论外部知识生成失败: {}", e.getMessage());

@@ -20,6 +20,7 @@ import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.AiSession;
 import com.kbook.entity.BookSuggestedQuestion;
@@ -237,11 +238,14 @@ public class BookChatService {
             return emitter;
         }
 
-        final StreamingChatModel model = chatModelFactory.buildStreamingChatModel();
+        final StreamingChatModel model = chatModelManager.getStreamingModelForScene(AiScene.BOOK_QA);
         if (model == null) {
             SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
             return emitter;
         }
+
+        // 构建日志上下文（场景/模型/思考配置），供 StreamingSseHandler 打印统一摘要
+        final var logContext = chatModelManager.buildLogContext(AiScene.BOOK_QA);
 
 
 
@@ -298,7 +302,6 @@ public class BookChatService {
                 // RAG 参考内容 + 用户问题分别构造为独立消息（结构清晰，避免问题被 RAG 淹没）
                 String ragMessage = buildRagMessage(ragContext);
                 String questionMessage = buildQuestionMessage(question);
-                long startTime = System.currentTimeMillis();
 
                 log.debug("图书问答: bookId={}, question={}, bookInfoLen={}, ragContextLen={}, questionMsgLen={}",
                         bookId, question, bookInfoPrompt.length(),
@@ -323,18 +326,8 @@ public class BookChatService {
 
                     @Override
                     public void onComplete(String answer, ChatResponse completeResponse) {
-                        long elapsed = System.currentTimeMillis() - startTime;
-
-                        int apiInputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
-                                ? completeResponse.tokenUsage().inputTokenCount() : 0;
-                        int apiOutputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
-                                ? completeResponse.tokenUsage().outputTokenCount() : 0;
-
-                        log.info("========== 图书问答 AI 流式响应完成 ==========");
-                        log.info("耗时: {}ms", elapsed);
-                        log.info("API实际token: 输入={}, 输出={}, 总={}", apiInputTokens, apiOutputTokens, apiInputTokens + apiOutputTokens);
-                        log.info("Answer: {}", CommonUtils.truncateText(answer, 100).replace("\n", " "));
-                        log.info("==========================================");
+                        // 统一摘要日志已由 StreamingSseHandler.onCompleteResponse 打印
+                        log.debug("图书问答流式完成: bookId={}", bookId);
 
                         ensureSession(userId, effectiveSessionId, question, bookId);
                         saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
@@ -351,9 +344,6 @@ public class BookChatService {
                         }
                         saveMessage(userId, effectiveSessionId, "assistant", safeAnswer, bookId, thinkingText);
                         updateSessionTimestamp(effectiveSessionId);
-
-                        CommonUtils.logAiCall("图书问答", elapsed, apiInputTokens, apiOutputTokens,
-                                String.format("bookId=%d, question=%s", bookId, question.substring(0, Math.min(30, question.length()))));
 
                         // 写入 RAG 答案缓存（仅首问，追问不缓存）
                         if (cacheable) {
@@ -376,7 +366,7 @@ public class BookChatService {
                     public void onError(Throwable error) {
                         aiProviderConfigService.clearAssistantCache();
                     }
-                }, 2);
+                }, 2, logContext);
 
             } catch (Exception e) {
                 if (Thread.currentThread().isInterrupted()) return;

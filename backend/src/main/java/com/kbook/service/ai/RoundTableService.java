@@ -15,6 +15,7 @@ import com.kbook.dto.roundtable.NextSpeakerResult;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
 import com.kbook.dto.roundtable.SpeakRequest;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
@@ -893,7 +894,7 @@ public class RoundTableService {
 
         // 6. 调用 LLM
         try {
-            String response = chatModelManager.callAi(
+            String response = chatModelManager.callAiForScene(AiScene.ROUND_TABLE_SPEAKER_SELECT,
                     "圆桌派纯LLM发言人选择",
                     String.format("sessionId=%s", sessionId),
                     messages);
@@ -1400,9 +1401,6 @@ public class RoundTableService {
      */
     @LogAction("圆桌派角色发言")
     public SseEmitter streamCharacterSpeak(Long userId, Long bookId, SpeakRequest request) {
-        log.info("========== 圆桌派单角色发言 ==========");
-        log.info("userId={}, bookId={}, roleKey={}, sessionId={}", userId, bookId, request.getRoleKey(), request.getSessionId());
-
         SseEmitter emitter = new SseEmitter(3600_000L);
 
         // 解析角色
@@ -1501,13 +1499,14 @@ public class RoundTableService {
                         role, book);
 
                 // 构建流式模型（不使用 thinking 模式）
-                StreamingChatModel streamingChatModel = chatModelManager.getStreamingChatModelWithoutThinking();
+                StreamingChatModel streamingChatModel = chatModelManager.getStreamingModelForScene(AiScene.ROUND_TABLE_SPEECH);
                 if (streamingChatModel == null) {
                     SseHelper.sendErrorAndComplete(emitter, "AI 助理暂未配置，请联系管理员");
                     return;
                 }
 
-                long startTime = System.currentTimeMillis();
+                // 构建日志上下文（场景/模型/思考配置），供 StreamingSseHandler 打印统一摘要
+                var logContext = chatModelManager.buildLogContext(AiScene.ROUND_TABLE_SPEECH);
 
                 StreamingSseHandler.stream(streamingChatModel, messages, emitter, new StreamingSseHandler.Callback() {
                     @Override
@@ -1525,11 +1524,7 @@ public class RoundTableService {
 
                     @Override
                     public void onComplete(String content, ChatResponse completeResponse) {
-                        long elapsed = System.currentTimeMillis() - startTime;
-
-                        log.info("========== 圆桌派单角色发言完成 ==========");
-                        log.info("roleKey={}, 耗时: {}ms", role.getKey(), elapsed);
-                        log.info("==========================================");
+                        // 统一摘要日志已由 StreamingSseHandler.onCompleteResponse 打印
 
                         if (!content.isBlank()) {
                             saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), content);
@@ -1550,14 +1545,6 @@ public class RoundTableService {
                                 log.warn("覆盖度更新失败: sessionId={} - {}", request.getSessionId(), e.getMessage());
                             }
                         }
-
-                        int apiInputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
-                                ? completeResponse.tokenUsage().inputTokenCount() : 0;
-                        int apiOutputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
-                                ? completeResponse.tokenUsage().outputTokenCount() : 0;
-
-                        CommonUtils.logAiCall("圆桌派发言", elapsed, apiInputTokens, apiOutputTokens,
-                                String.format("bookId=%d, roleKey=%s", bookId, role.getKey()));
                     }
 
                     @Override
@@ -1570,7 +1557,7 @@ public class RoundTableService {
                             }
                         }
                     }
-                }, 2);
+                }, 2, logContext);
 
             } catch (Exception e) {
                 if (Thread.currentThread().isInterrupted()) return;

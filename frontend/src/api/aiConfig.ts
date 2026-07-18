@@ -30,6 +30,8 @@ export interface AiProviderConfig {
   ragTopK?: number
   maxTokens?: number
   embeddingDimension?: number
+  /** 思考模式 — 声明模型支持的思考能力（NONE/SWITCH/REASONING_EFFORT/THINKING_BUDGET） */
+  thinkingMode?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -83,4 +85,46 @@ export function testAiConfig(id: number) {
 /** 热加载 ai-config.json 配置文件（管理员在编辑 deploy/ai-config.json 后调用） */
 export function reloadAiConfig() {
   return request.post('/admin/ai-config/file/reload')
+}
+
+// ==================== AI 场景配置 ====================
+
+export interface AiSceneView {
+  sceneKey: string
+  displayName: string
+  defaultCategory: string
+  streaming: boolean
+  thinking: boolean
+  /** 当前生效的配置 ID（显式绑定或默认回退） */
+  boundConfigId?: number
+  boundConfigName?: string
+  boundProvider?: string
+  boundModelName?: string
+  boundEnabled?: boolean
+  /** 绑定配置的 thinkingMode — 联动前端思考表单渲染 */
+  boundThinkingMode?: string
+  /** 是否为显式绑定（true）而非默认回退（false） */
+  explicitlyBound: boolean
+  /** 显式绑定的思考参数（仅 explicitlyBound=true 时有值） */
+  thinkingEnabled?: boolean | null
+  reasoningEffort?: string | null
+  thinkingBudget?: number | null
+}
+
+export interface BindSceneRequest {
+  thinkingEnabled?: boolean | null
+  reasoningEffort?: string | null
+  thinkingBudget?: number | null
+}
+
+export function listAiScenes() {
+  return request.get<AiSceneView[]>('/admin/ai-scene-config')
+}
+
+export function bindAiScene(sceneKey: string, configId: number, req?: BindSceneRequest) {
+  return request.post(`/admin/ai-scene-config/${sceneKey}/bind/${configId}`, req || {})
+}
+
+export function unbindAiScene(sceneKey: string) {
+  return request.delete(`/admin/ai-scene-config/${sceneKey}`)
 }

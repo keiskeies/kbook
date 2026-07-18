@@ -6,6 +6,7 @@ import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.constants.AiPromptConstants;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import com.kbook.service.ai.core.ChatHistoryCompressor;
@@ -64,6 +65,26 @@ public class ChatModelManager {
     private static final int SPEED_READ_CONTENT_LIMIT = 15000;
 
     // ================================================================
+    // AI 调用日志上下文 — 携带场景/模型/思考配置，供 logAiSummary 使用
+    // ================================================================
+
+    /**
+     * AI 调用日志上下文 — 一次 LLM 调用的场景/模型/思考配置元数据。
+     * <p>
+     * 由 {@link ChatModelFactory#buildLogContext} 构建，传递给
+     * {@link CommonUtils#logAiSummary} 打印统一摘要日志。
+     *
+     * @param scene           场景名（如"ROUND_TABLE_SPEECH"）
+     * @param modelName       模型名（如"agnes-2.0-flash"）
+     * @param configName      配置名（如"ai-gateway-agnes-2.0-flash"）
+     * @param thinkingMode    思考模式（如"SWITCH"/"REASONING_EFFORT"/"NONE"）
+     * @param thinkingEnabled 思考是否开启
+     * @param reasoningEffort reasoning effort（可为 null）
+     */
+    public record AiCallLogContext(String scene, String modelName, String configName,
+                                    String thinkingMode, boolean thinkingEnabled, String reasoningEffort) {}
+
+    // ================================================================
     // 核心 AI 调用模板
     // ================================================================
 
@@ -78,6 +99,17 @@ public class ChatModelManager {
      */
     public String callAi(String logName, String logDetail,
                          Supplier<ChatModel> modelSupplier, List<ChatMessage> messages) {
+        return callAi(logName, logDetail, modelSupplier, messages, null);
+    }
+
+    /**
+     * 核心 AI 调用方法（带日志上下文）— 所有日志合并为一条 INFO 级别的统一摘要。
+     *
+     * @param logContext 日志上下文（场景/模型/思考配置），可为 null（摘要中显示"未知"）
+     */
+    public String callAi(String logName, String logDetail,
+                         Supplier<ChatModel> modelSupplier, List<ChatMessage> messages,
+                         AiCallLogContext logContext) {
         // 获取 ChatModel 实例，如果模型未配置则直接返回 null
         ChatModel model = modelSupplier.get();
         if (model == null) {
@@ -102,11 +134,34 @@ public class ChatModelManager {
         if (text != null && !text.isBlank()) {
             text = text.trim();
         }
-        // DEBUG: 打印 AI 回答
-        CommonUtils.logAiResponse(logName, text, null);
-        log.debug("logName: {}, logDetail: {}", logName, logDetail);
-        CommonUtils.logAiCall(logName, elapsed, inputTokens, outputTokens, logDetail);
+
+        // INFO: 统一摘要日志（一次 LLM 调用只打一条）
+        String systemPromptText = extractSystemPromptText(messages);
+        String scene = logContext != null ? logContext.scene() : null;
+        String modelName = logContext != null ? logContext.modelName() : null;
+        String configName = logContext != null ? logContext.configName() : null;
+        String thinkingMode = logContext != null ? logContext.thinkingMode() : null;
+        boolean thinkingEnabled = logContext != null && logContext.thinkingEnabled();
+        String reasoningEffort = logContext != null ? logContext.reasoningEffort() : null;
+        CommonUtils.logAiSummary(logName, scene, modelName, configName,
+                thinkingMode, thinkingEnabled, reasoningEffort,
+                messages.size(), systemPromptText,
+                text, null,
+                elapsed, inputTokens, outputTokens);
         return text;
+    }
+
+    /**
+     * 从消息列表中提取第一条 SystemMessage 的文本（用于摘要日志的请求预览）。
+     */
+    private static String extractSystemPromptText(List<ChatMessage> messages) {
+        if (messages == null) return null;
+        for (ChatMessage msg : messages) {
+            if (msg instanceof SystemMessage sm) {
+                return sm.text();
+            }
+        }
+        return null;
     }
 
 
@@ -136,6 +191,52 @@ public class ChatModelManager {
     public String callAiWithoutThinking(String logName, String logDetail, List<ChatMessage> messages) {
         return callAi(logName, logDetail, chatModelFactory::buildChatModelWithoutThinking,
                 appendNoThink(messages));
+    }
+
+    // ================================================================
+    // 场景路由入口（推荐使用）— 由 AiSceneConfigService 解析场景→配置
+    // ================================================================
+
+    /**
+     * 按场景调用 AI（非流式）— 推荐入口。
+     * <p>
+     * 场景的 {@link AiScene#isThinking()} 决定是否启用思考：
+     * <ul>
+     *   <li>thinking=true：不追加 /no_think，模型按 reasoningEffort 配置思考</li>
+     *   <li>thinking=false：追加 /no_think，并强制 returnThinking=false</li>
+     * </ul>
+     *
+     * @param scene    AI 场景
+     * @param logName  日志标识
+     * @param logDetail 日志详情
+     * @param messages 完整的 ChatMessage 列表
+     * @return AI 响应文本
+     */
+    public String callAiForScene(AiScene scene, String logName, String logDetail, List<ChatMessage> messages) {
+        List<ChatMessage> finalMessages = scene.isThinking() ? messages : appendNoThink(messages);
+        AiCallLogContext logContext = chatModelFactory.buildLogContext(scene);
+        return callAi(logName, logDetail, () -> chatModelFactory.buildForScene(scene), finalMessages, logContext);
+    }
+
+    /**
+     * 按场景获取流式 ChatModel — 推荐入口。
+     */
+    public StreamingChatModel getStreamingModelForScene(AiScene scene) {
+        return chatModelFactory.buildStreamingForScene(scene);
+    }
+
+    /**
+     * 按场景构建压缩专用模型（温度 0.1、关闭思考）。
+     */
+    public ChatModel getCompressionModelForScene(AiScene scene) {
+        return chatModelFactory.buildCompressionForScene(scene);
+    }
+
+    /**
+     * 构建场景的日志上下文（供流式调用方传递给 StreamingSseHandler）。
+     */
+    public AiCallLogContext buildLogContext(AiScene scene) {
+        return chatModelFactory.buildLogContext(scene);
     }
 
     /**
@@ -241,9 +342,10 @@ public class ChatModelManager {
             }
             messages.add(UserMessage.from("读者问：" + question + "\n你回答：" + answer));
 
-            String aiText = callAi("生成深入追问问题",
+            String aiText = callAiForScene(AiScene.FOLLOW_UP_QUESTION,
+                    "生成深入追问问题",
                     String.format("title=%s", title),
-                    chatModelFactory::buildToolChatModel, messages);
+                    messages);
             if (aiText != null) {
                 return parseQuestions(aiText).stream().limit(5).collect(Collectors.toList());
             }
@@ -294,9 +396,10 @@ public class ChatModelManager {
             }
             messages.add(UserMessage.from("【用户问题】\n" + question));
 
-            String aiText = callAi("RAG查询扩展",
+            String aiText = callAiForScene(AiScene.QUERY_EXPAND,
+                    "RAG查询扩展",
                     String.format("原始: %s", question),
-                    chatModelFactory::buildToolChatModel, messages);
+                    messages);
             if (aiText != null) {
                 for (String line : aiText.split("\n")) {
                     line = line.trim();
@@ -335,9 +438,10 @@ public class ChatModelManager {
                     UserMessage.from(query));
 
             // 调用 AI 生成扩展关键词
-            String result = callAi("向量查询扩展",
+            String result = callAiForScene(AiScene.VECTOR_QUERY_EXPAND,
+                    "向量查询扩展",
                     String.format("q=%s", query.substring(0, Math.min(20, query.length()))),
-                    chatModelFactory::buildToolChatModel, chatMessages);
+                    chatMessages);
             if (result != null) {
                 // 解析 AI 响应，按行分割并过滤无效内容
                 List<String> raw = Arrays.stream(result.split("\n"))
@@ -424,7 +528,8 @@ public class ChatModelManager {
                     SystemMessage.from(systemPrompt),
                     UserMessage.from(input.toString()));
 
-            String result = callAi("图书摘要精炼",
+            String result = callAiForScene(AiScene.BOOK_SUMMARY_REFINE,
+                    "图书摘要精炼",
                     String.format("book=%s, inputLen=%d", book.getTitle(), input.length()),
                     chatMessages);
 
@@ -506,12 +611,13 @@ public class ChatModelManager {
      */
     public void streamSpeedRead(Book book, User user, SseEmitter emitter) {
         try {
-            // 获取流式模型实例
-            StreamingChatModel model = chatModelFactory.buildStreamingToolChatModel();
+            // 获取流式模型实例（按场景路由）
+            StreamingChatModel model = chatModelFactory.buildStreamingForScene(AiScene.SPEED_READ);
             if (model == null) {
                 SseHelper.sendErrorAndComplete(emitter, "AI 模型未配置，无法生成速读摘要");
                 return;
             }
+            var logContext = chatModelFactory.buildLogContext(AiScene.SPEED_READ);
 
             // 构建书籍内容和用户画像
             String bookContent = buildSpeedReadContent(book);
@@ -536,15 +642,9 @@ public class ChatModelManager {
 
                 @Override
                 public void onComplete(String fullResponse, ChatResponse completeResponse) {
-                    long elapsed = System.currentTimeMillis() - startTime;
-                    int inputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().inputTokenCount() != null
-                            ? completeResponse.tokenUsage().inputTokenCount() : 0;
-                    int outputTokens = completeResponse.tokenUsage() != null && completeResponse.tokenUsage().outputTokenCount() != null
-                            ? completeResponse.tokenUsage().outputTokenCount() : 0;
-                    CommonUtils.logAiCall("3分钟速读(流式)", elapsed, inputTokens, outputTokens,
-                            String.format("bookId=%d, title=%s", book.getId(), book.getTitle()));
+                    // 统一摘要日志已由 StreamingSseHandler.onCompleteResponse 打印
                 }
-            }, 2);
+            }, 2, logContext);
         } catch (Exception e) {
             if (Thread.currentThread().isInterrupted()) return;
             log.warn("流式速读摘要异常: bookId={} - {}", book.getId(), e.getMessage());
@@ -612,7 +712,7 @@ public class ChatModelManager {
      * @return AI 原始响应文本（JSON 数组），由调用方解析
      */
     public String callAiForDebateTopics(String bookInfo) {
-        return callAi("辩论辩题生成", "bookInfo", List.of(
+        return callAiForScene(AiScene.DEBATE_TOPIC_GENERATE, "辩论辩题生成", "bookInfo", List.of(
                 SystemMessage.from(AiPromptConstants.DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT),
                 UserMessage.from("书籍信息：" + bookInfo)));
     }
@@ -630,7 +730,8 @@ public class ChatModelManager {
                 正方观点：%s
                 反方观点：%s""", bookInfo, topic, proArg, conArg);
 
-        return callAi("辩论辩题优化", String.format("bookId=%d, topic=%s", bookId, topic), List.of(
+        return callAiForScene(AiScene.DEBATE_TOPIC_OPTIMIZE, "辩论辩题优化",
+                String.format("bookId=%d, topic=%s", bookId, topic), List.of(
                 SystemMessage.from(AiPromptConstants.DEBATE_OPTIMIZE_TOPIC_SYSTEM_PROMPT),
                 UserMessage.from(userPrompt)));
     }
@@ -651,7 +752,8 @@ public class ChatModelManager {
                 发言次数统计：
                 %s""", topic, rolesInfo, lastSpeaker, lastSide, countInfo);
 
-        return callAi("辩论自由辩论发言人选择", "sessionId=" + sessionId, List.of(
+        return callAiForScene(AiScene.DEBATE_SPEAKER_SELECT, "辩论自由辩论发言人选择",
+                "sessionId=" + sessionId, List.of(
                 SystemMessage.from(AiPromptConstants.DEBATE_NEXT_SPEAKER_FREE_SYSTEM_PROMPT),
                 UserMessage.from(userPrompt)));
     }
@@ -669,7 +771,8 @@ public class ChatModelManager {
                 当前轮次：%s
                 发言内容：%s""", topic, roleKey, side, roundTypeLabel, content);
 
-        return callAi("辩论评分", String.format("sessionId=%s, roleKey=%s, round=%d", sessionId, roleKey, roundNumber), List.of(
+        return callAiForScene(AiScene.DEBATE_SCORING, "辩论评分",
+                String.format("sessionId=%s, roleKey=%s, round=%d", sessionId, roleKey, roundNumber), List.of(
                 SystemMessage.from(AiPromptConstants.DEBATE_SCORING_SYSTEM_PROMPT),
                 UserMessage.from(userPrompt)));
     }
@@ -689,7 +792,8 @@ public class ChatModelManager {
                 ? "4. 【刷新】以下角色已选过，这次必须换一批不同的人：" + String.join(", ", excludeKeys)
                 : "";
         String systemPrompt = String.format(AiPromptConstants.ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT_TEMPLATE, excludeClause, roleList);
-        return callAi("圆桌派角色推荐", String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
+        return callAiForScene(AiScene.ROUND_TABLE_ROLE_RECOMMEND, "圆桌派角色推荐",
+                String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
                 SystemMessage.from(systemPrompt),
                 UserMessage.from("书籍信息：\n" + bookInfo)));
     }
@@ -700,7 +804,8 @@ public class ChatModelManager {
      * @return AI 原始响应文本（逗号分隔的角色 key 列表）
      */
     public String callAiForRoleSelectionFallback(long bookId, String bookTitle, String bookInfo, String roleList) {
-        return callAi("圆桌派角色推荐(回退)", String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
+        return callAiForScene(AiScene.ROUND_TABLE_ROLE_RECOMMEND, "圆桌派角色推荐(回退)",
+                String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
                 SystemMessage.from(AiPromptConstants.ROLE_SELECTION_FALLBACK_SYSTEM_PROMPT),
                 UserMessage.from("角色列表：" + roleList + "\n\n书籍信息：\n" + bookInfo)));
     }
@@ -719,7 +824,8 @@ public class ChatModelManager {
                 【最近讨论】
                 %s""", bookTitle, roleName, roleTitle, roleKeywords, recentDiscussion);
 
-        return callAi("圆桌派角色检索查询", "role=" + roleKey, List.of(
+        return callAiForScene(AiScene.ROUND_TABLE_ROLE_SEARCH, "圆桌派角色检索查询",
+                "role=" + roleKey, List.of(
                 SystemMessage.from(systemPrompt),
                 UserMessage.from(userPrompt)));
     }
@@ -759,7 +865,8 @@ public class ChatModelManager {
                 %s""", bookTitle, roleName, roleTitle, roleKeywords,
                 recentDiscussion == null || recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion);
 
-        String aiText = callAi("圆桌派角色检索查询(多)", "role=" + roleKey + ", count=" + subQueryCount, List.of(
+        String aiText = callAiForScene(AiScene.ROUND_TABLE_ROLE_SEARCH, "圆桌派角色检索查询(多)",
+                "role=" + roleKey + ", count=" + subQueryCount, List.of(
                 SystemMessage.from(systemPrompt),
                 UserMessage.from(userPrompt)));
         if (aiText == null || aiText.isBlank()) return List.of();
@@ -804,7 +911,8 @@ public class ChatModelManager {
     public String callAiForLlmOutline(String contentInfo, int minBlocks, int maxBlocks) {
         String systemPrompt = String.format(AiPromptConstants.LLM_OUTLINE_SYSTEM_PROMPT_TEMPLATE, minBlocks, maxBlocks);
 
-        return callAi("圆桌派覆盖度评估", "LLM大纲生成", List.of(
+        return callAiForScene(AiScene.ROUND_TABLE_COVERAGE, "圆桌派覆盖度评估",
+                "LLM大纲生成", List.of(
                 SystemMessage.from(systemPrompt),
                 UserMessage.from("图书信息：\n" + contentInfo)));
     }

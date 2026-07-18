@@ -96,6 +96,34 @@ public class AiProviderConfig extends BaseEntity {
     /** 模型上下文长度（token 数），用于计算历史压缩阈值。为空则默认 32768 (32K) */
     private Integer maxTokens;
 
+    /**
+     * 思考模式 — 声明该模型支持的思考参数能力，决定场景配置时能选哪些选项。
+     * <ul>
+     *   <li>{@link ThinkingMode#NONE} 不支持思考参数（如 Gemini，发送任何思考参数都会 400）</li>
+     *   <li>{@link ThinkingMode#SWITCH} 仅支持开/关（大多数 OpenAI 兼容模型）</li>
+     *   <li>{@link ThinkingMode#REASONING_EFFORT} 支持 low/medium/high 强度调节</li>
+     *   <li>{@link ThinkingMode#THINKING_BUDGET} 支持 token 预算（如 OpenAI o 系列）</li>
+     * </ul>
+     * 场景配置时根据此字段动态渲染表单（联动）。
+     */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    private ThinkingMode thinkingMode = ThinkingMode.SWITCH;
+
+    /**
+     * 思考模式枚举 — 用于 AiProviderConfig.thinkingMode 字段
+     */
+    public enum ThinkingMode {
+        /** 不支持思考参数（Gemini 等） */
+        NONE,
+        /** 仅支持开/关（think=true/false） */
+        SWITCH,
+        /** 支持 reasoning_effort: low/medium/high */
+        REASONING_EFFORT,
+        /** 支持 thinking_budget: token 数 */
+        THINKING_BUDGET
+    }
+
     /** 配置用途枚举 */
     public enum Purpose {
         CHAT, EMBEDDING, VISION

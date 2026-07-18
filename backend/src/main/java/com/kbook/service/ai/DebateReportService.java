@@ -3,6 +3,7 @@ package com.kbook.service.ai;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.DebateReportVO;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.debate.DebateMessage;
 import com.kbook.entity.debate.DebateReport;
@@ -138,7 +139,7 @@ public class DebateReportService {
                     SystemMessage.from(AiPromptConstants.DEBATE_REPORT_SYSTEM_PROMPT),
                     UserMessage.from(reportUserMessage));
 
-            String result = chatModelManager.callAi(
+            String result = chatModelManager.callAiForScene(AiScene.DEBATE_REPORT,
                     "辩论报告生成",
                     String.format("sessionId=%s", session.getSessionId()),
                     chatMessages);
