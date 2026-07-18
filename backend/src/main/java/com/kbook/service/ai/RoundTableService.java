@@ -24,6 +24,8 @@ import com.kbook.repository.BookRepository;
 import com.kbook.repository.RoundTableCoverageRepository;
 import com.kbook.repository.RoundTableMessageRepository;
 import com.kbook.repository.RoundTableSessionRepository;
+import com.kbook.service.ai.core.ChatHistoryCompressor;
+import com.kbook.service.ai.core.ExternalKnowledgeGenerator;
 import com.kbook.service.ai.streaming.StreamingSseHandler;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
@@ -81,6 +83,8 @@ public class RoundTableService {
     private final BookService bookService;
     private final BookParserService bookParserService;
     private final ChatModelManager chatModelManager;
+    private final ChatHistoryCompressor chatHistoryCompressor;
+    private final ExternalKnowledgeGenerator externalKnowledgeGenerator;
     private final AiProviderConfigService aiProviderConfigService;
     private final RoundTableSessionRepository sessionRepository;
     private final RoundTableMessageRepository messageRepository;
@@ -97,6 +101,8 @@ public class RoundTableService {
             BookService bookService,
             BookParserService bookParserService,
             ChatModelManager chatModelManager,
+            ChatHistoryCompressor chatHistoryCompressor,
+            ExternalKnowledgeGenerator externalKnowledgeGenerator,
             AiProviderConfigService aiProviderConfigService,
             RoundTableSessionRepository sessionRepository,
             RoundTableMessageRepository messageRepository,
@@ -112,6 +118,8 @@ public class RoundTableService {
         this.bookService = bookService;
         this.bookParserService = bookParserService;
         this.chatModelManager = chatModelManager;
+        this.chatHistoryCompressor = chatHistoryCompressor;
+        this.externalKnowledgeGenerator = externalKnowledgeGenerator;
         this.aiProviderConfigService = aiProviderConfigService;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
@@ -123,6 +131,99 @@ public class RoundTableService {
         this.objectMapper = objectMapper;
         this.bookRepository = bookRepository;
         this.roundTableCoverageRepository = roundTableCoverageRepository;
+    }
+
+    // ================================================================
+    // 圆桌派域 AI 调用
+    // ================================================================
+
+    /**
+     * 从书籍信息选择最适合的讨论嘉宾。
+     *
+     * @return AI 原始响应文本（JSON 数组），由调用方解析
+     */
+    public String callAiForRoleSelection(long bookId, String bookTitle, String bookInfo, List<String> excludeKeys) {
+        String roleList = aiConfigProvider.buildRoundTableRoleListForPrompt();
+        String excludeClause = (excludeKeys != null && !excludeKeys.isEmpty())
+                ? "4. 【刷新】以下角色已选过，这次必须换一批不同的人：" + String.join(", ", excludeKeys)
+                : "";
+        String systemPrompt = String.format(AiPromptConstants.ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT_TEMPLATE, excludeClause, roleList);
+        return chatModelManager.callAiForScene(AiScene.ROUND_TABLE_ROLE_RECOMMEND, "圆桌派角色推荐",
+                String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
+                        SystemMessage.from(systemPrompt),
+                        UserMessage.from("书籍信息：\n" + bookInfo)));
+    }
+
+    /**
+     * 回退模式：纯关键词硬匹配角色推荐。
+     *
+     * @return AI 原始响应文本（逗号分隔的角色 key 列表）
+     */
+    public String callAiForRoleSelectionFallback(long bookId, String bookTitle, String bookInfo, String roleList) {
+        return chatModelManager.callAiForScene(AiScene.ROUND_TABLE_ROLE_RECOMMEND, "圆桌派角色推荐(回退)",
+                String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
+                        SystemMessage.from(AiPromptConstants.ROLE_SELECTION_FALLBACK_SYSTEM_PROMPT),
+                        UserMessage.from("角色列表：" + roleList + "\n\n书籍信息：\n" + bookInfo)));
+    }
+
+    /**
+     * 为特定角色生成向量检索查询文本。
+     */
+    public String callAiForRoleSearchQuery(String roleKey, String bookTitle, String roleName,
+                                           String roleTitle, String roleKeywords, String recentDiscussion) {
+        String systemPrompt = AiPromptConstants.ROLE_SEARCH_QUERY_SYSTEM_PROMPT;
+
+        String userPrompt = String.format("""
+                【图书】%s
+                【角色】%s（%s）
+                【角色关注领域】%s
+                【最近讨论】
+                %s""", bookTitle, roleName, roleTitle, roleKeywords, recentDiscussion);
+
+        return chatModelManager.callAiForScene(AiScene.ROUND_TABLE_ROLE_SEARCH, "圆桌派角色检索查询",
+                "role=" + roleKey, List.of(
+                        SystemMessage.from(systemPrompt),
+                        UserMessage.from(userPrompt)));
+    }
+
+    /**
+     * 为特定角色生成多个向量检索查询短语（每行一个），用于多子查询 RAG 检索。
+     */
+    public List<String> callAiForRoleSearchQueries(String roleKey, String bookTitle, String roleName,
+                                                   String roleTitle, String roleKeywords,
+                                                   String recentDiscussion, int subQueryCount,
+                                                   String perspectiveHint) {
+        String perspective = (perspectiveHint == null || perspectiveHint.isBlank())
+                ? "从该角色的专业视角出发" : perspectiveHint;
+        String systemPrompt = String.format(
+                AiPromptConstants.ROLE_SEARCH_QUERIES_SYSTEM_PROMPT_TEMPLATE,
+                subQueryCount, perspective);
+
+        String userPrompt = String.format("""
+                        【图书】%s
+                        【角色】%s（%s）
+                        【角色关注领域】%s
+                        【最近讨论】
+                        %s""", bookTitle, roleName, roleTitle, roleKeywords,
+                recentDiscussion == null || recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion);
+
+        String aiText = chatModelManager.callAiForScene(AiScene.ROUND_TABLE_ROLE_SEARCH, "圆桌派角色检索查询(多)",
+                "role=" + roleKey + ", count=" + subQueryCount, List.of(
+                        SystemMessage.from(systemPrompt),
+                        UserMessage.from(userPrompt)));
+        if (aiText == null || aiText.isBlank()) return List.of();
+
+        List<String> queries = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (String line : aiText.split("\n")) {
+            String q = line.trim()
+                    .replaceAll("^(查询|检索|搜索|关键词)[：:]", "")
+                    .trim();
+            if (q.isBlank() || q.length() > 30 || seen.contains(q)) continue;
+            seen.add(q);
+            queries.add(q);
+        }
+        return queries;
     }
 
     /**
@@ -192,7 +293,7 @@ public class RoundTableService {
             String bookInfo = buildBookInfoForRoleSelection(book);
             // 刷新时排除上次已选角色，避免重复推荐
             List<String> excludeKeys = refresh ? getTopSelectedKeysFromZSet(scoreKey) : List.of();
-            String result = chatModelManager.callAiForRoleSelection(bookId, book.getTitle(), bookInfo, excludeKeys);
+            String result = callAiForRoleSelection(bookId, book.getTitle(), bookInfo, excludeKeys);
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
@@ -333,7 +434,7 @@ public class RoundTableService {
                     .map(r -> r.getKey() + "(" + r.getName() + ")")
                     .collect(Collectors.joining(", "));
 
-            String result = chatModelManager.callAiForRoleSelectionFallback(
+            String result = callAiForRoleSelectionFallback(
                     book.getId(), book.getTitle(), bookInfo, roleList);
 
             if (result != null && !result.isBlank()) {
@@ -1855,7 +1956,7 @@ public class RoundTableService {
         try {
             String domain = getRoleDomain(role);
             String topic = buildDiscussionTopic(book, history);
-            return chatModelManager.generateExternalKnowledge(domain, topic);
+            return externalKnowledgeGenerator.generateForRoundTable(domain, topic);
         } catch (Exception e) {
             log.debug("生成外部知识失败: role={}, error={}", role.getKey(), e.getMessage());
             return "";
@@ -2027,7 +2128,7 @@ public class RoundTableService {
         List<String> originals = toCompress.stream()
                 .map(RoundTableMessage::getContent)
                 .toList();
-        List<String> summaries = chatModelManager.compressRoundTableContentBatch(originals);
+        List<String> summaries = chatHistoryCompressor.compressRoundTableContentBatch(originals);
         if (summaries == null || summaries.size() != toCompress.size()) {
             log.warn("圆桌派批量压缩返回异常(跳过): sessionId={}, expected={}, actual={}",
                     sessionId, toCompress.size(),
@@ -2229,7 +2330,7 @@ public class RoundTableService {
 
         // subQueryCount == 1 时走原单查询逻辑（向后兼容）
         if (subQueryCount <= 1) {
-            String query = chatModelManager.callAiForRoleSearchQuery(
+            String query = callAiForRoleSearchQuery(
                     role.getKey(), book.getTitle(),
                     role.getName(), role.getTitle(), roleKeywords,
                     recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion);
@@ -2245,7 +2346,7 @@ public class RoundTableService {
 
         // subQueryCount > 1 时走多子查询生成
         try {
-            List<String> queries = chatModelManager.callAiForRoleSearchQueries(
+            List<String> queries = callAiForRoleSearchQueries(
                     role.getKey(), book.getTitle(),
                     role.getName(), role.getTitle(), roleKeywords,
                     recentDiscussion, subQueryCount, perspectiveHint);
@@ -2255,7 +2356,7 @@ public class RoundTableService {
         }
 
         // 多子查询失败回退到单查询
-        String query = chatModelManager.callAiForRoleSearchQuery(
+        String query = callAiForRoleSearchQuery(
                 role.getKey(), book.getTitle(),
                 role.getName(), role.getTitle(), roleKeywords,
                 recentDiscussion.isBlank() ? "（讨论尚未开始）" : recentDiscussion);

@@ -1,6 +1,9 @@
 package com.kbook.service.book;
 import com.kbook.service.user.UserService;
+import com.kbook.service.ai.BookChatService;
 import com.kbook.service.ai.ChatModelManager;
+import com.kbook.service.ai.core.UserProfileBuilder;
+import com.kbook.service.ai.streaming.StreamingSseHandler;
 
 import com.kbook.service.embedding.EmbeddingService;
 
@@ -21,6 +24,7 @@ import com.kbook.entity.Book;
 import com.kbook.entity.User;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -84,6 +88,8 @@ public class BookParserService {
 
     private final ChatModelFactory chatModelFactory;
     private final ChatModelManager chatModelManager;
+    private final UserProfileBuilder userProfileBuilder;
+    private final BookMetadataInferrer bookMetadataInferrer;
     private final BookService bookService; // 书籍服务
     private final UserService userService; // 用户服务
     private final EmbeddingService embeddingService; // 嵌入向量服务
@@ -95,6 +101,8 @@ public class BookParserService {
     public BookParserService(
             ChatModelFactory chatModelFactory,
             ChatModelManager chatModelManager,
+            UserProfileBuilder userProfileBuilder,
+            BookMetadataInferrer bookMetadataInferrer,
             BookService bookService,
             UserService userService,
             EmbeddingService embeddingService,
@@ -104,6 +112,8 @@ public class BookParserService {
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.chatModelFactory = chatModelFactory;
         this.chatModelManager = chatModelManager;
+        this.userProfileBuilder = userProfileBuilder;
+        this.bookMetadataInferrer = bookMetadataInferrer;
         this.bookService = bookService;
         this.userService = userService;
         this.embeddingService = embeddingService;
@@ -784,7 +794,7 @@ public class BookParserService {
             // 6. 文字型 PDF 缺失作者时，或始终用大模型生成更完整简介
             /* 始终用AI生成更完整的简介 */
             if (!isScanned) {
-                chatModelManager.inferMetadataFromContent(book, firstPagesText); // 从内容推断元数据
+                bookMetadataInferrer.infer(book, firstPagesText); // 从内容推断元数据
             }
 
             // 7. 构建 AI 标签生成的内容
@@ -1045,7 +1055,7 @@ public class BookParserService {
 
             // TXT 没有结构化元数据，用大模型从前2000字推断作者和简介
             // 简介始终生成（AI基于正文生成更完整），作者仅在缺失时推断
-            chatModelManager.inferMetadataFromContent(book, preview); // 从内容推断元数据
+            bookMetadataInferrer.infer(book, preview); // 从内容推断元数据
         } catch (Exception e) {
             log.warn("TXT 解析失败: {} - {}", book.getTitle(), e.getMessage());
         }
@@ -2012,12 +2022,66 @@ public class BookParserService {
         }
 
         com.kbook.entity.User finalUser = user;
-        Future<?> aiFuture = sseExecutor.submit(() -> chatModelManager.streamSpeedRead(book, finalUser, emitter));
+        Future<?> aiFuture = sseExecutor.submit(() -> streamSpeedRead(book, finalUser, emitter));
 
         emitter.onCompletion(() -> aiFuture.cancel(true));
         emitter.onTimeout(() -> aiFuture.cancel(true));
         emitter.onError(e -> aiFuture.cancel(true));
 
         return emitter;
+    }
+
+    /**
+     * 流式生成 3 分钟速读摘要，通过 SSE 实时推送内容。
+     * <p>
+     * 提升用户体验。输出格式为 Markdown 标题 + 内容行，便于前端渲染。</p>
+     *
+     * @param book    书籍实体
+     * @param user    用户实体（可为 null）
+     * @param emitter SSE 发送器，用于推送流式数据
+     */
+    public void streamSpeedRead(Book book, User user, SseEmitter emitter) {
+        try {
+            // 获取流式模型实例（按场景路由）
+            StreamingChatModel model = chatModelFactory.buildStreamingForScene(AiScene.SPEED_READ);
+            if (model == null) {
+                SseHelper.sendErrorAndComplete(emitter, "AI 模型未配置，无法生成速读摘要");
+                return;
+            }
+            var logContext = chatModelFactory.buildLogContext(AiScene.SPEED_READ);
+
+            // 构建书籍内容和用户画像
+            String bookContent = BookChatService.buildSpeedReadContent(book);
+            String userProfileDesc = userProfileBuilder.build(user);
+
+            // 固定角色 + 格式指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
+            String systemPrompt = AiPromptConstants.SPEED_READ_SYSTEM_PROMPT;
+
+            // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像)
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(SystemMessage.from(systemPrompt + "\n\n /no_think"));
+            messages.add(UserMessage.from("【书籍信息】\n" + bookContent + "\n\n /no_think"));
+            if (!userProfileDesc.isBlank()) {
+                messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc + "\n\n /no_think"));
+            }
+
+            long startTime = System.currentTimeMillis();
+
+            StreamingSseHandler.stream(model, messages, emitter, new StreamingSseHandler.Callback() {
+                @Override
+                public String getOperationName() {
+                    return "3分钟速读";
+                }
+
+                @Override
+                public void onComplete(String fullResponse, ChatResponse completeResponse) {
+                    // 统一摘要日志已由 StreamingSseHandler.onCompleteResponse 打印
+                }
+            }, 2, logContext);
+        } catch (Exception e) {
+            if (Thread.currentThread().isInterrupted()) return;
+            log.warn("流式速读摘要异常: bookId={} - {}", book.getId(), e.getMessage());
+            SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
+        }
     }
 }

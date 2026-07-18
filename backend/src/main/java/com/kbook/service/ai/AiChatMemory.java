@@ -5,6 +5,7 @@ import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
+import com.kbook.service.ai.core.ChatHistoryCompressor;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -69,7 +70,7 @@ public class AiChatMemory implements ChatMemoryStore {
     private final AiSessionRepository sessionRepository;
     private final AiConversationRepository conversationRepository;
     private final ObjectProvider<AiProviderConfigService> providerConfigServiceProvider;
-    private final ChatModelManager chatModelManager;
+    private final ChatHistoryCompressor chatHistoryCompressor;
 
     /**
      * 构造函数，通过 Spring 依赖注入所需的 Bean。
@@ -77,16 +78,16 @@ public class AiChatMemory implements ChatMemoryStore {
      * @param sessionRepository            会话仓库，用于查询会话信息
      * @param conversationRepository       对话仓库，用于读写对话记录
      * @param providerConfigServiceProvider AI 配置服务提供器，延迟获取以避免循环依赖
-     * @param chatModelManager             聊天模型管理器，用于内容压缩
+     * @param chatHistoryCompressor        对话历史压缩器，用于内容压缩
      */
     public AiChatMemory(AiSessionRepository sessionRepository,
                         AiConversationRepository conversationRepository,
                         ObjectProvider<AiProviderConfigService> providerConfigServiceProvider,
-                        ChatModelManager chatModelManager) {
+                        ChatHistoryCompressor chatHistoryCompressor) {
         this.sessionRepository = sessionRepository;
         this.conversationRepository = conversationRepository;
         this.providerConfigServiceProvider = providerConfigServiceProvider;
-        this.chatModelManager = chatModelManager;
+        this.chatHistoryCompressor = chatHistoryCompressor;
     }
 
     /**
@@ -207,7 +208,7 @@ public class AiChatMemory implements ChatMemoryStore {
 
                 // 调用 AI 压缩内容
                 String original = target.getContent();
-                String summary = chatModelManager.compressContent(original);
+                String summary = chatHistoryCompressor.compressContent(original);
                 if (summary == null) {
                     // 压缩失败则停止，避免无限循环
                     log.warn("压缩失败(跳过): sessionId={}, convId={}", sessionId, target.getId());

@@ -3,7 +3,9 @@ package com.kbook.service.ai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.DebateScoreVO;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.debate.DebateScore;
 import com.kbook.entity.debate.DebateSession;
 import com.kbook.repository.debate.DebateMessageRepository;
@@ -53,6 +55,29 @@ public class DebateScoringService {
         this.objectMapper = objectMapper;
     }
 
+    // ================================================================
+    // 辩论域 AI 调用（封装 SystemMessage + UserMessage 拼装 → callAi）
+    // ================================================================
+
+    /**
+     * 对单次辩论发言进行 7 维度评分。
+     *
+     * @return AI 原始响应文本（JSON 对象），由调用方解析
+     */
+    public String callAiForDebateScoring(String sessionId, String roleKey, int roundNumber,
+                                         String topic, String side, String roundTypeLabel, String content) {
+        String userPrompt = String.format("""
+                辩题：%s
+                发言者：%s（%s方）
+                当前轮次：%s
+                发言内容：%s""", topic, roleKey, side, roundTypeLabel, content);
+
+        return chatModelManager.callAiForScene(AiScene.DEBATE_SCORING, "辩论评分",
+                String.format("sessionId=%s, roleKey=%s, round=%d", sessionId, roleKey, roundNumber), List.of(
+                        SystemMessage.from(AiPromptConstants.DEBATE_SCORING_SYSTEM_PROMPT),
+                        UserMessage.from(userPrompt)));
+    }
+
     /**
      * 异步评分 — 不阻塞调用方
      */
@@ -88,7 +113,7 @@ public class DebateScoringService {
                     .list(1).stream().findFirst().orElse(null);
             String topic = session != null ? session.getTopic() : "未知辩题";
 
-            String result = chatModelManager.callAiForDebateScoring(
+            String result = callAiForDebateScoring(
                     sessionId, roleKey, roundNumber,
                     topic, side,
                     getRoundTypeLabel(roundType),

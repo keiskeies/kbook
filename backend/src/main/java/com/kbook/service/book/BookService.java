@@ -10,15 +10,20 @@ import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.config.properties.BookStorageProperties;
+import com.kbook.constants.AiPromptConstants;
 import com.kbook.document.BookDocument;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.stats.TagStat;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.UserReadHistoryRepository;
 import com.kbook.service.ai.ChatModelManager;
 import com.kbook.service.embedding.EmbeddingService;
 import com.kbook.service.recommend.BookDimensionScoreService;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
@@ -826,6 +831,65 @@ public class BookService {
     }
 
     /**
+     * 生成图书精炼摘要：将 chapterSummary + 标签 + 目录 压缩为高信息密度的结构化摘要。
+     *
+     * <p>一次 LLM 调用，生成后存入 Book.compressedSummary，后续问答直接复用。
+     * 不设长度上限，以精炼为目标，保留所有关键信息。</p>
+     *
+     * @param book 书籍实体（需含 chapterSummary, description, toc, 各类标签）
+     * @return 精炼后的摘要文本，失败时返回 null
+     */
+    public String generateCompressedSummary(Book book) {
+        try {
+            StringBuilder input = new StringBuilder();
+
+            if (book.getDescription() != null && !book.getDescription().isBlank()) {
+                input.append("【图书简介】\n").append(book.getDescription()).append("\n\n");
+            }
+            if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+                input.append("【格式标签】").append(book.getFormatTags()).append("\n");
+            }
+            if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+                input.append("【核心概念标签】").append(book.getConceptTags()).append("\n");
+            }
+            if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+                input.append("【读者需求标签】").append(book.getReaderNeedTags()).append("\n");
+            }
+            if (book.getTargetReaderTags() != null && !book.getTargetReaderTags().isBlank()) {
+                input.append("【目标读者标签】").append(book.getTargetReaderTags()).append("\n");
+            }
+            if (book.getToc() != null && !book.getToc().isBlank()) {
+                input.append("\n【图书目录】\n").append(book.getToc()).append("\n");
+            }
+            if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+                input.append("\n【章节原文摘录】\n").append(book.getChapterSummary()).append("\n");
+            }
+
+            String systemPrompt = AiPromptConstants.COMPRESSED_SUMMARY_SYSTEM_PROMPT;
+
+            // 动态内容（图书信息）作为 UserMessage
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(systemPrompt),
+                    UserMessage.from(input.toString()));
+
+            String result = chatModelManager.callAiForScene(AiScene.BOOK_SUMMARY_REFINE,
+                    "图书摘要精炼",
+                    String.format("book=%s, inputLen=%d", book.getTitle(), input.length()),
+                    chatMessages);
+
+            if (result != null && !result.isBlank()) {
+                log.info("图书摘要精炼成功: bookId={}, title={}, resultLen={}",
+                        book.getId(), book.getTitle(), result.length());
+                return result;
+            }
+
+        } catch (Exception e) {
+            log.warn("图书摘要精炼失败: bookId={}, title={} - {}", book.getId(), book.getTitle(), e.getMessage());
+        }
+        return null;
+    }
+
+    /**
      * 获取书籍的有效摘要，优先返回 compressedSummary（LLM 精炼），
      * 若为空则触发懒生成并持久化，失败时回退到 chapterSummary。
      * <p>
@@ -844,7 +908,7 @@ public class BookService {
         // 2. 压缩摘要为空，尝试懒生成
         if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
             try {
-                String compressed = chatModelManager.generateCompressedSummary(book);
+                String compressed = generateCompressedSummary(book);
                 if (compressed != null && !compressed.isBlank()) {
                     book.setCompressedSummary(compressed);
                     bookRepository.save(book);

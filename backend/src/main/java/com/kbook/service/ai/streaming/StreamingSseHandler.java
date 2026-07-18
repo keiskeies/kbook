@@ -252,7 +252,7 @@ public final class StreamingSseHandler {
                     String reasoningEffort = logContext != null ? logContext.reasoningEffort() : null;
                     CommonUtils.logAiStreamingSummary(callback.getOperationName(), scene, modelName, configName,
                             thinkingMode, thinkingEnabled, reasoningEffort,
-                            messages.size(), systemPromptText,
+                            messages,
                             content, thinking,
                             elapsed, inputTokens, outputTokens);
 

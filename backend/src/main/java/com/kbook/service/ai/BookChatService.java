@@ -13,6 +13,8 @@ import com.kbook.service.embedding.EmbeddingService;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
+import com.kbook.service.ai.core.ChatHistoryCompressor;
+import com.kbook.service.ai.core.UserProfileBuilder;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.QdrantProperties;
@@ -72,6 +74,7 @@ public class BookChatService {
      * 会话类型标识：图书问答
      */
     private static final String TYPE = "book_chat";
+    private static final int SPEED_READ_CONTENT_LIMIT = 15000;
 
     private final EmbeddingService embeddingService;
     private final BookService bookService;
@@ -79,6 +82,7 @@ public class BookChatService {
     private final AiProviderConfigService aiProviderConfigService;
     private final ChatModelFactory chatModelFactory;
     private final ChatModelManager chatModelManager;
+    private final ChatHistoryCompressor chatHistoryCompressor;
     private final AiConversationRepository conversationRepository;
     private final AiSessionRepository sessionRepository;
     private final BookSuggestedQuestionRepository suggestedQuestionRepository;
@@ -94,6 +98,7 @@ public class BookChatService {
     private final ListQueryStrategySelector listQueryStrategySelector;
     private final ListQueryRetriever listQueryRetriever;
     private final RagAnswerCache ragAnswerCache;
+    private final UserProfileBuilder userProfileBuilder;
 
     public BookChatService(
             EmbeddingService embeddingService,
@@ -102,6 +107,7 @@ public class BookChatService {
             AiProviderConfigService aiProviderConfigService,
             ChatModelFactory chatModelFactory,
             ChatModelManager chatModelManager,
+            ChatHistoryCompressor chatHistoryCompressor,
             AiConversationRepository conversationRepository,
             AiSessionRepository sessionRepository,
             BookSuggestedQuestionRepository suggestedQuestionRepository,
@@ -115,6 +121,7 @@ public class BookChatService {
             ListQueryStrategySelector listQueryStrategySelector,
             ListQueryRetriever listQueryRetriever,
             RagAnswerCache ragAnswerCache,
+            UserProfileBuilder userProfileBuilder,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -122,6 +129,7 @@ public class BookChatService {
         this.aiProviderConfigService = aiProviderConfigService;
         this.chatModelFactory = chatModelFactory;
         this.chatModelManager = chatModelManager;
+        this.chatHistoryCompressor = chatHistoryCompressor;
         this.conversationRepository = conversationRepository;
         this.sessionRepository = sessionRepository;
         this.suggestedQuestionRepository = suggestedQuestionRepository;
@@ -135,6 +143,7 @@ public class BookChatService {
         this.listQueryStrategySelector = listQueryStrategySelector;
         this.listQueryRetriever = listQueryRetriever;
         this.ragAnswerCache = ragAnswerCache;
+        this.userProfileBuilder = userProfileBuilder;
         this.sseExecutor = sseExecutor;
     }
 
@@ -254,7 +263,7 @@ public class BookChatService {
                 // 0. RAG 答案缓存检查（仅首问缓存，无对话上下文依赖）
                 String lastAiAnswer = getLastAiAnswer(userId, effectiveSessionId);
                 final boolean cacheable = (lastAiAnswer == null || lastAiAnswer.isBlank());
-                final String modelName = chatModelFactory.getModelName();
+                final String modelName = logContext.modelName();
 
                 if (cacheable) {
                     String cached = ragAnswerCache.get(bookId, question, modelName);
@@ -446,7 +455,7 @@ public class BookChatService {
         }
 
         User user = userService.getUserById(userId);
-        return chatModelManager.generateFollowUpQuestions(title, question, answer, user, book);
+        return generateFollowUpQuestions(title, question, answer, user, book);
     }
 
     /**
@@ -823,7 +832,7 @@ public class BookChatService {
         List<String> originals = toCompress.stream()
                 .map(AiConversation::getContent)
                 .toList();
-        List<String> summaries = chatModelManager.compressContentBatch(originals);
+        List<String> summaries = chatHistoryCompressor.compressContentBatch(originals);
         if (summaries == null || summaries.size() != toCompress.size()) {
             log.warn("批量压缩返回异常(跳过): sessionId={}, expected={}, actual={}",
                     sessionId, toCompress.size(),
@@ -1071,7 +1080,7 @@ public class BookChatService {
         }
         // 列表型分支未触发或失败 → 走常规 RAG 流程（兜底）
 
-        List<String> subQueries = chatModelManager.expandQuery(question, lastAiAnswer, book);
+        List<String> subQueries = expandQuery(question, lastAiAnswer, book);
         try {
             emitter.send(SseEmitter.event().name("thinking_content")
                     .data("找找 [" + String.join("，", subQueries) + "] 相关内容…\n"));
@@ -1259,12 +1268,197 @@ public class BookChatService {
                     .data("让我理一理这本书的脉络…\n"));
         } catch (Exception ignored) {
         }
-        String compressed = chatModelManager.generateCompressedSummary(book);
+        String compressed = bookService.generateCompressedSummary(book);
         if (compressed != null && !compressed.isBlank()) {
             book.setCompressedSummary(compressed);
             bookService.updateBook(book.getId(), book);
             log.info("compressedSummary 懒生成成功: bookId={}, len={}", book.getId(), compressed.length());
         }
+    }
+
+    // ================================================================
+    // 问答域 AI 调用 & 工具方法
+    // ================================================================
+
+    /**
+     * 根据已有问答生成深入追问问题，引导读者进行深度思考。
+     *
+     * @param title    书籍标题
+     * @param question 用户问题
+     * @param answer   AI 回答
+     * @param user     用户实体（可为 null，影响问题个性化程度）
+     * @param book     书籍实体，提供图书信息作为上下文
+     * @return 生成的追问问题列表（最多 3 个），失败时返回空列表
+     */
+    public List<String> generateFollowUpQuestions(String title, String question, String answer, User user, Book book) {
+        // 如果回答或问题为空，无法生成追问
+        if (answer == null || answer.isBlank() || question == null || question.isBlank()) {
+            return List.of();
+        }
+
+        // 构建用户画像和书籍信息作为上下文
+        String userProfileDesc = userProfileBuilder.build(user);
+        String bookInfo = buildSpeedReadContent(book);
+
+        try {
+            // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像) → UserMessage(上轮问答)
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(SystemMessage.from(AiPromptConstants.FOLLOW_UP_QUESTION_SYSTEM_PROMPT));
+            messages.add(UserMessage.from("【图书信息】\n" + bookInfo));
+            if (!userProfileDesc.isBlank()) {
+                messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc));
+            }
+            messages.add(UserMessage.from("读者问：" + question + "\n你回答：" + answer));
+
+            String aiText = chatModelManager.callAiForScene(AiScene.FOLLOW_UP_QUESTION,
+                    "生成深入追问问题",
+                    String.format("title=%s", title),
+                    messages);
+            if (aiText != null) {
+                return parseQuestions(aiText).stream().limit(5).collect(Collectors.toList());
+            }
+        } catch (Exception e) {
+            log.debug("生成深入追问问题失败: {}", e.getMessage());
+        }
+
+        return List.of();
+    }
+
+    /**
+     * RAG 查询扩展，根据问题类型生成多组检索查询以提高召回率。
+     *
+     * @param question     用户原始问题
+     * @param lastAiAnswer 上一轮 AI 回答摘要（可为 null，用于追问场景）
+     * @param book         书籍
+     * @return 扩展后的查询列表（最多 9 个），包含原始查询
+     */
+    public List<String> expandQuery(String question, String lastAiAnswer, Book book) {
+        // 初始化查询列表
+        List<String> queries = new ArrayList<>();
+
+        // 原始查询：如果超过15字，提取关键词作为首个查询
+        String primaryQuery = question.length() > 15 ? extractKeywords(question) : question;
+        queries.add(primaryQuery);
+
+        try {
+            // 构建静态书籍信息（书名、作者、目录）— 同书复用 KV Cache
+            String bookContext = buildSpeedReadContent(book);
+
+            // 固定指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
+            String systemPrompt = AiPromptConstants.EXPAND_QUERY_SYSTEM_PROMPT;
+
+            // 消息顺序：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(上轮回答,可空) → UserMessage(用户问题)
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(SystemMessage.from(systemPrompt));
+            messages.add(UserMessage.from("【书籍信息】\n" + bookContext.trim()));
+            if (lastAiAnswer != null && !lastAiAnswer.isBlank()) {
+                messages.add(UserMessage.from("【上轮AI回答】\n" + lastAiAnswer.trim()));
+            }
+            messages.add(UserMessage.from("【用户问题】\n" + question));
+
+            String aiText = chatModelManager.callAiForScene(AiScene.QUERY_EXPAND,
+                    "RAG查询扩展",
+                    String.format("原始: %s", question),
+                    messages);
+            if (aiText != null) {
+                for (String line : aiText.split("\n")) {
+                    line = line.trim();
+                    // 过滤：非空、不过长、不重复
+                    if (!line.isBlank() && line.length() <= 20 && !queries.contains(line)) {
+                        queries.add(line);
+                    }
+                }
+            }
+
+            log.debug("[RAG查询扩展] 原始: {} → 扩展后: {}", question, queries);
+        } catch (Exception e) {
+            log.warn("[RAG查询扩展] 失败，使用原始查询: {}", e.getMessage());
+        }
+
+        return queries;
+    }
+
+    /**
+     * 构建速读摘要的书籍内容部分，格式化为结构化文本。
+     *
+     * <p>包含书名、作者、标签、简介、章节摘要或目录。内容会被截断以避免超出 AI 上下文长度限制。
+     * 优先使用章节摘要，如果没有则使用目录。</p>
+     *
+     * @param book 书籍实体
+     * @return 格式化后的书籍内容文本
+     */
+    public static String buildSpeedReadContent(Book book) {
+        StringBuilder contentBuilder = new StringBuilder();
+        contentBuilder.append("书名：《").append(book.getTitle()).append("》\n");
+        if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
+            contentBuilder.append("作者：").append(book.getAuthor()).append("\n");
+        }
+        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+            String tags = book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            contentBuilder.append("标签：").append(tags).append("\n");
+        }
+        if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+            String concepts = book.getConceptTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            contentBuilder.append("核心概念：").append(concepts).append("\n");
+        }
+        if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+            String needs = book.getReaderNeedTags().replaceAll("[\\[\\]\"]", "").replace(",", "、");
+            contentBuilder.append("读者关注：").append(needs).append("\n");
+        }
+        if (book.getDescription() != null && !book.getDescription().isBlank()) {
+            contentBuilder.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 2000)).append("\n");
+        }
+
+        if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            contentBuilder.append("章节摘要：\n").append(CommonUtils.truncateText(book.getChapterSummary(), SPEED_READ_CONTENT_LIMIT)).append("\n");
+        } else if (book.getToc() != null && !book.getToc().isBlank()) {
+            contentBuilder.append("目录：\n").append(CommonUtils.truncateText(book.getToc(), 1500)).append("\n");
+        }
+        return contentBuilder.toString();
+    }
+
+    /**
+     * 从长问题中提取关键词，用于向量检索。
+     *
+     * @param question 用户原始问题
+     * @return 提取的关键词短语（≤15字）
+     */
+    private static String extractKeywords(String question) {
+        // 去除口语化前缀和标点
+        String cleaned = question
+                .replaceAll("^(既然|那么|如果|请问|我想问|请告诉我|你能告诉我)", "")
+                .replaceAll("[？?!！。，,、\"“”‘’（）()\\[\\]【】]", " ")
+                .trim();
+
+        // 按空格/标点分割，取核心词
+        String[] words = cleaned.split("\\s+");
+        StringBuilder keywords = new StringBuilder();
+        for (String word : words) {
+            if (word.length() >= 2 && keywords.length() + word.length() <= 15) {
+                if (!keywords.isEmpty()) keywords.append(" ");
+                keywords.append(word);
+            }
+        }
+
+        String result = keywords.toString().trim();
+        return result.isEmpty() ? question.substring(0, Math.min(15, question.length())) : result;
+    }
+
+    /**
+     * 解析 AI 生成的问题列表文本。
+     *
+     * @param text AI 生成的多行问题文本
+     * @return 解析后的问题列表
+     */
+    private List<String> parseQuestions(String text) {
+        return Arrays.stream(text.split("\n"))
+                .map(String::trim)
+                .filter(line -> !line.isEmpty())
+                .map(line -> line.replaceAll("^\\d+[.、)\\s]*", "").trim())
+                .filter(line -> line.length() > 2)
+                .distinct()
+                .limit(20)
+                .collect(Collectors.toList());
     }
 
 }

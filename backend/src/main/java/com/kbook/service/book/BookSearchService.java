@@ -5,11 +5,16 @@ import com.kbook.service.embedding.EmbeddingService;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.constants.AiPromptConstants;
 import com.kbook.document.BookDocument;
 import com.kbook.dto.book.BookProjection;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.BookSearchRepository;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.extern.slf4j.Slf4j;
@@ -78,6 +83,76 @@ public class BookSearchService {
         this.bookRepository = bookRepository;
         this.embeddingService = embeddingService;
         this.chatModelManager = chatModelManager;
+    }
+
+    // ================================================================
+    // 向量查询扩展 AI 调用
+    // ================================================================
+
+    /**
+     * 向量搜索查询扩展，将口语化搜索词转化为多维度检索关键词。
+     *
+     * <p>核心思路：不改写用户原话，而是推断用户真正的阅读需求，从不同方向生成关键词短语，
+     * 提高图书推荐的匹配精度。生成的关键词应是书籍标签、分类或简介中可能出现的短语。</p>
+     *
+     * @param query 用户口语化搜索词
+     * @return 扩展后的关键词列表（3-5 个），失败时返回原始查询
+     */
+    public List<String> expandVectorSearchQuery(String query) {
+        try {
+            // 系统提示词（固定，可复用 KV Cache）
+            String systemPrompt = AiPromptConstants.EXPAND_VECTOR_SEARCH_SYSTEM_PROMPT;
+
+            // 动态内容（用户查询）作为 UserMessage
+            List<ChatMessage> chatMessages = List.of(
+                    SystemMessage.from(systemPrompt),
+                    UserMessage.from(query));
+
+            // 调用 AI 生成扩展关键词
+            String result = chatModelManager.callAiForScene(AiScene.VECTOR_QUERY_EXPAND,
+                    "向量查询扩展",
+                    String.format("q=%s", query.substring(0, Math.min(20, query.length()))),
+                    chatMessages);
+            if (result != null) {
+                // 解析 AI 响应，按行分割并过滤无效内容
+                List<String> raw = Arrays.stream(result.split("\n"))
+                        .map(String::trim)
+                        .filter(line -> !line.isBlank() && line.length() <= 20)
+                        .filter(line -> line.length() >= 2)  // 单字无意义
+                        .distinct()
+                        .toList();
+
+                // 去除与原词高度相似的扩展词（包含关系），避免重复查询
+                List<String> expanded = raw.stream()
+                        .filter(line -> !isSimilarToQuery(line, query))
+                        .limit(18)
+                        .collect(Collectors.toList());
+
+                if (!expanded.isEmpty()) {
+                    log.debug("向量查询扩展: '{}' → {}", query, expanded);
+                    return expanded;
+                }
+            }
+        } catch (Exception e) {
+            // 扩展失败时使用原始查询，不影响搜索功能
+            log.warn("向量查询扩展失败，使用原始查询: {}", e.getMessage());
+        }
+        // 默认返回原始查询
+        return List.of(query);
+    }
+
+    /**
+     * 判断扩展词与原词是否高度相似（包含关系），相似则跳过避免重复查询。
+     */
+    private boolean isSimilarToQuery(String expansion, String query) {
+        String e = expansion.trim();
+        String q = query.trim();
+        if (e.equals(q)) return true;
+        // 包含关系：短词是长词的子串，且短词长度≥2
+        if (e.length() >= 2 && q.length() >= 2) {
+            return q.contains(e) || e.contains(q);
+        }
+        return false;
     }
 
     // ==================== 混合搜索（对外主入口） ====================
@@ -180,7 +255,7 @@ public class BookSearchService {
         Set<Long> exclude = excludeBookIds != null ? new HashSet<>(excludeBookIds) : Set.of();
 
         // 查询扩展（同义+反义方向），一次调用两路共用
-        List<String> expandedQueries = chatModelManager.expandVectorSearchQuery(sanitizedKeyword);
+        List<String> expandedQueries = expandVectorSearchQuery(sanitizedKeyword);
 
         // ES 关键词召回（主路，扩展词用真实排名+折扣）
         Map<Long, Integer> keywordRanks = keywordRecall(sanitizedKeyword, expandedQueries, exclude);

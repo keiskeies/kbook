@@ -30,14 +30,16 @@ import java.util.Map;
 /**
  * AI 聊天模型工厂类
  * <p>
- * 全部从数据库 {@link AiProviderConfig} 中读取配置构建 AI 聊天模型，不再使用 YML 配置。
+ * 全部从数据库 {@link AiProviderConfig} 中读取配置构建 AI 聊天模型。
+ * 通过 {@link com.kbook.entity.AiScene} 场景路由构建模型，思考参数联动
+ * {@link AiProviderConfig.ThinkingMode} 和 {@link com.kbook.entity.AiSceneConfig}。
  * <p>
- * CHAT 用途的配置按 roles 字段细分为：
+ * 特例方法：
  * <ul>
- *   <li>QA 角色 — 大型问答（图书问答、AI 助理、圆桌派、奇葩说）</li>
- *   <li>TOOL 角色 — 小型工具（元数据推断、内容压缩、查询扩展等后台任务）</li>
+ *   <li>{@link #buildVisionChatModel()} — OCR 视觉模型（从 YML 配置读取）</li>
+ *   <li>{@link #buildChatModelForTest(Long)} — 测试连接（按指定 configId 构建）</li>
+ *   <li>{@link #buildDefaultEmbeddingModel()} — 嵌入模型</li>
  * </ul>
- * EMBEDDING 用途的配置从数据库读取，无配置时启动报错。
  */
 @Slf4j
 @Component
@@ -60,99 +62,6 @@ public class ChatModelFactory {
     @org.springframework.context.annotation.Lazy
     @org.springframework.beans.factory.annotation.Autowired
     private com.kbook.service.ai.AiSceneConfigService sceneConfigService;
-
-    // ======================== QA 模型（大型问答）=======================
-
-    /**
-     * 构建普通聊天模型（QA 角色，带思考过程）。
-     * <p>
-     * 从数据库查询 CHAT 用途中 roles 包含 "QA" 的启用配置。
-     *
-     * @return 聊天模型实例，已包装重试机制
-     * @throws IllegalStateException 无可用 QA 配置时抛出
-     */
-    public ChatModel buildChatModel() {
-        AiProviderConfig config = resolveQaConfig();
-        return wrap(buildChat(config, ThinkingConfig.from(config, true)), config);
-    }
-
-    /**
-     * 构建不包含思考过程的普通聊天模型（QA 角色）。
-     *
-     * @return 聊天模型实例，已包装重试机制
-     * @throws IllegalStateException 无可用 QA 配置时抛出
-     */
-    public ChatModel buildChatModelWithoutThinking() {
-        AiProviderConfig config = resolveQaConfig();
-        return wrap(buildChat(config, ThinkingConfig.from(config, false)), config);
-    }
-
-    /**
-     * 构建流式聊天模型（QA 角色，带思考过程）。
-     *
-     * @return 流式聊天模型实例
-     * @throws IllegalStateException 无可用 QA 配置时抛出
-     */
-    public StreamingChatModel buildStreamingChatModel() {
-        AiProviderConfig config = resolveQaConfig();
-        return wrapStreaming(buildStreaming(config, ThinkingConfig.from(config, true)), config);
-    }
-
-    /**
-     * 构建不包含思考过程的流式聊天模型（QA 角色）。
-     *
-     * @return 流式聊天模型实例
-     * @throws IllegalStateException 无可用 QA 配置时抛出
-     */
-    public StreamingChatModel buildStreamingChatModelWithoutThinking() {
-        AiProviderConfig config = resolveQaConfig();
-        return wrapStreaming(buildStreaming(config, ThinkingConfig.from(config, false)), config);
-    }
-
-    // ======================== TOOL 模型（小型工具）=======================
-
-    /**
-     * 构建工具聊天模型（TOOL 角色，不包含思考过程）。
-     * <p>
-     * 从数据库查询 CHAT 用途中 roles 包含 "TOOL" 的启用配置。
-     * 用于元数据推断、内容压缩、查询扩展等后台任务。
-     *
-     * @return 聊天模型实例，已包装重试机制
-     * @throws IllegalStateException 无可用 TOOL 配置时抛出
-     */
-    public ChatModel buildToolChatModel() {
-        AiProviderConfig config = resolveToolConfig();
-        return wrap(buildChat(config, ThinkingConfig.from(config, false)), config);
-    }
-
-    /**
-     * 构建压缩专用聊天模型 — 复用 TOOL 配置，但使用低温度（0.1）确保压缩结果的
-     * 确定性和忠实度，避免高温度带来的内容改写/编造风险。
-     *
-     * @return 聊天模型实例，已包装重试机制
-     * @throws IllegalStateException 无可用 TOOL 配置时抛出
-     */
-    public ChatModel buildCompressionChatModel() {
-        AiProviderConfig config = resolveToolConfig();
-        Duration t = timeout(config.getTimeout());
-        ThinkingConfig tc = ThinkingConfig.off(); // 压缩关闭思考，确保确定性输出
-        return config.getProvider() == AiProviderConfig.Provider.OPENAI
-                ? wrap(buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
-                0.1, t, config.getApiKey(), tc), config)
-                : wrap(buildOllamaChat(config.getBaseUrl(), config.getModelName(),
-                0.1, t, tc), config);
-    }
-
-    /**
-     * 构建流式工具聊天模型（TOOL 角色，不包含思考过程）。
-     *
-     * @return 流式聊天模型实例
-     * @throws IllegalStateException 无可用 TOOL 配置时抛出
-     */
-    public StreamingChatModel buildStreamingToolChatModel() {
-        AiProviderConfig config = resolveToolConfig();
-        return wrapStreaming(buildStreaming(config, ThinkingConfig.from(config, false)), config);
-    }
 
     // ======================== 其他公开方法 ========================
 
@@ -308,7 +217,7 @@ public class ChatModelFactory {
     /**
      * 构建 Ollama 嵌入模型。
      */
-    public EmbeddingModel buildOllamaEmbeddingModel(String baseUrl, String modelName, Duration timeout) {
+    private EmbeddingModel buildOllamaEmbeddingModel(String baseUrl, String modelName, Duration timeout) {
         return OllamaEmbeddingModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(300))
@@ -319,7 +228,7 @@ public class ChatModelFactory {
     /**
      * 构建 OpenAI 兼容的嵌入模型。
      */
-    public EmbeddingModel buildOpenAiEmbeddingModel(String baseUrl, String modelName, String apiKey, Duration timeout) {
+    private EmbeddingModel buildOpenAiEmbeddingModel(String baseUrl, String modelName, String apiKey, Duration timeout) {
         var builder = OpenAiEmbeddingModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(300));
@@ -353,14 +262,6 @@ public class ChatModelFactory {
         if (config == null) return false;
         if (config.getToolsEnabled() != null) return config.getToolsEnabled();
         return !config.getModelName().toLowerCase().startsWith("gemma3n");
-    }
-
-    /**
-     * 获取默认的 AI 服务基础地址 — 从 CHAT-QA 配置中读取。
-     */
-    public String getDefaultBaseUrl() {
-        AiProviderConfig config = resolveQaConfig();
-        return config.getBaseUrl();
     }
 
     /**
@@ -400,16 +301,6 @@ public class ChatModelFactory {
                         AiProviderConfig.Purpose.CHAT.name(), "%QA%")
                 .orElseThrow(() -> new IllegalStateException(
                         "未找到可用的对话模型(roles=QA)配置，请在管理后台添加并启用"));
-    }
-
-    /**
-     * 解析 CHAT-TOOL 配置。
-     */
-    private AiProviderConfig resolveToolConfig() {
-        return configRepository.findByPurposeAndEnabledAndRolesContaining(
-                        AiProviderConfig.Purpose.CHAT.name(), "%TOOL%")
-                .orElseThrow(() -> new IllegalStateException(
-                        "未找到可用的工具模型(roles=TOOL)配置，请在管理后台添加并启用"));
     }
 
     private Duration timeout(Integer seconds) {
@@ -583,7 +474,7 @@ public class ChatModelFactory {
         if (baseUrl != null && baseUrl.contains("generativelanguage.googleapis.com")) return true;
         if (modelName != null) {
             String lower = modelName.toLowerCase(Locale.ROOT);
-            return lower.contains("gemini") || lower.contains("gemma4-31b");
+            return lower.contains("gemini");
         }
         return false;
     }

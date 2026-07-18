@@ -246,13 +246,13 @@ public class CommonUtils {
     // ================================================================
 
     /** 摘要中各段预览的最大字符数 */
-    private static final int SUMMARY_PREVIEW_LEN = 80;
+    private static final int SUMMARY_PREVIEW_LEN = 120;
+    private static final String AI_LOG_BORDER = "════════════════════════════════════════════════════════════════";
 
     /**
-     * 打印 AI 调用的统一摘要日志（INFO 级别，单行）。
+     * 打印 AI 调用的统一摘要日志（INFO 级别，块状）。
      * <p>
-     * 一次 LLM 调用只打一条 INFO 日志，包含：操作名、场景、模型、思考配置、
-     * 请求摘要、回答摘要、思考摘要、耗时、token 统计。避免日志散落。
+     * 一次 LLM 调用只打一条 INFO 日志，所有信息聚合在一个块里，视觉上一目了然。
      *
      * @param operation       操作名（如"圆桌派发言"）
      * @param scene           场景名（如"ROUND_TABLE_SPEECH"，可为 null）
@@ -261,8 +261,7 @@ public class CommonUtils {
      * @param thinkingMode    思考模式（如"SWITCH"/"REASONING_EFFORT"/"NONE"，可为 null）
      * @param thinkingEnabled 思考是否开启
      * @param reasoningEffort reasoning effort（如"medium"，可为 null）
-     * @param messageCount    请求消息条数
-     * @param systemPromptText SystemMessage 全文（可为 null）
+     * @param messages        请求消息列表（每条消息打印一行摘要）
      * @param answerText      回答全文（可为 null）
      * @param thinkingText    思考内容全文（可为 null）
      * @param elapsedMs       耗时毫秒
@@ -271,128 +270,136 @@ public class CommonUtils {
      */
     public static void logAiSummary(String operation, String scene, String modelName, String configName,
                                      String thinkingMode, boolean thinkingEnabled, String reasoningEffort,
-                                     int messageCount, String systemPromptText,
+                                     List<dev.langchain4j.data.message.ChatMessage> messages,
                                      String answerText, String thinkingText,
                                      long elapsedMs, int inputTokens, int outputTokens) {
-        String scenePart = scene != null ? scene : "未知";
-        String modelPart = buildModelPart(modelName, configName);
-        String thinkingCfgPart = buildThinkingCfgPart(thinkingMode, thinkingEnabled, reasoningEffort);
-        String requestPart = buildRequestPart(messageCount, systemPromptText);
-        String answerPart = buildAnswerPart(answerText);
-        String thinkingPart = buildThinkingPart(thinkingText);
-        String statsPart = buildStatsPart(elapsedMs, inputTokens, outputTokens);
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n").append(AI_LOG_BORDER);
+        // 第1行：操作名 + 模型 + 场景 + 思考配置
+        sb.append("\n║ [").append(operation).append("] ");
+        if (modelName != null && !modelName.isBlank()) {
+            sb.append(modelName);
+            if (configName != null && !configName.isBlank()) {
+                sb.append("(").append(configName).append(")");
+            }
+        } else {
+            sb.append("未知模型");
+        }
+        if (scene != null) sb.append(" | scene=").append(scene);
+        String mode = thinkingMode != null ? thinkingMode : "未知";
+        sb.append(" | thinking=").append(thinkingEnabled ? "ON" : "OFF")
+          .append("(").append(mode).append(",effort=").append(reasoningEffort).append(")");
 
-        log.info("[AI调用] {} | scene={} model={} thinking={} | {} | {} | {} | {}",
-                operation, scenePart, modelPart, thinkingCfgPart,
-                requestPart, answerPart, thinkingPart, statsPart);
+        // 请求：每条消息一行
+        int msgCount = messages != null ? messages.size() : 0;
+        sb.append("\n║ 请求: ").append(msgCount).append("条消息");
+        if (messages != null) {
+            for (int i = 0; i < messages.size(); i++) {
+                var msg = messages.get(i);
+                String type = msg.type().name();
+                String text = extractMessageText(msg);
+                int len = text != null ? text.length() : 0;
+                String preview = text != null ? sanitizePreview(text, SUMMARY_PREVIEW_LEN) : "";
+                sb.append("\n║   [").append(i).append("] ").append(type).append("(").append(len).append("字符): ").append(preview);
+            }
+        }
+
+        // 思考内容
+        if (thinkingText != null && !thinkingText.isBlank()) {
+            sb.append("\n║ 思考: ").append(thinkingText.length()).append("字符: ")
+              .append(sanitizePreview(thinkingText, SUMMARY_PREVIEW_LEN));
+        } else {
+            sb.append("\n║ 思考: 无");
+        }
+
+        // 回答内容
+        if (answerText != null && !answerText.isBlank()) {
+            sb.append("\n║ 回答: ").append(answerText.length()).append("字符: ")
+              .append(sanitizePreview(answerText, SUMMARY_PREVIEW_LEN));
+        } else {
+            sb.append("\n║ 回答: 无");
+        }
+
+        // token 统计
+        sb.append("\n║ 统计: 耗时").append(elapsedMs).append("ms");
+        if (inputTokens > 0 || outputTokens > 0) {
+            int total = inputTokens + outputTokens;
+            sb.append(" | 输入").append(inputTokens)
+              .append(" | 输出").append(outputTokens)
+              .append(" | 总").append(total);
+            if (elapsedMs > 0) {
+                double tps = outputTokens / (elapsedMs / 1000.0);
+                sb.append(" | ").append(String.format("%.2f", tps)).append(" tok/s");
+            }
+        }
+        sb.append("\n").append(AI_LOG_BORDER);
+
+        log.info(sb.toString());
+    }
+
+    /** 从 ChatMessage 提取文本内容 */
+    private static String extractMessageText(dev.langchain4j.data.message.ChatMessage msg) {
+        if (msg instanceof dev.langchain4j.data.message.SystemMessage sm) return sm.text();
+        if (msg instanceof dev.langchain4j.data.message.UserMessage um) return um.singleText();
+        if (msg instanceof dev.langchain4j.data.message.AiMessage am) return am.text();
+        return msg.toString();
     }
 
     /**
-     * 打印流式 AI 调用的统一摘要日志（INFO 级别，单行）。
-     * <p>
-     * 场景信息可选（logContext 为 null 时显示"未知"）。
-     * 与 {@link #logAiSummary} 格式一致，仅用于区分流式调用来源。
+     * 打印流式 AI 调用的统一摘要日志（INFO 级别，块状）。
+     * 与 {@link #logAiSummary} 格式一致。
      */
     public static void logAiStreamingSummary(String operation, String scene, String modelName, String configName,
                                               String thinkingMode, boolean thinkingEnabled, String reasoningEffort,
-                                              int messageCount, String systemPromptText,
+                                              List<dev.langchain4j.data.message.ChatMessage> messages,
                                               String answerText, String thinkingText,
                                               long elapsedMs, int inputTokens, int outputTokens) {
         logAiSummary(operation, scene, modelName, configName,
                 thinkingMode, thinkingEnabled, reasoningEffort,
-                messageCount, systemPromptText,
+                messages,
                 answerText, thinkingText,
                 elapsedMs, inputTokens, outputTokens);
     }
 
     /**
-     * 简化版 AI 调用摘要（INFO 级别，单行）— 用于无法获取场景信息的调用点。
-     * <p>
-     * 场景/模型/思考配置显示为"未知"。与 {@link #logAiSummary} 格式一致，
-     * 仅省略请求预览（无 SystemMessage 全文），用 result 代替。
+     * 简化版 AI 调用摘要（INFO 级别，块状）— 用于无法获取场景信息的调用点。
      *
      * @param operation      操作名（如"PDF OCR"）
      * @param elapsedMs      耗时毫秒
      * @param inputTokens    输入 token 数
      * @param outputTokens   输出 token 数
      * @param result         调用上下文/描述（如"bookId=1, title=xxx"），可为 null
-     * @param answerPreview  回答预览文本（建议调用方先 truncateText 到 80 字），可为 null
+     * @param answerPreview  回答预览文本，可为 null
      */
     public static void logAiSummarySimple(String operation, long elapsedMs,
                                            int inputTokens, int outputTokens,
                                            String result, String answerPreview) {
-        String resultPart = (result != null && !result.isBlank())
-                ? sanitizePreview(result, SUMMARY_PREVIEW_LEN) : "";
-        String answerPart = (answerPreview != null && !answerPreview.isBlank())
-                ? sanitizePreview(answerPreview, SUMMARY_PREVIEW_LEN) : "无";
-        String statsPart = buildStatsPart(elapsedMs, inputTokens, outputTokens);
-
-        log.info("[AI调用] {} | scene=未知 model=未知 thinking=未知 | {} | 回答:{} | {}",
-                operation, resultPart, answerPart, statsPart);
-    }
-
-    /** 构建模型段：model=xxx (configName) 或 model=未知 */
-    private static String buildModelPart(String modelName, String configName) {
-        if (modelName == null || modelName.isBlank()) {
-            return "未知";
-        }
-        return configName != null && !configName.isBlank()
-                ? modelName + "(" + configName + ")"
-                : modelName;
-    }
-
-    /** 构建思考配置段：OFF(mode=REASONING_EFFORT,effort=null) 或 ON(mode=SWITCH) */
-    private static String buildThinkingCfgPart(String thinkingMode, boolean thinkingEnabled, String reasoningEffort) {
-        String mode = thinkingMode != null ? thinkingMode : "未知";
-        String onOff = thinkingEnabled ? "ON" : "OFF";
-        return onOff + "(mode=" + mode + ",effort=" + reasoningEffort + ")";
-    }
-
-    /** 构建请求段：7条msg(sys=1305字符:前80字...) 或 7条msg(sys=无) */
-    private static String buildRequestPart(int messageCount, String systemPromptText) {
-        if (systemPromptText == null || systemPromptText.isBlank()) {
-            return messageCount + "条msg(sys=无)";
-        }
-        int len = systemPromptText.length();
-        String preview = sanitizePreview(systemPromptText, SUMMARY_PREVIEW_LEN);
-        return messageCount + "条msg(sys=" + len + "字符:" + preview + ")";
-    }
-
-    /** 构建回答段：204字符(前80字...) 或 无 */
-    private static String buildAnswerPart(String answerText) {
-        if (answerText == null || answerText.isBlank()) {
-            return "无";
-        }
-        int len = answerText.length();
-        String preview = sanitizePreview(answerText, SUMMARY_PREVIEW_LEN);
-        return len + "字符(" + preview + ")";
-    }
-
-    /** 构建思考内容段：156字符(前80字...) 或 无 */
-    private static String buildThinkingPart(String thinkingText) {
-        if (thinkingText == null || thinkingText.isBlank()) {
-            return "思考:无";
-        }
-        int len = thinkingText.length();
-        String preview = sanitizePreview(thinkingText, SUMMARY_PREVIEW_LEN);
-        return "思考:" + len + "字符(" + preview + ")";
-    }
-
-    /** 构建统计段：耗时:34016ms tokens:367→424(791) 9.18/s（token 为 0 时省略 tokens 部分） */
-    private static String buildStatsPart(long elapsedMs, int inputTokens, int outputTokens) {
         StringBuilder sb = new StringBuilder();
-        sb.append("耗时:").append(elapsedMs).append("ms");
+        sb.append("\n").append(AI_LOG_BORDER);
+        sb.append("\n║ [").append(operation).append("] 未知模型");
+        if (result != null && !result.isBlank()) {
+            sb.append(" | ").append(sanitizePreview(result, SUMMARY_PREVIEW_LEN));
+        }
+        sb.append("\n║ 回答: ");
+        if (answerPreview != null && !answerPreview.isBlank()) {
+            sb.append(sanitizePreview(answerPreview, SUMMARY_PREVIEW_LEN));
+        } else {
+            sb.append("无");
+        }
+        sb.append("\n║ 统计: 耗时").append(elapsedMs).append("ms");
         if (inputTokens > 0 || outputTokens > 0) {
             int total = inputTokens + outputTokens;
-            sb.append(" tokens:").append(inputTokens)
-              .append("→").append(outputTokens)
-              .append("(").append(total).append(")");
+            sb.append(" | 输入").append(inputTokens)
+              .append(" | 输出").append(outputTokens)
+              .append(" | 总").append(total);
             if (elapsedMs > 0) {
                 double tps = outputTokens / (elapsedMs / 1000.0);
-                sb.append(" ").append(String.format("%.2f", tps)).append("/s");
+                sb.append(" | ").append(String.format("%.2f", tps)).append(" tok/s");
             }
         }
-        return sb.toString();
+        sb.append("\n").append(AI_LOG_BORDER);
+
+        log.info(sb.toString());
     }
 
     /** 清理预览文本：去除换行、截断到指定长度 */

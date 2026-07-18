@@ -9,20 +9,23 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 统一线程池配置
  * <p>
  * 管理所有异步/调度/SSE 线程池，避免散落各处导致参数不一致和线程泄漏。
+ * 所有线程池均配置 MDC 上下文传递，确保子线程日志中 {@code [clientIp] [userId]} 不丢失。
  *
  * <pre>
- * | Bean 名称       | 用途                  | core | max | queue | 前缀           |
- * |-----------------|----------------------|------|-----|-------|---------------|
- * | taskExecutor    | @Async 默认执行器      | 8    | 32  | 200   | kbook-async-  |
- * | sseExecutor     | SSE 流式响应           | 4    | 32  | 100   | kbook-sse-    |
- * | taskScheduler   | @Scheduled 定时调度    | 4    | -   | -     | kbook-sched-  |
+ * | Bean 名称       | 用途                  | core | max | queue | 前缀           | MDC 传递方式          |
+ * |-----------------|----------------------|------|-----|-------|---------------|----------------------|
+ * | taskExecutor    | @Async 默认执行器      | 8    | 32  | 200   | kbook-async-  | TaskDecorator        |
+ * | sseExecutor     | SSE 流式响应           | 4    | 32  | 100   | kbook-sse-    | MdcAwareThreadPoolExecutor |
+ * | taskScheduler   | @Scheduled 定时调度    | 4    | -   | -     | kbook-sched-  | N/A（无请求上下文）    |
  * </pre>
  */
 @Configuration
@@ -33,14 +36,30 @@ public class AsyncSchedulingConfig implements AsyncConfigurer, SchedulingConfigu
     @Bean(name = "taskExecutor")
     @Override
     public Executor getAsyncExecutor() {
-        return buildTaskExecutor("kbook-async-", 8, 32, 200);
+        ThreadPoolTaskExecutor executor = buildTaskExecutor("kbook-async-", 8, 32, 200);
+        // 自动传递 MDC 到 @Async 子线程
+        executor.setTaskDecorator(new MdcTaskDecorator());
+        return executor;
     }
 
     // ==================== SSE 流式响应执行器 ====================
 
     @Bean(name = "sseExecutor", destroyMethod = "shutdown")
-    public java.util.concurrent.ThreadPoolExecutor sseExecutor() {
-        return buildTaskExecutor("kbook-sse-", 4, 32, 100).getThreadPoolExecutor();
+    public ThreadPoolExecutor sseExecutor() {
+        // 使用 MDC 感知的 ThreadPoolExecutor，所有 execute/submit 自动传递 MDC
+        // 线程名用 AtomicLong 计数器，保持 kbook-sse-1, kbook-sse-2 的递增格式
+        java.util.concurrent.atomic.AtomicLong seq = new java.util.concurrent.atomic.AtomicLong(0);
+        return new MdcAwareThreadPoolExecutor(
+                4, 32, 60,
+                new ArrayBlockingQueue<>(100),
+                r -> {
+                    Thread t = new Thread(r);
+                    t.setName("kbook-sse-" + seq.incrementAndGet());
+                    t.setDaemon(false);
+                    return t;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
     }
 
     // ==================== @Scheduled 调度器 ====================

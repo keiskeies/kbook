@@ -19,6 +19,7 @@ import com.kbook.repository.BookRepository;
 import com.kbook.repository.debate.DebateMessageRepository;
 import com.kbook.repository.debate.DebateScoreRepository;
 import com.kbook.repository.debate.DebateSessionRepository;
+import com.kbook.service.ai.core.ExternalKnowledgeGenerator;
 import com.kbook.service.ai.streaming.StreamingSseHandler;
 import com.kbook.service.book.BookService;
 import com.kbook.service.progress.ReadingProgressService;
@@ -71,6 +72,7 @@ public class DebateService {
 
     private final BookService bookService;
     private final ChatModelManager chatModelManager;
+    private final ExternalKnowledgeGenerator externalKnowledgeGenerator;
     private final DebateSessionRepository sessionRepository;
     private final DebateMessageRepository messageRepository;
     private final DebateScoringService scoringService;
@@ -91,6 +93,7 @@ public class DebateService {
     public DebateService(
             BookService bookService,
             ChatModelManager chatModelManager,
+            ExternalKnowledgeGenerator externalKnowledgeGenerator,
             DebateSessionRepository sessionRepository,
             DebateMessageRepository messageRepository,
             DebateScoringService scoringService,
@@ -103,6 +106,7 @@ public class DebateService {
             @Lazy DebateScoreRepository debateScoreRepository) {
         this.bookService = bookService;
         this.chatModelManager = chatModelManager;
+        this.externalKnowledgeGenerator = externalKnowledgeGenerator;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.scoringService = scoringService;
@@ -113,6 +117,63 @@ public class DebateService {
         this.objectMapper = objectMapper;
         this.bookRepository = bookRepository;
         this.debateScoreRepository = debateScoreRepository;
+    }
+
+    // ================================================================
+    // 辩论域 AI 调用（封装 SystemMessage + UserMessage 拼装 → callAi）
+    // ================================================================
+
+    /**
+     * 从书籍信息生成辩论话题列表。
+     *
+     * @param bookInfo 书籍元数据文本（书名、作者、标签、简介等）
+     * @return AI 原始响应文本（JSON 数组），由调用方解析
+     */
+    public String callAiForDebateTopics(String bookInfo) {
+        return chatModelManager.callAiForScene(AiScene.DEBATE_TOPIC_GENERATE, "辩论辩题生成", "bookInfo", List.of(
+                SystemMessage.from(AiPromptConstants.DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT),
+                UserMessage.from("书籍信息：" + bookInfo)));
+    }
+
+    /**
+     * 优化用户自定义辩论话题。
+     */
+    public String callAiForDebateTopicOptimization(long bookId, String topic, String bookInfo, String proArg, String conArg) {
+        String userPrompt = String.format("""
+                书籍信息：
+                %s
+
+                用户的原始输入：
+                辩题：%s
+                正方观点：%s
+                反方观点：%s""", bookInfo, topic, proArg, conArg);
+
+        return chatModelManager.callAiForScene(AiScene.DEBATE_TOPIC_OPTIMIZE, "辩论辩题优化",
+                String.format("bookId=%d, topic=%s", bookId, topic), List.of(
+                        SystemMessage.from(AiPromptConstants.DEBATE_OPTIMIZE_TOPIC_SYSTEM_PROMPT),
+                        UserMessage.from(userPrompt)));
+    }
+
+    /**
+     * 自由辩论环节选择下一个发言人。
+     */
+    public String callAiForFreeDebaterSelection(String sessionId, String topic, String rolesInfo,
+                                                String lastSpeaker, String lastSide, String countInfo) {
+        String userPrompt = String.format("""
+                当前辩题：%s
+
+                参与辩手：
+                %s
+
+                上一位发言者：%s（%s方）
+
+                发言次数统计：
+                %s""", topic, rolesInfo, lastSpeaker, lastSide, countInfo);
+
+        return chatModelManager.callAiForScene(AiScene.DEBATE_SPEAKER_SELECT, "辩论自由辩论发言人选择",
+                "sessionId=" + sessionId, List.of(
+                        SystemMessage.from(AiPromptConstants.DEBATE_NEXT_SPEAKER_FREE_SYSTEM_PROMPT),
+                        UserMessage.from(userPrompt)));
     }
 
     // ==================== 辩题生成 ====================
@@ -150,7 +211,7 @@ public class DebateService {
         List<DebateTopicVO> topics;
         try {
             String bookInfo = buildBookInfoForTopic(book);
-            String result = chatModelManager.callAiForDebateTopics(bookInfo);
+            String result = callAiForDebateTopics(bookInfo);
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
@@ -231,7 +292,7 @@ public class DebateService {
         String bookInfo = buildBookInfoForTopic(book);
 
         try {
-            String result = chatModelManager.callAiForDebateTopicOptimization(
+            String result = callAiForDebateTopicOptimization(
                     bookId, topic, bookInfo,
                     proArg != null ? proArg : "",
                     conArg != null ? conArg : "");
@@ -1205,7 +1266,7 @@ public class DebateService {
         }
 
         try {
-            String result = chatModelManager.callAiForFreeDebaterSelection(
+            String result = callAiForFreeDebaterSelection(
                     sessionId, session.getTopic(),
                     rolesInfo.toString(), lastSpeaker, lastSide,
                     countInfo.toString());
@@ -1374,7 +1435,7 @@ public class DebateService {
             String topic = session.getTopic();
             String stance = "PRO".equals(side) ? "支持该观点" : "反对该观点";
             String personalityContext = personality.getTitle() + "：" + personality.getPrompt().substring(0, Math.min(200, personality.getPrompt().length()));
-            return chatModelManager.generateDebateExternalKnowledge(topic, stance, personalityContext);
+            return externalKnowledgeGenerator.generateForDebate(topic, stance, personalityContext);
         } catch (Exception e) {
             log.debug("生成辩论外部知识失败: session={}, error={}", session.getSessionId(), e.getMessage());
             return "";

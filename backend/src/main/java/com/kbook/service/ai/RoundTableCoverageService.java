@@ -3,6 +3,7 @@ package com.kbook.service.ai;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableCoverage;
@@ -63,6 +64,19 @@ public class RoundTableCoverageService {
      * 内容块缓存 TTL（72 小时，图书不变则内容块不变）
      */
     private static final long BLOCKS_CACHE_TTL_HOURS = 72;
+
+    // ================================================================
+    // 圆桌派域 AI 调用
+    // ================================================================
+
+    public String callAiForLlmOutline(String contentInfo, int minBlocks, int maxBlocks) {
+        String systemPrompt = String.format(AiPromptConstants.LLM_OUTLINE_SYSTEM_PROMPT_TEMPLATE, minBlocks, maxBlocks);
+
+        return chatModelManager.callAiForScene(AiScene.ROUND_TABLE_COVERAGE, "圆桌派覆盖度评估",
+                "LLM大纲生成", List.of(
+                        SystemMessage.from(systemPrompt),
+                        UserMessage.from("图书信息：\n" + contentInfo)));
+    }
 
     // ==================== 公开 API ====================
 
@@ -524,7 +538,7 @@ public class RoundTableCoverageService {
         int targetBlocks = Math.min(MAX_CONTENT_BLOCKS, 30);
         int minBlocks = Math.max(5, targetBlocks / 2);
 
-        String result = chatModelManager.callAiForLlmOutline(
+        String result = callAiForLlmOutline(
                 contentInfo.toString().trim(), minBlocks, targetBlocks);
         if (result == null) return new ArrayList<>();
 
