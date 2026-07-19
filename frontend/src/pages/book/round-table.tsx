@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Users, RefreshCw, History, Trash2, BookOpen, Sparkles,
+  ArrowLeft, Users, RefreshCw, History, Trash2, BookOpen, Sparkles, X,
 } from 'lucide-react'
 import {
   getRoundTableRoles, createRoundTableSession, getRoundTableSessions, deleteRoundTableSession,
@@ -10,68 +10,89 @@ import { getBook } from '@/api/book'
 import type { RoundTableRole, RoundTableSession } from '@/types/roundTable'
 import type { Book } from '@/types/book'
 import {
-  ROLE_COLORS, ROLE_TITLES, ROLE_ICONS, describePersonality,
+  ROLE_COLORS, ROLE_TITLES, ROLE_ICONS, ROLE_GROUP_NAMES, ROLE_GROUP_ORDER,
   hexToRgba,
 } from '@/types/roundTable'
 import { toast } from 'sonner'
 
+/**
+ * 角色卡片 — 紧凑布局
+ * - AI 推荐的（role.selected）有彩色描边 + 角标
+ * - 点击切换选中态
+ * - perspective 两行截断，hover 展示全部（title 属性）
+ */
 function RoleCard({
   role,
   isSelected,
   isHost,
+  isRecommended,
   onToggle,
 }: {
   role: RoundTableRole
   isSelected: boolean
   isHost: boolean
+  isRecommended: boolean
   onToggle: () => void
 }) {
   const color = role.color || ROLE_COLORS[role.key] || '#6B655C'
-  const traits = describePersonality(role)
 
   return (
     <button
       onClick={onToggle}
       disabled={isHost}
-      className={`group relative flex flex-col items-center gap-2 rounded-2xl border p-4 transition-all duration-300 ${
+      title={role.perspective || undefined}
+      className={`group relative flex flex-col gap-1.5 rounded-xl border p-2.5 text-left transition-all duration-200 ${
         isSelected
-          ? 'border-[var(--role-color)]/40 bg-[var(--role-color)]/[0.04] shadow-sm'
-          : 'border-border/40 bg-card hover:border-border/60 hover:shadow-sm'
-      } ${isHost ? 'cursor-default' : 'cursor-pointer active:scale-[0.97]'}`}
+          ? 'border-[var(--role-color)]/50 bg-[var(--role-color)]/[0.05] shadow-sm'
+          : 'border-border/40 bg-card hover:border-border/70 hover:shadow-sm'
+      } ${isHost ? 'cursor-default' : 'cursor-pointer active:scale-[0.98]'}`}
       style={{ '--role-color': color } as React.CSSProperties}
     >
+      {/* 选中角标 / 必选标记 / AI推荐标记 */}
       {isSelected && !isHost && (
-        <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--role-color)] text-xs text-white shadow-sm">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--role-color)] text-white shadow-sm z-10">
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
         </span>
       )}
       {isHost && (
-        <span className="absolute -top-1.5 -right-1.5 rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground shadow-sm">
+        <span className="absolute -top-1.5 -right-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground shadow-sm z-10">
           必选
         </span>
       )}
+      {isRecommended && !isHost && !isSelected && (
+        <span className="absolute -top-1.5 -left-1.5 flex items-center gap-0.5 rounded-full bg-brand-500 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-sm z-10">
+          <Sparkles className="h-2 w-2" />推荐
+        </span>
+      )}
 
-      <div
-        className="flex h-12 w-12 items-center justify-center rounded-full text-xl transition-transform duration-300 group-hover:scale-105"
-        style={{
-          backgroundColor: hexToRgba(color, 0.1),
-          border: `1.5px solid ${hexToRgba(color, 0.25)}`,
-        }}
-      >
-        {role.icon || ROLE_ICONS[role.key] || '👤'}
+      <div className="flex items-center gap-2">
+        <div
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base transition-transform duration-200 group-hover:scale-105"
+          style={{
+            backgroundColor: hexToRgba(color, 0.1),
+            border: `1.5px solid ${hexToRgba(color, 0.25)}`,
+          }}
+        >
+          {role.icon || ROLE_ICONS[role.key] || '👤'}
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="block text-xs font-bold truncate" style={{ color }}>{role.name}</span>
+          <span className="block text-[10px] text-muted-foreground/70 truncate">{ROLE_TITLES[role.key]}</span>
+        </div>
       </div>
 
-      <div className="text-center">
-        <span className="block text-xs font-bold" style={{ color }}>{role.name}</span>
-        <span className="block text-xs text-muted-foreground mt-0.5">{ROLE_TITLES[role.key]}</span>
-      </div>
+      {role.perspective && (
+        <p className="line-clamp-2 text-[10px] leading-relaxed text-muted-foreground/70">
+          {role.perspective}
+        </p>
+      )}
 
-      {traits.length > 0 && (
-        <div className="flex flex-wrap gap-1 justify-center">
-          {traits.slice(0, 3).map(t => (
+      {role.tags && role.tags.length > 0 && (
+        <div className="flex flex-wrap gap-0.5">
+          {role.tags.slice(0, 3).map(t => (
             <span
               key={t}
-              className="rounded-full px-1.5 py-0.5 text-xs font-medium"
+              className="rounded px-1 py-px text-[9px] font-medium"
               style={{
                 backgroundColor: hexToRgba(color, 0.08),
                 color: hexToRgba(color, 0.85),
@@ -104,7 +125,7 @@ function SessionCard({
   })
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-border/50 bg-card p-3 hover:border-border/60 transition-all duration-200">
+    <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card p-2.5 hover:border-border/70 transition-colors">
       <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold truncate">{session.title || '圆桌派讨论'}</p>
         <div className="flex items-center gap-1.5 mt-1">
@@ -124,7 +145,7 @@ function SessionCard({
               </span>
             )}
           </div>
-          <span className="text-xs text-muted-foreground">{dateStr}</span>
+          <span className="text-[10px] text-muted-foreground">{dateStr}</span>
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
@@ -153,8 +174,10 @@ export default function RoundTablePage() {
   const [phase, setPhase] = useState<'loading' | 'select'>('loading')
   const [availableRoles, setAvailableRoles] = useState<RoundTableRole[]>([])
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  const [recommendedKeys, setRecommendedKeys] = useState<Set<string>>(new Set())
   const [pastSessions, setPastSessions] = useState<RoundTableSession[]>([])
   const [bookInfo, setBookInfo] = useState<Book | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -176,10 +199,14 @@ export default function RoundTablePage() {
       const data = (res as { data?: RoundTableRole[] })?.data ?? res as RoundTableRole[]
       if (Array.isArray(data) && data.length > 0) {
         setAvailableRoles(data)
-        const initialSelected = new Set<string>()
+        // 记录 AI 推荐的角色（后端用 selected 字段标记）
+        const recommended = new Set<string>()
         data.forEach(r => {
-          if (r.selected) initialSelected.add(r.key)
+          if (r.selected) recommended.add(r.key)
         })
+        setRecommendedKeys(recommended)
+        // 初始选中态 = AI 推荐 + HOST
+        const initialSelected = new Set<string>(recommended)
         if (!initialSelected.has('HOST')) initialSelected.add('HOST')
         setSelectedKeys(initialSelected)
         setPhase('select')
@@ -220,6 +247,7 @@ export default function RoundTablePage() {
   }, [id, bookId, selectedKeys, navigate])
 
   const loadHistorySession = useCallback((session: RoundTableSession) => {
+    setHistoryOpen(false)
     navigate(`/book/${bookId}/round-table/sessions/${session.sessionId}`)
   }, [bookId, navigate])
 
@@ -233,8 +261,35 @@ export default function RoundTablePage() {
     }
   }, [])
 
+  // 按分组组织角色，按 ROLE_GROUP_ORDER 排序
+  const groupedRoles = useMemo(() => {
+    const groups: { key: string; label: string; roles: RoundTableRole[] }[] = []
+    const bucket = new Map<string, RoundTableRole[]>()
+    availableRoles.forEach(r => {
+      const g = r.roleGroup || 'CORE'
+      if (!bucket.has(g)) bucket.set(g, [])
+      bucket.get(g)!.push(r)
+    })
+    ROLE_GROUP_ORDER.forEach(g => {
+      const roles = bucket.get(g)
+      if (roles && roles.length > 0) {
+        groups.push({ key: g, label: ROLE_GROUP_NAMES[g] || g, roles })
+      }
+    })
+    // 兜底：未知分组
+    bucket.forEach((roles, g) => {
+      if (!ROLE_GROUP_ORDER.includes(g)) {
+        groups.push({ key: g, label: g, roles })
+      }
+    })
+    return groups
+  }, [availableRoles])
+
+  const recommendedCount = recommendedKeys.size - (recommendedKeys.has('HOST') ? 1 : 0)
+
   return (
     <div className="absolute inset-0 md:relative md:inset-auto md:h-full flex flex-col overflow-hidden bg-background">
+      {/* ============ Header ============ */}
       <header className="shrink-0 flex items-center gap-3 border-b border-border/30 bg-navbar/95 px-4 py-2.5 backdrop-blur-xl z-20 pt-safe-top">
         <button
           onClick={() => navigate(-1)}
@@ -244,66 +299,56 @@ export default function RoundTablePage() {
         </button>
         <div className="min-w-0 flex-1">
           <h1 className="text-sm font-bold text-foreground">圆桌派</h1>
-          <p className="text-xs text-muted-foreground truncate">
-            选择嘉宾，开启讨论
-          </p>
+          <p className="text-xs text-muted-foreground truncate">选择嘉宾，开启讨论</p>
         </div>
+        <button
+          onClick={() => setHistoryOpen(true)}
+          className="relative flex items-center gap-1.5 rounded-xl border border-border/40 bg-card px-2.5 py-1.5 text-xs font-medium hover:border-border/70 transition-colors"
+          title="历史圆桌"
+        >
+          <History className="h-3.5 w-3.5" />
+          历史
+          {pastSessions.length > 0 && (
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-bold text-white">
+              {pastSessions.length}
+            </span>
+          )}
+        </button>
       </header>
 
-      <div className="flex flex-1 flex-col items-center px-4 py-6 overflow-y-auto">
-        {/* 已有圆桌 */}
-        <div className="w-full max-w-2xl mb-6">
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-muted-foreground">
-            <History className="h-4 w-4" />
-            已有圆桌 ({pastSessions.length})
-          </h3>
-          {pastSessions.length > 0 ? (
-            <div className="space-y-2">
-              {pastSessions.map(session => (
-                <SessionCard
-                  key={session.sessionId}
-                  session={session}
-                  onLoad={() => loadHistorySession(session)}
-                  onDelete={() => handleDeleteSession(session.sessionId)}
-                />
-              ))}
-            </div>
+      {/* ============ 图书信息条带 ============ */}
+      {bookInfo && (
+        <div className="shrink-0 flex items-start gap-2.5 border-b border-border/30 bg-card/50 px-4 py-2">
+          {bookInfo.coverUrl ? (
+            <img src={bookInfo.coverUrl} alt={bookInfo.title} className="h-14 w-10 rounded shadow-sm object-cover shrink-0" />
           ) : (
-            <p className="text-xs text-muted-foreground/50 text-center py-4">暂无圆桌讨论记录</p>
+            <div className="flex h-14 w-10 items-center justify-center rounded bg-muted shrink-0">
+              <BookOpen className="h-4 w-4 text-muted-foreground" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1 pt-0.5">
+            <p className="text-xs font-semibold truncate">{bookInfo.title}</p>
+            <p className="text-[10px] text-muted-foreground truncate">{bookInfo.author}</p>
+            {bookInfo.description && (
+              <p className="line-clamp-2 text-[10px] leading-relaxed text-muted-foreground/70 mt-1">
+                {bookInfo.description}
+              </p>
+            )}
+          </div>
+          {phase === 'select' && (
+            <div className="flex items-center gap-1 text-[10px] text-brand-500 shrink-0 pt-0.5">
+              <Sparkles className="h-3 w-3" />
+              <span>AI 推荐 {recommendedCount} 位</span>
+            </div>
           )}
         </div>
+      )}
 
-        <div className="mb-5 text-center">
-          <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-100 to-brand-200 mb-3 shadow-sm">
-            <Users className="h-7 w-7 text-brand-500" />
-          </div>
-          <h2 className="text-lg font-bold text-foreground">选择讨论嘉宾</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            AI 根据《{bookInfo?.title || '本书'}》推荐了 {availableRoles.length} 位嘉宾，已为你勾选 {selectedKeys.size - 1} 位
-          </p>
-        </div>
-
-        {bookInfo && (
-          <div className="w-full max-w-2xl mb-5 flex items-center gap-3 rounded-2xl border border-border/40 bg-card p-3 shadow-sm">
-            {bookInfo.coverUrl ? (
-              <img src={bookInfo.coverUrl} alt={bookInfo.title} className="h-14 w-10 rounded-md object-cover shadow-sm" />
-            ) : (
-              <div className="flex h-14 w-10 items-center justify-center rounded-md bg-muted">
-                <BookOpen className="h-5 w-5 text-muted-foreground" />
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold truncate">{bookInfo.title}</p>
-              <p className="text-xs text-muted-foreground">{bookInfo.author}</p>
-            </div>
-            <Sparkles className="h-4 w-4 text-brand-400 shrink-0" />
-          </div>
-        )}
-
-        {/* 角色选择区 — 局部加载中 */}
+      {/* ============ 主体：角色选择 ============ */}
+      <div className="flex-1 overflow-y-auto px-3 py-4">
         {phase === 'loading' ? (
-          <div className="w-full max-w-2xl flex flex-col items-center justify-center py-12">
-            <div className="relative w-32 h-32 mb-4">
+          <div className="h-full flex flex-col items-center justify-center">
+            <div className="relative w-28 h-28 mb-4">
               <div className="absolute inset-0 rounded-full border-2 border-primary/10 bg-primary/5" />
               <div className="absolute inset-[10%] rounded-full border border-primary/5 flex flex-col items-center justify-center gap-2">
                 <Users className="h-6 w-6 animate-pulse text-primary" />
@@ -313,40 +358,131 @@ export default function RoundTablePage() {
             <p className="text-sm text-muted-foreground">AI 正在根据书籍内容推荐讨论嘉宾</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 w-full max-w-2xl">
-            {availableRoles.map(role => (
-              <RoleCard
-                key={role.key}
-                role={role}
-                isSelected={selectedKeys.has(role.key)}
-                isHost={role.key === 'HOST'}
-                onToggle={() => toggleRole(role.key)}
-              />
+          <div className="max-w-3xl mx-auto space-y-5 pb-4">
+            {/* 全选/清空快捷栏 */}
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                共 {availableRoles.length} 位嘉宾 · 已选 {selectedKeys.size} 人
+              </p>
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  onClick={() => {
+                    setSelectedKeys(new Set(['HOST']))
+                  }}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  清空
+                </button>
+                <span className="text-border">·</span>
+                <button
+                  onClick={() => {
+                    const next = new Set(['HOST'])
+                    recommendedKeys.forEach(k => next.add(k))
+                    setSelectedKeys(next)
+                  }}
+                  className="text-brand-500 hover:text-brand-600 transition-colors font-medium"
+                >
+                  恢复推荐
+                </button>
+              </div>
+            </div>
+
+            {/* 按分组渲染 */}
+            {groupedRoles.map(group => (
+              <div key={group.key}>
+                <div className="flex items-center gap-2 mb-2 px-1">
+                  <h3 className="text-xs font-bold text-foreground">{group.label}</h3>
+                  <span className="text-[10px] text-muted-foreground/60">{group.roles.length}</span>
+                  <div className="flex-1 h-px bg-border/30" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {group.roles.map(role => (
+                    <RoleCard
+                      key={role.key}
+                      role={role}
+                      isSelected={selectedKeys.has(role.key)}
+                      isHost={role.key === 'HOST'}
+                      isRecommended={recommendedKeys.has(role.key)}
+                      onToggle={() => toggleRole(role.key)}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         )}
+      </div>
 
-        <div className="mt-6 flex items-center gap-3">
+      {/* ============ 底部常驻操作条 ============ */}
+      <div className="shrink-0 border-t border-border/30 bg-navbar/95 backdrop-blur-xl px-4 py-2.5 pb-safe-bottom">
+        <div className="max-w-3xl mx-auto flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs">
+            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="font-semibold text-foreground">{selectedKeys.size}</span>
+            <span className="text-muted-foreground">/20</span>
+          </div>
+          <div className="flex-1" />
           <button
             onClick={() => loadRecommendedRoles(true)}
             disabled={phase === 'loading'}
-            className="flex items-center gap-1.5 rounded-2xl border border-border/40 bg-card px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-border/60 transition-all duration-200 active:scale-[0.97] disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-xl border border-border/40 bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-border/70 transition-colors active:scale-[0.98] disabled:opacity-50"
             title="重新邀请一组嘉宾"
           >
-            <RefreshCw className={`h-4 w-4 ${phase === 'loading' ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${phase === 'loading' ? 'animate-spin' : ''}`} />
             重新邀请
           </button>
           <button
             onClick={startDiscussion}
             disabled={selectedKeys.size < 4 || phase === 'loading'}
-            className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-400 to-brand-500 px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-400/20 transition-all duration-200 hover:shadow-xl hover:shadow-brand-400/25 active:scale-[0.97] disabled:opacity-50 disabled:shadow-none"
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand-400 to-brand-500 px-5 py-2 text-xs font-semibold text-white shadow-md shadow-brand-400/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
           >
-            <Sparkles className="h-4 w-4" />
-            开始讨论 ({selectedKeys.size}人)
+            <Sparkles className="h-3.5 w-3.5" />
+            开始讨论
           </button>
         </div>
-
       </div>
+
+      {/* ============ 历史会话抽屉 ============ */}
+      {historyOpen && (
+        <div className="absolute inset-0 z-50 flex justify-end">
+          <div
+            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+            onClick={() => setHistoryOpen(false)}
+          />
+          <div className="relative w-full max-w-sm h-full bg-background border-l border-border/40 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+            <div className="shrink-0 flex items-center gap-3 border-b border-border/30 px-4 py-3">
+              <History className="h-4 w-4 text-muted-foreground" />
+              <div className="flex-1">
+                <p className="text-sm font-bold">历史圆桌</p>
+                <p className="text-[10px] text-muted-foreground">共 {pastSessions.length} 场讨论</p>
+              </div>
+              <button
+                onClick={() => setHistoryOpen(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-muted transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {pastSessions.length > 0 ? (
+                pastSessions.map(session => (
+                  <SessionCard
+                    key={session.sessionId}
+                    session={session}
+                    onLoad={() => loadHistorySession(session)}
+                    onDelete={() => handleDeleteSession(session.sessionId)}
+                  />
+                ))
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center py-12">
+                  <History className="h-8 w-8 text-muted-foreground/30 mb-2" />
+                  <p className="text-xs text-muted-foreground/60">暂无圆桌讨论记录</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

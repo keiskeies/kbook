@@ -44,6 +44,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.*;
 import java.util.concurrent.ExecutorService;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.time.LocalDateTime;
@@ -127,7 +129,7 @@ public class DebateService {
      * 从书籍信息生成辩论话题列表。
      *
      * @param bookInfo 书籍元数据文本（书名、作者、标签、简介等）
-     * @return AI 原始响应文本（JSON 数组），由调用方解析
+     * @return AI 原始响应文本（Markdown 块格式），由调用方解析
      */
     public String callAiForDebateTopics(String bookInfo) {
         return chatModelManager.callAiForScene(AiScene.DEBATE_TOPIC_GENERATE, "辩论辩题生成", "bookInfo", List.of(
@@ -215,8 +217,7 @@ public class DebateService {
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
-                topics = objectMapper.readValue(result,
-                        new TypeReference<List<DebateTopicVO>>() {});
+                topics = parseDebateTopicsFromMarkdown(result);
                 if (topics == null || topics.isEmpty()) {
                     topics = getFallbackTopics();
                 }
@@ -299,13 +300,14 @@ public class DebateService {
 
             if (result != null && !result.isBlank()) {
                 result = CommonUtils.stripCodeFence(result);
-                var node = objectMapper.readTree(result);
-                String optimizedTopic = node.has("topic") ? node.get("topic").asText() : topic;
-                String optimizedPro = node.has("proArgument") ? node.get("proArgument").asText() : proArg;
-                String optimizedCon = node.has("conArgument") ? node.get("conArgument").asText() : conArg;
+                String optimizedTopic = CommonUtils.extractMarkdownSection(result, "优化后辩题");
+                String optimizedPro = CommonUtils.extractMarkdownSection(result, "正方观点");
+                String optimizedCon = CommonUtils.extractMarkdownSection(result, "反方观点");
                 return DebateTopicVO.builder()
-                        .topic(optimizedTopic).source("LLM")
-                        .proArgument(optimizedPro).conArgument(optimizedCon)
+                        .topic(optimizedTopic != null ? optimizedTopic : topic)
+                        .source("LLM")
+                        .proArgument(optimizedPro != null ? optimizedPro : proArg)
+                        .conArgument(optimizedCon != null ? optimizedCon : conArg)
                         .build();
             }
         } catch (Exception e) {
@@ -330,6 +332,65 @@ public class DebateService {
                         .proArgument("AI 提升了生产效率、医疗诊断准确率，解决了很多人类难以解决的问题")
                         .conArgument("AI 会导致大规模失业、伦理困境，甚至可能威胁人类生存").build()
         );
+    }
+
+    /**
+     * 解析 LLM 辩题生成的 Markdown 输出。
+     * <p>期望格式（来自 DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT）：
+     * <pre>
+     * 【辩题1】辩题文字
+     * - 正方观点：xxx
+     * - 反方观点：xxx
+     *
+     * 【辩题2】辩题文字
+     * - 正方观点：xxx
+     * - 反方观点：xxx
+     * </pre>
+     * <p>容错：标题行支持「【辩题N】」或「【辩题N】 xxx」两种形式；
+     * 观点行支持「- 正方观点：」「- 正方观点:」「正方观点：」等多种变体。
+     *
+     * @return 解析得到的辩题列表；解析失败返回空列表
+     */
+    private List<DebateTopicVO> parseDebateTopicsFromMarkdown(String markdown) {
+        List<DebateTopicVO> topics = new ArrayList<>();
+        if (markdown == null || markdown.isBlank()) return topics;
+
+        // 按【辩题N】分块（保留分隔行作为每块的开头）
+        String[] blocks = markdown.split("(?=\\s*【辩题\\d+】)");
+        Pattern titlePat = Pattern.compile("【辩题\\d+】\\s*(.*)");
+        // 兼容 "- 正方观点："、"正方观点："、"- 正方观点:" 等
+        Pattern proPat = Pattern.compile("(?:^|\\n)\\s*[-•*]?\\s*正方观点[：:]\\s*(.*)");
+        Pattern conPat = Pattern.compile("(?:^|\\n)\\s*[-•*]?\\s*反方观点[：:]\\s*(.*)");
+
+        for (String block : blocks) {
+            String trimmed = block.trim();
+            if (trimmed.isEmpty()) continue;
+            Matcher tm = titlePat.matcher(trimmed);
+            if (!tm.find()) continue;
+            String topic = tm.group(1).trim();
+            if (topic.isEmpty()) continue;
+
+            String pro = extractFirstGroup(proPat, trimmed);
+            String con = extractFirstGroup(conPat, trimmed);
+
+            topics.add(DebateTopicVO.builder()
+                    .topic(topic)
+                    .source("LLM")
+                    .proArgument(pro != null ? pro : "")
+                    .conArgument(con != null ? con : "")
+                    .build());
+        }
+        return topics;
+    }
+
+    /** 工具：正则首次匹配的第 1 组内容（已 trim），无匹配返回 null */
+    private String extractFirstGroup(Pattern p, String text) {
+        Matcher m = p.matcher(text);
+        if (m.find()) {
+            String g = m.group(1);
+            return g == null ? null : g.trim();
+        }
+        return null;
     }
 
     // ==================== 会话管理 ====================

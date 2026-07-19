@@ -5,6 +5,10 @@ export interface RoundTableRole {
   title: string
   color: string
   icon: string
+  /** 角色视角简介（一句话描述角色方法论） */
+  perspective?: string
+  /** 擅长领域标签 */
+  tags?: string[]
   roleGroup: string
   grabWeight: number
   verbosity: number
@@ -350,6 +354,19 @@ export function describePersonality(role: RoundTableRole): string[] {
 
   return traits.slice(0, 2)
 }
+
+/** 角色分组名映射（与后端 GROUP_NAMES 对齐） */
+export const ROLE_GROUP_NAMES: Record<string, string> = {
+  CORE: '核心思辨组',
+  ART: '文艺视角组',
+  BUSINESS: '商业视角组',
+  LIFE: '生活视角组',
+  TECH: '技术/专业组',
+  SOCIAL: '社会/公共组',
+}
+
+/** 角色分组显示顺序 */
+export const ROLE_GROUP_ORDER: string[] = ['CORE', 'ART', 'BUSINESS', 'LIFE', 'TECH', 'SOCIAL']
 
 /** 将 HEX 颜色转为 RGBA 字符串 */
 export function hexToRgba(hex: string, alpha: number): string {

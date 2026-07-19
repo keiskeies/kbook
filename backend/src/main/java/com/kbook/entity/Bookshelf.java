@@ -43,9 +43,10 @@ public class Bookshelf extends BaseEntity {
     @Column(name = "added_at", updatable = false)
     private LocalDateTime addedAt;
 
-    /** JPA 持久化前回调，自动设置加入时间 */
+    /** JPA 持久化前回调，自动设置加入时间并触发父类审计字段初始化 */
     @PrePersist
     protected void onCreate() {
+        super.onCreate();
         addedAt = LocalDateTime.now();
     }
 

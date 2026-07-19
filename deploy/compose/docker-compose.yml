@@ -152,9 +152,9 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       NOTIFICATION_BASE_URL: ${NOTIFICATION_BASE_URL:-https://book.keiskei.top}
     volumes:
-      - ${BOOK_PATH_EPUB:-../data/books/epub}:/data/books/epub:ro
-      - ${BOOK_PATH_PDF:-../data/books/pdf}:/data/books/pdf:ro
-      - ${BOOK_PATH_TXT:-../data/books/txt}:/data/books/txt:ro
+      - ${BOOK_PATH_EPUB:-../data/books/epub}:/data/books/epub
+      - ${BOOK_PATH_PDF:-../data/books/pdf}:/data/books/pdf
+      - ${BOOK_PATH_TXT:-../data/books/txt}:/data/books/txt
       - ${BOOK_COVER_PATH:-../data/covers}:/data/covers
       - ${AVATAR_DIR:-../data/avatars}:/data/avatars
       - ${CHAT_DIR:-../data/chat}:/data/chat

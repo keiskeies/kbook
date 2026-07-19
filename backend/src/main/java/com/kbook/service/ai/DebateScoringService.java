@@ -21,6 +21,8 @@ import dev.langchain4j.data.message.UserMessage;
 
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
@@ -124,8 +126,11 @@ public class DebateScoringService {
             }
 
             result = CommonUtils.stripCodeFence(result);
-            Map<String, Double> scores = objectMapper.readValue(result,
-                    new TypeReference<Map<String, Double>>() {});
+            Map<String, Double> scores = parseScoringKv(result);
+            if (scores == null || scores.isEmpty()) {
+                log.warn("辩论评分解析失败(空结果): sessionId={}, roleKey={}", sessionId, roleKey);
+                return null;
+            }
 
             // 计算平均分
             double avg = (scores.getOrDefault("logicScore", 0.0)
@@ -163,6 +168,44 @@ public class DebateScoringService {
                     sessionId, roleKey, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 解析辩论评分 LLM 返回的行式 KV 结果。
+     * 期望格式：
+     * <pre>
+     * logicScore: 7.5
+     * evidenceScore: 6.0
+     * ...
+     * </pre>
+     * 兼容：LLM 偶发输出 JSON 时也能解析。
+     */
+    private Map<String, Double> parseScoringKv(String text) {
+        if (text == null || text.isBlank()) return Map.of();
+        Map<String, Double> result = new java.util.LinkedHashMap<>();
+
+        // JSON 兼容兜底
+        String trimmed = text.trim();
+        if (trimmed.startsWith("{")) {
+            try {
+                Map<String, Double> jsonMap = objectMapper.readValue(trimmed,
+                        new TypeReference<Map<String, Double>>() {});
+                if (jsonMap != null && !jsonMap.isEmpty()) return jsonMap;
+            } catch (Exception ignored) {
+                // JSON 解析失败，落到行式 KV
+            }
+        }
+
+        // 行式 KV 解析：支持「key: value」「key：value」
+        Pattern p = Pattern.compile("(?im)^\\s*([A-Za-z_]+)\\s*[:：]\\s*([0-9]+(?:\\.[0-9]+)?)");
+        Matcher m = p.matcher(text);
+        while (m.find()) {
+            try {
+                result.put(m.group(1), Double.parseDouble(m.group(2)));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return result;
     }
 
     // ==================== 查询方法 ====================

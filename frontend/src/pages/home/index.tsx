@@ -3,13 +3,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, BookOpen, ChevronRight, Tag,
-  Target, Frown,
+  Target, Frown, History,
 } from 'lucide-react'
 import {
   getHomePersonalized,
   getHomeCategories,
+  getHomeRecent,
 } from '@/api/home'
-import type { RecommendedBook } from '@/api/home'
+import type { RecommendedBook, RecentBookVO } from '@/api/home'
 import { Card } from '@/components/ui/card'
 import { BookCard } from '@/components/book/BookCard'
 import MoodQuickSwitch from '@/components/home/MoodQuickSwitch'
@@ -134,6 +135,65 @@ function VerticalListSkeleton() {
   )
 }
 
+/** 最近阅读 — 横向卡片轮播 */
+function RecentReading({
+  books,
+  onBookClick,
+}: {
+  books: RecentBookVO[]
+  onBookClick: (id: number) => void
+}) {
+  if (books.length === 0) return null
+
+  return (
+    <Card asChild>
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-bold">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-100">
+              <History className="h-4 w-4 text-brand-500" />
+            </div>
+            最近阅读
+          </h2>
+          <button
+            onClick={() => onBookClick(-1)}
+            className="flex items-center text-xs text-primary font-medium hover:underline"
+          >
+            查看全部 <ChevronRight className="h-3 w-3" />
+          </button>
+        </div>
+        {/* 横向滚动（移动端） / 网格（PC端） */}
+        <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-1 px-1 pb-1 md:grid md:grid-cols-4 md:overflow-visible">
+          {books.map((book) => (
+            <button
+              key={book.bookId}
+              onClick={() => onBookClick(book.bookId)}
+              className="group flex shrink-0 w-32 md:w-auto flex-col gap-1.5 text-left active:scale-[0.98] transition-transform"
+            >
+              <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-muted shadow-sm">
+                {book.coverUrl ? (
+                  <img
+                    src={book.coverUrl}
+                    alt={book.title}
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <BookOpen className="h-6 w-6 text-muted-foreground/40" />
+                  </div>
+                )}
+              </div>
+              <p className="text-xs font-semibold truncate">{book.title}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{book.author || '未知作者'}</p>
+            </button>
+          ))}
+        </div>
+      </section>
+    </Card>
+  )
+}
+
 export default function HomePage() {
   const navigate = useNavigate()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -149,6 +209,12 @@ export default function HomePage() {
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['home', 'categories'],
     queryFn: () => getHomeCategories().then(res => res ?? []),
+    enabled: isAuthenticated,
+  })
+
+  const { data: recentBooks = [] } = useQuery({
+    queryKey: ['home', 'recent'],
+    queryFn: () => getHomeRecent().then(res => res ?? []),
     enabled: isAuthenticated,
   })
 
@@ -184,6 +250,9 @@ export default function HomePage() {
           <div className="hidden lg:block">
             <HeroSection onSearchClick={() => navigate(`${ROUTES.DISCOVER}?tab=books`)} />
           </div>
+
+          {/* 最近阅读 */}
+          <RecentReading books={recentBooks} onBookClick={(id) => id === -1 ? navigate(ROUTES.READING_LIST) : goToBook(id)} />
 
           {personalizedLoading ? (
             <Card>

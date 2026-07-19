@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
  * 圆桌派角色视图对象
  */
@@ -29,6 +31,12 @@ public class RoleVO {
 
     /** 角色 Emoji 图标（前端展示用） */
     private String icon;
+
+    /** 角色视角简介（来自 ragStrategy.perspectiveHint，一句话描述角色方法论） */
+    private String perspective;
+
+    /** 角色擅长领域标签（来自配置 tags，如 ["哲学","伦理","国学"]） */
+    private List<String> tags;
 
     /** 角色分组（CORE/BUSINESS/ART/LIFE/TECH/SOCIAL） */
     private String roleGroup;
@@ -79,6 +87,8 @@ public class RoleVO {
                 .title(configRole.getTitle())
                 .color(configRole.getColor())
                 .icon(configRole.getIcon())
+                .perspective(configRole.getRagStrategy() != null ? configRole.getRagStrategy().getPerspectiveHint() : null)
+                .tags(configRole.getTags())
                 .roleGroup(configRole.getGroup())
                 .grabWeight(configRole.getParams().getGrabWeight())
                 .verbosity(configRole.getParams().getVerbosity())

@@ -545,26 +545,28 @@ public class RoundTableCoverageService {
         result = CommonUtils.stripCodeFence(result);
         List<ContentBlock> blocks = new ArrayList<>();
         try {
-            var arr = objectMapper.readTree(result);
-            if (arr != null && arr.isArray()) {
-                for (var node : arr) {
-                    String title = node.has("title") ? node.get("title").asText() : "未知主题";
-                    String summary = node.has("summary") ? node.get("summary").asText() : "";
-
-                    Set<String> keywords = extractKeyTerms(title + " " + summary);
-                    String representativeText = summary.isEmpty() ? title : summary;
-                    if (representativeText.length() > 300) {
-                        representativeText = representativeText.substring(0, 300);
+            // Markdown 解析：按 ### 标题 切分块，标题后到下一个 ### 之间为摘要
+            // 兼容 JSON 兜底：LLM 偶发仍输出 JSON 数组时也能解析
+            if (result.trim().startsWith("[")) {
+                var arr = objectMapper.readTree(result);
+                if (arr != null && arr.isArray()) {
+                    for (var node : arr) {
+                        String title = node.has("title") ? node.get("title").asText() : "未知主题";
+                        String summary = node.has("summary") ? node.get("summary").asText() : "";
+                        blocks.add(buildOutlineBlock(title, summary));
                     }
-
-                    blocks.add(ContentBlock.builder()
-                            .title(title.length() > 50 ? title.substring(0, 50) : title)
-                            .summary(summary.length() > 200 ? summary.substring(0, 200) : summary)
-                            .representativeText(representativeText)
-                            .chunkCount(0)
-                            .keywords(keywords)
-                            .source("llm_outline")
-                            .build());
+                }
+            } else {
+                // Markdown 行式解析：按 ### 标题 切块
+                String[] parts = result.split("(?=\\n\\s*###\\s)");
+                Pattern titlePat = Pattern.compile("^\\s*###\\s+(.+?)\\s*$", Pattern.MULTILINE);
+                for (String part : parts) {
+                    Matcher tm = titlePat.matcher(part);
+                    if (!tm.find()) continue;
+                    String title = tm.group(1).trim();
+                    // 摘要 = 标题行之后的所有内容
+                    String summary = part.substring(tm.end()).trim();
+                    blocks.add(buildOutlineBlock(title, summary));
                 }
             }
         } catch (Exception e) {
@@ -572,6 +574,23 @@ public class RoundTableCoverageService {
         }
 
         return blocks;
+    }
+
+    /** 构建大纲块，统一截断长度 */
+    private ContentBlock buildOutlineBlock(String title, String summary) {
+        Set<String> keywords = extractKeyTerms(title + " " + summary);
+        String representativeText = summary.isEmpty() ? title : summary;
+        if (representativeText.length() > 300) {
+            representativeText = representativeText.substring(0, 300);
+        }
+        return ContentBlock.builder()
+                .title(title.length() > 50 ? title.substring(0, 50) : title)
+                .summary(summary.length() > 200 ? summary.substring(0, 200) : summary)
+                .representativeText(representativeText)
+                .chunkCount(0)
+                .keywords(keywords)
+                .source("llm_outline")
+                .build();
     }
 
     /**
@@ -748,29 +767,61 @@ public class RoundTableCoverageService {
         String discussionSummary = buildDiscussionSummary(messages);
 
         // 固定角色 + 评估维度作为 SystemMessage
+        // 输出格式：Markdown（比 JSON 更稳定，reason 含中文引号/换行时不易破坏结构）
         String systemPrompt = """
-                你是一位专业的书籍讨论评估专家。请评估圆桌派讨论对该书内容的覆盖程度，从以下维度评分（每项 0-10 分）：
+                你是一位专业的书籍讨论评估专家。请评估圆桌派讨论对该书内容的覆盖程度，从以下维度评分（每项 0-10 分，可保留一位小数）：
                 1. 广度覆盖 (Breadth)：讨论触及了多少个书中的核心主题/概念？
                 2. 深度挖掘 (Depth)：对已触及的主题，讨论的深度如何？是否只是表面提及？
                 3. 观点碰撞 (Debate)：不同角色的观点是否形成有效碰撞和辩驳？
                 4. 文本关联 (TextAnchor)：讨论是否紧密围绕书中的具体内容、案例或论述展开？
                 5. 批判思辨 (CriticalThinking)：是否有对书中观点提出质疑、反思或延伸思考？
                 6. 整体覆盖度 (Overall)：综合评估，讨论在多大程度上覆盖了此书的核心内容？
-                
-                请以 JSON 格式输出，不要任何其他内容：
-                {
-                  "dimensions": {
-                    "广度覆盖": {"score": N, "reason": "..."},
-                    "深度挖掘": {"score": N, "reason": "..."},
-                    "观点碰撞": {"score": N, "reason": "..."},
-                    "文本关联": {"score": N, "reason": "..."},
-                    "批判思辨": {"score": N, "reason": "..."},
-                    "整体覆盖度": {"score": N, "reason": "..."}
-                  },
-                  "强项": ["...", "..."],
-                  "不足": ["...", "..."],
-                  "改进建议": ["...", "..."]
-                }
+
+                严格按以下 Markdown 格式输出，不要输出 JSON、不要输出代码块围栏、不要额外解释：
+
+                ## 维度评分
+
+                ### 广度覆盖
+                - 评分：N
+                - 理由：xxx
+
+                ### 深度挖掘
+                - 评分：N
+                - 理由：xxx
+
+                ### 观点碰撞
+                - 评分：N
+                - 理由：xxx
+
+                ### 文本关联
+                - 评分：N
+                - 理由：xxx
+
+                ### 批判思辨
+                - 评分：N
+                - 理由：xxx
+
+                ### 整体覆盖度
+                - 评分：N
+                - 理由：xxx
+
+                ## 强项
+                - xxx
+                - xxx
+
+                ## 不足
+                - xxx
+                - xxx
+
+                ## 改进建议
+                - xxx
+                - xxx
+
+                规则：
+                - 「### 维度名」必须严格使用上述 6 个维度名，原样输出
+                - 「- 评分：」后跟 0-10 之间的数字（可带一位小数），不要带「分」字
+                - 「- 理由：」后跟一句话说明，不要换行
+                - 「强项/不足/改进建议」每条以「- 」开头独占一行，至少 1 条
                 """;
 
         // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(讨论摘要)
@@ -787,29 +838,39 @@ public class RoundTableCoverageService {
 
         result = CommonUtils.stripCodeFence(result);
         try {
-            var root = objectMapper.readTree(result);
-            var dims = root.get("dimensions");
+            // Markdown 解析：## 维度评分 区段下按 ### 维度名 切分,## 强项/不足/改进建议 按列表项解析
+            String dimsSection = CommonUtils.extractMarkdownSection(result, "维度评分");
             Map<String, Double> dimensionScores = new LinkedHashMap<>();
             double totalScore = 0;
             int count = 0;
-
-            if (dims != null) {
-                for (var it = dims.fieldNames(); it.hasNext(); ) {
-                    String dimName = it.next();
-                    var dim = dims.get(dimName);
-                    double score = dim.has("score") ? dim.get("score").asDouble() : 0;
+            if (dimsSection != null) {
+                // 按 ### 维度名 切分
+                String[] dimBlocks = dimsSection.split("(?=\\n\\s*###\\s)");
+                Pattern dimPat = Pattern.compile("^\\s*###\\s+(.+?)\\s*$", Pattern.MULTILINE);
+                for (String block : dimBlocks) {
+                    Matcher dm = dimPat.matcher(block);
+                    if (!dm.find()) continue;
+                    // 维度名可能带英文后缀如「广度覆盖 (Breadth)」,取主名
+                    String dimName = dm.group(1).trim().replaceAll("\\s*\\(.*\\)\\s*$", "").trim();
+                    double score = extractScoreFromMarkdown(block);
                     dimensionScores.put(dimName, score);
                     totalScore += score;
                     count++;
                 }
             }
 
+            // 解析不到任何维度 → 视为解析失败,返回 null 让调用方走 fallback
+            if (count == 0) {
+                log.warn("LLM 评估未解析到维度评分,返回 null: result={}", result);
+                return null;
+            }
+
             double overallDimScore = dimensionScores.getOrDefault("整体覆盖度",
                     count > 0 ? totalScore / count : 0);
 
-            List<String> strengths = parseStringArray(root, "强项");
-            List<String> weaknesses = parseStringArray(root, "不足");
-            List<String> suggestions = parseStringArray(root, "改进建议");
+            List<String> strengths = parseMarkdownListSection(result, "强项");
+            List<String> weaknesses = parseMarkdownListSection(result, "不足");
+            List<String> suggestions = parseMarkdownListSection(result, "改进建议");
 
             LlmAssessmentResult assessment = new LlmAssessmentResult();
             assessment.setDimensions(dimensionScores);
@@ -826,6 +887,73 @@ public class RoundTableCoverageService {
         }
     }
 
+    /**
+     * 从 Markdown 维度块中提取「- 评分：N」的数字。
+     * 兼容：
+     * - 「- 评分：7.5」「- 评分: 7.5」「- 评分：7.5分」（去掉"分"字）
+     * - 「- score: 7.5」英文 key
+     * - 无前缀的「评分：7.5」「评分:7.5」
+     * 兜底：取块内第一个 0-10 范围的数字（避免取到理由中的数字,只在评分行匹配失败时使用）
+     */
+    private double extractScoreFromMarkdown(String block) {
+        if (block == null) return 0;
+        // 主匹配：带列表前缀的「- 评分：N」
+        Pattern p = Pattern.compile("(?im)^\\s*[-*]\\s*(?:评分|score)\\s*[:：]\\s*([0-9]+(?:\\.[0-9]+)?)");
+        Matcher m = p.matcher(block);
+        if (m.find()) {
+            try {
+                return Double.parseDouble(m.group(1));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        // 次匹配：无列表前缀的「评分：N」（LLM 可能漏写「-」）
+        Pattern p2 = Pattern.compile("(?im)^\\s*(?:评分|score)\\s*[:：]\\s*([0-9]+(?:\\.[0-9]+)?)");
+        Matcher m2 = p2.matcher(block);
+        if (m2.find()) {
+            try {
+                return Double.parseDouble(m2.group(1));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        // 兜底：取块内第一个 0-10 范围的数字（跳过维度名行,避免误取）
+        // 注意：这是最后兜底,如果理由中有数字会取错,但主/次匹配通常能命中
+        Pattern numP = Pattern.compile("\\b([0-9]{1,2}(?:\\.[0-9]+)?)\\b");
+        Matcher numM = numP.matcher(block);
+        // 跳过第一行(维度名行,可能含数字如"5 个维度")
+        String[] lines = block.split("\\r?\\n", 2);
+        String searchArea = lines.length > 1 ? lines[1] : block;
+        numM = numP.matcher(searchArea);
+        while (numM.find()) {
+            try {
+                double v = Double.parseDouble(numM.group(1));
+                if (v >= 0 && v <= 10) return v;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * 从 Markdown 文本中提取指定二级标题（## xxx）下的列表项。
+     * 兼容「- item」「* item」「• item」以及无前缀的纯行。
+     */
+    private List<String> parseMarkdownListSection(String text, String header) {
+        List<String> result = new ArrayList<>();
+        String section = CommonUtils.extractMarkdownSection(text, header);
+        if (section == null || section.isBlank()) return result;
+        for (String line : section.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
+            // 去掉列表前缀
+            String item = trimmed.replaceFirst("^[-*•]\\s+", "");
+            if (item.isEmpty()) continue;
+            // 跳过误入的标题行
+            if (item.startsWith("#")) continue;
+            result.add(item);
+        }
+        return result;
+    }
+
 
     private String buildDiscussionSummary(List<RoundTableMessage> messages) {
         StringBuilder sb = new StringBuilder();
@@ -838,18 +966,6 @@ public class RoundTableCoverageService {
             }
         }
         return sb.toString();
-    }
-
-    private List<String> parseStringArray(com.fasterxml.jackson.databind.JsonNode root, String field) {
-        List<String> result = new ArrayList<>();
-        try {
-            var arr = root.get(field);
-            if (arr != null && arr.isArray()) {
-                for (var item : arr) result.add(item.asText());
-            }
-        } catch (Exception ignored) {
-        }
-        return result;
     }
 
     private String buildDiscussionText(List<RoundTableMessage> messages) {

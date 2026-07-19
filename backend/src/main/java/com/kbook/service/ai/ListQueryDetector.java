@@ -1,5 +1,6 @@
 package com.kbook.service.ai;
 
+import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.AiScene;
 import dev.langchain4j.data.message.ChatMessage;
@@ -9,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 列表型问题检测器 — LLM 判定用户问题是否为"列表枚举型"。
@@ -55,7 +58,7 @@ public class ListQueryDetector {
         }
     }
 
-    /** 系统提示词 — 严格 JSON 输出，便于解析 */
+    /** 系统提示词 — 行式 KV 输出，便于解析且 LLM 不易出格式错误 */
     private static final String DETECT_SYSTEM_PROMPT = """
             你是一个问题类型分类器。判断用户问题是否为"列表枚举型问题"。
 
@@ -76,13 +79,17 @@ public class ListQueryDetector {
             如果用户消息中包含"上轮AI回答"，且上轮回答中提到了"N项/N种/N类 + 名词"，
             而用户追问这些项的具体内容（即使没有 N 字样），也算列表型问题。
 
-            【输出格式】严格 JSON，无其他文字：
-            {"isList": true, "topic": "11项能力培养"}
-            或
-            {"isList": false, "topic": null}
+            【输出格式】行式 KV，每行一个字段，不要 JSON、不要代码块围栏、不要其他文字：
 
-            topic 字段：列表的主题短语（10-20字），如"11项能力培养"、"14种教育艺术"、"书中的核心方法"。
-            非列表型问题时 topic 为 null。""";
+            IS_LIST: true
+            TOPIC: 11项能力培养
+
+            或（非列表型问题）：
+            IS_LIST: false
+            TOPIC: （留空）
+
+            IS_LIST 取值：true 或 false
+            TOPIC：列表的主题短语（10-20字），如"11项能力培养"、"14种教育艺术"、"书中的核心方法"；非列表型问题时留空。""";
 
     /**
      * 检测用户问题是否为列表型。
@@ -166,26 +173,48 @@ public class ListQueryDetector {
     }
 
     /**
-     * 解析 LLM 返回的 JSON 结果。
-     * 容错：JSON 解析失败时返回 notList()。
+     * 解析 LLM 返回的行式 KV 结果。
+     * 期望格式：
+     * <pre>
+     * IS_LIST: true
+     * TOPIC: 11项能力培养
+     * </pre>
+     * 容错：解析失败时返回 notList()。
      */
     private DetectionResult parseResult(String aiText) {
         try {
-            String json = aiText.trim();
-            // 兼容 LLM 可能输出的代码块包裹
-            if (json.startsWith("```")) {
-                int start = json.indexOf('{');
-                int end = json.lastIndexOf('}');
-                if (start >= 0 && end > start) {
-                    json = json.substring(start, end + 1);
+            String text = CommonUtils.stripCodeFence(aiText);
+            if (text == null || text.isBlank()) return DetectionResult.notList();
+
+            // 兼容：LLM 偶发仍输出 JSON 时也能解析
+            String trimmed = text.trim();
+            if (trimmed.startsWith("{")) {
+                try {
+                    var mapper = com.fasterxml.jackson.databind.json.JsonMapper.builder().build();
+                    var node = mapper.readTree(trimmed);
+                    boolean isList = node.has("isList") && node.get("isList").asBoolean(false);
+                    String topic = node.has("topic") && !node.get("topic").isNull()
+                            ? node.get("topic").asText() : null;
+                    if (isList && topic != null && !topic.isBlank()) {
+                        log.info("[ListQueryDetector] 检测到列表型问题(JSON兼容): topic={}", topic);
+                        return DetectionResult.of(topic.trim());
+                    }
+                    return DetectionResult.notList();
+                } catch (Exception ignored) {
+                    // JSON 解析失败，落到下面的行式 KV 解析
                 }
             }
 
-            var mapper = com.fasterxml.jackson.databind.json.JsonMapper.builder().build();
-            var node = mapper.readTree(json);
-            boolean isList = node.has("isList") && node.get("isList").asBoolean(false);
-            String topic = node.has("topic") && !node.get("topic").isNull()
-                    ? node.get("topic").asText() : null;
+            // 行式 KV 解析
+            String isListRaw = extractKvLine(text, "IS_LIST");
+            String topic = extractKvLine(text, "TOPIC");
+            boolean isList = "true".equalsIgnoreCase(isListRaw == null ? "" : isListRaw.trim());
+            if (topic != null) {
+                topic = topic.trim();
+                if (topic.isEmpty() || "（留空）".equals(topic) || "null".equalsIgnoreCase(topic)) {
+                    topic = null;
+                }
+            }
 
             if (isList && topic != null && !topic.isBlank()) {
                 log.info("[ListQueryDetector] 检测到列表型问题: topic={}", topic);
@@ -196,5 +225,13 @@ public class ListQueryDetector {
             log.warn("列表型问题检测结果解析失败: raw={}, error={}", aiText, e.getMessage());
             return DetectionResult.notList();
         }
+    }
+
+    /** 提取行式 KV 中某个字段值（大小写不敏感），找不到返回 null */
+    private String extractKvLine(String text, String key) {
+        Pattern p = Pattern.compile("(?im)^\\s*" + Pattern.quote(key) + "\\s*[:：]\\s*(.*)$");
+        Matcher m = p.matcher(text);
+        if (m.find()) return m.group(1);
+        return null;
     }
 }

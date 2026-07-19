@@ -364,9 +364,64 @@ public class RoundTableService {
     // buildRoleListWithSelection 已合并到 buildRoleListFromSelected
 
     /**
-     * 解析 LLM 返回的角色选择 JSON
+     * 解析 LLM 返回的角色选择结果。
+     * 支持两种格式（容错优先级）：
+     * 1. 行式 KV：[ROLE] 段 + KEY/DOMAIN_RELEVANCE/LANGUAGE_STYLE 行
+     * 2. JSON 数组兜底：LLM 偶发仍输出 JSON 时容错
      */
-    private List<RoleVO> parseLlmRoleSelection(String json) {
+    private List<RoleVO> parseLlmRoleSelection(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String text = CommonUtils.stripCodeFence(raw).trim();
+
+        // JSON 数组兜底
+        if (text.startsWith("[")) {
+            List<RoleVO> jsonResult = parseLlmRoleSelectionJson(text);
+            if (jsonResult != null) return jsonResult;
+        }
+
+        // 行式 KV 解析：按 [ROLE] 切段
+        List<RoleVO> roles = new ArrayList<>();
+        String[] blocks = text.split("(?=\\[ROLE\\])");
+        Pattern keyPat = Pattern.compile("(?im)^\\s*KEY\\s*[:：]\\s*(.+?)\\s*$");
+        Pattern relPat = Pattern.compile("(?im)^\\s*DOMAIN_RELEVANCE\\s*[:：]\\s*([0-9]+)");
+        // LANGUAGE_STYLE 行内容可能较长，正则匹配到行尾
+        Pattern stylePat = Pattern.compile("(?im)^\\s*LANGUAGE_STYLE\\s*[:：]\\s*(.+?)\\s*$");
+
+        for (String block : blocks) {
+            if (!block.contains("[ROLE]")) continue;
+            Matcher km = keyPat.matcher(block);
+            if (!km.find()) continue;
+            String key = km.group(1).trim();
+            if (key.isEmpty()) continue;
+
+            AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
+            if (role == null || "HOST".equals(role.getKey())) continue;
+
+            RoleVO vo = RoleVO.fromConfig(role);
+
+            Matcher rm = relPat.matcher(block);
+            if (rm.find()) {
+                try {
+                    vo.setDomainRelevance(Integer.parseInt(rm.group(1)));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+
+            Matcher sm = stylePat.matcher(block);
+            if (sm.find()) {
+                vo.setLanguageStyle(sm.group(1).trim());
+            } else {
+                vo.setLanguageStyle("");
+            }
+
+            roles.add(vo);
+            if (roles.size() >= 6) break; // 最多 6 个非主持人角色
+        }
+        return roles.isEmpty() ? null : roles;
+    }
+
+    /** JSON 数组兜底解析：LLM 偶发仍输出 JSON 时容错 */
+    private List<RoleVO> parseLlmRoleSelectionJson(String json) {
         try {
             var nodes = objectMapper.readTree(json);
             if (!nodes.isArray()) return null;
@@ -386,11 +441,11 @@ public class RoundTableService {
                 vo.setLanguageStyle(languageStyle);
                 roles.add(vo);
 
-                if (roles.size() >= 6) break; // 最多 6 个非主持人角色
+                if (roles.size() >= 6) break;
             }
-            return roles;
+            return roles.isEmpty() ? null : roles;
         } catch (Exception e) {
-            log.warn("解析 LLM 角色选择结果失败: {}", e.getMessage());
+            log.warn("解析 LLM 角色选择 JSON 结果失败: {}", e.getMessage());
             return null;
         }
     }

@@ -204,9 +204,9 @@ docker run -d \
     -e KBOOK_AI_CONFIG_PATH=/app/config/ai-config.json \
     -e AI_VISION_MODEL="${AI_VISION_MODEL}" \
     -e AI_VISION_TIMEOUT="${AI_VISION_TIMEOUT}" \
-    -v "${BOOK_PATH_EPUB}:/data/books/epub:ro" \
-    -v "${BOOK_PATH_PDF}:/data/books/pdf:ro" \
-    -v "${BOOK_PATH_TXT}:/data/books/txt:ro" \
+    -v "${BOOK_PATH_EPUB}:/data/books/epub" \
+    -v "${BOOK_PATH_PDF}:/data/books/pdf" \
+    -v "${BOOK_PATH_TXT}:/data/books/txt" \
     -v "${BOOK_COVER_PATH}:/data/covers" \
     -v "${AVATAR_DIR}:/data/avatars" \
     -v "${CHAT_DIR}:/data/chat" \

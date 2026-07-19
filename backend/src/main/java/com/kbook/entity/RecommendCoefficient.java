@@ -9,8 +9,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 推荐算法系数实体
  * 存储推荐算法的所有可调系数，支持管理员手动覆盖和系统自动调参
@@ -73,22 +71,6 @@ public class RecommendCoefficient extends BaseEntity {
     @Column(nullable = false)
     @Builder.Default
     private Boolean locked = false;
-
-    /** 最后更新时间 */
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
-    /** JPA 持久化前回调，自动设置更新时间 */
-    @PrePersist
-    protected void onCreate() {
-        updatedAt = LocalDateTime.now();
-    }
-
-    /** JPA 更新前回调，自动设置更新时间 */
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

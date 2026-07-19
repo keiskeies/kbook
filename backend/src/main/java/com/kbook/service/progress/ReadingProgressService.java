@@ -244,10 +244,19 @@ public class ReadingProgressService {
                 .orderByDesc(ReadingProgress::getUpdatedAt)
                 .page(page, size);
 
-        List<ReadingHistoryVO> list = pageData.getContent().stream().map(rp -> {
-            Book book = bookRepository.findById(rp.getBookId()).orElse(null);
-            return ReadingHistoryVO.from(rp, book);
-        }).collect(Collectors.toList());
+        // 批量查询图书投影，避免 N+1（1 次查询替代 N 次 findById）
+        List<Long> bookIds = pageData.getContent().stream()
+                .map(ReadingProgress::getBookId)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, com.kbook.dto.book.BookProjection> bookMap = bookIds.isEmpty()
+                ? java.util.Collections.emptyMap()
+                : bookRepository.findProjectedByIdIn(bookIds).stream()
+                        .collect(Collectors.toMap(com.kbook.dto.book.BookProjection::getId, b -> b));
+
+        List<ReadingHistoryVO> list = pageData.getContent().stream()
+                .map(rp -> ReadingHistoryVO.from(rp, bookMap.get(rp.getBookId())))
+                .collect(Collectors.toList());
 
         return com.kbook.common.api.PageResult.of(list, pageData.getTotalElements(), page, size);
     }

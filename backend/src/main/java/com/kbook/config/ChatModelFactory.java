@@ -143,6 +143,10 @@ public class ChatModelFactory {
      *   <li>REASONING_EFFORT 模式：SWITCH 行为 + reasoningEffort（非空时发送）</li>
      *   <li>THINKING_BUDGET 模式：SWITCH 行为 + thinking_budget（非空时通过 customParameters 透传）</li>
      * </ul>
+     * <p>
+     * VISION 场景特例：未显式绑定时优先用 YML {@code kbook.ai.vision} 配置
+     * （保持原 {@link #buildVisionChatModel()} 行为，用于本地 OCR 模型）；
+     * 用户在后台显式绑定或 YML 配置缺失时走 DB 解析结果。
      */
     public ChatModel buildForScene(com.kbook.entity.AiScene scene) {
         com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
@@ -153,6 +157,15 @@ public class ChatModelFactory {
         log.debug("构建场景 ChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
                 scene, config.getName(), config.getModelName(),
                 config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
+
+        // VISION 场景特例：未显式绑定 + YML vision 配置有效 → 用 YML 配置（保持原 buildVisionChatModel 行为）
+        if (scene.getDefaultCategory() == com.kbook.entity.AiScene.Category.VISION
+                && !sceneConfigService.isExplicitlyBound(scene)
+                && isYmlVisionConfigured()) {
+            log.debug("VISION 场景 [{}] 未绑定且 YML vision 配置有效，使用 YML 配置", scene);
+            return buildVisionChatModel();
+        }
+
         return wrap(buildChat(config, tc), config);
     }
 
@@ -204,14 +217,44 @@ public class ChatModelFactory {
         com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
         String thinkingMode = config.getThinkingMode() != null
                 ? config.getThinkingMode().name() : "SWITCH";
+
+        // VISION 场景特例：未显式绑定 + YML vision 配置有效 → 日志记录 YML 模型名
+        // 与 buildForScene 的 VISION 分支保持一致，避免日志显示"未知模型"
+        String modelName = config.getModelName();
+        String configName = config.getName();
+        boolean thinkingEnabled = resolved.thinkingEnabled();
+        String reasoningEffort = resolved.reasoningEffort();
+        if (scene.getDefaultCategory() == com.kbook.entity.AiScene.Category.VISION
+                && !sceneConfigService.isExplicitlyBound(scene)
+                && isYmlVisionConfigured()) {
+            AiModelProperties.VisionConfig vision = aiModelProperties.getVision();
+            modelName = vision.getModelName();
+            configName = "YML vision config";
+            thinkingMode = "NONE"; // OCR 强制关闭思考
+            thinkingEnabled = false;
+            reasoningEffort = null;
+        }
+
         return new com.kbook.service.ai.ChatModelManager.AiCallLogContext(
                 scene.name(),
-                config.getModelName(),
-                config.getName(),
+                modelName,
+                configName,
                 thinkingMode,
-                resolved.thinkingEnabled(),
-                resolved.reasoningEffort()
+                thinkingEnabled,
+                reasoningEffort
         );
+    }
+
+    /**
+     * 判断 YML {@code kbook.ai.vision} 配置是否有效（base-url 和 model-name 均非空）。
+     * <p>
+     * 用于 VISION 场景的路由决策：YML 有效且未显式绑定时优先用 YML 配置。
+     */
+    private boolean isYmlVisionConfigured() {
+        AiModelProperties.VisionConfig vision = aiModelProperties.getVision();
+        return vision != null
+                && vision.getBaseUrl() != null && !vision.getBaseUrl().isBlank()
+                && vision.getModelName() != null && !vision.getModelName().isBlank();
     }
 
     /**

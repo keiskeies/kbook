@@ -9,8 +9,6 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 阅读进度实体
  * 进度计算规则：
@@ -51,25 +49,9 @@ public class ReadingProgress extends BaseEntity {
     @Column(name = "current_position", length = 100)
     private String currentPosition;
 
-    /** 更新时间戳（用于冲突解决：时间戳覆盖策略） */
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
     /** 用户评分（1-5星整数），null 表示未评分 */
     @Column(name = "user_rating")
     private Integer userRating;
-
-    /** JPA 持久化前回调，自动设置更新时间 */
-    @PrePersist
-    protected void onCreate() {
-        updatedAt = LocalDateTime.now();
-    }
-
-    /** JPA 更新前回调，自动设置更新时间 */
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 
     @Override
     public Long getId() {

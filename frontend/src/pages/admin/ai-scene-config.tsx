@@ -35,6 +35,49 @@ const THINKING_MODE_LABEL: Record<string, string> = {
   THINKING_BUDGET: '预算模式',
 }
 
+/** 场景功能描述 — 解释这个场景在系统中干什么用 */
+const SCENE_DESCRIPTION: Record<string, string> = {
+  // 图书问答域
+  BOOK_QA: '针对单本书的流式问答，带 RAG 检索和思考模式',
+  AI_ASSISTANT: '通用 AI 对话，可调用图书搜索等工具',
+  ADMIN_ASSISTANT: '管理后台的 AI 对话助手',
+  PRESET_QUESTION: '图书详情页底部展示的推荐问题',
+  BOOK_SUMMARY_REFINE: '从图书原文提炼结构化摘要',
+  SPEED_READ: '流式生成 3 分钟速读摘要',
+  // 圆桌派域
+  ROUND_TABLE_SPEECH: '圆桌派多角色流式发言（核心输出）',
+  ROUND_TABLE_KNOWLEDGE: '为角色准备领域知识，非流式',
+  ROUND_TABLE_ROLE_RECOMMEND: 'LLM 选 3 个适合的角色',
+  ROUND_TABLE_ROLE_SEARCH: '为角色检索生成查询关键词',
+  ROUND_TABLE_SPEAKER_SELECT: '判断下一个发言角色（NEXT/END/SUMMARY）',
+  ROUND_TABLE_COVERAGE: '评估讨论覆盖的主题维度',
+  ROUND_TABLE_REPORT: '生成圆桌派讨论总结报告',
+  ROUND_TABLE_EXPORT_HOOK: '导出时生成结束语',
+  // 辩论域
+  DEBATE_SPEECH: '辩论 7 环节流式发言（开篇/质询/自由/结辩等）',
+  DEBATE_KNOWLEDGE: '为辩手准备论据，非流式',
+  DEBATE_TOPIC_GENERATE: '从图书内容生成辩论题目',
+  DEBATE_TOPIC_OPTIMIZE: '优化辩题表达',
+  DEBATE_SPEAKER_SELECT: '自由辩论下一位发言辩手',
+  DEBATE_SCORING: '对辩论表现打分',
+  DEBATE_REPORT: '生成辩论总结报告',
+  // RAG/检索域
+  QUERY_EXPAND: '扩展多关键词提升 RAG 召回',
+  VECTOR_QUERY_EXPAND: '口语化问题转向量检索正式表达',
+  FOLLOW_UP_QUESTION: '基于当前回答生成追问建议',
+  LIST_QUERY_DETECT: '判断是否为列表型问题（如"有哪些"）',
+  LIST_QUERY_REFINE: 'LLM 精筛向量召回的片段',
+  LIST_QUERY_CHAPTER_RANGE: '从目录推断列表查询的章节范围',
+  // 元数据/OCR/嵌入域
+  BOOK_METADATA_INFER: '推断作者/简介/标签等元数据',
+  BOOK_PARSE_COMBINED: '一次性生成标签/评分/相关度/简介',
+  PDF_OCR: '扫描版 PDF 视觉识别（书名/作者/全文）',
+  EMBEDDING: '生成文本向量用于 RAG 检索',
+  // 压缩域
+  CHAT_COMPRESSION: '压缩普通对话历史',
+  ROUND_TABLE_COMPRESSION: '压缩圆桌派历史（保留论点/态度/情绪）',
+}
+
 export default function AiSceneConfigPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -184,6 +227,11 @@ function SceneRow({
               <span className="rounded bg-indigo-500/10 text-indigo-600 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] font-medium">流式</span>
             )}
           </div>
+          {SCENE_DESCRIPTION[scene.sceneKey] && (
+            <p className="mt-1 text-[11px] text-muted-foreground/80 leading-relaxed">
+              {SCENE_DESCRIPTION[scene.sceneKey]}
+            </p>
+          )}
           <div className="mt-1.5 text-xs">
             {scene.boundConfigId ? (
               <span className={scene.explicitlyBound ? 'text-foreground' : 'text-muted-foreground italic'}>

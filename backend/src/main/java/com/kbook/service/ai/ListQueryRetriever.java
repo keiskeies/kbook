@@ -1,5 +1,6 @@
 package com.kbook.service.ai;
 
+import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
@@ -14,6 +15,8 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -450,8 +453,12 @@ public class ListQueryRetriever {
                 "【任务】\n" +
                 "1. 从目录中找出最可能包含\"" + listTopic + "\"的章节范围\n" +
                 "2. 返回起始章节序号和结束章节序号（1-based）\n" +
-                "3. 严格 JSON 输出：{\"startChapter\": 3, \"endChapter\": 5}\n" +
-                "4. 找不到时返回：{\"startChapter\": null, \"endChapter\": null}";
+                "3. 严格按以下行式 KV 格式输出，不要 JSON、不要代码块围栏：\n" +
+                "START_CHAPTER: 3\n" +
+                "END_CHAPTER: 5\n" +
+                "4. 找不到时返回：\n" +
+                "START_CHAPTER: null\n" +
+                "END_CHAPTER: null";
 
         try {
             var response = model.chat(List.of(
@@ -459,38 +466,50 @@ public class ListQueryRetriever {
             String text = response.aiMessage().text();
             if (text == null || text.isBlank()) return null;
 
-            // 解析 JSON
-            String json = text.trim();
-            if (json.startsWith("```")) {
-                int start = json.indexOf('{');
-                int end = json.lastIndexOf('}');
-                if (start >= 0 && end > start) json = json.substring(start, end + 1);
-            }
+            // 行式 KV 解析（兼容 LLM 偶发输出 JSON）
+            text = CommonUtils.stripCodeFence(text);
+            Integer startCh = parseChapterKv(text, "START_CHAPTER");
+            Integer endCh = parseChapterKv(text, "END_CHAPTER");
 
-            var mapper = com.fasterxml.jackson.databind.json.JsonMapper.builder().build();
-            var node = mapper.readTree(json);
-            if (node.has("startChapter") && !node.get("startChapter").isNull()
-                    && node.has("endChapter") && !node.get("endChapter").isNull()) {
-                int startCh = node.get("startChapter").asInt();
-                int endCh = node.get("endChapter").asInt();
-                // 边界校验：1-based 章节序号，且不能超过 toc 总章数
-                if (startCh > 0 && endCh >= startCh) {
-                    startCh = Math.min(startCh, tocLines.size());
-                    endCh = Math.min(endCh, tocLines.size());
-                    // 章节 → chunkIndex 范围映射
-                    // 假设章节均匀分布：章节 i 对应 chunkIndex 范围 [(i-1)*chunksPerChapter, i*chunksPerChapter)
-                    double chunksPerChapter = (double) totalChunks / tocLines.size();
-                    int minIdx = (int) Math.max(0, (startCh - 1) * chunksPerChapter);
-                    int maxIdx = (int) Math.min(totalChunks - 1, endCh * chunksPerChapter);
-                    // 扩展 1 个章节的余量，应对映射误差
-                    int expand = (int) Math.max(2, chunksPerChapter);
-                    return new int[]{Math.max(0, minIdx - expand / 2), maxIdx + expand / 2};
-                }
+            // 边界校验：1-based 章节序号，且不能超过 toc 总章数
+            if (startCh != null && endCh != null && startCh > 0 && endCh >= startCh) {
+                startCh = Math.min(startCh, tocLines.size());
+                endCh = Math.min(endCh, tocLines.size());
+                // 章节 → chunkIndex 范围映射
+                // 假设章节均匀分布：章节 i 对应 chunkIndex 范围 [(i-1)*chunksPerChapter, i*chunksPerChapter)
+                double chunksPerChapter = (double) totalChunks / tocLines.size();
+                int minIdx = (int) Math.max(0, (startCh - 1) * chunksPerChapter);
+                int maxIdx = (int) Math.min(totalChunks - 1, endCh * chunksPerChapter);
+                // 扩展 1 个章节的余量，应对映射误差
+                int expand = (int) Math.max(2, chunksPerChapter);
+                return new int[]{Math.max(0, minIdx - expand / 2), maxIdx + expand / 2};
             }
         } catch (Exception e) {
             log.warn("{} LLM 章节范围推断失败: {}", logPrefix, e.getMessage());
         }
         return null;
+    }
+
+    /** 解析章节 KV 字段（START_CHAPTER / END_CHAPTER），支持 null 标记 */
+    private Integer parseChapterKv(String text, String key) {
+        if (text == null) return null;
+        Pattern p = Pattern.compile("(?im)^\\s*" + Pattern.quote(key) + "\\s*[:：]\\s*(.+)$");
+        Matcher m = p.matcher(text);
+        if (!m.find()) return null;
+        String v = m.group(1).trim();
+        if (v.isEmpty() || "null".equalsIgnoreCase(v)) return null;
+        try {
+            return Integer.parseInt(v);
+        } catch (NumberFormatException e) {
+            // 兼容 LLM 偶发输出 JSON 数字（如 "3,"）
+            String digits = v.replaceAll("[^0-9].*$", "");
+            if (digits.isEmpty()) return null;
+            try {
+                return Integer.parseInt(digits);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.kbook.dto.stats;
 
+import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.Book;
 import com.kbook.entity.ReadingProgress;
 import lombok.AllArgsConstructor;
@@ -59,6 +60,33 @@ public class ReadingHistoryVO {
                 .updatedAt(rp.getUpdatedAt() != null ? rp.getUpdatedAt().toString() : null)
                 .build();
         // 图书信息可能为空（图书已被删除的情况）
+        if (book != null) {
+            vo.setTitle(book.getTitle());
+            vo.setAuthor(book.getAuthor());
+            vo.setCoverUrl(book.getCoverUrl());
+            vo.setFormat(book.getFormat());
+            vo.setFileSize(book.getFileSize());
+            vo.setRating(book.getRating());
+            vo.setReadCount(book.getReadCount());
+            vo.setDescription(book.getDescription());
+        }
+        return vo;
+    }
+
+    /**
+     * 从阅读进度实体和图书投影构建视图对象（批量查询场景，避免 N+1）
+     * @param rp 阅读进度实体
+     * @param book 图书投影（仅常用字段）
+     * @return 阅读历史视图对象
+     */
+    public static ReadingHistoryVO from(ReadingProgress rp, BookProjection book) {
+        ReadingHistoryVO vo = ReadingHistoryVO.builder()
+                .progressId(rp.getId())
+                .bookId(rp.getBookId())
+                .progress(rp.getProgress())
+                .currentPosition(rp.getCurrentPosition())
+                .updatedAt(rp.getUpdatedAt() != null ? rp.getUpdatedAt().toString() : null)
+                .build();
         if (book != null) {
             vo.setTitle(book.getTitle());
             vo.setAuthor(book.getAuthor());

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { refreshAccessToken, getAccessToken } from '@/utils/token-refresh'
+import { refreshAccessToken, getAccessToken, clearAuthAndRedirect } from '@/utils/token-refresh'
 import { useAuthStore } from '@/store/auth'
 
 const REFRESH_THRESHOLD = 2 * 60 * 1000
@@ -35,11 +35,13 @@ export function useTokenRefresh() {
     try {
       const newToken = await refreshAccessToken()
       if (!newToken) {
-        refreshingRef.current = false
+        // 刷新失败（refresh token 也已失效）→ 立即清空并跳登录，避免"假登录态"
+        clearAuthAndRedirect()
         return
       }
     } catch {
-      // ignore
+      // 网络异常等不可恢复错误 → 同样清空跳登录
+      clearAuthAndRedirect()
     } finally {
       refreshingRef.current = false
     }

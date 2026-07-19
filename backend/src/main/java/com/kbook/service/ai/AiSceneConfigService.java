@@ -88,8 +88,20 @@ public class AiSceneConfigService {
                 }
                 return cfg;
             case VISION:
-                throw new IllegalStateException(
-                        "场景 [" + scene + "] 默认分类为 VISION，但 vision 配置应由 ChatModelFactory.buildVisionChatModel() 处理");
+                // 优先查 purpose=VISION 的 DB 配置（用户在后台配置的视觉模型）
+                AiProviderConfig visionCfg = providerConfigService.getFirstEnabledByPurpose("VISION");
+                if (visionCfg != null) {
+                    return visionCfg;
+                }
+                // 回退到 QA 配置（与原 ChatModelFactory.buildVisionChatModel 回退逻辑一致）
+                // 注意：ChatModelFactory.buildForScene 在 VISION 场景未绑定时，
+                // 会优先尝试 YML kbook.ai.vision 配置覆盖此回退结果
+                cfg = providerConfigService.getChatConfigByRole("QA");
+                if (cfg == null) {
+                    throw new IllegalStateException(
+                            "场景 [" + scene + "] VISION 回退到 QA 默认配置失败，请添加 purpose=VISION 或 roles=QA 的启用配置");
+                }
+                return cfg;
             case EMBEDDING:
                 cfg = providerConfigService.getFirstEnabledByPurpose("EMBEDDING");
                 if (cfg == null) {

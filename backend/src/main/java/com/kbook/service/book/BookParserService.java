@@ -56,11 +56,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -857,14 +859,11 @@ public class BookParserService {
 
     /**
      * 扫描版 PDF：使用大模型 OCR 提取前几页内容，解析书名/作者/简介/目录
+     * <p>
+     * 走 {@link AiScene#PDF_OCR} 场景路由：用户可在后台显式绑定视觉模型，
+     * 未绑定时优先用 YML {@code kbook.ai.vision} 配置，再回退到 QA 配置。
      */
     private void extractPdfMetadataWithOcr(Book book, PDDocument document) {
-        ChatModel chatModel = chatModelFactory.buildVisionChatModel();
-        if (chatModel == null) {
-            log.warn("无可用的 AI 模型，PDF 元数据 OCR 解析跳过: bookId={}", book.getId());
-            return;
-        }
-
         try {
             // OCR 前3页获取封面/版权页/目录页的文字
             int pagesToOcr = Math.min(3, document.getNumberOfPages());
@@ -896,10 +895,14 @@ public class BookParserService {
             UserMessage userMessage =
                     UserMessage.from(contents);
             SystemMessage systemMessage =
-                    SystemMessage.from(AiPromptConstants.OCR_METADATA_SYSTEM_PROMPT + " \n\n /no_think");
+                    SystemMessage.from(AiPromptConstants.OCR_METADATA_SYSTEM_PROMPT);
+            // /no_think 由 callAiForScene 自动追加（PDF_OCR thinking=false）
 
-            ChatResponse response = chatModel.chat(List.of(systemMessage, userMessage));
-            String result = response.aiMessage().text();
+            String result = chatModelManager.callAiForScene(AiScene.PDF_OCR, "PDF元数据OCR",
+                    String.format("bookId=%s, pages=%d", book.getId(), pagesToOcr),
+                    List.of(systemMessage, userMessage));
+
+            if (result == null || result.isBlank()) return;
 
             result = CommonUtils.stripCodeFence(result);
 
@@ -916,43 +919,47 @@ public class BookParserService {
     }
 
     /**
-     * 解析 OCR 元数据 JSON 结果并填充到 Book 对象
+     * 解析 OCR 元数据 Markdown 结果并填充到 Book 对象。
+     * <p>期望格式（来自 OCR_METADATA_USER_PROMPT）：
+     * <pre>
+     * ## 书名
+     * xxx
+     * ## 作者
+     * xxx
+     * ## 简介
+     * xxx
+     * ## 目录
+     * xxx
+     * </pre>
      */
-    private void parseOcrMetadataResult(Book book, String json) {
+    private void parseOcrMetadataResult(Book book, String markdown) {
         try {
-            var node = objectMapper.readTree(json);
-
             // 书名（仅当 PDF 元数据也没提取到时才用 OCR 结果）
-            if ((book.getTitle() == null || book.getTitle().isBlank() || book.getTitle().matches(".*\\.(pdf|PDF)$"))
-                    && node.has("title") && !node.get("title").isNull()) {
-                String title = node.get("title").asText().trim();
-                if (!title.isBlank()) {
+            if (book.getTitle() == null || book.getTitle().isBlank() || book.getTitle().matches(".*\\.(pdf|PDF)$")) {
+                String title = CommonUtils.extractMarkdownSection(markdown, "书名");
+                if (title != null) {
                     book.setTitle(title);
                 }
             }
 
             // 作者
-            if ((book.getAuthor() == null || book.getAuthor().isBlank())
-                    && node.has("author") && !node.get("author").isNull()) {
-                String author = node.get("author").asText().trim();
-                if (!author.isBlank()) {
+            if (book.getAuthor() == null || book.getAuthor().isBlank()) {
+                String author = CommonUtils.extractMarkdownSection(markdown, "作者");
+                if (author != null) {
                     book.setAuthor(author);
                 }
             }
 
             // 简介（始终覆盖，OCR提取的更准确）
-            if (node.has("description") && !node.get("description").isNull()) {
-                String desc = node.get("description").asText().trim();
-                if (!desc.isBlank()) {
-                    book.setDescription(desc);
-                }
+            String desc = CommonUtils.extractMarkdownSection(markdown, "简介");
+            if (desc != null) {
+                book.setDescription(desc);
             }
 
             // 目录
-            if ((book.getToc() == null || book.getToc().isBlank())
-                    && node.has("toc") && !node.get("toc").isNull()) {
-                String toc = node.get("toc").asText().trim();
-                if (!toc.isBlank()) {
+            if (book.getToc() == null || book.getToc().isBlank()) {
+                String toc = CommonUtils.extractMarkdownSection(markdown, "目录");
+                if (toc != null) {
                     book.setToc(toc);
                 }
             }
@@ -963,7 +970,8 @@ public class BookParserService {
                     book.getToc() != null && !book.getToc().isBlank());
 
         } catch (Exception e) {
-            log.warn("解析 OCR 元数据 JSON 失败: {} - {}", json.substring(0, Math.min(200, json.length())), e.getMessage());
+            log.warn("解析 OCR 元数据 Markdown 失败: {} - {}",
+                    markdown.substring(0, Math.min(200, markdown.length())), e.getMessage());
         }
     }
 
@@ -1636,14 +1644,11 @@ public class BookParserService {
      * 2. 每 OCR_BATCH_SIZE 页为一批，将图片转为 Base64 发送给大模型
      * 3. 大模型识别图片中的文字并返回
      * 4. 拼接所有批次的识别结果
+     * <p>
+     * 走 {@link AiScene#PDF_OCR} 场景路由：用户可在后台显式绑定视觉模型，
+     * 未绑定时优先用 YML {@code kbook.ai.vision} 配置，再回退到 QA 配置。
      */
     private String ocrPdfWithVisionModel(Book book, Path filePath, int totalPages) {
-        ChatModel chatModel = chatModelFactory.buildVisionChatModel();
-        if (chatModel == null) {
-            log.warn("无可用的 AI 模型，PDF OCR 解析跳过: bookId={}", book.getId());
-            return "";
-        }
-
         StringBuilder fullText = new StringBuilder();
 
         try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
@@ -1671,7 +1676,7 @@ public class BookParserService {
 
                     // 构建多模态消息发送给大模型
                     String batchDesc = String.format("第%d-%d页（共%d页）", batchStart + 1, batchEnd, totalPages);
-                    String ocrResult = callVisionOcr(chatModel, imageDataUris, batchDesc);
+                    String ocrResult = callVisionOcr(imageDataUris, batchDesc);
 
                     if (ocrResult != null && !ocrResult.isBlank()) {
                         fullText.append(ocrResult).append("\n\n");
@@ -1749,10 +1754,13 @@ public class BookParserService {
      * 将多张图片 + OCR 提示词发送给支持视觉的 ChatModel，
      * 要求模型识别图片中的所有文字内容并原样输出。
      * <p>
+     * 走 {@link AiScene#PDF_OCR} 场景路由，日志由 {@code callAiForScene} 统一记录
+     * （含模型名/场景/思考配置/请求消息/响应/token 统计）。
+     * <p>
      * 使用 OpenAI 兼容 API 的多模态消息格式（image_url 方式），
      * 兼容 Ollama / OpenAI / DeepSeek 等支持视觉的模型。
      */
-    private String callVisionOcr(ChatModel chatModel, List<String> imageDataUris, String batchDesc) {
+    private String callVisionOcr(List<String> imageDataUris, String batchDesc) {
         try {
             // 构建用户消息文本
             String ocrPrompt = String.format(
@@ -1774,19 +1782,11 @@ public class BookParserService {
             SystemMessage systemMessage =
                     SystemMessage.from(
                             "你是一个专业的 OCR 文字识别助手。你的唯一任务是准确识别图片中的文字内容并原样输出。" +
-                                    "不要添加任何额外的解释、总结或评论。只输出图片中出现的文字。 \n\n /no_think");
+                                    "不要添加任何额外的解释、总结或评论。只输出图片中出现的文字。");
+            // /no_think 由 callAiForScene 自动追加（PDF_OCR thinking=false）
 
-            long startTime = System.currentTimeMillis();
-            ChatResponse response = chatModel.chat(List.of(systemMessage, userMessage));
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            String result = response.aiMessage().text();
-
-            // 记录 AI 调用摘要日志
-            CommonUtils.logAiSummarySimple("PDF OCR", elapsed, 0, CommonUtils.estimateTokens(result),
-                    batchDesc, CommonUtils.truncateText(result, 80));
-
-            return result;
+            return chatModelManager.callAiForScene(AiScene.PDF_OCR, "PDF OCR", batchDesc,
+                    List.of(systemMessage, userMessage));
         } catch (Exception e) {
             log.warn("大模型 OCR 调用失败: {} - {}", batchDesc, e.getMessage());
             return null;
@@ -1812,9 +1812,110 @@ public class BookParserService {
         );
         if (rawResult == null) return null;
 
+        rawResult = CommonUtils.stripCodeFence(rawResult).trim();
+
+        // 优先 Markdown 解析（行式 KV + ## 区段，比 JSON 更稳定，description 含中文引号/换行不易破坏结构）
         try {
-            // 提取 JSON 部分
-            rawResult = rawResult.trim();
+            CombinedAiResult md = parseCombinedFromMarkdown(rawResult);
+            if (md != null) return md;
+        } catch (Exception e) {
+            log.warn("Markdown 解析失败,尝试 JSON 兜底: {}", e.getMessage());
+        }
+
+        // JSON 兜底（LLM 偶发仍输出 JSON 时容错）
+        return parseCombinedFromJson(rawResult);
+    }
+
+    /**
+     * 从 Markdown 输出解析综合结果。
+     * 期望格式：
+     * ## TAGS / ## CONCEPT / ## READER_NEED / ## TARGET_READER / ## STYLE  → 「、」或「,」分隔的标签
+     * ## DESCRIPTION  → 多行简介
+     * ## RATING  → 单行数字
+     * ## RELEVANCE  → 每行「KEY: SCORE」
+     */
+    private CombinedAiResult parseCombinedFromMarkdown(String text) {
+        if (text == null || text.isBlank()) return null;
+
+        List<String> tags = parseTagSection(text, "TAGS");
+        List<String> concept = parseTagSection(text, "CONCEPT");
+        List<String> readerNeed = parseTagSection(text, "READER_NEED");
+        List<String> targetReader = parseTagSection(text, "TARGET_READER");
+        // 注：prompt 含 ## STYLE 字段,但 CombinedAiResult 不存储,不解析
+
+        String description = CommonUtils.extractMarkdownSection(text, "DESCRIPTION");
+        if (description != null && ("无".equals(description) || "null".equalsIgnoreCase(description))) {
+            description = null;
+        }
+
+        Double rating = null;
+        String ratingSection = CommonUtils.extractMarkdownSection(text, "RATING");
+        if (ratingSection != null && !ratingSection.isBlank()) {
+            // 提取第一个数字（兼容「3.5」「评分：3.5」「3.5分」「rating: 3.5」）
+            Pattern rp = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)");
+            Matcher rm = rp.matcher(ratingSection);
+            if (rm.find()) {
+                try {
+                    double r = Double.parseDouble(rm.group(1));
+                    rating = Math.max(1.0, Math.min(5.0, Math.round(r * 10.0) / 10.0));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+
+        // RELEVANCE：行式 KV → Map → 序列化为 JSON 字符串（保持下游兼容）
+        String relevanceScoresJson = null;
+        String relSection = CommonUtils.extractMarkdownSection(text, "RELEVANCE");
+        if (relSection != null && !relSection.isBlank()) {
+            Map<String, Double> relMap = new LinkedHashMap<>();
+            Pattern kvPat = Pattern.compile("^\\s*([A-Za-z0-9_+-]+)\\s*[:：]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*$");
+            for (String line : relSection.split("\\r?\\n")) {
+                Matcher m = kvPat.matcher(line);
+                if (m.find()) {
+                    try {
+                        relMap.put(m.group(1), Double.parseDouble(m.group(2)));
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+            if (!relMap.isEmpty()) {
+                try {
+                    relevanceScoresJson = objectMapper.writeValueAsString(relMap);
+                } catch (Exception e) {
+                    log.warn("relevance 序列化失败: {}", e.getMessage());
+                }
+            }
+        }
+
+        // 至少有一项结果才算成功
+        if (tags == null && concept == null && readerNeed == null && targetReader == null
+                && rating == null && relevanceScoresJson == null && description == null) {
+            return null;
+        }
+
+        return new CombinedAiResult(tags, concept, readerNeed, targetReader, rating, relevanceScoresJson, description);
+    }
+
+    /**
+     * 解析标签区段：## HEADER 下的内容按「、」「,」「，」或换行分隔成列表。
+     */
+    private List<String> parseTagSection(String text, String header) {
+        String section = CommonUtils.extractMarkdownSection(text, header);
+        if (section == null || section.isBlank()) return null;
+        List<String> result = Stream.of(section.split("[\\n,，、]"))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .filter(s -> !"无".equals(s) && !"null".equalsIgnoreCase(s))
+                .collect(Collectors.toList());
+        return result.isEmpty() ? null : result;
+    }
+
+    /**
+     * JSON 兜底解析：LLM 偶发仍输出 JSON 时容错。保留原解析逻辑。
+     */
+    private CombinedAiResult parseCombinedFromJson(String rawResult) {
+        if (rawResult == null) return null;
+        try {
             int jsonStart = rawResult.indexOf('{');
             int jsonEnd = rawResult.lastIndexOf('}');
             if (jsonStart < 0 || jsonEnd <= jsonStart) {
@@ -1822,95 +1923,13 @@ public class BookParserService {
                 return null;
             }
             String jsonStr = rawResult.substring(jsonStart, jsonEnd + 1);
-
-            // 解析 JSON
             JsonNode root = objectMapper.readTree(jsonStr);
 
-            // 解析标签
-            List<String> tags = null;
-            if (root.has("tags") && !root.get("tags").isNull()) {
-                JsonNode conceptNode = root.get("tags");
-                if (conceptNode.isArray()) {
-                    tags = StreamSupport.stream(conceptNode.spliterator(), false)
-                            .map(JsonNode::asText)
-                            .map(String::trim)
-                            .filter(t -> !t.isBlank())
-                            .toList();
-                } else {
-                    String conceptStr = conceptNode.asText();
-                    if (conceptStr != null && !conceptStr.isBlank()) {
-                        tags = Stream.of(conceptStr.split("[,，、]"))
-                                .map(String::trim)
-                                .filter(t -> !t.isBlank())
-                                .toList();
-                    }
-                }
-            }
+            List<String> tags = parseJsonStringArray(root, "tags");
+            List<String> concept = parseJsonStringArray(root, "concept");
+            List<String> readerNeed = parseJsonStringArray(root, "reader_need");
+            List<String> targetReader = parseJsonStringArray(root, "target_reader");
 
-            // 解析核心概念标签
-            List<String> concept = null;
-            if (root.has("concept") && !root.get("concept").isNull()) {
-                JsonNode conceptNode = root.get("concept");
-                if (conceptNode.isArray()) {
-                    concept = StreamSupport.stream(conceptNode.spliterator(), false)
-                            .map(JsonNode::asText)
-                            .map(String::trim)
-                            .filter(t -> !t.isBlank())
-                            .toList();
-                } else {
-                    String conceptStr = conceptNode.asText();
-                    if (conceptStr != null && !conceptStr.isBlank()) {
-                        concept = Stream.of(conceptStr.split("[,，、]"))
-                                .map(String::trim)
-                                .filter(t -> !t.isBlank())
-                                .toList();
-                    }
-                }
-            }
-
-            // 解析读者需求标签
-            List<String> readerNeed = null;
-            if (root.has("reader_need") && !root.get("reader_need").isNull()) {
-                JsonNode readerNeedNode = root.get("reader_need");
-                if (readerNeedNode.isArray()) {
-                    readerNeed = StreamSupport.stream(readerNeedNode.spliterator(), false)
-                            .map(JsonNode::asText)
-                            .map(String::trim)
-                            .filter(t -> !t.isBlank())
-                            .toList();
-                } else {
-                    String readerNeedStr = readerNeedNode.asText();
-                    if (readerNeedStr != null && !readerNeedStr.isBlank()) {
-                        readerNeed = Stream.of(readerNeedStr.split("[,，、]"))
-                                .map(String::trim)
-                                .filter(t -> !t.isBlank())
-                                .toList();
-                    }
-                }
-            }
-
-            // 解析目标读者标签
-            List<String> targetReader = null;
-            if (root.has("target_reader") && !root.get("target_reader").isNull()) {
-                JsonNode targetReaderNode = root.get("target_reader");
-                if (targetReaderNode.isArray()) {
-                    targetReader = StreamSupport.stream(targetReaderNode.spliterator(), false)
-                            .map(JsonNode::asText)
-                            .map(String::trim)
-                            .filter(t -> !t.isBlank())
-                            .toList();
-                } else {
-                    String targetReaderStr = targetReaderNode.asText();
-                    if (targetReaderStr != null && !targetReaderStr.isBlank()) {
-                        targetReader = Stream.of(targetReaderStr.split("[,，、]"))
-                                .map(String::trim)
-                                .filter(t -> !t.isBlank())
-                                .toList();
-                    }
-                }
-            }
-
-            // 解析评分
             Double rating = null;
             if (root.has("rating") && !root.get("rating").isNull()) {
                 try {
@@ -1921,7 +1940,6 @@ public class BookParserService {
                 }
             }
 
-            // 解析8维度相关度得分
             String relevanceScoresJson = null;
             if (root.has("relevance") && !root.get("relevance").isNull()) {
                 JsonNode relevanceNode = root.get("relevance");
@@ -1930,7 +1948,6 @@ public class BookParserService {
                 }
             }
 
-            // 解析简介
             String description = null;
             if (root.has("description") && !root.get("description").isNull()) {
                 String desc = root.get("description").asText().trim();
@@ -1939,17 +1956,36 @@ public class BookParserService {
                 }
             }
 
-            // 至少有一项结果才算成功
-            if (tags == null && concept == null && readerNeed == null && targetReader == null && rating == null && relevanceScoresJson == null && description == null) {
+            if (tags == null && concept == null && readerNeed == null && targetReader == null
+                    && rating == null && relevanceScoresJson == null && description == null) {
                 return null;
             }
-
             return new CombinedAiResult(tags, concept, readerNeed, targetReader, rating, relevanceScoresJson, description);
-
         } catch (Exception e) {
-            log.warn("AI 合并调用结果解析失败: {}", e.getMessage());
+            log.warn("AI 合并调用结果 JSON 解析失败: {}", e.getMessage());
             return null;
         }
+    }
+
+    /** 从 JsonNode 提取字段，兼容数组和逗号分隔字符串 */
+    private List<String> parseJsonStringArray(JsonNode root, String field) {
+        if (!root.has(field) || root.get(field).isNull()) return null;
+        JsonNode node = root.get(field);
+        if (node.isArray()) {
+            List<String> list = StreamSupport.stream(node.spliterator(), false)
+                    .map(JsonNode::asText)
+                    .map(String::trim)
+                    .filter(t -> !t.isBlank())
+                    .toList();
+            return list.isEmpty() ? null : list;
+        }
+        String s = node.asText();
+        if (s == null || s.isBlank()) return null;
+        List<String> list = Stream.of(s.split("[,，、]"))
+                .map(String::trim)
+                .filter(t -> !t.isBlank())
+                .toList();
+        return list.isEmpty() ? null : list;
     }
 
     /**

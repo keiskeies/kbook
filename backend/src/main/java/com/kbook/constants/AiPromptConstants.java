@@ -514,13 +514,23 @@ public final class AiPromptConstants {
             1. 将全书内容划分为 %d-%d 个主题块
             2. 每个块要有「标题」和「一句话摘要」
             3. 标题要能反映该块的内容主题
-            4. 输出格式为 JSON 数组，不要任何其他内容
             
-            输出格式：
-            [
-              {"title": "标题1", "summary": "一句话摘要"},
-              {"title": "标题2", "summary": "一句话摘要"}
-            ]""";
+            严格按以下 Markdown 格式输出，不要输出 JSON、不要输出代码块围栏、不要额外解释：
+
+            ### 标题1
+            摘要1
+
+            ### 标题2
+            摘要2
+
+            ### 标题3
+            摘要3
+
+            规则：
+            - 每个块以「### 」开头独占一行，下一行为一句话摘要
+            - 标题不要带序号、不要带「标题」字样
+            - 摘要为一句话，可跨行，直到下一个「### 」标题为止
+            """;
 
     // ==================== 合并 AI 请求提示词（标签+评分+相关度+简介） ====================
     public static final String COMBINED_PROMPT_SYSTEM_PROMPT = """
@@ -600,18 +610,106 @@ public final class AiPromptConstants {
             
             # 输出格式
             
-            只返回JSON，不要输出Markdown，不要输出解释，只返回一个纯净的JSON对象，不含任何额外内容。格式：
+            严格按以下 Markdown 格式输出，不要输出 JSON、不要输出代码块围栏、不要额外解释：
             
-            {
-              "tags": [],
-              "concept": [],
-              "reader_need": [],
-              "target_reader": [],
-              "style": [],
-              "description": "",
-              "rating": 3.0,
-              "relevance": {"0-9":0.3,"10-19":0.3,"20-29":0.3,"30-39":0.3,"40-49":0.3,"50-59":0.3,"60+":0.3,"male":0.3,"female":0.3,"married":0.3,"unmarried":0.3,"children_0_2":0.3,"children_3_6":0.3,"children_7_12":0.3,"children_13_17":0.3,"children_18_plus":0.3,"no_children":0.3,"INTJ":0.3,"INTP":0.3,"ENTJ":0.3,"ENTP":0.3,"INFJ":0.3,"INFP":0.3,"ENFJ":0.3,"ENFP":0.3,"ISTJ":0.3,"ISFJ":0.3,"ESTJ":0.3,"ESFJ":0.3,"ISTP":0.3,"ISFP":0.3,"ESTP":0.3,"ESFP":0.3,"student":0.3,"tech":0.3,"finance":0.3,"education":0.3,"medical":0.3,"arts":0.3,"management":0.3,"freelance":0.3,"retired":0.3,"other":0.3,"high_school":0.3,"college":0.3,"bachelor":0.3,"master":0.3,"doctorate":0.3,"other_edu":0.3,"entrepreneur_or_want":0.3,"notInterested":0.3,"under_50k":0.3,"50k_150k":0.3,"150k_300k":0.3,"300k_500k":0.3,"500k_1m":0.3,"over_1m":0.3,"prefer_not_to_say":0.3,"happy":0.3,"calm":0.3,"anxious":0.3,"sad":0.3,"frustrated":0.3,"tired":0.3,"growth":0.3,"comfort":0.3,"escape":0.3,"excite":0.3,"insight":0.3},
-            }
+            ## TAGS
+            标签1、标签2
+            
+            ## CONCEPT
+            概念1、概念2
+            
+            ## READER_NEED
+            需求1、需求2
+            
+            ## TARGET_READER
+            读者1、读者2
+            
+            ## STYLE
+            风格1、风格2
+            
+            ## DESCRIPTION
+            300-600字检索增强简介，可跨多行，直到下一个 ## 标题
+            
+            ## RATING
+            3.5
+            
+            ## RELEVANCE
+            0-9: 0.3
+            10-19: 0.3
+            20-29: 0.3
+            30-39: 0.3
+            40-49: 0.3
+            50-59: 0.3
+            60+: 0.3
+            male: 0.3
+            female: 0.3
+            married: 0.3
+            unmarried: 0.3
+            children_0_2: 0.3
+            children_3_6: 0.3
+            children_7_12: 0.3
+            children_13_17: 0.3
+            children_18_plus: 0.3
+            no_children: 0.3
+            INTJ: 0.3
+            INTP: 0.3
+            ENTJ: 0.3
+            ENTP: 0.3
+            INFJ: 0.3
+            INFP: 0.3
+            ENFJ: 0.3
+            ENFP: 0.3
+            ISTJ: 0.3
+            ISFJ: 0.3
+            ESTJ: 0.3
+            ESFJ: 0.3
+            ISTP: 0.3
+            ISFP: 0.3
+            ESTP: 0.3
+            ESFP: 0.3
+            student: 0.3
+            tech: 0.3
+            finance: 0.3
+            education: 0.3
+            medical: 0.3
+            arts: 0.3
+            management: 0.3
+            freelance: 0.3
+            retired: 0.3
+            other: 0.3
+            high_school: 0.3
+            college: 0.3
+            bachelor: 0.3
+            master: 0.3
+            doctorate: 0.3
+            other_edu: 0.3
+            entrepreneur_or_want: 0.3
+            notInterested: 0.3
+            under_50k: 0.3
+            50k_150k: 0.3
+            150k_300k: 0.3
+            300k_500k: 0.3
+            500k_1m: 0.3
+            over_1m: 0.3
+            prefer_not_to_say: 0.3
+            happy: 0.3
+            calm: 0.3
+            anxious: 0.3
+            sad: 0.3
+            frustrated: 0.3
+            tired: 0.3
+            growth: 0.3
+            comfort: 0.3
+            escape: 0.3
+            excite: 0.3
+            insight: 0.3
+
+            规则：
+            - 各标签字段（TAGS/CONCEPT/READER_NEED/TARGET_READER/STYLE）用「、」或「,」分隔，可写在一行或多行
+            - DESCRIPTION 可跨多行，直到下一个 ## 标题为止
+            - RATING 单行数字，1.0-5.0，保留一位小数
+            - RELEVANCE 每行一个「KEY: SCORE」，KEY 必须严格使用任务3中列出的 60 个维度名（区分大小写），SCORE 为 0.0-1.0 保留一位小数
+            - 缺失的字段可整段省略，不要输出空段
             """;
 
 
@@ -628,20 +726,41 @@ public final class AiPromptConstants {
      */
     public static final String OCR_METADATA_USER_PROMPT =
             """
-                    请识别这些PDF页面图片中的文字内容，并提取以下信息，以JSON格式返回：
-                    - title: 书名（如果能看到的话）
-                    - author: 作者（如果能看到的话）
-                    - description: 简介/内容简介（如果能看到的话，尽量完整提取）
-                    - toc: 目录（如果能看到目录页，列出所有章节标题，每行一个）
-                    如果某项信息在图片中找不到，对应字段填 null。
-                    只返回JSON，不要其他文字。""";
+                    请识别这些PDF页面图片中的文字内容，并按以下 Markdown 格式提取信息：
+
+                    ## 书名
+                    （如果能看到的话；找不到填"无"）
+
+                    ## 作者
+                    （如果能看到的话；找不到填"无"）
+
+                    ## 简介
+                    （如果能看到的话，尽量完整提取；找不到填"无"）
+
+                    ## 目录
+                    （如果能看到目录页，列出所有章节标题，每行一个；找不到填"无"）
+
+                    严格按以上格式输出，每个字段以「## 字段名」开头独占一行，下一行起为字段内容（可多行）。
+                    不要输出 JSON、不要输出代码块围栏、不要额外解释。""";
 
 
     /**
      * 图书信息提取系统提示词
      */
     public static final String BOOK_INFO_EXTRACT_SYSTEM_PROMPT =
-            "你是一个专业的图书信息提取助手，擅长从文本内容中推断书籍的作者和简介。";
+            """
+                    你是一个专业的图书信息提取助手，擅长从文本内容中推断书籍的作者和简介。
+
+                    输出格式（严格 Markdown）：
+
+                    ## 作者
+                    （推断的作者名；无法判断时填"未知"）
+
+                    ## 简介
+                    （50-200字，概括书籍主题和内容）
+
+                    严格按以上格式输出，每个字段以「## 字段名」开头独占一行，下一行起为字段内容。
+                    不要输出 JSON、不要输出代码块围栏、不要额外解释。""";
 
     /**
      * 管理员对话最大消息数
@@ -670,42 +789,27 @@ public final class AiPromptConstants {
             %s
             
             【输出格式】
-            只返回JSON数组，不要其他内容。每个元素：
-            - key: 角色英文标识（如"PSYCHOLOGIST"）
-            - domainRelevance: 1-10，该角色对这本书的专业相关度
-            - languageStyle: 一句话描述该角色在这场讨论中的说话方式（基于身份描述）
-            
-             示例：[{"key":"PSYCHOLOGIST","domainRelevance":9,"languageStyle":"擅长从行为表象挖掘深层心理动机，发言常带有洞察性的反问"},{"key":"SOCIOLOGIST","domainRelevance":7,"languageStyle":"习惯把个人遭遇放到社会结构层面理解，发言冷静、去情绪化"}]
+            严格按以下行式 KV 格式输出，每个角色一段，不要输出 JSON、不要输出代码块围栏：
+
+            [ROLE]
+            KEY: PSYCHOLOGIST
+            DOMAIN_RELEVANCE: 9
+            LANGUAGE_STYLE: 擅长从行为表象挖掘深层心理动机，发言常带有洞察性的反问
+
+            [ROLE]
+            KEY: SOCIOLOGIST
+            DOMAIN_RELEVANCE: 7
+            LANGUAGE_STYLE: 习惯把个人遭遇放到社会结构层面理解，发言冷静、去情绪化
+
+            规则：
+            - 每个角色以「[ROLE]」开头独占一行
+            - 「KEY:」后跟角色英文标识符（区分大小写，原样返回，如 PSYCHOLOGIST）
+            - 「DOMAIN_RELEVANCE:」后跟 1-10 之间的整数
+            - 「LANGUAGE_STYLE:」后跟一句话描述该角色在这场讨论中的说话方式（基于身份描述）
+            - 输出 4-6 个角色
             """;
 
     // ==================== 圆桌派下一发言人选择提示词 ====================
-
-    /**
-     * 圆桌派 LLM 下一发言人选择提示词 — 根据讨论进展、角色性格和发言轮询判断谁最想发言
-     */
-    public static final String ROUND_TABLE_NEXT_SPEAKER_PROMPT = """
-            你是一场圆桌派讨论的导演，你需要根据当前讨论的进展和各角色的性格，判断下一轮哪些角色最想发言。
-            
-            【当前在场角色】
-            %s
-            
-            【最近发言记录】
-            %s
-            
-            【判断规则】
-            你只需要根据"内容相关性"判断谁最想接话，不需要考虑公平性（公平性由系统自动处理）。
-            - 根据最近一条发言的内容，判断哪个角色最有可能想要回应
-            - 挑战倾向高的角色，在听到不同意见时更想发言
-            - 共情力高的角色，在听到感人的内容时更想发言
-            - 专业相关度高的角色，在讨论到其专业领域时更想发言
-            - 主见程度高的角色，在观点被质疑时更想发言
-            - 幽默感高的角色，在气氛沉闷时更想发言
-            - 主持人也是讨论的积极参与者，在讨论偏离主题、需要引导方向、或有人提出值得深入的话题时，同样有强烈的发言意愿
-            
-            请返回一个JSON对象，包含一个字段"rankings"，值为角色key的有序列表，按发言意愿从高到低排列（所有在场角色都要列入）。
-            示例：{"rankings":["PSYCHOLOGIST","PHILOSOPHER","HISTORIAN","HOST","SCIENTIST"]}
-            只返回JSON，不要其他内容。
-            """;
 
     /**
      * 圆桌派纯 LLM 下一发言人选择 — 系统消息（会话内不变）
@@ -916,16 +1020,25 @@ public final class AiPromptConstants {
      */
     public static final String DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT = """
             你是一位辩题策划师。请从提供的书籍内容中，提炼出3-12个具有辩论价值的争议性话题。
-            
+
             要求：
             1. 每个辩题必须是正反双方都能展开充分论证的开放性话题
             2. 辩题要与书籍内容紧密相关，能体现书中的核心观点或争议
             3. 为每个辩题提供正方核心观点和反方核心观点
-            
-            请以严格的JSON数组格式输出，不要包含任何其他内容：
-            [
-              {"topic": "辩题文字", "proArgument": "正方核心观点", "conArgument": "反方核心观点"}
-            ]
+
+            严格按以下 Markdown 格式输出，每个辩题独立成块：
+
+            【辩题1】辩题文字
+            - 正方观点：xxx
+            - 反方观点：xxx
+
+            【辩题2】辩题文字
+            - 正方观点：xxx
+            - 反方观点：xxx
+
+            …（输出 3-12 个辩题）
+
+            不要输出 JSON、不要输出代码块围栏、不要额外解释。
             """;
 
     /**
@@ -1166,14 +1279,24 @@ public final class AiPromptConstants {
      */
     public static final String DEBATE_OPTIMIZE_TOPIC_SYSTEM_PROMPT = """
             你是一位辩题策划师。用户想基于一本书的内容创建一个辩论话题，需要你帮助优化。
-            
+
             请完成以下任务：
             1. 保留用户输入的核心意图，但将辩题改写得更精炼、更有辩论价值（与书籍内容紧密相关）
             2. 优化正方观点，使其更充分、更有说服力（结合书籍内容）
             3. 优化反方观点，使其更充分、更有说服力（结合书籍内容）
-            
-            只返回以下JSON格式，不要包含其他内容：
-            {"topic": "优化后的辩题", "proArgument": "优化后的正方观点", "conArgument": "优化后的反方观点"}
+
+            严格按以下 Markdown 格式输出：
+
+            ## 优化后辩题
+            xxx
+
+            ## 正方观点
+            xxx
+
+            ## 反方观点
+            xxx
+
+            不要输出 JSON、不要输出代码块围栏、不要额外解释。
             """;
 
     /**
@@ -1192,8 +1315,20 @@ public final class AiPromptConstants {
             6. 表达清晰度（clarityScore）：表达是否清晰易懂，条理分明
             7. 观点新颖度（noveltyScore）：是否有新视角、新思考
             
-            请以严格的JSON格式输出评分，不要包含任何其他内容：
-            {"logicScore": 7.5, "evidenceScore": 6.0, "rebuttalScore": 8.0, "impactScore": 7.0, "humorScore": 5.5, "clarityScore": 8.5, "noveltyScore": 6.5}
+            严格按以下行式 KV 格式输出，每行一个字段，不要输出 JSON、不要输出代码块围栏、不要额外解释：
+
+            logicScore: 7.5
+            evidenceScore: 6.0
+            rebuttalScore: 8.0
+            impactScore: 7.0
+            humorScore: 5.5
+            clarityScore: 8.5
+            noveltyScore: 6.5
+
+            规则：
+            - 每行一个「字段名: 分数」
+            - 字段名严格使用上述 7 个英文标识符（区分大小写）
+            - 分数为 1.0-10.0 之间的数字，可保留一位小数
             """;
 
     // ==================== 图书预设问题生成提示词 ====================
@@ -1521,31 +1656,55 @@ public final class AiPromptConstants {
     public static final String EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT = """
             你是一个知识库助手。根据给定的角色专业领域和讨论话题，生成相关的外部知识片段。
             这些知识片段将帮助角色用自己的专业知识来评价讨论话题。
-            
+
             要求：
             1. 生成 2-3 个相关知识片段
             2. 每个片段包含：知识点名称、核心内容、与话题的关联
             3. 知识点必须是真实的学术观点、历史事件或现实案例
             4. 不要复述话题本身，只提供外部参考知识
             5. 用简洁的中文输出，每个片段 50-100 字
-            
-            输出格式（JSON数组）：
-            [{"name":"知识点名称","content":"核心内容","relevance":"与话题的关联"}]
+
+            输出格式（严格按以下 Markdown 结构，每个知识点独立成块）：
+
+            【知识点1】名称
+            - 核心内容：xxx
+            - 与话题关联：xxx
+
+            【知识点2】名称
+            - 核心内容：xxx
+            - 与话题关联：xxx
+
+            【知识点3】名称
+            - 核心内容：xxx
+            - 与话题关联：xxx
+
+            不要输出 JSON、不要输出代码块围栏、不要额外解释。
             """;
 
     public static final String DEBATE_EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT = """
             你是一个辩论知识助手。根据辩题和立场，生成支持该立场的外部知识。
             这些知识将帮助辩手用外部论据来论证，而非复述书中内容。
-            
+
             要求：
             1. 生成 3-5 个相关知识片段
             2. 每个片段包含：知识来源（学者/事件/著作）、核心论点、如何支持该立场
             3. 知识点必须是真实的学术观点、历史事件或现实案例
             4. 优先选择有争议性的、能引发讨论的知识点
             5. 用简洁的中文输出，每个片段 50-100 字
-            
-            输出格式（JSON数组）：
-            [{"source":"来源","argument":"核心论点","support":"如何支持该立场"}]
+
+            输出格式（严格按以下 Markdown 结构，每个知识点独立成块）：
+
+            【知识点1】来源
+            - 核心论点：xxx
+            - 如何支持该立场：xxx
+
+            【知识点2】来源
+            - 核心论点：xxx
+            - 如何支持该立场：xxx
+
+            …（输出 3-5 个知识点）
+
+            不要输出 JSON、不要输出代码块围栏、不要额外解释。
             """;
 
     // ==================== 主持人即兴点评 ====================

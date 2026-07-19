@@ -1,6 +1,5 @@
 package com.kbook.service.book;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.constants.AiPromptConstants;
@@ -28,17 +27,13 @@ import java.util.List;
 public class BookMetadataInferrer {
 
     private final ChatModelFactory chatModelFactory;
-    private final ObjectMapper objectMapper;
 
     private static final int CONTENT_LIMIT = 15000;
 
     public void infer(Book book, String content) {
         long startTime = System.currentTimeMillis();
         try {
-            String prompt = "根据以下书籍内容，推断并提取以下信息，以JSON格式返回：\n" +
-                    "- author: 作者名（如果内容中能看出来，否则填 null）\n" +
-                    "- description: 简短的内容简介（50-200字，概括书籍主题和内容）\n" +
-                    "只返回JSON，不要其他文字。\n\n" +
+            String prompt = "根据以下书籍内容，推断并提取作者和简介，按系统提示词中的 Markdown 格式输出。\n\n" +
                     "书籍内容：\n" + CommonUtils.truncateText(content, CONTENT_LIMIT);
 
             var model = chatModelFactory.buildForScene(AiScene.BOOK_METADATA_INFER);
@@ -65,19 +60,14 @@ public class BookMetadataInferrer {
 
             result = CommonUtils.stripCodeFence(result);
             if (result != null) {
-                var node = objectMapper.readTree(result);
+                String author = CommonUtils.extractMarkdownSection(result, "作者");
                 if ((book.getAuthor() == null || book.getAuthor().isBlank())
-                        && node.has("author") && !node.get("author").isNull()) {
-                    String author = node.get("author").asText().trim();
-                    if (!author.isBlank() && !"null".equalsIgnoreCase(author)) {
-                        book.setAuthor(author);
-                    }
+                        && author != null && !"未知".equalsIgnoreCase(author)) {
+                    book.setAuthor(author);
                 }
-                if (node.has("description") && !node.get("description").isNull()) {
-                    String desc = node.get("description").asText().trim();
-                    if (!desc.isBlank() && !"null".equalsIgnoreCase(desc)) {
-                        book.setDescription(desc);
-                    }
+                String desc = CommonUtils.extractMarkdownSection(result, "简介");
+                if (desc != null) {
+                    book.setDescription(desc);
                 }
             }
         } catch (Exception e) {

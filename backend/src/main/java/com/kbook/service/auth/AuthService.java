@@ -57,6 +57,10 @@ public class AuthService {
     private static final String RATE_KEY_PREFIX = "verify:rate:";
     private static final String DAILY_KEY_PREFIX = "verify:daily:";
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
+    /** Refresh Token 刷新宽限期 Redis Key 前缀（解决刷新响应丢失导致旧 token 不可用的问题） */
+    private static final String TOKEN_GRACE_PREFIX = "token:grace:";
+    /** Refresh Token 宽限期秒数：30 秒内旧 refresh token 仍可换新，避免响应丢失陷阱 */
+    private static final long REFRESH_GRACE_SECONDS = 30;
     private static final String CODE_ATTEMPT_PREFIX = "verify:attempt:";
     private static final int MAX_CODE_ATTEMPTS = 5;
 
@@ -301,6 +305,10 @@ public class AuthService {
 
     /**
      * 刷新 Token
+     * <p>
+     * 宽限期机制：每次刷新会把旧 refresh token 拉黑并标记 30 秒宽限期。
+     * 宽限期内旧 token 仍可换新（不再重复拉黑），解决"后端已签新 token + 拉黑旧 token，
+     * 但响应未到达前端（浏览器关闭/网络抖动）"导致用户下次打开无法续签的陷阱。
      */
     @LogAction("刷新Token")
     public LoginResult refreshToken(String refreshToken) {
@@ -310,7 +318,11 @@ public class AuthService {
             throw new BusinessException("Refresh Token 无效或已过期");
         }
 
-        if (isTokenBlacklisted(refreshToken)) {
+        // 检查是否在宽限期内（30 秒内刚被刷新过，允许复用）
+        boolean inGrace = isInGracePeriod(refreshToken);
+
+        // 宽限期外才检查黑名单
+        if (!inGrace && isTokenBlacklisted(refreshToken)) {
             log.warn("Refresh Token 已在黑名单中");
             throw new BusinessException("Refresh Token 已失效");
         }
@@ -319,9 +331,13 @@ public class AuthService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("用户不存在"));
 
-        blacklistToken(refreshToken);
+        // 仅在非宽限期时拉黑 + 标记宽限期（避免宽限期内重复拉黑）
+        if (!inGrace) {
+            blacklistToken(refreshToken);
+            markGracePeriod(refreshToken);
+        }
 
-        log.info("Token 刷新成功: userId={}", userId);
+        log.info("Token 刷新成功: userId={}, inGrace={}", userId, inGrace);
         return generateLoginResult(user);
     }
 
@@ -513,6 +529,37 @@ public class AuthService {
      */
     private boolean isTokenBlacklisted(String token) {
         return Boolean.TRUE.equals(redisTemplate.hasKey(TOKEN_BLACKLIST_PREFIX + token));
+    }
+
+    /**
+     * 标记 Refresh Token 进入宽限期（30 秒内仍可被用于刷新，避免响应丢失陷阱）
+     * <p>
+     * 场景：刷新请求已发出，后端已拉黑旧 token 并签发新 token，但响应未到达前端
+     * （浏览器关闭、网络抖动）。下次打开浏览器用旧 token 刷新时，宽限期允许继续刷新。
+     *
+     * @param refreshToken 旧的 Refresh Token
+     */
+    private void markGracePeriod(String refreshToken) {
+        try {
+            redisTemplate.opsForValue().set(
+                    TOKEN_GRACE_PREFIX + refreshToken,
+                    "1",
+                    REFRESH_GRACE_SECONDS,
+                    TimeUnit.SECONDS
+            );
+        } catch (Exception e) {
+            log.warn("Token 宽限期标记失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 检查 Refresh Token 是否在宽限期内
+     *
+     * @param refreshToken Refresh Token
+     * @return true=在宽限期内（允许复用），false=已过宽限期
+     */
+    private boolean isInGracePeriod(String refreshToken) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(TOKEN_GRACE_PREFIX + refreshToken));
     }
 
 }

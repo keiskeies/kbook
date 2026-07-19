@@ -568,6 +568,53 @@ public class CommonUtils {
     }
 
     /**
+     * 从 Markdown 文本中提取指定二级标题（## xxx）下的内容。
+     * <p>用于解析 LLM 按行式 Markdown 输出的结构化数据。提取规则：
+     * <ul>
+     *   <li>匹配以「## 」开头的行，标题等于 header 参数（忽略大小写、首尾空白）</li>
+     *   <li>内容为该标题行之后到下一个「## 」标题行（或文本结尾）之间的所有行</li>
+     *   <li>返回内容去除首尾空白；找不到返回 null</li>
+     * </ul>
+     *
+     * @param text   LLM 原始返回（建议先 stripCodeFence）
+     * @param header 要提取的二级标题文字（不含「## 」前缀），如「作者」「正方观点」
+     * @return 字段内容（已 trim）；找不到返回 null
+     */
+    public static String extractMarkdownSection(String text, String header) {
+        if (text == null || header == null || header.isBlank()) return null;
+        String[] lines = text.split("\\r?\\n", -1);
+        String target = header.trim();
+        boolean capturing = false;
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            String trimmed = line.trim();
+            // 只匹配二级标题「## 」,不匹配三级「### 」或更深层级
+            // 避免提取含子标题的段时,子标题被误判为段结束
+            if (trimmed.startsWith("## ") && !trimmed.startsWith("### ")) {
+                String title = trimmed.substring(3).trim();
+                if (capturing) {
+                    // 已经在收集目标段，遇到下一个 ## 标题 → 结束
+                    break;
+                }
+                if (title.equalsIgnoreCase(target)) {
+                    capturing = true;
+                }
+            } else if (capturing) {
+                if (sb.length() > 0) sb.append('\n');
+                sb.append(line);
+            }
+        }
+        if (!capturing) return null;
+        String result = sb.toString().trim();
+        // LLM 偶尔会填"无"/"未知"/"null" 表示缺失
+        if (result.isEmpty() || "无".equals(result) || "未知".equals(result)
+                || "null".equalsIgnoreCase(result) || "\"null\"".equalsIgnoreCase(result)) {
+            return null;
+        }
+        return result;
+    }
+
+    /**
      * DEBUG 级别打印完整 AI 对话消息（提问 → 思考 → 回答）。
      * 超过 2000 字的内容会被截断。
      */
