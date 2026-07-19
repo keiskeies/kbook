@@ -13,7 +13,9 @@
 FROM nginx:alpine
 
 # JRE（后端运行环境）
-RUN apk add --no-cache openjdk17-jre-headless && rm -rf /var/cache/apk/*
+# 注意：必须用完整 JRE 而非 headless，因为 BookParserService 用 ImageIO 写 JPEG
+# 需要 libjavajpeg.so（headless 版不含此本地库，会导致 PDF OCR 时 UnsatisfiedLinkError）
+RUN apk add --no-cache openjdk17-jre && rm -rf /var/cache/apk/*
 
 # kbook 用户
 RUN addgroup -S kbook && adduser -S kbook -G kbook
