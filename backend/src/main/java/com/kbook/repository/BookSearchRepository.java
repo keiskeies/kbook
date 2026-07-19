@@ -18,6 +18,7 @@ public interface BookSearchRepository extends ElasticsearchRepository<BookDocume
     /**
      * 多字段全文搜索（标题/作者/简介/语义标签），带高亮
      * 用于前端搜索页 — 纯文本相关度排序
+     * 注：match_phrase 完整短语匹配 boost 远高于单字 match，确保标题完全包含关键词的图书优先排序
      */
     @Highlight(fields = {
             @HighlightField(name = "title"),
@@ -25,6 +26,9 @@ public interface BookSearchRepository extends ElasticsearchRepository<BookDocume
             @HighlightField(name = "description")
     })
     @Query("{\"bool\": {\"should\": [" +
+            "{\"match_phrase\": {\"title\": {\"query\": \"?0\", \"boost\": 10.0}}}," +
+            "{\"match_phrase\": {\"author\": {\"query\": \"?0\", \"boost\": 5.0}}}," +
+            "{\"match_phrase\": {\"description\": {\"query\": \"?0\", \"boost\": 3.0}}}," +
             "{\"match\": {\"title\": {\"query\": \"?0\", \"boost\": 3.0}}}," +
             "{\"match\": {\"author\": {\"query\": \"?0\", \"boost\": 2.0}}}," +
             "{\"match\": {\"conceptTags\": {\"query\": \"?0\", \"boost\": 2.5}}}," +
@@ -39,8 +43,12 @@ public interface BookSearchRepository extends ElasticsearchRepository<BookDocume
      * 用于混合搜索召回 — 文本相关度主导，评分仅作轻微参考
      * 注：readCount 不作为排序依据，避免热门偏见埋没冷门好书和新书
      *     rating factor 较小，避免低分好书被埋（评分主观性强）
+     *     match_phrase 完整短语匹配优先，避免单词命中淹没完全匹配
      */
     @Query("{\"function_score\": {\"query\": {\"bool\": {\"should\": [" +
+            "{\"match_phrase\": {\"title\": {\"query\": \"?0\", \"boost\": 10.0}}}," +
+            "{\"match_phrase\": {\"author\": {\"query\": \"?0\", \"boost\": 5.0}}}," +
+            "{\"match_phrase\": {\"description\": {\"query\": \"?0\", \"boost\": 3.0}}}," +
             "{\"match\": {\"title\": {\"query\": \"?0\", \"boost\": 3.0}}}," +
             "{\"match\": {\"author\": {\"query\": \"?0\", \"boost\": 2.0}}}," +
             "{\"match\": {\"conceptTags\": {\"query\": \"?0\", \"boost\": 2.5}}}," +

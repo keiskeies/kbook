@@ -221,6 +221,8 @@ public class BookService {
             throw new BusinessException("不支持的图书格式: " + book.getFormat());
         }
         Book saved = bookRepository.save(book);
+        // 事务提交后同步 ES 索引（indexBook 内部有 esAvailable 检查和 try-catch，安全）
+        TransactionUtils.afterCommit(() -> bookSearchService.indexBook(saved));
         log.info("图书入库成功: id={}, title={}", saved.getId(), saved.getTitle());
         return saved;
     }
@@ -241,7 +243,10 @@ public class BookService {
         if (updates.getRelevanceScores() != null) {
             bookDimensionScoreService.syncFromBook(saved);
         }
-        TransactionUtils.afterCommit(() -> evictBookCache(id));
+        TransactionUtils.afterCommit(() -> {
+            bookSearchService.indexBook(saved);
+            evictBookCache(id);
+        });
         log.info("图书更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
 
@@ -267,7 +272,10 @@ public class BookService {
         if (updates.getRelevanceScores() != null) {
             bookDimensionScoreService.syncFromBook(saved);
         }
-        TransactionUtils.afterCommit(() -> evictBookCache(id));
+        TransactionUtils.afterCommit(() -> {
+            bookSearchService.indexBook(saved);
+            evictBookCache(id);
+        });
         log.info("图书ALL更新成功: id={}, title={}", saved.getId(), saved.getTitle());
     }
 
@@ -806,29 +814,8 @@ public class BookService {
     }
 
     // ==================== 钩子方法：统一处理 ES/Redis/Qdrant ====================
-
-    /**
-     * 保存成功后处理（事务提交后）：更新 ES 索引
-     */
-    private void dealSaveResult(Book saved) {
-        try {
-            bookSearchService.indexBook(saved);
-        } catch (Exception e) {
-            log.error("保存后更新 ES 索引失败: bookId={}", saved.getId(), e);
-        }
-    }
-
-    /**
-     * 更新成功后处理（事务提交后）：更新 ES 索引、清除 Redis 缓存
-     */
-    private void dealUpdateResult(Book updated) {
-        try {
-            bookSearchService.indexBook(updated);
-            evictBookCache(updated.getId());
-        } catch (Exception e) {
-            log.error("更新后同步数据失败: bookId={}", updated.getId(), e);
-        }
-    }
+    // 注：原 dealSaveResult / dealUpdateResult 是死代码（零调用方），已删除。
+    // ES 索引同步直接在 createBook / updateBook / updateBookAll 的事务提交回调中调用 bookSearchService.indexBook()。
 
     /**
      * 生成图书精炼摘要：将 chapterSummary + 标签 + 目录 压缩为高信息密度的结构化摘要。
