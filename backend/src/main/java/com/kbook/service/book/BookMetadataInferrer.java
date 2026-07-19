@@ -58,9 +58,10 @@ public class BookMetadataInferrer {
 
             String result = response.aiMessage().text();
             if (result != null) result = result.trim();
-            CommonUtils.logAiSummarySimple("元数据推断", elapsed, inputTokens, outputTokens,
-                    String.format("bookId=%d, title=%s", book.getId(), book.getTitle()),
-                    CommonUtils.truncateText(result, 80));
+            var ctx = chatModelFactory.buildLogContext(AiScene.BOOK_METADATA_INFER);
+            CommonUtils.logAiSummary("元数据推断", ctx.scene(), ctx.modelName(), ctx.configName(),
+                    ctx.thinkingMode(), ctx.thinkingEnabled(), ctx.reasoningEffort(),
+                    null, result, null, elapsed, inputTokens, outputTokens);
 
             result = CommonUtils.stripCodeFence(result);
             if (result != null) {

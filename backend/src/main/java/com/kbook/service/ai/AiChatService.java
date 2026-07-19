@@ -3,7 +3,9 @@ package com.kbook.service.ai;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiScene;
 import com.kbook.service.ai.streaming.ThoughtTagParser;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
@@ -50,6 +52,7 @@ public class AiChatService {
     private final AiChatMemory chatMemoryStore;
     private final ExecutorService sseExecutor;
     private final ObjectMapper objectMapper;
+    private final ChatModelFactory chatModelFactory;
 
     public AiChatService(
             AiConversationRepository conversationRepository,
@@ -57,13 +60,15 @@ public class AiChatService {
             AiProviderConfigService providerConfigService,
             AiChatMemory chatMemoryStore,
             @Qualifier("sseExecutor") ExecutorService sseExecutor,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ChatModelFactory chatModelFactory) {
         this.conversationRepository = conversationRepository;
         this.sessionRepository = sessionRepository;
         this.providerConfigService = providerConfigService;
         this.chatMemoryStore = chatMemoryStore;
         this.sseExecutor = sseExecutor;
         this.objectMapper = objectMapper;
+        this.chatModelFactory = chatModelFactory;
     }
 
     /**
@@ -216,8 +221,10 @@ public class AiChatService {
                             String text = fullResponse.toString().trim();
 
                             // 记录 AI 调用摘要日志（一次 LLM 调用只打一条 INFO）
-                            CommonUtils.logAiSummarySimple("流式对话", elapsed, apiInputTokens, apiOutputTokens,
-                                    String.format("sessionId=%s", sessionId), CommonUtils.truncateText(text, 80));
+                            var logCtx = chatModelFactory.buildLogContext(AiScene.BOOK_QA);
+                            CommonUtils.logAiSummary("流式对话", logCtx.scene(), logCtx.modelName(), logCtx.configName(),
+                                    logCtx.thinkingMode(), logCtx.thinkingEnabled(), logCtx.reasoningEffort(),
+                                    null, text, null, elapsed, apiInputTokens, apiOutputTokens);
 
                             // 输出审查 P1 #17：检测系统提示泄露
                             String safeText = CommonUtils.sanitizeAiOutput(text);
@@ -278,8 +285,10 @@ public class AiChatService {
                                         sessionId, fullResponse.length());
                                 String text = fullResponse.toString().trim();
                                 long elapsed = System.currentTimeMillis() - startTime;
-                                CommonUtils.logAiSummarySimple("流式对话(连接重置)", elapsed, 0, 0,
-                                        String.format("sessionId=%s", sessionId), CommonUtils.truncateText(text, 80));
+                                var logCtx = chatModelFactory.buildLogContext(AiScene.BOOK_QA);
+                                CommonUtils.logAiSummary("流式对话(连接重置)", logCtx.scene(), logCtx.modelName(), logCtx.configName(),
+                                        logCtx.thinkingMode(), logCtx.thinkingEnabled(), logCtx.reasoningEffort(),
+                                        null, text, null, elapsed, 0, 0);
                                 try {
                                     if (ctx.hasBooks()) {
                                         String bookMapJson = objectMapper.writeValueAsString(ctx.getBookMap());

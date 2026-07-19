@@ -23,6 +23,7 @@ import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiScene;
+import com.kbook.entity.AiProviderConfig;
 import com.kbook.entity.Book;
 import com.kbook.entity.AiSession;
 import com.kbook.entity.BookSuggestedQuestion;
@@ -80,6 +81,7 @@ public class BookChatService {
     private final BookService bookService;
     private final BookParserService bookParserService;
     private final AiProviderConfigService aiProviderConfigService;
+    private final AiSceneConfigService aiSceneConfigService;
     private final ChatModelFactory chatModelFactory;
     private final ChatModelManager chatModelManager;
     private final ChatHistoryCompressor chatHistoryCompressor;
@@ -97,7 +99,6 @@ public class BookChatService {
     private final ListQueryDetector listQueryDetector;
     private final ListQueryStrategySelector listQueryStrategySelector;
     private final ListQueryRetriever listQueryRetriever;
-    private final RagAnswerCache ragAnswerCache;
     private final UserProfileBuilder userProfileBuilder;
 
     public BookChatService(
@@ -105,6 +106,7 @@ public class BookChatService {
             BookService bookService,
             BookParserService bookParserService,
             AiProviderConfigService aiProviderConfigService,
+            AiSceneConfigService aiSceneConfigService,
             ChatModelFactory chatModelFactory,
             ChatModelManager chatModelManager,
             ChatHistoryCompressor chatHistoryCompressor,
@@ -120,13 +122,13 @@ public class BookChatService {
             ListQueryDetector listQueryDetector,
             ListQueryStrategySelector listQueryStrategySelector,
             ListQueryRetriever listQueryRetriever,
-            RagAnswerCache ragAnswerCache,
             UserProfileBuilder userProfileBuilder,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
         this.bookParserService = bookParserService;
         this.aiProviderConfigService = aiProviderConfigService;
+        this.aiSceneConfigService = aiSceneConfigService;
         this.chatModelFactory = chatModelFactory;
         this.chatModelManager = chatModelManager;
         this.chatHistoryCompressor = chatHistoryCompressor;
@@ -142,7 +144,6 @@ public class BookChatService {
         this.listQueryDetector = listQueryDetector;
         this.listQueryStrategySelector = listQueryStrategySelector;
         this.listQueryRetriever = listQueryRetriever;
-        this.ragAnswerCache = ragAnswerCache;
         this.userProfileBuilder = userProfileBuilder;
         this.sseExecutor = sseExecutor;
     }
@@ -260,25 +261,8 @@ public class BookChatService {
 
         Future<?> aiFuture = sseExecutor.submit(() -> {
             try {
-                // 0. RAG 答案缓存检查（仅首问缓存，无对话上下文依赖）
+                // 上一轮 AI 回答（用于追问场景的 RAG 查询扩展，不缓存答案——不同用户画像应得到不同回答）
                 String lastAiAnswer = getLastAiAnswer(userId, effectiveSessionId);
-                final boolean cacheable = (lastAiAnswer == null || lastAiAnswer.isBlank());
-                final String modelName = logContext.modelName();
-
-                if (cacheable) {
-                    String cached = ragAnswerCache.get(bookId, question, modelName);
-                    if (cached != null) {
-                        // 缓存命中 — 流式回放 + 保存对话记录
-                        final String answer = cached;
-                        ragAnswerCache.replay(emitter, cached, () -> {
-                            ensureSession(userId, effectiveSessionId, question, bookId);
-                            saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
-                            saveMessage(userId, effectiveSessionId, "assistant", answer, bookId, null);
-                            updateSessionTimestamp(effectiveSessionId);
-                        });
-                        return;
-                    }
-                }
 
                 // 1. 按需生成内容向量（首次问答时触发）
                 if (!ensureContentEmbedded(book, bookId, emitter)) return;
@@ -286,8 +270,20 @@ public class BookChatService {
                 // 2. 懒生成 compressedSummary（首次问答时若为空，同步生成并持久化）
                 ensureCompressedSummary(book, emitter);
 
-                int ragTopK = Optional.ofNullable(aiProviderConfigService.getActiveRagTopK())
+                // ragTopK 从 BOOK_QA 场景绑定的模型配置读（跟随场景路由，替代旧的 getChatConfigByRole("QA")）
+                Integer sceneRagTopK = null;
+                try {
+                    AiProviderConfig sceneConfig = aiSceneConfigService.resolveConfig(AiScene.BOOK_QA);
+                    if (sceneConfig != null) {
+                        sceneRagTopK = sceneConfig.getRagTopK();
+                    }
+                } catch (Exception e) {
+                    log.warn("解析 BOOK_QA 场景配置失败，回退到全局默认: {}", e.getMessage());
+                }
+                int ragTopK = Optional.ofNullable(sceneRagTopK)
                         .orElse(qdrantProperties.getRagTopK());
+                log.info("RAG topK 解析: BOOK_QA场景配置.ragTopK={}, fallback={}, 最终 ragTopK={}",
+                        sceneRagTopK, qdrantProperties.getRagTopK(), ragTopK);
                 int ragMaxChars = getRagMaxChars();
                 String ragContext = null;
                 if (embeddingService.isAvailable() && waitForContentEmbedding(book.getId())) {
@@ -353,11 +349,6 @@ public class BookChatService {
                         }
                         saveMessage(userId, effectiveSessionId, "assistant", safeAnswer, bookId, thinkingText);
                         updateSessionTimestamp(effectiveSessionId);
-
-                        // 写入 RAG 答案缓存（仅首问，追问不缓存）
-                        if (cacheable) {
-                            ragAnswerCache.put(bookId, question, modelName, safeAnswer);
-                        }
                     }
 
                     @Override

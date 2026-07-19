@@ -174,8 +174,10 @@ public class BookAdminChatService {
                             String responseText = fullResponse.toString().trim();
 
                             // 记录 AI 调用摘要日志（一次 LLM 调用只打一条 INFO）
-                            CommonUtils.logAiSummarySimple("管理员对话", elapsed, apiInputTokens, apiOutputTokens,
-                                    String.format("sessionId=%s", sessionId), CommonUtils.truncateText(responseText, 80));
+                            var ctx = chatModelFactory.buildLogContext(AiScene.ADMIN_ASSISTANT);
+                            CommonUtils.logAiSummary("管理员对话", ctx.scene(), ctx.modelName(), ctx.configName(),
+                                    ctx.thinkingMode(), ctx.thinkingEnabled(), ctx.reasoningEffort(),
+                                    null, responseText, null, elapsed, apiInputTokens, apiOutputTokens);
 
                             if (cancelled.get()) {
                                 log.warn("SSE 连接已断开，跳过发送done事件，仅保存已输出内容: sessionId={}", sessionId);

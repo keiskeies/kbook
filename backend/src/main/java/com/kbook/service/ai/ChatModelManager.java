@@ -90,7 +90,7 @@ public class ChatModelManager {
         // 获取 AI 响应文本并去除首尾空白
         String text = response.aiMessage().text();
         if (text != null && !text.isBlank()) {
-            text = text.trim();
+            text = stripThoughtTags(text).trim();
         }
 
         // INFO: 统一摘要日志（一次 LLM 调用只打一条）
@@ -166,6 +166,25 @@ public class ChatModelManager {
             }
         }
         return result;
+    }
+
+    /**
+     * 剥离 Google AI 的 {@code <thought>...</thought>} 标签及其内容。
+     * <p>
+     * Google 模型（如 gemma4-31b）通过 ai-gateway 代理时，思考内容以
+     * {@code <thought>} 标签内嵌在普通文本中返回，{@code returnThinking(false)}
+     * 对 Google API 无效。非流式调用需要手动剥离这些标签。
+     * <p>
+     * 流式调用由 {@link com.kbook.service.ai.streaming.ThoughtTagParser} 处理。
+     *
+     * @param text AI 响应文本
+     * @return 剥离 {@code <thought>} 标签后的文本
+     */
+    private static String stripThoughtTags(String text) {
+        if (text == null || text.isEmpty()) return text;
+        // 移除 <thought>...</thought>（含未闭合的 <thought> 到结尾）
+        String result = text.replaceAll("(?s)<thought>.*?(</thought>|$)", "");
+        return result.trim();
     }
 
 }

@@ -201,6 +201,7 @@ public class AiConfigProvider {
             String groupLabel = GROUP_NAMES.getOrDefault(entry.getKey(), entry.getKey());
             sb.append(groupLabel).append("：\n");
             for (AiConfig.RoundTableRole role : entry.getValue()) {
+                // 第一行：序号 + key(中文名) - 身份描述
                 sb.append(index).append(". ")
                   .append(role.getKey()).append("(").append(role.getName()).append(")");
                 // 优先用 prompt 中的身份描述，比 title 更有辨识度
@@ -211,6 +212,32 @@ public class AiConfigProvider {
                     sb.append(" - ").append(role.getTitle());
                 }
                 sb.append("\n");
+
+                // 第二行：学科分支地图（从 prompt 提取，告诉 LLM 这个角色的理论工具箱覆盖范围）
+                String branches = extractPromptSection(role.getPrompt(), "【学科分支地图】", 200);
+                if (branches != null) {
+                    sb.append("   分支：").append(branches).append("\n");
+                }
+
+                // 第三行：跨书类型适配（选角最关键——角色自己说明适合什么类型的书）
+                String adaptation = extractPromptSection(role.getPrompt(), "【跨书类型适配】", 200);
+                if (adaptation != null) {
+                    sb.append("   擅长书类：").append(adaptation).append("\n");
+                }
+
+                // 第四行：标签（可直接和书的概念标签匹配）
+                if (role.getTags() != null && !role.getTags().isEmpty()) {
+                    sb.append("   标签：").append(String.join("、", role.getTags())).append("\n");
+                }
+
+                // 第五行：性格参数（让 LLM 考虑碰撞组合）
+                AiConfig.RoleParams params = role.getParams();
+                if (params != null) {
+                    sb.append(String.format("   性格：挑战%d/5 共情%d/5 主见%d/5 话量%d/5 幽默%d/5%n",
+                            params.getChallenge(), params.getEmpathy(),
+                            params.getOpinionated(), params.getVerbosity(), params.getHumor()));
+                }
+
                 index++;
             }
         }
@@ -244,6 +271,30 @@ public class AiConfigProvider {
             return "你是" + after.substring(0, end).trim();
         }
         return null;
+    }
+
+    /**
+     * 从角色 prompt 中提取指定【段落标记】后的内容，到下一个【标记】或字符串末尾。
+     * <p>
+     * 用于提取【学科分支地图】【跨书类型适配】等段落，给角色推荐 LLM 提供更丰富的选角依据。
+     *
+     * @param prompt     角色 prompt 原文
+     * @param sectionTag 段落标记（如"【学科分支地图】"）
+     * @param maxLength  最大提取长度（避免某段过长污染 prompt）
+     * @return 段落正文（去除换行和多余空白），不存在则 null
+     */
+    private String extractPromptSection(String prompt, String sectionTag, int maxLength) {
+        if (prompt == null || sectionTag == null) return null;
+        int start = prompt.indexOf(sectionTag);
+        if (start < 0) return null;
+        String after = prompt.substring(start + sectionTag.length()).trim();
+        // 找下一个【标记】作为段落结束
+        int nextSection = after.indexOf("【");
+        String section = nextSection > 0 ? after.substring(0, nextSection).trim() : after;
+        // 压缩空白和换行，方便单行展示
+        section = section.replaceAll("\\s+", " ").trim();
+        if (section.isEmpty()) return null;
+        return section.length() > maxLength ? section.substring(0, maxLength) + "…" : section;
     }
 
     // ==================== 奇葩说性格 ====================

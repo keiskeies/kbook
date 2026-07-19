@@ -409,9 +409,10 @@ public class ChatModelFactory {
             boolean think = tc.shouldThink();
             // SWITCH 行为：所有非 NONE 模式都有的基础行为
             builder.returnThinking(think).sendThinking(false);
-            // 关闭思考时透传 enable_thinking=false（Qwen3 等推理模型需要此参数真正关闭思考，
-            // 其他 OpenAI 兼容 API 按约定忽略未知参数）
-            if (!think) {
+            // 关闭思考时，仅对 Qwen3 系列透传 enable_thinking=false
+            //（Qwen3 默认会思考，returnThinking(false) 只是隐藏思考内容，关不掉思考过程）
+            // 注意：enable_thinking 是 Qwen3 专属参数，其他 API（如 Google）会返回 400
+            if (!think && isQwen3Model(modelName)) {
                 builder.customParameters(Map.of("enable_thinking", false));
             }
             // REASONING_EFFORT 模式：额外发送 reasoning_effort（非空时）
@@ -442,8 +443,8 @@ public class ChatModelFactory {
         if (!gemini && tc.thinkingMode() != AiProviderConfig.ThinkingMode.NONE) {
             boolean think = tc.shouldThink();
             builder.returnThinking(think).sendThinking(false);
-            // 关闭思考时透传 enable_thinking=false
-            if (!think) {
+            // 关闭思考时，仅对 Qwen3 系列透传 enable_thinking=false
+            if (!think && isQwen3Model(modelName)) {
                 builder.customParameters(Map.of("enable_thinking", false));
             }
             if (tc.thinkingMode() == AiProviderConfig.ThinkingMode.REASONING_EFFORT
@@ -477,6 +478,17 @@ public class ChatModelFactory {
             return lower.contains("gemini");
         }
         return false;
+    }
+
+    /**
+     * 判断是否为 Qwen3 系列模型（通过模型名识别）。
+     * <p>
+     * Qwen3 默认会思考，关闭思考需要发送 enable_thinking=false 参数。
+     * enable_thinking 是 Qwen3 专属参数，其他 API（如 Google）会返回 400。
+     */
+    private static boolean isQwen3Model(String modelName) {
+        if (modelName == null) return false;
+        return modelName.toLowerCase(Locale.ROOT).contains("qwen3");
     }
 
     /**

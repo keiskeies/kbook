@@ -413,14 +413,67 @@ public class RoundTableService {
             sb.append("读者关注：").append(needs).append("\n");
         }
         if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            String desc = CommonUtils.truncateText(book.getDescription(), 500);
+            // 放宽到 1500 字：description 通常本身不长，多给 LLM 一些上下文有助于选角
+            String desc = CommonUtils.truncateText(book.getDescription(), 1500);
             sb.append("简介：").append(desc).append("\n");
+        }
+        // 目录：选角的高价值数据——章节标题直接揭示全书核心议题
+        // 一本"量子力学史"和"量子力学理论"的书标签可能相同，但 TOC 决定该选 HISTORIAN 还是 SCIENTIST
+        String toc = filterTocForPrompt(book.getToc());
+        if (!toc.isBlank()) {
+            sb.append("目录：\n").append(toc).append("\n");
         }
         String summary = bookService.resolveBookSummary(book);
         if (summary != null && !summary.isBlank()) {
             sb.append("摘要：").append(CommonUtils.truncateText(summary, 2000)).append("\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * 过滤 TOC 用于角色推荐 prompt：去除封面/目录/前言/后记等非正文章节，只保留有实质内容的章节标题。
+     * <p>
+     * 逻辑与 RoundTableCoverageService.isNonContentChapter 对齐，但为避免跨服务依赖，
+     * 这里实现轻量版——只过滤明显的非正文行，不做 LLM 大纲回退（选角场景不需要那么严格）。
+     * 同时合并过长的目录（>60 行截断），避免 token 浪费。
+     */
+    private String filterTocForPrompt(String toc) {
+        if (toc == null || toc.isBlank()) return "";
+        Set<String> nonContentKeywords = Set.of(
+                "封面", "扉页", "版权页", "版权信息", "版权声明",
+                "目录", "目次", "contents", "table of contents", "toc",
+                "前言", "序", "序言", "自序", "代序", "编者序",
+                "preface", "foreword", "introduction", "prologue",
+                "致谢", "鸣谢", "感谢", "acknowledgments",
+                "附录", "appendix", "appendices",
+                "索引", "index",
+                "后记", "跋", "postscript", "afterword", "epilogue",
+                "参考文献", "参考书目", "引用文献", "references", "bibliography",
+                "术语表", "词汇表", "glossary",
+                "注释", "notes", "footnotes",
+                "版权", "copyright", "法律声明", "disclaimer"
+        );
+        List<String> chapters = Arrays.stream(toc.split("\n"))
+                .map(String::trim)
+                .filter(line -> line.length() >= 2 && !line.matches("^[\\d\\s.]+$"))
+                .filter(line -> {
+                    String lower = line.toLowerCase();
+                    if (nonContentKeywords.contains(lower)) return false;
+                    for (String kw : nonContentKeywords) {
+                        if (lower.startsWith(kw) || lower.startsWith(kw + "：") || lower.startsWith(kw + ":")
+                                || lower.endsWith(kw)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .distinct()
+                .toList();
+        if (chapters.isEmpty()) return "";
+        // 截断过长目录：选角只需要看核心议题，60 行足够
+        int limit = Math.min(chapters.size(), 60);
+        return String.join("\n", chapters.subList(0, limit))
+                + (chapters.size() > 60 ? "\n（更多章节省略）" : "");
     }
 
     /**
@@ -848,9 +901,12 @@ public class RoundTableService {
     }
 
     /**
-     * 谢幕触发硬上限：轮次达到此值时强制 shouldEnd=true（防 LLM 误判导致失控）
+     * 覆盖度触发谢幕阈值：overallScore（0-100）达到此值时强制 shouldEnd=true。
+     * 替代旧的 60 轮硬上限——改为基于讨论质量（覆盖度）判断结束，而非机械轮次。
+     * 阈值 85 对应 S 级（讨论已充分覆盖书籍核心内容）。
+     * 兜底说明：若书籍无概念标签且无内容块，coverage 恒为 0，此时依赖 LLM 结束判断窗口自然结束。
      */
-    private static final int MAX_ROUNDS_BEFORE_FORCED_END = 60;
+    private static final double COVERAGE_FORCE_END_THRESHOLD = 85.0;
     /**
      * 结束判断频控：轮次是此值的倍数时打开"结束判断窗口"，让 LLM 输出 shouldEnd 字段。
      * 避免每轮都让 LLM 思考"该不该结束"，浪费 token。
@@ -873,7 +929,7 @@ public class RoundTableService {
      * 结束判断频控：
      * - 轮次 < 角色数 × 3：不判断（讨论预热）
      * - 轮次 % 3 == 0：判断窗口打开
-     * - 轮次 >= 60：硬上限强制 shouldEnd=true
+     * - 覆盖度 >= 85：强制 shouldEnd=true（基于讨论质量，替代旧的轮次硬上限）
      *
      * @param userId    用户ID
      * @param sessionId 会话ID
@@ -939,15 +995,28 @@ public class RoundTableService {
         int warmupRounds = Math.max(roleCount * END_CHECK_WARMUP_ROLE_MULTIPLIER, roleCount + 3);
         boolean endCheckWindow = currentRound >= warmupRounds
                 && currentRound % END_CHECK_INTERVAL_ROUNDS == 0;
-        boolean hardLimitHit = currentRound >= MAX_ROUNDS_BEFORE_FORCED_END;
-        if (hardLimitHit) {
-            log.warn("轮次 {} 达到硬上限 {}，强制触发谢幕: sessionId={}",
-                    currentRound, MAX_ROUNDS_BEFORE_FORCED_END, sessionId);
+
+        // 读取覆盖度——基于讨论质量判断结束（替代旧的轮次硬上限）
+        RoundTableCoverage coverage = coverageService.getCoverage(sessionId);
+        double coverageScore = coverage != null && coverage.getOverallScore() != null
+                ? coverage.getOverallScore() : 0.0;
+        boolean coverageHighEnough = coverage != null && coverageScore >= COVERAGE_FORCE_END_THRESHOLD;
+        if (coverageHighEnough) {
+            log.info("覆盖度 {} 达到阈值 {}，触发谢幕: sessionId={}",
+                    coverageScore, COVERAGE_FORCE_END_THRESHOLD, sessionId);
         }
 
         // [消息3 - UserMessage] 讨论历史（每次只追加一条新发言，前缀可大量复用 KV-cache）
         String weightedHistory = buildWeightedHistoryForLLM(allMessages);
         messages.add(UserMessage.from(weightedHistory));
+
+        // [消息3.5 - UserMessage] 话题覆盖度（给 LLM 结束判断提供量化依据）
+        if (coverage != null) {
+            String coverageBrief = buildCoverageBriefForLLM(coverage);
+            if (!coverageBrief.isBlank()) {
+                messages.add(UserMessage.from(coverageBrief));
+            }
+        }
 
         // [消息4 - UserMessage] 公平性约束 + 输出格式（每轮完全变化，放最后不破坏前缀缓存）
         String fairnessConstraints = buildFairnessConstraints(roleKeys, speakCounts, allMessages);
@@ -959,9 +1028,10 @@ public class RoundTableService {
 
         // 输出格式：行式 KV（比 JSON 更不容易出格式错误，LLM 训练数据中大量存在）
         String outputFormat;
-        if (hardLimitHit) {
-            outputFormat = "【强制结束】当前轮次已达硬上限 " + MAX_ROUNDS_BEFORE_FORCED_END
-                    + "，必须 END=true，NEXT=HOST，并给出谢幕提纲。\n\n"
+        if (coverageHighEnough) {
+            outputFormat = "【强制结束】话题覆盖度已达 " + String.format("%.0f", coverageScore)
+                    + "（阈值 " + COVERAGE_FORCE_END_THRESHOLD + "），讨论已充分覆盖书籍核心内容，"
+                    + "必须 END=true，NEXT=HOST，并给出谢幕提纲。\n\n"
                     + "请按以下格式返回（每行一个字段，不要输出 JSON、不要输出 markdown 代码块）：\n\n"
                     + "NEXT: HOST\n"
                     + "END: true\n"
@@ -1006,13 +1076,13 @@ public class RoundTableService {
             boolean shouldEnd = parseShouldEndFromResponse(response);
             String closingSummary = parseClosingSummaryFromResponse(response);
 
-            // 硬上限兜底：LLM 没判断 shouldEnd=true 时强制改
-            if (hardLimitHit && !shouldEnd) {
+            // 覆盖度兜底：LLM 没判断 shouldEnd=true 时强制改
+            if (coverageHighEnough && !shouldEnd) {
                 shouldEnd = true;
                 if (closingSummary == null || closingSummary.isBlank()) {
-                    closingSummary = "讨论已达硬上限轮次，请做总结谢幕。";
+                    closingSummary = "话题覆盖度已达阈值，讨论已充分展开，请做总结谢幕。";
                 }
-                log.warn("硬上限触发强制谢幕: sessionId={}, llmShouldEnd=false→true", sessionId);
+                log.warn("覆盖度触发强制谢幕: sessionId={}, llmShouldEnd=false→true", sessionId);
             }
 
             // shouldEnd=true 时强制 nextSpeaker=HOST，不走候选过滤
@@ -1037,13 +1107,13 @@ public class RoundTableService {
                     .build();
         } catch (Exception e) {
             log.warn("纯LLM发言人选择失败，回退到简单模式: {}", e.getMessage());
-            // 硬上限触发时即使 LLM 失败也强制结束，避免"硬上限→LLM失败→回退→继续→硬上限→..."死循环
-            if (hardLimitHit) {
-                log.warn("硬上限触发+LLM失败，强制谢幕: sessionId={}", sessionId);
+            // 覆盖度达标时即使 LLM 失败也强制结束，避免"覆盖度达标→LLM失败→回退→继续→覆盖度仍达标→..."死循环
+            if (coverageHighEnough) {
+                log.warn("覆盖度达标+LLM失败，强制谢幕: sessionId={}", sessionId);
                 return NextSpeakerResult.builder()
                         .nextSpeaker("HOST")
                         .shouldEnd(true)
-                        .closingSummary("讨论已达硬上限轮次，请做总结谢幕。")
+                        .closingSummary("话题覆盖度已达阈值，讨论已充分展开，请做总结谢幕。")
                         .build();
             }
             String fallbackSpeaker = Arrays.stream(roleKeys)
@@ -1332,6 +1402,42 @@ public class RoundTableService {
             // 最近一条标"当前焦点"，其余标"近期讨论"
             String weightLabel = (i == total - 1) ? "【当前焦点】" : "【近期讨论】";
             sb.append(weightLabel).append(msg.getRoleName()).append("：").append(content).append("\n\n");
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 构建给 LLM 的覆盖度概览（用于纯 LLM 发言人选择的结束判断）
+     * <p>
+     * 提供量化覆盖度数据，让 LLM 判断 shouldEnd 时有量化依据，而非纯靠感觉。
+     * 比 buildHostCoverageGuidance 精简——只列总分、概念覆盖、内容块覆盖、未覆盖概念，
+     * 不含未覆盖块的摘要/关键词（避免消息过长、KV-cache 失效）。
+     */
+    private String buildCoverageBriefForLLM(RoundTableCoverage coverage) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【话题覆盖度】\n");
+
+        double score = coverage.getOverallScore() != null ? coverage.getOverallScore() : 0.0;
+        sb.append(String.format("总分：%.0f/100（等级 %s）\n", score,
+                coverage.getGrade() != null ? coverage.getGrade() : "-"));
+
+        // 概念覆盖
+        int totalConcepts = coverage.getTotalConcepts() != null ? coverage.getTotalConcepts() : 0;
+        int coveredConcepts = coverage.getCoveredConceptsCount() != null ? coverage.getCoveredConceptsCount() : 0;
+        if (totalConcepts > 0) {
+            sb.append(String.format("概念覆盖：%d/%d\n", coveredConcepts, totalConcepts));
+            List<String> missed = parseTags(coverage.getMissedConceptsJson());
+            if (!missed.isEmpty()) {
+                sb.append("未覆盖概念：").append(String.join("、", missed)).append("\n");
+            }
+        }
+
+        // 内容块覆盖
+        int totalBlocks = coverage.getTotalBlocks() != null ? coverage.getTotalBlocks() : 0;
+        int coveredBlocks = coverage.getCoveredBlocks() != null ? coverage.getCoveredBlocks() : 0;
+        if (totalBlocks > 0) {
+            sb.append(String.format("内容块覆盖：%d/%d\n", coveredBlocks, totalBlocks));
         }
 
         return sb.toString();

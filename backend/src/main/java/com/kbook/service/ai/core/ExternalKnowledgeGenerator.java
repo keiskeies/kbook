@@ -50,9 +50,10 @@ public class ExternalKnowledgeGenerator {
                     ? response.tokenUsage().outputTokenCount() : 0;
             String text = response.aiMessage().text();
             if (text != null) text = text.trim();
-            CommonUtils.logAiSummarySimple("外部知识生成", elapsed, inputTokens, outputTokens,
-                    "领域=" + roleDomain + ", 话题=" + topic,
-                    CommonUtils.truncateText(text, 80));
+            var ctx = chatModelFactory.buildLogContext(AiScene.ROUND_TABLE_KNOWLEDGE);
+            CommonUtils.logAiSummary("外部知识生成", ctx.scene(), ctx.modelName(), ctx.configName(),
+                    ctx.thinkingMode(), ctx.thinkingEnabled(), ctx.reasoningEffort(),
+                    messages, text, null, elapsed, inputTokens, outputTokens);
             return text;
         } catch (Exception e) {
             log.warn("外部知识生成失败: {}", e.getMessage());
@@ -80,9 +81,10 @@ public class ExternalKnowledgeGenerator {
                     ? response.tokenUsage().outputTokenCount() : 0;
             String text = response.aiMessage().text();
             if (text != null) text = text.trim();
-            CommonUtils.logAiSummarySimple("辩论外部知识生成", elapsed, inputTokens, outputTokens,
-                    "辩题=" + topic + ", 立场=" + side,
-                    CommonUtils.truncateText(text, 80));
+            var ctx = chatModelFactory.buildLogContext(AiScene.DEBATE_KNOWLEDGE);
+            CommonUtils.logAiSummary("辩论外部知识生成", ctx.scene(), ctx.modelName(), ctx.configName(),
+                    ctx.thinkingMode(), ctx.thinkingEnabled(), ctx.reasoningEffort(),
+                    messages, text, null, elapsed, inputTokens, outputTokens);
             return text;
         } catch (Exception e) {
             log.warn("辩论外部知识生成失败: {}", e.getMessage());

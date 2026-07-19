@@ -203,11 +203,11 @@ public class ChatHistoryCompressor {
                 }
                 int inputTokens = tokenCount(response, true);
                 int outputTokens = tokenCount(response, false);
-                CommonUtils.logAiSummarySimple(roundTable ? "圆桌派批量历史压缩" : "批量历史压缩", elapsed, inputTokens, outputTokens,
-                        String.format("%d条 %d→%d chars", toSend.size(),
-                                toSend.stream().mapToInt(String::length).sum(),
-                                parsed.stream().mapToInt(s -> s != null ? s.length() : 0).sum()),
-                        CommonUtils.truncateText(text, 80));
+                var ctx = chatModelFactory.buildLogContext(roundTable ? AiScene.ROUND_TABLE_COMPRESSION : AiScene.CHAT_COMPRESSION);
+                CommonUtils.logAiSummary(roundTable ? "圆桌派批量历史压缩" : "批量历史压缩",
+                        ctx.scene(), ctx.modelName(), ctx.configName(),
+                        ctx.thinkingMode(), ctx.thinkingEnabled(), ctx.reasoningEffort(),
+                        messages, text, null, elapsed, inputTokens, outputTokens);
                 return result;
             } catch (Exception e) {
                 log.warn("批量压缩内容失败(第{}次): {}", attempt + 1, e.getMessage());
