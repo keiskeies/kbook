@@ -4,6 +4,7 @@ import com.kbook.common.exception.BusinessException;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiScene;
+import com.kbook.entity.AiProviderConfig;
 import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableMessage;
 import com.kbook.entity.RoundTableReport;
@@ -63,6 +64,7 @@ public class RoundTableReportService {
     private final NotificationService notificationService;
     private final ExecutorService sseExecutor;
     private final AiProviderConfigService aiProviderConfigService;
+    private final AiSceneConfigService aiSceneConfigService;
 
     public RoundTableReportService(
             RoundTableReportRepository reportRepository,
@@ -72,7 +74,8 @@ public class RoundTableReportService {
             ChatModelManager chatModelManager,
             NotificationService notificationService,
             @Qualifier("sseExecutor") ExecutorService sseExecutor,
-            AiProviderConfigService aiProviderConfigService) {
+            AiProviderConfigService aiProviderConfigService,
+            AiSceneConfigService aiSceneConfigService) {
         this.reportRepository = reportRepository;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
@@ -81,6 +84,7 @@ public class RoundTableReportService {
         this.notificationService = notificationService;
         this.sseExecutor = sseExecutor;
         this.aiProviderConfigService = aiProviderConfigService;
+        this.aiSceneConfigService = aiSceneConfigService;
     }
 
     /**
@@ -365,7 +369,16 @@ public class RoundTableReportService {
         // 动态计算目标字符数：maxTokens × 1.5 × 0.35
         // - 1.5：token 到字符转换比（中文）
         // - 0.35：只用 35% 的上下文放讨论内容，留 65% 给系统提示词 + 书籍信息 + 前文概要 + 输出
-        Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
+        // 从 ROUND_TABLE_REPORT 场景绑定配置读 maxTokens（跟随场景路由，替代旧的 getActiveMaxTokens）
+        Integer maxTokens = null;
+        try {
+            AiProviderConfig sceneConfig = aiSceneConfigService.resolveConfig(AiScene.ROUND_TABLE_REPORT);
+            if (sceneConfig != null) {
+                maxTokens = sceneConfig.getMaxTokens();
+            }
+        } catch (Exception e) {
+            log.warn("解析 ROUND_TABLE_REPORT 场景配置失败，回退到默认 maxTokens: {}", e.getMessage());
+        }
         int tokens = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
         int targetChars = (int) (tokens * TOKEN_TO_CHAR_RATIO * 0.35);
         log.info("分段目标字符数: {} (maxTokens={}, ratio=0.35)", targetChars, tokens);

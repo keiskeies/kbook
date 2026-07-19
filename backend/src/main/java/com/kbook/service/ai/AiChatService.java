@@ -221,7 +221,7 @@ public class AiChatService {
                             String text = fullResponse.toString().trim();
 
                             // 记录 AI 调用摘要日志（一次 LLM 调用只打一条 INFO）
-                            var logCtx = chatModelFactory.buildLogContext(AiScene.BOOK_QA);
+                            var logCtx = chatModelFactory.buildLogContext(AiScene.AI_ASSISTANT);
                             CommonUtils.logAiSummary("流式对话", logCtx.scene(), logCtx.modelName(), logCtx.configName(),
                                     logCtx.thinkingMode(), logCtx.thinkingEnabled(), logCtx.reasoningEffort(),
                                     null, text, null, elapsed, apiInputTokens, apiOutputTokens);
@@ -285,7 +285,7 @@ public class AiChatService {
                                         sessionId, fullResponse.length());
                                 String text = fullResponse.toString().trim();
                                 long elapsed = System.currentTimeMillis() - startTime;
-                                var logCtx = chatModelFactory.buildLogContext(AiScene.BOOK_QA);
+                                var logCtx = chatModelFactory.buildLogContext(AiScene.AI_ASSISTANT);
                                 CommonUtils.logAiSummary("流式对话(连接重置)", logCtx.scene(), logCtx.modelName(), logCtx.configName(),
                                         logCtx.thinkingMode(), logCtx.thinkingEnabled(), logCtx.reasoningEffort(),
                                         null, text, null, elapsed, 0, 0);

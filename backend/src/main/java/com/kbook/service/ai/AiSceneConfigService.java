@@ -122,6 +122,8 @@ public class AiSceneConfigService {
         config.setReasoningEffort(reasoningEffort);
         config.setThinkingBudget(thinkingBudget);
         AiSceneConfig saved = sceneConfigRepository.save(config);
+        // 场景绑定变更后，清空 Assistant 缓存，使下次调用用新配置重建
+        providerConfigService.invalidateChatAssistantCache();
         log.info("场景 [{}] 绑定配置: configId={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
                 scene, configId, thinkingEnabled, reasoningEffort, thinkingBudget);
         return saved;
@@ -142,6 +144,8 @@ public class AiSceneConfigService {
     public void unbind(AiScene scene) {
         sceneConfigRepository.findBySceneKey(scene).ifPresent(c -> {
             sceneConfigRepository.delete(c);
+            // 场景绑定清除后，清空 Assistant 缓存，使下次调用回退到默认分类重建
+            providerConfigService.invalidateChatAssistantCache();
             log.info("场景 [{}] 绑定已清除", scene);
         });
     }

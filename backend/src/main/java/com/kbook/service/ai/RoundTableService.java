@@ -16,6 +16,7 @@ import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
 import com.kbook.dto.roundtable.SpeakRequest;
 import com.kbook.entity.AiScene;
+import com.kbook.entity.AiProviderConfig;
 import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableCoverage;
 import com.kbook.entity.RoundTableMessage;
@@ -86,6 +87,7 @@ public class RoundTableService {
     private final ChatHistoryCompressor chatHistoryCompressor;
     private final ExternalKnowledgeGenerator externalKnowledgeGenerator;
     private final AiProviderConfigService aiProviderConfigService;
+    private final AiSceneConfigService aiSceneConfigService;
     private final RoundTableSessionRepository sessionRepository;
     private final RoundTableMessageRepository messageRepository;
     private final StringRedisTemplate stringRedisTemplate;
@@ -104,6 +106,7 @@ public class RoundTableService {
             ChatHistoryCompressor chatHistoryCompressor,
             ExternalKnowledgeGenerator externalKnowledgeGenerator,
             AiProviderConfigService aiProviderConfigService,
+            AiSceneConfigService aiSceneConfigService,
             RoundTableSessionRepository sessionRepository,
             RoundTableMessageRepository messageRepository,
             StringRedisTemplate stringRedisTemplate,
@@ -121,6 +124,7 @@ public class RoundTableService {
         this.chatHistoryCompressor = chatHistoryCompressor;
         this.externalKnowledgeGenerator = externalKnowledgeGenerator;
         this.aiProviderConfigService = aiProviderConfigService;
+        this.aiSceneConfigService = aiSceneConfigService;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -2207,8 +2211,16 @@ public class RoundTableService {
                 })
                 .sum();
 
-        // 3. 计算触发阈值
-        Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
+        // 3. 计算触发阈值（从 ROUND_TABLE_SPEECH 场景绑定配置读，跟随场景路由）
+        Integer maxTokens = null;
+        try {
+            AiProviderConfig sceneConfig = aiSceneConfigService.resolveConfig(AiScene.ROUND_TABLE_SPEECH);
+            if (sceneConfig != null) {
+                maxTokens = sceneConfig.getMaxTokens();
+            }
+        } catch (Exception e) {
+            log.warn("解析 ROUND_TABLE_SPEECH 场景配置失败，回退到默认 maxTokens: {}", e.getMessage());
+        }
         int tokenLimit = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
         int charLimit = (int) (tokenLimit * TOKEN_TO_CHAR_RATIO);
 

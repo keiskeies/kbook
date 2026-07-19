@@ -186,8 +186,9 @@ public class AiProviderConfigService {
         log.info("构建对话 AI Assistant: role={}, model={}, toolsEnabled={}, baseUrl={}",
                 role, config.getModelName(), toolsSupported, config.getBaseUrl());
 
-        ChatModel chatModel = chatModelFactory.buildForScene(AiScene.BOOK_QA);
-        StreamingChatModel streamingModel = chatModelFactory.buildStreamingForScene(AiScene.BOOK_QA);
+        // AI 助理用自己的场景配置（AI_ASSISTANT），不再误用 BOOK_QA 场景
+        ChatModel chatModel = chatModelFactory.buildForScene(AiScene.AI_ASSISTANT);
+        StreamingChatModel streamingModel = chatModelFactory.buildStreamingForScene(AiScene.AI_ASSISTANT);
 
         var builder = AiServices.builder(AiAssistant.class)
                 .chatModel(chatModel)

@@ -2,6 +2,8 @@ package com.kbook.service.ai;
 
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiProviderConfig;
+import com.kbook.entity.AiScene;
 import com.kbook.entity.AiSession;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
@@ -69,7 +71,7 @@ public class AiChatMemory implements ChatMemoryStore {
 
     private final AiSessionRepository sessionRepository;
     private final AiConversationRepository conversationRepository;
-    private final ObjectProvider<AiProviderConfigService> providerConfigServiceProvider;
+    private final ObjectProvider<AiSceneConfigService> sceneConfigServiceProvider;
     private final ChatHistoryCompressor chatHistoryCompressor;
 
     /**
@@ -77,16 +79,16 @@ public class AiChatMemory implements ChatMemoryStore {
      *
      * @param sessionRepository            会话仓库，用于查询会话信息
      * @param conversationRepository       对话仓库，用于读写对话记录
-     * @param providerConfigServiceProvider AI 配置服务提供器，延迟获取以避免循环依赖
+     * @param sceneConfigServiceProvider   AI 场景配置服务提供器，延迟获取以避免循环依赖
      * @param chatHistoryCompressor        对话历史压缩器，用于内容压缩
      */
     public AiChatMemory(AiSessionRepository sessionRepository,
                         AiConversationRepository conversationRepository,
-                        ObjectProvider<AiProviderConfigService> providerConfigServiceProvider,
+                        ObjectProvider<AiSceneConfigService> sceneConfigServiceProvider,
                         ChatHistoryCompressor chatHistoryCompressor) {
         this.sessionRepository = sessionRepository;
         this.conversationRepository = conversationRepository;
-        this.providerConfigServiceProvider = providerConfigServiceProvider;
+        this.sceneConfigServiceProvider = sceneConfigServiceProvider;
         this.chatHistoryCompressor = chatHistoryCompressor;
     }
 
@@ -176,9 +178,19 @@ public class AiChatMemory implements ChatMemoryStore {
      * 通用对话无 RAG 上下文，直接用历史长度判断。
      */
     public void compressHistoryIfNeeded(Long userId, String sessionId) {
-        // 从配置服务获取 token 限制，如果未配置则使用默认值
-        AiProviderConfigService configService = providerConfigServiceProvider.getIfAvailable();
-        Integer maxTokens = configService != null ? configService.getActiveMaxTokens() : null;
+        // 从 AI_ASSISTANT 场景绑定配置读 maxTokens（跟随场景路由，替代旧的 getActiveMaxTokens）
+        Integer maxTokens = null;
+        AiSceneConfigService sceneConfigService = sceneConfigServiceProvider.getIfAvailable();
+        if (sceneConfigService != null) {
+            try {
+                AiProviderConfig sceneConfig = sceneConfigService.resolveConfig(AiScene.AI_ASSISTANT);
+                if (sceneConfig != null) {
+                    maxTokens = sceneConfig.getMaxTokens();
+                }
+            } catch (Exception e) {
+                log.warn("解析 AI_ASSISTANT 场景配置失败，回退到默认 maxTokens: {}", e.getMessage());
+            }
+        }
         int tokenLimit = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
         // 将 token 限制转换为字符限制（1 token ≈ 1.5 字符）
         int charLimit = (int) (tokenLimit * TOKEN_TO_CHAR_RATIO);

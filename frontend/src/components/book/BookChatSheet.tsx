@@ -821,7 +821,13 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
               rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              enterKeyHint="enter"
+              enterKeyHint="send"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
               onInput={() => {
                 const el = textareaRef.current
                 if (!el) return

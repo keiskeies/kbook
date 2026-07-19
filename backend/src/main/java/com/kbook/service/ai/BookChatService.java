@@ -789,8 +789,16 @@ public class BookChatService {
                 })
                 .sum();
 
-        // 3. 计算触发阈值
-        Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
+        // 3. 计算触发阈值（从 BOOK_QA 场景绑定配置读，跟随场景路由）
+        Integer maxTokens = null;
+        try {
+            AiProviderConfig sceneConfig = aiSceneConfigService.resolveConfig(AiScene.BOOK_QA);
+            if (sceneConfig != null) {
+                maxTokens = sceneConfig.getMaxTokens();
+            }
+        } catch (Exception e) {
+            log.warn("解析 BOOK_QA 场景配置失败，回退到默认 maxTokens: {}", e.getMessage());
+        }
         int tokenLimit = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
         int charLimit = (int) (tokenLimit * TOKEN_TO_CHAR_RATIO);
 
@@ -860,7 +868,16 @@ public class BookChatService {
      * RAG 上下文最大字符数：maxTokens × 1.5 × 0.6（留 40% 给系统和对话）
      */
     private int getRagMaxChars() {
-        Integer maxTokens = aiProviderConfigService.getActiveMaxTokens();
+        // 从 BOOK_QA 场景绑定配置读 maxTokens（跟随场景路由）
+        Integer maxTokens = null;
+        try {
+            AiProviderConfig sceneConfig = aiSceneConfigService.resolveConfig(AiScene.BOOK_QA);
+            if (sceneConfig != null) {
+                maxTokens = sceneConfig.getMaxTokens();
+            }
+        } catch (Exception e) {
+            log.warn("解析 BOOK_QA 场景配置失败，回退到默认 maxTokens: {}", e.getMessage());
+        }
         int tokens = maxTokens != null ? maxTokens : DEFAULT_MAX_TOKENS;
         return (int) (tokens * TOKEN_TO_CHAR_RATIO * 0.6);
     }

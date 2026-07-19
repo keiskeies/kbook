@@ -73,6 +73,7 @@ export default function AdminBooksPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const chatAbortRef = useRef<AbortController | null>(null)
+  const chatTextareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrollingRef = useRef(false)
   const { handleScroll } = useScrollRestore(scrollRef)
@@ -522,7 +523,7 @@ export default function AdminBooksPage() {
   }, [chatInput, chatLoading, chatSessionId])
 
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing && !e.shiftKey) {
       e.preventDefault()
       handleChatSend()
     }
@@ -1292,15 +1293,23 @@ export default function AdminBooksPage() {
 
             {/* 输入区域 */}
             <div className="shrink-0 border-t px-4 py-3">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
+              <div className="flex items-end gap-2">
+                <textarea
+                  ref={chatTextareaRef}
+                  rows={1}
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
+                  enterKeyHint="send"
                   onKeyDown={handleChatKeyDown}
+                  onInput={() => {
+                    const el = chatTextareaRef.current
+                    if (!el) return
+                    el.style.height = 'auto'
+                    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+                  }}
                   placeholder="告诉小管你要做什么..."
                   disabled={chatLoading}
-                  className="flex-1 rounded-full bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
+                  className="flex-1 resize-none rounded-2xl bg-muted px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50 overflow-y-auto"
                 />
                 <button
                   onClick={() => handleChatSend()}
