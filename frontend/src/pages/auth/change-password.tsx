@@ -1,13 +1,12 @@
-﻿import { useState } from 'react'
-import { useAuthStore } from '@/store/auth'
+import { useState } from 'react'
 import { changePassword } from '@/api/auth'
+import { useAuthStore } from '@/store/auth'
 import { toast } from 'sonner'
 import { ArrowLeft } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { useGoBack } from '@/hooks/useGoBack'
+import { clearAuthAndRedirect } from '@/utils/token-refresh'
 
 export default function ChangePasswordPage() {
-  const navigate = useNavigate()
   const goBack = useGoBack()
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -37,8 +36,8 @@ export default function ChangePasswordPage() {
       setLoading(true)
       await changePassword(oldPassword, newPassword)
       toast.success('密码已修改，现在可以重新登录')
-      useAuthStore.getState().logout()
-      navigate('/login')
+      // 改密后调 clearAuthAndRedirect 清 cookie + 拉黑 access token + 跳登录页
+      clearAuthAndRedirect()
     } catch (err: any) {
       toast.error(err.message || '修改未完成')
     } finally {

@@ -10,8 +10,11 @@ import com.kbook.dto.auth.RegisterRequest;
 import com.kbook.dto.auth.ResetPasswordRequest;
 import com.kbook.dto.auth.TokenRefreshRequest;
 import com.kbook.service.auth.AuthService;
+import com.kbook.util.RefreshTokenCookieUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
@@ -31,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final RefreshTokenCookieUtil refreshTokenCookieUtil;
 
     /**
      * 发送验证码
@@ -48,8 +52,11 @@ public class AuthController {
      */
     @Operation(summary = "验证码登录")
     @PostMapping("/login/code")
-    public Result<LoginResult> loginByCode(@RequestBody @Validated CodeLoginRequest req) {
-        return Result.ok(authService.loginByCode(req.getEmail(), req.getCode()));
+    public Result<LoginResult> loginByCode(@RequestBody @Validated CodeLoginRequest req,
+                                            HttpServletResponse response) {
+        LoginResult result = authService.loginByCode(req.getEmail(), req.getCode());
+        refreshTokenCookieUtil.setRefreshTokenCookie(response, result.getRefreshToken());
+        return Result.ok(result);
     }
 
     /**
@@ -57,8 +64,11 @@ public class AuthController {
      */
     @Operation(summary = "密码登录")
     @PostMapping("/login/password")
-    public Result<LoginResult> loginByPassword(@RequestBody @Validated PasswordLoginRequest req) {
-        return Result.ok(authService.loginByPassword(req.getEmail(), req.getPassword(), req.getCaptchaId()));
+    public Result<LoginResult> loginByPassword(@RequestBody @Validated PasswordLoginRequest req,
+                                                HttpServletResponse response) {
+        LoginResult result = authService.loginByPassword(req.getEmail(), req.getPassword(), req.getCaptchaId());
+        refreshTokenCookieUtil.setRefreshTokenCookie(response, result.getRefreshToken());
+        return Result.ok(result);
     }
 
     /**
@@ -66,19 +76,57 @@ public class AuthController {
      */
     @Operation(summary = "注册")
     @PostMapping("/register")
-    public Result<LoginResult> register(@RequestBody @Validated RegisterRequest req) {
-        return Result.ok(authService.register(
+    public Result<LoginResult> register(@RequestBody @Validated RegisterRequest req,
+                                         HttpServletResponse response) {
+        LoginResult result = authService.register(
                 req.getEmail(), req.getCode(), req.getPassword(),
-                req.getBirthday(), req.getGender(), req.getMarried(), req.getHasChildren(), req.getMbti()));
+                req.getBirthday(), req.getGender(), req.getMarried(), req.getHasChildren(), req.getMbti());
+        refreshTokenCookieUtil.setRefreshTokenCookie(response, result.getRefreshToken());
+        return Result.ok(result);
     }
 
     /**
      * 刷新 Token
+     * <p>
+     * 优先从 HttpOnly Cookie 读取 refresh token（移动端友好，不受 ITP 清理影响），
+     * 兼容回退到 body 传参（老前端 / 第三方调用）。
      */
     @Operation(summary = "刷新Token")
     @PostMapping("/refresh")
-    public Result<LoginResult> refreshToken(@RequestBody TokenRefreshRequest req) {
-        return Result.ok(authService.refreshToken(req.getRefreshToken()));
+    public Result<LoginResult> refreshToken(HttpServletRequest request,
+                                             HttpServletResponse response,
+                                             @RequestBody(required = false) TokenRefreshRequest req) {
+        // 优先从 Cookie 读取
+        String refreshToken = refreshTokenCookieUtil.getRefreshTokenFromCookie(request);
+        // 回退到 body（兼容老前端）
+        if (refreshToken == null && req != null) {
+            refreshToken = req.getRefreshToken();
+        }
+        LoginResult result = authService.refreshToken(refreshToken);
+        // 刷新成功后更新 Cookie（新签发的 refresh token）
+        refreshTokenCookieUtil.setRefreshTokenCookie(response, result.getRefreshToken());
+        return Result.ok(result);
+    }
+
+    /**
+     * 登出
+     * <p>
+     * 清除 refresh token Cookie + 拉黑当前 access token。
+     * 需要登录态（access token 未过期）。
+     */
+    @Operation(summary = "登出")
+    @PostMapping("/logout")
+    public Result<Void> logout(HttpServletRequest request,
+                                HttpServletResponse response) {
+        // 从 Authorization 头取 access token 并拉黑
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            authService.logout(token);
+        }
+        // 清除 refresh token Cookie
+        refreshTokenCookieUtil.clearRefreshTokenCookie(response);
+        return Result.ok();
     }
 
     /**

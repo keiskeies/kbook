@@ -151,6 +151,7 @@ export function createSseConnection<TProgress, TDone>(
     try {
       const response = await fetch(fullUrl, {
         method: 'GET',
+        credentials: 'include', // 携带 cookie（refresh token）
         headers: {
           'Authorization': token ? `Bearer ${token}` : '',
           'Accept': 'text/event-stream',
@@ -245,6 +246,7 @@ export function createSsePostConnectionWithEvents(
     try {
       const response = await fetch(fullUrl, {
         method: 'POST',
+        credentials: 'include', // 携带 cookie（refresh token）
         headers: {
           'Content-Type': 'application/json',
           'Authorization': token ? `Bearer ${token}` : '',
@@ -353,6 +355,7 @@ export function createSsePostConnection(
     try {
       const response = await fetch(fullUrl, {
         method: 'POST',
+        credentials: 'include', // 携带 cookie（refresh token）
         headers: {
           'Content-Type': 'application/json',
           'Authorization': token ? `Bearer ${token}` : '',

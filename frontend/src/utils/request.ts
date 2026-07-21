@@ -7,6 +7,7 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 const service: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   timeout: 120000,
+  withCredentials: true, // 携带 cookie（refresh token 用 HttpOnly Cookie 存储）
   headers: {
     'Content-Type': 'application/json',
   },

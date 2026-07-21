@@ -13,6 +13,7 @@ import FooterVersion from '@/components/common/FooterVersion'
 import AvatarCropModal from '@/components/common/AvatarCropModal'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { Card } from '@/components/ui/card'
+import { clearAuthAndRedirect } from '@/utils/token-refresh'
 
 import ProfileEditSheet from './ProfileEditSheet'
 import ProfileTraitsSheet from './ProfileTraitsSheet'
@@ -23,7 +24,7 @@ import ProfileAccountGroup from './ProfileAccountGroup'
 import ProfileAppGroup from './ProfileAppGroup'
 
 export default function ProfilePage() {
-  const { userInfo, isAuthenticated, updateUserInfo, fetchUserInfo, logout } = useAuthStore()
+  const { userInfo, isAuthenticated, updateUserInfo, fetchUserInfo } = useAuthStore()
   const setTabBarVisible = useUiStore((s) => s.setTabBarVisible)
   const navigate = useNavigate()
 
@@ -78,9 +79,9 @@ export default function ProfilePage() {
   }, [showProfileModal])
 
   const handleLogout = () => {
-    logout()
     toast.success('已退出登录')
-    navigate(ROUTES.LOGIN, { replace: true })
+    // clearAuthAndRedirect 会清本地 + 调后端 logout 清 cookie + 拉黑 access token + 跳登录页
+    clearAuthAndRedirect()
   }
 
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {

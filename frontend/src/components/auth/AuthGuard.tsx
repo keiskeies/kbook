@@ -3,6 +3,7 @@ import { useAuthStore } from '@/store/auth'
 import { ROUTES, USER_STATUS } from '@/constants'
 import { Button } from '@/components/ui/button'
 import { LogOut, Clock, ShieldOff } from 'lucide-react'
+import { clearAuthAndRedirect } from '@/utils/token-refresh'
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -17,7 +18,7 @@ interface AuthGuardProps {
  * - 已通过 → 正常访问
  */
 export function AuthGuard({ children }: AuthGuardProps) {
-  const { isAuthenticated, userInfo, logout } = useAuthStore()
+  const { isAuthenticated, userInfo } = useAuthStore()
   const location = useLocation()
 
   if (!isAuthenticated) {
@@ -40,7 +41,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
           您的账号正在审核中，请耐心等待管理员通过。<br />
           审核通过后即可正常使用。
         </p>
-        <Button variant="outline" size="sm" onClick={logout}>
+        <Button variant="outline" size="sm" onClick={clearAuthAndRedirect}>
           <LogOut className="mr-2 h-4 w-4" />
           退出登录
         </Button>
@@ -58,7 +59,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
         <p className="mb-6 text-center text-sm text-muted-foreground">
           您的账号已被管理员封禁，如有疑问请联系管理员。
         </p>
-        <Button variant="outline" size="sm" onClick={logout}>
+        <Button variant="outline" size="sm" onClick={clearAuthAndRedirect}>
           <LogOut className="mr-2 h-4 w-4" />
           退出登录
         </Button>
