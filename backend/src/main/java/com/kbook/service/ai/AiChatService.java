@@ -6,15 +6,23 @@ import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiScene;
+import com.kbook.service.ai.behavior.BehaviorProfileBuilder;
+import com.kbook.service.ai.behavior.UserBehaviorSignalEvent;
+import com.kbook.service.ai.core.UserProfileBuilder;
 import com.kbook.service.ai.streaming.ThoughtTagParser;
 import com.kbook.entity.AiSession;
+import com.kbook.entity.User;
+import com.kbook.entity.UserBehaviorProfile;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
+import com.kbook.repository.UserBehaviorProfileRepository;
+import com.kbook.service.user.UserService;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.service.Result;
 import dev.langchain4j.service.TokenStream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -53,6 +61,11 @@ public class AiChatService {
     private final ExecutorService sseExecutor;
     private final ObjectMapper objectMapper;
     private final ChatModelFactory chatModelFactory;
+    private final UserProfileBuilder userProfileBuilder;
+    private final BehaviorProfileBuilder behaviorProfileBuilder;
+    private final UserBehaviorProfileRepository behaviorProfileRepository;
+    private final UserService userService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public AiChatService(
             AiConversationRepository conversationRepository,
@@ -61,7 +74,12 @@ public class AiChatService {
             AiChatMemory chatMemoryStore,
             @Qualifier("sseExecutor") ExecutorService sseExecutor,
             ObjectMapper objectMapper,
-            ChatModelFactory chatModelFactory) {
+            ChatModelFactory chatModelFactory,
+            UserProfileBuilder userProfileBuilder,
+            BehaviorProfileBuilder behaviorProfileBuilder,
+            UserBehaviorProfileRepository behaviorProfileRepository,
+            UserService userService,
+            ApplicationEventPublisher eventPublisher) {
         this.conversationRepository = conversationRepository;
         this.sessionRepository = sessionRepository;
         this.providerConfigService = providerConfigService;
@@ -69,6 +87,11 @@ public class AiChatService {
         this.sseExecutor = sseExecutor;
         this.objectMapper = objectMapper;
         this.chatModelFactory = chatModelFactory;
+        this.userProfileBuilder = userProfileBuilder;
+        this.behaviorProfileBuilder = behaviorProfileBuilder;
+        this.behaviorProfileRepository = behaviorProfileRepository;
+        this.userService = userService;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -83,6 +106,8 @@ public class AiChatService {
             if (smAnnotation != null) {
                 String systemText = String.join("\n", smAnnotation.value());
                 systemText = systemText.replace("{{userId}}", String.valueOf(userId));
+                systemText = systemText.replace("{{userProfile}}", buildUserProfileText(userId));
+                systemText = systemText.replace("{{behaviorProfile}}", buildBehaviorProfileText(userId));
                 chatMemoryStore.updateMessages(sessionId,
                         List.of(SystemMessage.from(systemText)));
                 log.debug("已为会话 {} 初始化 SystemMessage ({} 字符)", sessionId, systemText.length());
@@ -91,6 +116,30 @@ public class AiChatService {
             log.warn("初始化 SystemMessage 失败: {}", e.getMessage());
         }
         return sessionId;
+    }
+
+    /** 构建用户基础画像文本（L1） */
+    private String buildUserProfileText(Long userId) {
+        try {
+            User user = userService.getUserById(userId);
+            if (user == null) return "未知";
+            String text = userProfileBuilder.build(user);
+            return text.isBlank() ? "未填写" : text.trim();
+        } catch (Exception e) {
+            return "未知";
+        }
+    }
+
+    /** 构建行为画像文本（L2，精简版 ≤ 200 字） */
+    private String buildBehaviorProfileText(Long userId) {
+        try {
+            UserBehaviorProfile profile = behaviorProfileRepository.findByUserId(userId).orElse(null);
+            if (profile == null) return "暂无";
+            String text = behaviorProfileBuilder.buildSummary(profile);
+            return text.isBlank() ? "暂无" : text.trim();
+        } catch (Exception e) {
+            return "暂无";
+        }
     }
 
 
@@ -162,8 +211,16 @@ public class AiChatService {
                     return;
                 }
 
+                // 发布用户提问信号到行为画像服务（异步消费，不阻塞主回答）
+                // 单点发布：避免 onCompleteResponse / onError 多分支重复发布
+                publishUserSignal(userId, sessionId, userMessage);
+
                 // 启动流式对话
-                TokenStream tokenStream = assistant.chatStream(sessionId, userId, userMessage);
+                TokenStream tokenStream = assistant.chatStream(
+                        sessionId, userId,
+                        buildUserProfileText(userId),
+                        buildBehaviorProfileText(userId),
+                        userMessage);
                 tokenStream
                         // 处理思考过程（如果有）
                         .onPartialThinking(pt -> {
@@ -461,6 +518,19 @@ public class AiChatService {
             }
         }
         return false;
+    }
+
+    /**
+     * 发布用户提问信号到行为画像服务（异步消费，不阻塞主回答）。
+     * AI 助理对话默认视为手动输入（无追问按钮场景）。
+     */
+    private void publishUserSignal(Long userId, String sessionId, String content) {
+        try {
+            eventPublisher.publishEvent(new UserBehaviorSignalEvent(
+                    userId, sessionId, TYPE, null, content, true));
+        } catch (Exception e) {
+            log.debug("发布行为信号失败（不影响主流程）: {}", e.getMessage());
+        }
     }
 
 }

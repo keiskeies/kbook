@@ -46,11 +46,13 @@ public class BookChatController extends BaseController {
     @PostMapping(value = "/{bookId}/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamBookChat(
             @PathVariable Long bookId,
-            @RequestBody Map<String, String> body
+            @RequestBody Map<String, Object> body
     ) {
         Long userId = extractUserId();
-        String message = body.get("message");
-        String sessionId = body.get("sessionId");
+        String message = (String) body.get("message");
+        String sessionId = (String) body.get("sessionId");
+        // manual=true 表示用户在输入框敲字发送（强信号）；未传或 false 表示点击追问（弱信号）
+        boolean manual = Boolean.parseBoolean(String.valueOf(body.getOrDefault("manual", "true")));
 //        boolean regenerate = Boolean.parseBoolean(body.get("regenerate"));
 
         if (message == null || message.isBlank()) {
@@ -76,7 +78,7 @@ public class BookChatController extends BaseController {
         // 将图书加入最近阅读（已有记录则更新时间，无记录则设进度为 0%）
         readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
-        return withSseLimit(userId, () -> bookChatService.streamBookChat(userId, bookId, safeMessage, sessionId));
+        return withSseLimit(userId, () -> bookChatService.streamBookChat(userId, bookId, safeMessage, sessionId, manual));
     }
 
     /**

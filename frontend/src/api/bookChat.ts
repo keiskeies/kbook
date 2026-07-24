@@ -4,7 +4,7 @@ import type { AiSessionItem } from '@/types/ai'
 
 export function streamBookChat(
   bookId: number,
-  data: { message: string; sessionId?: string; regenerate?: boolean },
+  data: { message: string; sessionId?: string; regenerate?: boolean; manual?: boolean },
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (error: Error) => void,

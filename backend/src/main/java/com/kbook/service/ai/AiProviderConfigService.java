@@ -11,6 +11,7 @@ import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,9 +43,10 @@ public class AiProviderConfigService {
     private final ChatModelFactory chatModelFactory;
     private final AiProviderConfigRepository configRepository;
     private final ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider;
+    private final AiSceneConfigService sceneConfigService;
     private final StringRedisTemplate redisTemplate;
 
-    /** QA AiAssistant 缓存，key = configId，配置变更时清空 */
+    /** AI 助理 AiAssistant 缓存，key = configId，配置变更时清空 */
     private final ConcurrentHashMap<Long, AiAssistant> chatAssistantCache = new ConcurrentHashMap<>();
 
     public AiProviderConfigService(
@@ -53,12 +55,14 @@ public class AiProviderConfigService {
             ChatModelFactory chatModelFactory,
             AiProviderConfigRepository configRepository,
             ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider,
+            @Lazy AiSceneConfigService sceneConfigService,
             StringRedisTemplate redisTemplate) {
         this.chatMemoryStore = chatMemoryStore;
         this.toolServiceProvider = toolServiceProvider;
         this.chatModelFactory = chatModelFactory;
         this.configRepository = configRepository;
         this.bookAdminChatServiceProvider = bookAdminChatServiceProvider;
+        this.sceneConfigService = sceneConfigService;
         this.redisTemplate = redisTemplate;
     }
 
@@ -92,22 +96,6 @@ public class AiProviderConfigService {
      */
     public AiProviderConfig getFirstEnabledByPurpose(String purpose) {
         return configRepository.findFirstByPurposeAndEnabledTrueOrderByUpdatedAtDesc(purpose).orElse(null);
-    }
-
-    /**
-     * 获取当前 QA 配置的 RAG TopK 值
-     */
-    public Integer getActiveRagTopK() {
-        AiProviderConfig config = getChatConfigByRole("QA");
-        return config != null ? config.getRagTopK() : null;
-    }
-
-    /**
-     * 获取当前 QA 配置的上下文长度
-     */
-    public Integer getActiveMaxTokens() {
-        AiProviderConfig config = getChatConfigByRole("QA");
-        return config != null ? config.getMaxTokens() : null;
     }
 
     // ==================== 缓存管理 ====================
@@ -166,14 +154,18 @@ public class AiProviderConfigService {
     // ==================== 对话 AI ====================
 
     /**
-     * 获取 QA 角色的 AiAssistant（带缓存）
+     * 获取 AI 助理的 AiAssistant（带缓存）。
+     * <p>
+     * 配置解析走 {@link AiSceneConfigService#resolveConfig(AiScene)} 场景路由：
+     * 优先使用 AiScene.AI_ASSISTANT 显式绑定的配置，回退到 Category.QA 默认配置。
      */
     public AiAssistant getChatAssistant() {
-        AiProviderConfig config = getChatConfigByRole("QA");
+        AiProviderConfig config = sceneConfigService.resolveConfig(AiScene.AI_ASSISTANT);
         if (config == null) {
-            throw new IllegalStateException("未找到可用QA对话配置");
+            throw new IllegalStateException("未找到可用 AI 助理对话配置（AiScene.AI_ASSISTANT 未绑定且无 QA 默认配置）");
         }
-        return chatAssistantCache.computeIfAbsent(config.getId(), id -> buildChatAssistant("QA", config));
+        return chatAssistantCache.computeIfAbsent(config.getId(),
+                id -> buildChatAssistant("AI_ASSISTANT", config));
     }
 
     /**

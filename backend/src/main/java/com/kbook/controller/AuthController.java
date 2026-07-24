@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 认证控制器
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -53,9 +55,10 @@ public class AuthController {
     @Operation(summary = "验证码登录")
     @PostMapping("/login/code")
     public Result<LoginResult> loginByCode(@RequestBody @Validated CodeLoginRequest req,
+                                            HttpServletRequest request,
                                             HttpServletResponse response) {
         LoginResult result = authService.loginByCode(req.getEmail(), req.getCode());
-        refreshTokenCookieUtil.setRefreshTokenCookie(response, result.getRefreshToken());
+        refreshTokenCookieUtil.setRefreshTokenCookie(request, response, result.getRefreshToken());
         return Result.ok(result);
     }
 
@@ -65,9 +68,10 @@ public class AuthController {
     @Operation(summary = "密码登录")
     @PostMapping("/login/password")
     public Result<LoginResult> loginByPassword(@RequestBody @Validated PasswordLoginRequest req,
+                                                HttpServletRequest request,
                                                 HttpServletResponse response) {
         LoginResult result = authService.loginByPassword(req.getEmail(), req.getPassword(), req.getCaptchaId());
-        refreshTokenCookieUtil.setRefreshTokenCookie(response, result.getRefreshToken());
+        refreshTokenCookieUtil.setRefreshTokenCookie(request, response, result.getRefreshToken());
         return Result.ok(result);
     }
 
@@ -77,11 +81,12 @@ public class AuthController {
     @Operation(summary = "注册")
     @PostMapping("/register")
     public Result<LoginResult> register(@RequestBody @Validated RegisterRequest req,
+                                         HttpServletRequest request,
                                          HttpServletResponse response) {
         LoginResult result = authService.register(
                 req.getEmail(), req.getCode(), req.getPassword(),
                 req.getBirthday(), req.getGender(), req.getMarried(), req.getHasChildren(), req.getMbti());
-        refreshTokenCookieUtil.setRefreshTokenCookie(response, result.getRefreshToken());
+        refreshTokenCookieUtil.setRefreshTokenCookie(request, response, result.getRefreshToken());
         return Result.ok(result);
     }
 
@@ -98,14 +103,28 @@ public class AuthController {
                                              @RequestBody(required = false) TokenRefreshRequest req) {
         // 优先从 Cookie 读取
         String refreshToken = refreshTokenCookieUtil.getRefreshTokenFromCookie(request);
+        String source = "cookie";
         // 回退到 body（兼容老前端）
         if (refreshToken == null && req != null) {
             refreshToken = req.getRefreshToken();
+            source = "body";
         }
-        LoginResult result = authService.refreshToken(refreshToken);
-        // 刷新成功后更新 Cookie（新签发的 refresh token）
-        refreshTokenCookieUtil.setRefreshTokenCookie(response, result.getRefreshToken());
-        return Result.ok(result);
+        if (refreshToken == null) {
+            log.warn("刷新失败：未提供 refresh token（cookie 和 body 都没有）");
+            return Result.fail(1001, "Refresh Token 已失效");
+        }
+        try {
+            LoginResult result = authService.refreshToken(refreshToken);
+            // 刷新成功后更新 Cookie（新签发的 refresh token）
+            refreshTokenCookieUtil.setRefreshTokenCookie(request, response, result.getRefreshToken());
+            log.debug("刷新成功：来源={}, userId={}", source, result.getUserInfo() != null ? result.getUserInfo().getId() : "unknown");
+            return Result.ok(result);
+        } catch (Exception e) {
+            log.warn("刷新失败：来源={}, error={}", source, e.getMessage());
+            // 刷新失败时也清 cookie，避免浏览器持续用已失效的 cookie
+            refreshTokenCookieUtil.clearRefreshTokenCookie(request, response);
+            throw e;
+        }
     }
 
     /**
@@ -125,7 +144,7 @@ public class AuthController {
             authService.logout(token);
         }
         // 清除 refresh token Cookie
-        refreshTokenCookieUtil.clearRefreshTokenCookie(response);
+        refreshTokenCookieUtil.clearRefreshTokenCookie(request, response);
         return Result.ok();
     }
 
@@ -150,5 +169,4 @@ public class AuthController {
         authService.resetPassword(req.getEmail(), req.getCode(), req.getNewPassword());
         return Result.ok();
     }
-
-    }
+}

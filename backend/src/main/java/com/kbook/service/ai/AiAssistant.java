@@ -10,6 +10,8 @@ import dev.langchain4j.service.*;
  *
  * &#064;MemoryId  自动关联 ChatMemory
  * &#064;V("userId")  注入当前用户ID到系统提示词模板，让AI知道对话用户身份
+ * &#064;V("userProfile") 注入用户基础画像（L1，可能为空字符串）
+ * &#064;V("behaviorProfile") 注入用户行为画像（L2，可能为空字符串）
  */
 @SystemMessage(AiPromptConstants.AI_CHAT_SYSTEM_PROMPT)
 public interface AiAssistant {
@@ -17,7 +19,11 @@ public interface AiAssistant {
     /**
      * 非流式对话
      */
-    String chat(@MemoryId String sessionId, @V("userId") Long userId, @UserMessage String userMessage);
+    String chat(@MemoryId String sessionId,
+                @V("userId") Long userId,
+                @V("userProfile") String userProfile,
+                @V("behaviorProfile") String behaviorProfile,
+                @UserMessage String userMessage);
 
     /**
      * 非流式对话 — 返回完整响应（含 token 用量和 thinking）
@@ -25,11 +31,18 @@ public interface AiAssistant {
     Result<String> chatWithResponse(
             @MemoryId String sessionId,
             @V("userId") Long userId,
+            @V("userProfile") String userProfile,
+            @V("behaviorProfile") String behaviorProfile,
             @UserMessage String userMessage
     );
 
     /**
      * 真正的 Token 级流式对话
      */
-    TokenStream chatStream(@MemoryId String sessionId, @V("userId") Long userId, @UserMessage String userMessage);
+    TokenStream chatStream(@MemoryId String sessionId,
+                           @V("userId") Long userId,
+                           @V("userProfile") String userProfile,
+                           @V("behaviorProfile") String behaviorProfile,
+                           @UserMessage String userMessage);
 }
+

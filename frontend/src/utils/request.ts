@@ -41,14 +41,10 @@ service.interceptors.response.use(
     const originalRequest = error.config
 
     if (error.response?.status === 401 && !originalRequest._retry) {
-      const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)
-      if (!refreshToken) {
-        clearAuthAndRedirect()
-        return Promise.reject(error)
-      }
-
       originalRequest._retry = true
 
+      // 直接尝试 refresh（HttpOnly Cookie 会自动带过去，localStorage 只是兼容回退）
+      // 不再先检查 localStorage.REFRESH_TOKEN —— ITP 清掉 localStorage 后 cookie 仍可用
       const newToken = await refreshAccessToken()
       if (!newToken) {
         clearAuthAndRedirect()

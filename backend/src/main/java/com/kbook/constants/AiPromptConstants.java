@@ -21,6 +21,8 @@ public final class AiPromptConstants {
             
             【用户身份】
             - 当前用户ID是 {{userId}}，调用需要用户ID的工具时直接使用，不要询问用户
+            - 用户基础画像：{{userProfile}}
+            - 用户近期行为画像：{{behaviorProfile}}
             
             【核心原则：推荐优先，禁止桥接话】
             - 用户描述任何情感、困境、需求并暗示想看书时，首要任务是推荐适合的书籍，而非安慰用户

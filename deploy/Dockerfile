@@ -31,8 +31,10 @@ COPY docker-entrypoint.sh /app/start.sh
 RUN sed -i 's/\r$//' /app/start.sh && chmod +x /app/start.sh
 
 # 健康检查
+# 用 127.0.0.1 避免 IPv6 解析问题（localhost 可能解析到 ::1，nginx 只监听 IPv4）
+# 直接检查 Spring Boot 8181 端口，绕过 nginx 反代，更准确反映应用健康
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD wget -qO- http://localhost:80/api/health || exit 1
+    CMD wget -qO- http://127.0.0.1:8181/api/health || exit 1
 
 EXPOSE 80
 

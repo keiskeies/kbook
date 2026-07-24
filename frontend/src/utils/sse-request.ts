@@ -1,4 +1,4 @@
-import { refreshAccessToken, clearAuthAndRedirect, getAccessToken } from './token-refresh'
+import { refreshAccessToken, getAccessToken } from './token-refresh'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -168,7 +168,9 @@ export function createSseConnection<TProgress, TDone>(
         }
         const newToken = await refreshAccessToken()
         if (newToken) { connect(); return }
-        clearAuthAndRedirect()
+        // refresh 失败：不强制跳转，让 onError 通知调用方，由调用方决定是否跳转
+        // 避免 AI 输出中突然跳登录打断用户体验
+        onError(new Error('登录已过期，请重新登录'))
         return
       }
 
@@ -265,7 +267,7 @@ export function createSsePostConnectionWithEvents(
         }
         const newToken = await refreshAccessToken()
         if (newToken) { connect(); return }
-        clearAuthAndRedirect()
+        // refresh 失败：不强制跳转，让 onError 通知调用方
         onError(new Error('登录已过期，请重新登录'))
         return
       }
@@ -374,7 +376,7 @@ export function createSsePostConnection(
         }
         const newToken = await refreshAccessToken()
         if (newToken) { connect(); return }
-        clearAuthAndRedirect()
+        // refresh 失败：不强制跳转，让 onError 通知调用方
         onError(new Error('登录已过期，请重新登录'))
         return
       }

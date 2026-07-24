@@ -62,6 +62,29 @@ public class AsyncSchedulingConfig implements AsyncConfigurer, SchedulingConfigu
         );
     }
 
+    // ==================== 行为画像抽取执行器 ====================
+
+    /**
+     * 行为画像异步抽取专用线程池。
+     * <p>独立于 {@code sseExecutor}，避免画像抽取的 LLM 调用阻塞 SSE 流式响应。
+     * <br>核心 2 / 最大 4 / 队列 50：抽取是低频任务，单用户触发即可，不需要大池。
+     */
+    @Bean(name = "behaviorExecutor", destroyMethod = "shutdown")
+    public ThreadPoolExecutor behaviorExecutor() {
+        java.util.concurrent.atomic.AtomicLong seq = new java.util.concurrent.atomic.AtomicLong(0);
+        return new MdcAwareThreadPoolExecutor(
+                2, 4, 60,
+                new ArrayBlockingQueue<>(50),
+                r -> {
+                    Thread t = new Thread(r);
+                    t.setName("kbook-behavior-" + seq.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+    }
+
     // ==================== @Scheduled 调度器 ====================
 
     @Bean(name = "taskScheduler")

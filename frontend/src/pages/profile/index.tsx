@@ -22,6 +22,7 @@ import ProfileStylePickerSheet from './ProfileStylePickerSheet'
 import ProfileReadingGroup from './ProfileReadingGroup'
 import ProfileAccountGroup from './ProfileAccountGroup'
 import ProfileAppGroup from './ProfileAppGroup'
+import ProfileBehaviorGroup from './ProfileBehaviorGroup'
 
 export default function ProfilePage() {
   const { userInfo, isAuthenticated, updateUserInfo, fetchUserInfo } = useAuthStore()
@@ -241,6 +242,11 @@ export default function ProfilePage() {
             onOpenPreference={() => setShowPreferenceModal(true)}
             onOpenStylePicker={() => setShowStylePicker(true)}
           />
+
+          <div className="mt-4">
+            {/* AI 眼中的你：行为画像（L2） */}
+            <ProfileBehaviorGroup />
+          </div>
 
           <div className="mt-4">
             {/* Group 2: 编辑画像 / 修改密码 */}

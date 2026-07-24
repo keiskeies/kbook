@@ -2,6 +2,8 @@ package com.kbook.service.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.service.ai.streaming.StreamingSseHandler;
+import com.kbook.service.ai.behavior.BehaviorProfileBuilder;
+import com.kbook.service.ai.behavior.UserBehaviorSignalEvent;
 import com.kbook.service.user.UserService;
 import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
@@ -15,6 +17,10 @@ import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.service.ai.core.ChatHistoryCompressor;
 import com.kbook.service.ai.core.UserProfileBuilder;
+import com.kbook.service.ai.behavior.BehaviorProfileBuilder;
+import com.kbook.service.ai.behavior.BehaviorProfileService;
+import com.kbook.service.ai.behavior.UserBehaviorSignalEvent;
+import com.kbook.entity.UserBehaviorProfile;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.QdrantProperties;
@@ -28,9 +34,11 @@ import com.kbook.entity.Book;
 import com.kbook.entity.AiSession;
 import com.kbook.entity.BookSuggestedQuestion;
 import com.kbook.entity.User;
+import com.kbook.entity.UserBehaviorProfile;
 import com.kbook.repository.AiConversationRepository;
 import com.kbook.repository.AiSessionRepository;
 import com.kbook.repository.BookSuggestedQuestionRepository;
+import com.kbook.repository.UserBehaviorProfileRepository;
 
 import static com.kbook.common.util.QueryBuilder.*;
 
@@ -50,6 +58,7 @@ import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -100,6 +109,9 @@ public class BookChatService {
     private final ListQueryStrategySelector listQueryStrategySelector;
     private final ListQueryRetriever listQueryRetriever;
     private final UserProfileBuilder userProfileBuilder;
+    private final BehaviorProfileBuilder behaviorProfileBuilder;
+    private final UserBehaviorProfileRepository behaviorProfileRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public BookChatService(
             EmbeddingService embeddingService,
@@ -123,6 +135,9 @@ public class BookChatService {
             ListQueryStrategySelector listQueryStrategySelector,
             ListQueryRetriever listQueryRetriever,
             UserProfileBuilder userProfileBuilder,
+            BehaviorProfileBuilder behaviorProfileBuilder,
+            UserBehaviorProfileRepository behaviorProfileRepository,
+            ApplicationEventPublisher eventPublisher,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -145,6 +160,9 @@ public class BookChatService {
         this.listQueryStrategySelector = listQueryStrategySelector;
         this.listQueryRetriever = listQueryRetriever;
         this.userProfileBuilder = userProfileBuilder;
+        this.behaviorProfileBuilder = behaviorProfileBuilder;
+        this.behaviorProfileRepository = behaviorProfileRepository;
+        this.eventPublisher = eventPublisher;
         this.sseExecutor = sseExecutor;
     }
 
@@ -226,7 +244,7 @@ public class BookChatService {
      * @return SseEmitter 流式发射器
      */
     @LogAction("SSE图书问答")
-    public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId) {
+    public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId, boolean manual) {
         log.info("========== 图书问答请求 ==========");
         log.info("userId={}, bookId={}, question={}", userId, bookId, question);
 
@@ -349,6 +367,8 @@ public class BookChatService {
                         }
                         saveMessage(userId, effectiveSessionId, "assistant", safeAnswer, bookId, thinkingText);
                         updateSessionTimestamp(effectiveSessionId);
+                        // 发布用户提问信号（异步由 BehaviorProfileService 消费）
+                        publishUserSignal(userId, effectiveSessionId, bookId, question, manual);
                     }
 
                     @Override
@@ -360,6 +380,8 @@ public class BookChatService {
                         saveMessage(userId, effectiveSessionId, "assistant",
                                 CommonUtils.sanitizeAiOutput(partialContent), bookId, thinkingText);
                         updateSessionTimestamp(effectiveSessionId);
+                        // 连接断开也算用户提过问
+                        publishUserSignal(userId, effectiveSessionId, bookId, question, manual);
                     }
 
                     @Override
@@ -504,6 +526,15 @@ public class BookChatService {
         // RAG 参考内容作为独立 UserMessage（参考资料性质，与问题分离）
         if (ragMessage != null && !ragMessage.isBlank()) {
             messages.add(UserMessage.from(ragMessage));
+        }
+        // 行为画像（L2 画像）— 精简版本 ≤ 200 字，放在问题前让 LLM 自然贴合
+        UserBehaviorProfile behaviorProfile = loadBehaviorProfile(userId);
+        if (behaviorProfile != null) {
+            String behaviorDesc = behaviorProfileBuilder.buildSummary(behaviorProfile);
+            if (!behaviorDesc.isBlank()) {
+                messages.add(UserMessage.from("【读者近期画像】\n" + behaviorDesc
+                        + "\n回答时可在相关处自然贴合，不要生硬提及读者画像。"));
+            }
         }
         // 用户问题 + 回答要求作为最后一个 UserMessage（任务目标，位置突出）
         messages.add(UserMessage.from(questionMessage));
@@ -709,6 +740,31 @@ public class BookChatService {
             conversationRepository.save(record);
         } catch (Exception e) {
             log.warn("保存图书问答记录失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 发布用户提问信号到行为画像服务（异步消费，不阻塞主回答）。
+     */
+    private void publishUserSignal(Long userId, String sessionId, Long bookId, String question, boolean manual) {
+        try {
+            eventPublisher.publishEvent(new UserBehaviorSignalEvent(
+                    userId, sessionId, TYPE, bookId, question, manual));
+        } catch (Exception e) {
+            log.debug("发布行为信号失败（不影响主流程）: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 加载用户行为画像（L2 画像），用于主回答 prompt 注入。
+     * 失败返回 null，不影响主流程。
+     */
+    private UserBehaviorProfile loadBehaviorProfile(Long userId) {
+        try {
+            return behaviorProfileRepository.findByUserId(userId).orElse(null);
+        } catch (Exception e) {
+            log.debug("加载行为画像失败: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -1306,6 +1362,9 @@ public class BookChatService {
 
         // 构建用户画像和书籍信息作为上下文
         String userProfileDesc = userProfileBuilder.build(user);
+        // 行为画像（L2 画像）— 与 L1 静态画像合并喂入追问生成
+        UserBehaviorProfile behaviorProfile = loadBehaviorProfile(user != null ? user.getId() : null);
+        String behaviorDesc = behaviorProfile != null ? behaviorProfileBuilder.buildFull(behaviorProfile) : "";
         String bookInfo = buildSpeedReadContent(book);
 
         try {
@@ -1315,6 +1374,9 @@ public class BookChatService {
             messages.add(UserMessage.from("【图书信息】\n" + bookInfo));
             if (!userProfileDesc.isBlank()) {
                 messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc));
+            }
+            if (!behaviorDesc.isBlank()) {
+                messages.add(UserMessage.from("【读者近期行为画像】\n" + behaviorDesc));
             }
             messages.add(UserMessage.from("读者问：" + question + "\n你回答：" + answer));
 

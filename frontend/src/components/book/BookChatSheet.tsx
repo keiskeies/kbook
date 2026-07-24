@@ -78,7 +78,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
         hasSentInitialRef.current = true
         // 延迟一点确保 sheet 完全打开
         setTimeout(() => {
-          handleSend(iq.trim())
+          handleSend(iq.trim(), false, false)
         }, 300)
       }
     } else if (!open) {
@@ -225,7 +225,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     setShowHistory(false)
   }, [speakingId])
 
-  const handleSend = useCallback(async (text?: string, isRegenerate?: boolean) => {
+  const handleSend = useCallback(async (text?: string, isRegenerate?: boolean, manual: boolean = true) => {
     const message = (text || input).trim()
     if (!message || loading) return
 
@@ -279,7 +279,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
 
     const controller = streamBookChat(
       book.id,
-      { message, sessionId: sessionId || undefined, regenerate: isRegenerate || undefined },
+      { message, sessionId: sessionId || undefined, regenerate: isRegenerate || undefined, manual },
       (chunk) => {
         fullAnswerContent += chunk
         mainBatcher.append(chunk)
@@ -457,7 +457,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
 
     if (userMsgContent) {
       requestAnimationFrame(() => {
-        handleSend(userMsgContent, true)
+        handleSend(userMsgContent, true, false)
       })
     }
   }, [messages, loading, handleSend])
@@ -591,7 +591,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                       <button
                         key={i}
                         className="w-full rounded-xl border border-border/50 bg-card px-4 py-3 text-left text-sm transition-colors hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98]"
-                        onClick={() => handleSend(hint)}
+                        onClick={() => handleSend(hint, false, false)}
                         disabled={loading}
                       >
                         <span className="text-primary mr-2 font-medium">{i + 1}.</span>
@@ -744,7 +744,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                               <button
                                 key={qi}
                                 className="inline-flex items-center rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-left text-xs text-primary transition-colors hover:bg-primary/10 active:scale-[0.97] whitespace-normal break-words max-w-full"
-                                onClick={() => handleSend(q)}
+                                onClick={() => handleSend(q, false, false)}
                               >
                                 {q}
                               </button>
