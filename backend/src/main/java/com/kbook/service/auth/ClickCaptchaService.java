@@ -95,6 +95,18 @@ public class ClickCaptchaService {
     }
 
     /**
+     * 判断两个形状是否易混淆（相同形状或视觉相似）。
+     * 用于干扰项生成时排除与目标形状相同的图形，避免「图上 N 个三角形、答案只有 2 个」的不一致。
+     * triangle 与 triangle_inverted 视觉相似，互为干扰。
+     */
+    private static boolean isConfusableShape(String a, String b) {
+        if (a.equals(b)) return true;
+        if ((a.equals("triangle") && b.equals("triangle_inverted"))
+                || (a.equals("triangle_inverted") && b.equals("triangle"))) return true;
+        return false;
+    }
+
+    /**
      * 派生加密密钥
      */
     private SecretKey deriveKey(String ua, long timeWindow) {
@@ -121,7 +133,6 @@ public class ClickCaptchaService {
 
         // 生成图形网格
         List<CaptchaItem> items = new ArrayList<>();
-        String targetCombo = targetShape + ":" + targetColor + ":" + targetSize;
 
         // 随机放置目标
         List<Integer> positions = new ArrayList<>();
@@ -139,16 +150,16 @@ public class ClickCaptchaService {
                 items.add(new CaptchaItem(i, targetShape, targetColor, targetSize,
                         COLOR_HEX.getOrDefault(targetColor, "#999999"), true));
             } else {
+                // 干扰项必须与目标形状不同，且不能是易混淆形状（如 triangle 与 triangle_inverted）
+                // 否则会出现「图上 N 个三角形、答案只有 2 个」的不一致
                 String shape, color, size;
-                String combo;
                 int attempts = 0;
                 do {
                     shape = SHAPES[random.nextInt(SHAPES.length)];
                     color = COLORS[random.nextInt(COLORS.length)];
                     size = SIZES[random.nextInt(SIZES.length)];
-                    combo = shape + ":" + color + ":" + size;
                     attempts++;
-                } while (combo.equals(targetCombo) && attempts < 50);
+                } while (isConfusableShape(shape, targetShape) && attempts < 50);
                 items.add(new CaptchaItem(i, shape, color, size,
                         COLOR_HEX.getOrDefault(color, "#999999"), false));
             }

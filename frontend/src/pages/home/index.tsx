@@ -13,6 +13,7 @@ import {
 import type { RecommendedBook, RecentBookVO } from '@/api/home'
 import { Card } from '@/components/ui/card'
 import { BookCard } from '@/components/book/BookCard'
+import BookCover from '@/components/book/BookCover'
 import MoodQuickSwitch from '@/components/home/MoodQuickSwitch'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
@@ -170,20 +171,14 @@ function RecentReading({
               onClick={() => onBookClick(book.bookId)}
               className="group flex shrink-0 w-32 md:w-auto flex-col gap-1.5 text-left active:scale-[0.98] transition-transform"
             >
-              <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-muted shadow-sm">
-                {book.coverUrl ? (
-                  <img
-                    src={book.coverUrl}
-                    alt={book.title}
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center">
-                    <BookOpen className="h-6 w-6 text-muted-foreground/40" />
-                  </div>
-                )}
-              </div>
+              <BookCover
+                coverUrl={book.coverUrl}
+                title={book.title}
+                author={book.author}
+                format={book.format}
+                size="lg"
+                className="!rounded-lg !shadow-sm transition-transform duration-300 group-hover:scale-105"
+              />
               <p className="text-xs font-semibold truncate">{book.title}</p>
               <p className="text-[10px] text-muted-foreground truncate">{book.author || '未知作者'}</p>
             </button>
