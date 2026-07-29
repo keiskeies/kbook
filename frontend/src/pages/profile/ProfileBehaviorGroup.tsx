@@ -1,23 +1,8 @@
-import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, X, RefreshCw, Sparkles, Loader2 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Bot, Sparkles, Loader2, User, HelpCircle, Compass } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import {
-  AlertDialog,
-  AlertDialogTrigger,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from '@/components/ui/alert-dialog'
-import { toast } from 'sonner'
-import {
   getBehaviorProfile,
-  suppressBehaviorSignal,
-  resetBehaviorProfile,
   type BehaviorProfileVO,
   type WeightedItem,
 } from '@/api/behaviorProfile'
@@ -37,30 +22,12 @@ function WeightDots({ weight }: { weight: number }) {
   )
 }
 
-/** 可删除的标签芯片 */
-function DeletableChip({
-  text,
-  weight,
-  onDelete,
-  deleting,
-}: {
-  text: string
-  weight?: number
-  onDelete: () => void
-  deleting: boolean
-}) {
+/** 只读标签芯片（无删除按钮——画像由 AI 全权维护，用户不可手动干预） */
+function Chip({ text, weight }: { text: string; weight?: number }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 py-1 pl-2.5 pr-1.5 text-xs text-foreground">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 py-1 px-2.5 text-xs text-foreground">
       <span>{text}</span>
       {weight != null && <WeightDots weight={weight} />}
-      <button
-        onClick={onDelete}
-        disabled={deleting}
-        className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 transition-colors"
-        title="删除此信号"
-      >
-        {deleting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <X className="h-2.5 w-2.5" />}
-      </button>
     </span>
   )
 }
@@ -82,37 +49,10 @@ function Section({
 }
 
 export default function ProfileBehaviorGroup() {
-  const queryClient = useQueryClient()
-  const [deletingKey, setDeletingKey] = useState<string | null>(null)
-
   const { data: profile, isLoading } = useQuery<BehaviorProfileVO>({
     queryKey: ['profile', 'behavior'],
     queryFn: getBehaviorProfile,
   })
-
-  const handleDelete = async (field: string, value: string) => {
-    const key = `${field}:${value}`
-    setDeletingKey(key)
-    try {
-      await suppressBehaviorSignal(field, value)
-      await queryClient.invalidateQueries({ queryKey: ['profile', 'behavior'] })
-      toast.success('已删除')
-    } catch {
-      toast.error('删除失败')
-    } finally {
-      setDeletingKey(null)
-    }
-  }
-
-  const handleReset = async () => {
-    try {
-      await resetBehaviorProfile()
-      await queryClient.invalidateQueries({ queryKey: ['profile', 'behavior'] })
-      toast.success('已重置行为画像')
-    } catch {
-      toast.error('重置失败')
-    }
-  }
 
   const isEmpty =
     !profile ||
@@ -120,8 +60,13 @@ export default function ProfileBehaviorGroup() {
       profile.readingMotivations.length === 0 &&
       profile.knowledgeGaps.length === 0 &&
       profile.valueOrientation.length === 0 &&
+      profile.personalityTraits.length === 0 &&
+      profile.confusions.length === 0 &&
       !profile.cognitiveDepth &&
-      !profile.emotionalTone)
+      !profile.emotionalTone &&
+      !profile.thinkingStyle &&
+      !profile.readerArchetype &&
+      !profile.lifeContext)
 
   const fmtTime = (iso: string | null) => {
     if (!iso) return null
@@ -132,45 +77,18 @@ export default function ProfileBehaviorGroup() {
   return (
     <Card padding="none" className="overflow-hidden">
       {/* 头部 */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
-            <Bot className="h-3.5 w-3.5 text-primary" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold">AI 眼中的你</h3>
-            <p className="text-xs text-muted-foreground">
-              {profile && profile.totalSignals > 0
-                ? `基于 ${profile.totalSignals} 次提问`
-                : '从你的提问中学习'}
-            </p>
-          </div>
+      <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
+          <Bot className="h-3.5 w-3.5 text-primary" />
         </div>
-        {!isEmpty && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button
-                className="flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                title="重置画像"
-              >
-                <RefreshCw className="h-3 w-3" />
-                <span className="hidden sm:inline">重置</span>
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>重置行为画像？</AlertDialogTitle>
-                <AlertDialogDescription>
-                  将清空 AI 从你的提问中总结的所有画像。已删除的信号会保留在禁止列表中，不会被重新抽取。重置后需要重新积累提问才会生成新画像。
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>取消</AlertDialogCancel>
-                <AlertDialogAction onClick={handleReset}>确认重置</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
+        <div>
+          <h3 className="text-sm font-semibold">AI 眼中的你</h3>
+          <p className="text-xs text-muted-foreground">
+            {profile && profile.totalSignals > 0
+              ? `基于 ${profile.totalSignals} 次提问`
+              : '从你的提问中学习'}
+          </p>
+        </div>
       </div>
 
       {/* 内容 */}
@@ -193,62 +111,63 @@ export default function ProfileBehaviorGroup() {
           </div>
         ) : (
           <>
-            {profile!.interestTags.length > 0 && (
-              <Section title="近期关注">
-                {profile!.interestTags.map((t: WeightedItem) => (
-                  <DeletableChip
-                    key={t.tag}
-                    text={t.tag}
-                    weight={t.weight}
-                    deleting={deletingKey === `interestTags:${t.tag}`}
-                    onDelete={() => handleDelete('interestTags', t.tag)}
-                  />
+            {/* 读者人格——最显眼的"你是什么样的人" */}
+            {profile!.readerArchetypeLabel && (
+              <div className="flex items-center gap-3 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 p-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15">
+                  <User className="h-4 w-4 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">读者人格</p>
+                  <p className="text-sm font-semibold text-foreground">
+                    {profile!.readerArchetypeLabel}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* 当前处境——一句话概括你处在什么人生阶段 */}
+            {profile!.lifeContext && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-amber-50/50 dark:bg-amber-950/10 p-2.5">
+                <Compass className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <p className="text-xs leading-relaxed text-foreground/80 italic">
+                  {profile!.lifeContext}
+                </p>
+              </div>
+            )}
+
+            {/* 人生困惑——你想从书中找答案的问题 */}
+            {profile!.confusions.length > 0 && (
+              <Section title="人生困惑">
+                {profile!.confusions.map((c) => (
+                  <span
+                    key={c}
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-50/70 dark:bg-amber-950/20 py-1 px-2.5 text-xs text-foreground"
+                  >
+                    <HelpCircle className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400" />
+                    <span>{c}</span>
+                  </span>
                 ))}
               </Section>
             )}
 
-            {profile!.readingMotivations.length > 0 && (
-              <Section title="阅读动机">
-                {profile!.readingMotivations.map((t: WeightedItem) => (
-                  <DeletableChip
-                    key={t.tag}
-                    text={t.tag}
-                    weight={t.weight}
-                    deleting={deletingKey === `readingMotivations:${t.tag}`}
-                    onDelete={() => handleDelete('readingMotivations', t.tag)}
-                  />
+            {/* 性格特质——"你是什么性格" */}
+            {profile!.personalityTraits.length > 0 && (
+              <Section title="性格特质">
+                {profile!.personalityTraits.map((t: WeightedItem) => (
+                  <Chip key={t.tag} text={t.tag} weight={t.weight} />
                 ))}
               </Section>
             )}
 
-            {profile!.knowledgeGaps.length > 0 && (
-              <Section title="知识盲区">
-                {profile!.knowledgeGaps.map((g) => (
-                  <DeletableChip
-                    key={g}
-                    text={g}
-                    deleting={deletingKey === `knowledgeGaps:${g}`}
-                    onDelete={() => handleDelete('knowledgeGaps', g)}
-                  />
-                ))}
-              </Section>
-            )}
-
-            {profile!.valueOrientation.length > 0 && (
-              <Section title="价值观倾向">
-                {profile!.valueOrientation.map((v) => (
-                  <DeletableChip
-                    key={v}
-                    text={v}
-                    deleting={deletingKey === `valueOrientation:${v}`}
-                    onDelete={() => handleDelete('valueOrientation', v)}
-                  />
-                ))}
-              </Section>
-            )}
-
-            {(profile!.cognitiveDepthLabel || profile!.emotionalToneLabel) && (
-              <div className="flex flex-wrap gap-2 pt-1">
+            {/* 三个枚举维度合并一行 */}
+            {(profile!.thinkingStyleLabel || profile!.cognitiveDepthLabel || profile!.emotionalToneLabel) && (
+              <div className="flex flex-wrap gap-2">
+                {profile!.thinkingStyleLabel && (
+                  <span className="rounded-lg bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    思维：{profile!.thinkingStyleLabel}
+                  </span>
+                )}
                 {profile!.cognitiveDepthLabel && (
                   <span className="rounded-lg bg-muted px-2.5 py-1 text-xs text-muted-foreground">
                     认知：{profile!.cognitiveDepthLabel}
@@ -260,6 +179,38 @@ export default function ProfileBehaviorGroup() {
                   </span>
                 )}
               </div>
+            )}
+
+            {profile!.interestTags.length > 0 && (
+              <Section title="近期关注">
+                {profile!.interestTags.map((t: WeightedItem) => (
+                  <Chip key={t.tag} text={t.tag} weight={t.weight} />
+                ))}
+              </Section>
+            )}
+
+            {profile!.readingMotivations.length > 0 && (
+              <Section title="阅读动机">
+                {profile!.readingMotivations.map((t: WeightedItem) => (
+                  <Chip key={t.tag} text={t.tag} weight={t.weight} />
+                ))}
+              </Section>
+            )}
+
+            {profile!.knowledgeGaps.length > 0 && (
+              <Section title="知识盲区">
+                {profile!.knowledgeGaps.map((g) => (
+                  <Chip key={g} text={g} />
+                ))}
+              </Section>
+            )}
+
+            {profile!.valueOrientation.length > 0 && (
+              <Section title="价值观倾向">
+                {profile!.valueOrientation.map((v) => (
+                  <Chip key={v} text={v} />
+                ))}
+              </Section>
             )}
 
             {fmtTime(profile!.lastInferredAt) && (

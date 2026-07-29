@@ -199,6 +199,8 @@ public class BehaviorProfileService {
         vo.setReadingMotivations(Collections.emptyList());
         vo.setKnowledgeGaps(Collections.emptyList());
         vo.setValueOrientation(Collections.emptyList());
+        vo.setPersonalityTraits(Collections.emptyList());
+        vo.setConfusions(Collections.emptyList());
         vo.setRecentSignals(Collections.emptyList());
         vo.setTotalSignals(0);
 
@@ -215,6 +217,11 @@ public class BehaviorProfileService {
                 .toList());
         vo.setKnowledgeGaps(builder.parseStringList(p.getKnowledgeGaps()));
         vo.setValueOrientation(builder.parseStringList(p.getValueOrientation()));
+        vo.setPersonalityTraits(builder.parseWeightedTags(p.getPersonalityTraits()).stream()
+                .map(t -> new BehaviorProfileVO.WeightedItem(t.tag(), t.weight()))
+                .toList());
+        vo.setConfusions(builder.parseStringList(p.getConfusions()));
+        vo.setLifeContext(p.getLifeContext());
         vo.setRecentSignals(builder.parseStringList(p.getRecentSignals()));
         vo.setTotalSignals(p.getTotalSignals() != null ? p.getTotalSignals() : 0);
         vo.setLastInferredAt(p.getLastInferredAt());
@@ -235,6 +242,26 @@ public class BehaviorProfileService {
                 case QUESTIONING -> "质疑";
                 case RESIGNED -> "无奈";
                 case OPTIMISTIC -> "积极求变";
+            });
+        }
+        if (p.getThinkingStyle() != null) {
+            vo.setThinkingStyle(p.getThinkingStyle().name());
+            vo.setThinkingStyleLabel(switch (p.getThinkingStyle()) {
+                case SYSTEMATIC -> "系统型";
+                case DIVERGENT -> "发散型";
+                case CRITICAL -> "批判型";
+                case INTUITIVE -> "直觉型";
+                case PRAGMATIC -> "务实型";
+            });
+        }
+        if (p.getReaderArchetype() != null) {
+            vo.setReaderArchetype(p.getReaderArchetype().name());
+            vo.setReaderArchetypeLabel(switch (p.getReaderArchetype()) {
+                case DEEP_DIVER -> "深潜者";
+                case EXPLORER -> "探索者";
+                case QUESTIONER -> "追问者";
+                case CONTEMPLATOR -> "沉思者";
+                case SEEKER -> "求索者";
             });
         }
         return vo;

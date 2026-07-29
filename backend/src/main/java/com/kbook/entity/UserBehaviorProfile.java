@@ -84,6 +84,39 @@ public class UserBehaviorProfile extends BaseEntity {
     private EmotionalTone emotionalTone;
 
     /**
+     * 性格特质（JSON 数组，每项 {"tag":"内省","weight":0.8}）。
+     * 最多 5 项。描述用户稳定的性格倾向，从提问风格和关注点推断。
+     */
+    @Column(name = "personality_traits", columnDefinition = "TEXT")
+    private String personalityTraits;
+
+    /** 思维方式：SYSTEMATIC / DIVERGENT / CRITICAL / INTUITIVE / PRAGMATIC */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "thinking_style", length = 20)
+    private ThinkingStyle thinkingStyle;
+
+    /** 读者人格：DEEP_DIVER / EXPLORER / QUESTIONER / CONTEMPLATOR / SEEKER */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reader_archetype", length = 20)
+    private ReaderArchetype readerArchetype;
+
+    /**
+     * 人生困惑（JSON 数组，纯字符串）。
+     * 最多 3 项。用户提问中暴露的"想从书中找答案"的具体困惑，
+     * 如 "该不该放弃稳定工作追求理想"、"如何面对亲人衰老"。
+     */
+    @Column(name = "confusions", columnDefinition = "TEXT")
+    private String confusions;
+
+    /**
+     * 当前处境（一段简短描述，≤ 50 字）。
+     * LLM 综合用户多个提问推断的人生阶段/境遇概述，
+     * 如 "职场转型期，对未来方向感到迷茫"。
+     */
+    @Column(name = "life_context", length = 100)
+    private String lifeContext;
+
+    /**
      * 已被用户主动删除的信号（JSON 数组，纯字符串）。
      * 下次抽取时 LLM 会看到这些信号并禁止再加强它们。
      */
@@ -124,5 +157,23 @@ public class UserBehaviorProfile extends BaseEntity {
         QUESTIONING,        // 质疑（"这说得对吗"）
         RESIGNED,           // 无奈（"道理我都懂但..."）
         OPTIMISTIC          // 积极（"那我该怎么做"）
+    }
+
+    /** 思维方式枚举 */
+    public enum ThinkingStyle {
+        SYSTEMATIC, // 系统型：构建体系、追问根因
+        DIVERGENT,  // 发散型：跳跃联想、跨界连接
+        CRITICAL,   // 批判型：习惯质疑、寻找破绽
+        INTUITIVE,  // 直觉型：凭感觉下判断、不喜深究
+        PRAGMATIC   // 务实型：关注实用、不纠结理论
+    }
+
+    /** 读者人格枚举 */
+    public enum ReaderArchetype {
+        DEEP_DIVER,    // 深潜者：少量主题深挖
+        EXPLORER,      // 探索者：跨界游走、广度优先
+        QUESTIONER,    // 追问者：不断追问、不满足表面
+        CONTEMPLATOR,  // 沉思者：慢读、内省、与自身对照
+        SEEKER         // 求索者：带着人生困惑找答案
     }
 }

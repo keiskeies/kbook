@@ -16,6 +16,13 @@ export interface BehaviorProfileVO {
   cognitiveDepthLabel: string | null
   emotionalTone: string | null
   emotionalToneLabel: string | null
+  personalityTraits: WeightedItem[]
+  thinkingStyle: string | null
+  thinkingStyleLabel: string | null
+  readerArchetype: string | null
+  readerArchetypeLabel: string | null
+  confusions: string[]
+  lifeContext: string | null
   totalSignals: number
   lastInferredAt: string | null
   recentSignals: string[]
@@ -24,16 +31,4 @@ export interface BehaviorProfileVO {
 /** 获取当前用户行为画像 */
 export function getBehaviorProfile() {
   return request.get<BehaviorProfileVO>('/user/behavior-profile')
-}
-
-/** 删除单条画像信号（加入 suppressedSignals，下次抽取不再加强） */
-export function suppressBehaviorSignal(field: string, value: string) {
-  return request.delete<boolean>('/user/behavior-profile/signal', {
-    params: { field, value },
-  })
-}
-
-/** 重置整个行为画像（保留 suppressedSignals） */
-export function resetBehaviorProfile() {
-  return request.delete<boolean>('/user/behavior-profile')
 }

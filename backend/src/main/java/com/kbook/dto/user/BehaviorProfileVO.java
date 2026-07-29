@@ -39,6 +39,27 @@ public class BehaviorProfileVO {
     /** 情绪基调中文展示 */
     private String emotionalToneLabel;
 
+    /** 性格特质（带权重） */
+    private List<WeightedItem> personalityTraits;
+
+    /** 思维方式枚举名 */
+    private String thinkingStyle;
+
+    /** 思维方式中文展示 */
+    private String thinkingStyleLabel;
+
+    /** 读者人格枚举名 */
+    private String readerArchetype;
+
+    /** 读者人格中文展示 */
+    private String readerArchetypeLabel;
+
+    /** 人生困惑（用户想从书中找答案的具体问题） */
+    private List<String> confusions;
+
+    /** 当前处境（LLM 综合推断的人生阶段/境遇概述） */
+    private String lifeContext;
+
     /** 累计抽取的提问数 */
     private Integer totalSignals;
 
