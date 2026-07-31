@@ -38,30 +38,26 @@ echo -e "  Container kbook-app: ${GREEN}running${NC}"
 [ -f ".env" ] || { echo -e "${RED}.env not found in deploy/docker/${NC}"; exit 1; }
 echo -e "  .env: ${GREEN}OK${NC}"
 
-# ---- 2. Prepare app.jar (local first, then remote) ----
+# ---- 2. Prepare app.jar (remote first, then local) ----
 echo -e "${YELLOW}[2/6] Preparing backend artifact...${NC}"
+
 jar_ok=0
+
 if [ -f "$JAR_PATH" ]; then
     JAR_SIZE=$(wc -c < "$JAR_PATH")
     if [ "$JAR_SIZE" -ge 1048576 ]; then
         echo -e "  Using local build: ${GREEN}$JAR_PATH${NC}"
         jar_ok=1
     else
-        echo -e "  ${YELLOW}Local app.jar too small, will re-download${NC}"
+        echo -e "  Local app.jar too small, will re-download..."
         rm -f "$JAR_PATH"
     fi
 fi
 
 if [ "$jar_ok" = "0" ]; then
-    echo "  Local app.jar not found, downloading from remote..."
+    echo "  Downloading from remote..."
     BASE_URL=$(cat ../PACKAGE_URL)
     mkdir -p "$PKG_DIR"
-
-    # Backup old jar in package dir
-    if [ -f "$PKG_DIR/app.jar" ]; then
-        TS_OLD=$(date +%Y%m%d_%H%M%S)
-        mv "$PKG_DIR/app.jar" "$PKG_DIR/app.jar.$TS_OLD"
-    fi
 
     if command -v curl >/dev/null 2>&1; then
         DL="curl -fSL --connect-timeout 30 --max-time 600 -o"
@@ -71,15 +67,21 @@ if [ "$jar_ok" = "0" ]; then
         echo -e "${RED}curl or wget required${NC}"; exit 1
     fi
 
-    echo "  Downloading app.jar..."
     $DL "$JAR_PATH" "$BASE_URL/app.jar"
-
-    JAR_SIZE=$(wc -c < "$JAR_PATH")
-    if [ "$JAR_SIZE" -lt 1048576 ]; then
-        echo -e "${RED}ERROR: app.jar is too small (${JAR_SIZE} bytes) - not a valid build!${NC}"
-        exit 1
-    fi
 fi
+
+# ---- Validate downloaded jar ----
+if [ ! -f "$JAR_PATH" ]; then
+    echo -e "${RED}ERROR: app.jar download failed!${NC}"
+    exit 1
+fi
+
+JAR_SIZE=$(wc -c < "$JAR_PATH")
+if [ "$JAR_SIZE" -lt 1048576 ]; then
+    echo -e "${RED}ERROR: app.jar is too small (${JAR_SIZE} bytes) - not a valid build!${NC}"
+    exit 1
+fi
+
 echo -e "  app.jar: ${GREEN}OK${NC}"
 
 # ---- 3. Backup current jar from container ----
@@ -88,7 +90,7 @@ TS=$(date +%Y%m%d_%H%M%S)
 if docker cp kbook-app:/app/app.jar "$PKG_DIR/app.jar.in_container.$TS" >/dev/null 2>&1; then
     echo -e "  Backup: ${GREEN}$PKG_DIR/app.jar.in_container.$TS${NC}"
 else
-    echo -e "  ${YELLOW}Backup skipped${NC}"
+    echo -e "  ${YELLOW}Backup skipped (container may be fresh)${NC}"
 fi
 
 # ---- 4. Copy new jar into container ----
@@ -102,8 +104,6 @@ docker restart kbook-app
 echo -e "  Container: ${GREEN}restarted${NC}"
 
 # ---- 6. Wait for health (up to 60s) ----
-#    直接探测容器内 8181 端口 health 接口，不依赖 docker health 状态
-#    （旧镜像 healthcheck 配置可能有 IPv6/端口问题，导致容器永远 unhealthy）
 echo -e "${YELLOW}[6/6] Waiting for backend to start (up to 60s)...${NC}"
 WAIT=0
 while [ $WAIT -lt 60 ]; do
@@ -129,4 +129,3 @@ echo -e "${GREEN}============================================${NC}"
 echo ""
 echo -e "  Logs : ${YELLOW}docker logs -f kbook-app${NC}"
 echo -e "  Stop : ${YELLOW}./stop.sh${NC}"
-echo ""

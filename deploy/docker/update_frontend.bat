@@ -47,58 +47,59 @@ if not exist ".env" (
 echo   .env: OK
 
 REM ============================================================
-REM 2. Prepare frontend artifacts (local first, then remote)
+REM 2. Prepare frontend artifacts (remote first, then local)
 REM ============================================================
 echo [2/5] Preparing frontend artifacts...
 
 set PKG_DIR=..\package
 set DIST_DIR=%PKG_DIR%\dist
 
-if exist "%DIST_DIR%\index.html" (
-    echo   Using local build: %DIST_DIR%
-    goto :dist_ready
+REM ---- Check if remote build exists ----
+if not exist "..\PACKAGE_URL" (
+    echo ERROR: PACKAGE_URL not found in deploy\docker\
+    pause
+    exit /b 1
 )
-
-echo   Local dist not found, downloading from remote...
 set /p BASE_URL=<..\PACKAGE_URL
-if not exist "%PKG_DIR%" mkdir "%PKG_DIR%"
 
-if exist "%DIST_DIR%" rmdir /s /q "%DIST_DIR%"
-
+echo   Checking for frontend.zip from %BASE_URL%...
 where curl >nul 2>&1
 if %errorlevel% equ 0 (
-    curl -fSL --connect-timeout 30 --max-time 600 -o "%PKG_DIR%\frontend.zip" "%BASE_URL%/frontend.zip"
+    curl -fSL --connect-timeout 30 --max-time 600 -o "%PKG_DIR%\frontend.zip" "%BASE_URL%/frontend.zip" >nul 2>&1
 ) else (
-    wget -q --timeout=600 -O "%PKG_DIR%\frontend.zip" "%BASE_URL%/frontend.zip"
+    wget -q --timeout=600 -O "%PKG_DIR%\frontend.zip" "%BASE_URL%/frontend.zip" >nul 2>&1
 )
 if %errorlevel% neq 0 (
-    echo ERROR: frontend.zip download failed
+    echo ERROR: frontend download failed from remote
     pause
     exit /b 1
 )
 
-powershell -Command "if ((Get-Item '%PKG_DIR%\frontend.zip').Length -lt 102400) { exit 1 }"
+REM ---- Extract and validate ----
+if exist "%DIST_DIR%\index.html" (
+    echo   Using local build: %DIST_DIR%
+) else if exist "%PKG_DIR%\frontend.zip" (
+    echo   Remote build found, extracting...
+    if exist "%PKG_DIR%\dist" rmdir /s /q "%PKG_DIR%\dist"
+    powershell -Command "Expand-Archive -Path '%PKG_DIR%\frontend.zip' -DestinationPath '%PKG_DIR%\dist' -Force" >nul 2>&1
+    del "%PKG_DIR%\frontend.zip" >nul 2>&1
+    if not exist "%DIST_DIR%\index.html" (
+        echo ERROR: frontend extraction failed - index.html not found
+        pause
+        exit /b 1
+    )
+)
+
+REM ---- Validate size ----
+powershell -Command "if ((Get-Item '%PKG_DIR%\dist\index.html').Length -lt 65536) { Write-Host 'TOO_SMALL' ; exit 1 }"
 if %errorlevel% neq 0 (
-    echo ERROR: frontend.zip is too small - not a valid build!
+    echo ERROR: frontend is too small - not a valid build!
     pause
     exit /b 1
 )
+echo   dist/ ready
 
-powershell -Command "Expand-Archive -Path '%PKG_DIR%\frontend.zip' -DestinationPath '%DIST_DIR%' -Force"
-del "%PKG_DIR%\frontend.zip"
-if not exist "%DIST_DIR%\index.html" (
-    echo ERROR: frontend extraction failed - index.html not found
-    pause
-    exit /b 1
-)
-echo   dist: OK
-
-:dist_ready
-
-REM ============================================================
-REM 3. Backup current frontend from container
-REM ============================================================
-echo [3/5] Backing up current frontend in container...
+set TS=none
 for /f %%i in ('powershell -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set TS=%%i
 docker cp kbook-app:/usr/share/nginx/html "%PKG_DIR%\html.backup.%TS%" >nul 2>&1
 if %errorlevel% neq 0 (

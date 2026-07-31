@@ -39,6 +39,7 @@ echo -e "  .env: ${GREEN}OK${NC}"
 
 # ---- 2. Prepare frontend artifacts (local first, then remote) ----
 echo -e "${YELLOW}[2/5] Preparing frontend artifacts...${NC}"
+
 if [ -f "$DIST_DIR/index.html" ]; then
     echo -e "  Using local build: ${GREEN}$DIST_DIR${NC}"
 else
@@ -84,6 +85,10 @@ fi
 # ---- 4. Clear and copy new frontend ----
 echo -e "${YELLOW}[4/5] Updating frontend in container...${NC}"
 docker exec kbook-app sh -c 'rm -rf /usr/share/nginx/html/* /usr/share/nginx/html/.[!.]*'
+if [ ! -d "$DIST_DIR" ] || [ ! "$(ls -A $DIST_DIR 2>/dev/null | wc -l)" -gt 0 ]; then
+    echo "  ERROR: Frontend dist is empty or missing!"
+    exit 1
+fi
 docker cp "$DIST_DIR/." kbook-app:/usr/share/nginx/html/
 echo -e "  Frontend copied: ${GREEN}OK${NC}"
 
@@ -102,4 +107,3 @@ echo -e "${GREEN}  Frontend update complete!  Version: ${VERSION}${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
 echo -e "  If UI not refreshed, hard-refresh browser (Ctrl+F5)"
-echo ""
