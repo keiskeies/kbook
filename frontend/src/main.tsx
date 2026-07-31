@@ -7,7 +7,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useAuthStore } from '@/store/auth'
 import { initTokenSyncListener } from '@/utils/token-sync'
 import { useTokenRefresh } from '@/hooks/useTokenRefresh'
-import { refreshAccessToken, clearAuthAndRedirect } from '@/utils/token-refresh'
+import { refreshAccessToken } from '@/utils/token-refresh'
 import { router } from '@/router'
 import './index.css'
 import './App.css'
@@ -81,8 +81,13 @@ async function bootstrapAuth(): Promise<boolean> {
     // 已过期或即将过期 → 同步刷新
     const newToken = await refreshAccessToken()
     if (!newToken) {
-      clearAuthAndRedirect()
-      return false
+      // 刷新失败不跳登录：移动端浏览器长时间未使用后首次 fetch 可能失败（网络恢复延迟、cookie 未及时发送等），
+      // 此时 refresh token 仍有效，强行跳转登录会破坏用户体验。
+      // 后续 useTokenRefresh hook 和 axios 401 拦截器会继续兜底刷新。
+      if (import.meta.env.DEV) {
+        console.warn('[bootstrapAuth] refresh 失败，已忽略（由后续流程兜底）')
+      }
+      return true
     }
     // 刷新成功，重新 hydrate 加载新 token + userInfo
     useAuthStore.getState().hydrate()
@@ -100,7 +105,7 @@ function App() {
 
 ;(async () => {
   const ok = await bootstrapAuth()
-  if (!ok) return // clearAuthAndRedirect 已跳转，不再渲染
+  if (!ok) return // 拦截到未登录，不再渲染（由路由守卫处理）
 
   createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
