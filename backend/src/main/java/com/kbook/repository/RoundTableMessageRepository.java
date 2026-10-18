@@ -23,6 +23,14 @@ public interface RoundTableMessageRepository extends BaseRepository<RoundTableMe
     long sumCompressedContentLength(@Param("userId") Long userId, @Param("sessionId") String sessionId);
 
     /**
+     * 统计会话中嘉宾（非 HOST）消息数量 —— 用于统一轮次口径 ceil(嘉宾消息数 / 嘉宾数)
+     */
+    @Query(value = "SELECT COUNT(*) FROM round_table_messages " +
+            "WHERE session_id = :sessionId AND role_key <> 'HOST'",
+            nativeQuery = true)
+    long countGuestMessages(@Param("sessionId") String sessionId);
+
+    /**
      * 查找会话中最老的一条未压缩的非 HOST 消息
      * 未压缩 = compressed_content 与 content 完全相同（创建时初始化为相等）
      */
