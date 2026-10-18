@@ -19,6 +19,7 @@ import { useAuthStore } from '@/store/auth'
  */
 
 let isRefreshing = false
+// 可空：刷新结束/失败后需置回 null，供下一次刷新重新发起
 let refreshPromise: Promise<string | null> | null = null
 
 /**
@@ -34,7 +35,7 @@ export function refreshAccessToken(): Promise<string | null> {
   }
 
   isRefreshing = true
-  refreshPromise = new Promise((resolve) => {
+  const promise = new Promise<string | null>((resolve) => {
     // 兼容性：localStorage 中的 refreshToken 作为 body 回退（后端优先读 cookie）
     const refreshTokenVal = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)
 
@@ -76,7 +77,8 @@ export function refreshAccessToken(): Promise<string | null> {
       })
   })
 
-  return refreshPromise
+  refreshPromise = promise
+  return promise
 }
 
 /**
