@@ -12,6 +12,10 @@ target/
 .mimocode/
 .codegraph/
 .trae/
+.uploads/
+.playwright-mcp/
+.codegraph/
+.cargo/
 
 
 # 环境变量（生产）
