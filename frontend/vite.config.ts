@@ -104,6 +104,13 @@ export default defineConfig({
     },
   },
   build: {
+    // 注意：esnext + terser 是有意为之，不要改回默认值。
+    // 默认 target + esbuild minify 会让 `vite:esbuild-transpile` 对大 chunk 走
+    // esbuild 临时文件通道，在 Windows 上存在「删除临时文件 Access is denied」的竞态，
+    // 导致 renderChunk 阶段整个构建失败（产物无法落盘）。
+    // 该组合下 `resolveEsbuildTranspileOptions` 直接返回 null，插件整体失效，绕过该路径。
+    target: 'esnext',
+    minify: 'terser',
     rollupOptions: {
       output: {
         manualChunks: {
