@@ -31,6 +31,8 @@ export interface NextSpeakerResult {
   shouldEnd: boolean
   /** 谢幕要点：shouldEnd=true 时传给 streamCharacterSpeak 的 topic 字段（前端需加 [CLOSING] 前缀） */
   closingSummary: string
+  /** 主持人控场指令：nextSpeaker=HOST 且未结束时作为 topic 传入（后端机制强制控场时给出） */
+  hostHint?: string
 }
 
 /** 圆桌派讨论消息 */

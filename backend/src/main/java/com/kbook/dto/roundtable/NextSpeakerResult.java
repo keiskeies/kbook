@@ -25,4 +25,10 @@ public class NextSpeakerResult {
 
     /** 谢幕要点提示词：shouldEnd=true 时给 HOST 的总结要点，前端会作为 topic 传给 streamCharacterSpeak */
     private String closingSummary;
+
+    /**
+     * 主持人控场指令：nextSpeaker=HOST 且讨论未结束时，给 HOST 的具体控场方向
+     * （为什么把他叫出来、该把话题拉回哪一节）。前端作为 topic 传给 streamCharacterSpeak。
+     */
+    private String hostHint;
 }

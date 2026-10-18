@@ -58,8 +58,11 @@ public class RoundTableCoverageService {
     private static final int MAX_CONTENT_BLOCKS = 50;
     /**
      * 内容块 Redis 缓存键前缀
+     * <p>
+     * v2：章节标题改为清洗后的短标题（"02．饭店为何要收开瓶费 等3节" → "饭店为何要收开瓶费"），
+     * 换前缀让旧缓存自然失效，避免发言时注入的还是脏标题。
      */
-    private static final String BLOCKS_CACHE_PREFIX = "kbook:round-table:blocks:";
+    private static final String BLOCKS_CACHE_PREFIX = "kbook:round-table:blocks:v2:";
     /**
      * 内容块缓存 TTL（72 小时，图书不变则内容块不变）
      */
@@ -166,14 +169,17 @@ public class RoundTableCoverageService {
             }
         }
 
-        // 12. 综合得分：内容块 40% + 概念标签 20% + LLM评估 40%（有LLM时）
+        // 12. 综合得分：内容块 + 概念标签 + LLM评估
+        //     块覆盖依赖"目录标题关键词"，遇到"目录是短文标题 + 章节摘要为空"的书（如经济学评论集）
+        //     关键词永远是标题碎片，块覆盖恒为 0，是全链路最不可靠的一路信号。权重下调到 20%，
+        //     把主导权交给 LLM 综合评估（同一模型，一次性调用，质量明显更稳）。
         double overallScore;
         if (llmResult != null && llmResult.assessmentScore != null) {
-            overallScore = blockWeightedScore * 0.4 + conceptScore * 0.2 + llmResult.assessmentScore * 0.4;
+            overallScore = blockWeightedScore * 0.2 + conceptScore * 0.2 + llmResult.assessmentScore * 0.6;
         } else {
             overallScore = conceptTags.isEmpty()
                     ? blockWeightedScore
-                    : blockWeightedScore * 0.7 + conceptScore * 0.3;
+                    : blockWeightedScore * 0.5 + conceptScore * 0.5;
         }
         overallScore = Math.min(100, Math.max(0, overallScore));
 
@@ -328,6 +334,55 @@ public class RoundTableCoverageService {
                 .stream().findFirst().orElse(null);
     }
 
+    /**
+     * 取尚未被覆盖的章节标题（最多 limit 个），供发言时作为"把话题拉回书本"的素材。
+     * <p>
+     * 只读已持久化的覆盖度快照，不触发重算，保证发言链路低延迟。
+     * 返回的是清洗过的短标题（去掉"等3节"、序号前缀），可以直接塞进提示词。
+     */
+    public List<String> getUncoveredBlockTitles(String sessionId, int limit) {
+        if (sessionId == null || sessionId.isBlank() || limit <= 0) return List.of();
+        try {
+            RoundTableCoverage coverage = getCoverage(sessionId);
+            if (coverage == null) return List.of();
+            List<ContentBlock> blocks = parseJson(coverage.getBlocksJson(),
+                    new TypeReference<List<ContentBlock>>() {});
+            List<BlockCoverageDetail> details = parseJson(coverage.getBlockDetailsJson(),
+                    new TypeReference<List<BlockCoverageDetail>>() {});
+            if (blocks == null || blocks.isEmpty()) return List.of();
+
+            List<String> titles = new ArrayList<>();
+            for (int i = 0; i < blocks.size() && titles.size() < limit; i++) {
+                int level = (details != null && i < details.size() && details.get(i) != null)
+                        ? details.get(i).getCoverageLevel() : 0;
+                if (level > 0) continue;
+                String title = cleanChapterTitle(blocks.get(i).getTitle());
+                if (title.isBlank() || title.length() > 40 || titles.contains(title)) continue;
+                titles.add(title);
+            }
+            return titles;
+        } catch (Exception e) {
+            log.debug("读取未覆盖章节标题失败: sessionId={} - {}", sessionId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * 清洗章节标题用于展示/注入。
+     * <p>
+     * 例："02．饭店为何要收开瓶费 等3节" → "饭店为何要收开瓶费"；
+     * "第一部分 价格与市场 等3节" → "价格与市场"。
+     */
+    private String cleanChapterTitle(String raw) {
+        if (raw == null || raw.isBlank()) return "";
+        String t = raw.trim();
+        t = t.replaceAll("\\s*等\\s*[0-9０-９]+\\s*[节章个部篇]\\s*$", "");
+        t = t.replaceAll("^第[一二三四五六七八九十百0-9０-９]+\\s*(?:部分|章|节|篇)\\s*", "");
+        t = t.replaceAll("^[0-9０-９]{1,3}\\s*[.．、,，:：)）]\\s*", "");
+        t = t.replaceAll("\\s+", " ").trim();
+        return t.isEmpty() ? raw.trim() : t;
+    }
+
     // ==================== 内容块构建（三层回退 + Redis 缓存） ====================
 
     /**
@@ -420,10 +475,14 @@ public class RoundTableCoverageService {
                 representativeText = representativeText.substring(0, 300);
             }
 
+            // 关键词基于原始标题+摘要提取（不过早清洗，避免丢掉可检索线索）
             Set<String> keywords = extractKeyTerms(title + " " + summary + " " + representativeText);
 
+            // 展示/注入用清洗后的短标题，否则提示词里会出现"02．饭店为何要收开瓶费 等3节"这种脏标题
+            String displayTitle = cleanChapterTitle(title);
+
             blocks.add(ContentBlock.builder()
-                    .title(title)
+                    .title(displayTitle)
                     .summary(summary.length() > 200 ? summary.substring(0, 200) : summary)
                     .representativeText(representativeText)
                     .chunkCount(0)
@@ -709,7 +768,7 @@ public class RoundTableCoverageService {
         List<String> missed = new ArrayList<>();
 
         for (String tag : conceptTags) {
-            if (discussionText.contains(tag)) {
+            if (mentionsConcept(discussionText, tag)) {
                 covered.add(tag);
             } else {
                 missed.add(tag);
@@ -717,6 +776,31 @@ public class RoundTableCoverageService {
         }
 
         return new ConceptCoverageResult(covered, missed);
+    }
+
+    /**
+     * 概念命中判定。
+     * <p>
+     * 原来是裸 {@code contains}：标签"管制与干预成本"永远匹配不到发言里写的"管制成本"，
+     * 造成假阴性（实测一场 173 条发言的讨论里"管制成本"说了 5 次，仍被判未覆盖）。
+     * 这里改成三级判定：整词命中 → 复合标签分词命中 → 3 字滑窗命中。
+     */
+    private boolean mentionsConcept(String text, String tag) {
+        if (text == null || tag == null || text.isBlank() || tag.isBlank()) return false;
+        String t = tag.trim();
+        if (text.contains(t)) return true;
+        // 复合标签（A与B / A和B / A、B）拆开，任一部分命中即算覆盖
+        for (String part : t.split("[与和、/]")) {
+            String p = part.trim();
+            if (p.length() >= 2 && text.contains(p)) return true;
+        }
+        // 3 字滑窗：容忍近义改写（"创造性毁灭" vs "创造性破坏"）
+        if (t.length() >= 4) {
+            for (int i = 0; i + 3 <= t.length(); i++) {
+                if (text.contains(t.substring(i, i + 3))) return true;
+            }
+        }
+        return false;
     }
 
     // ==================== 得分计算 ====================

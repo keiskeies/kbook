@@ -28,6 +28,32 @@ import { voiceTester } from '@/utils/voiceTester'
 
 type Phase = 'loading' | 'discussing' | 'paused' | 'completed' | 'error'
 
+/** 连续这么多轮仍未自然结束时，前端兜底收场（后端硬上限 32 轮，这里留出余量） */
+const MAX_ROUNDS_SAFETY = 45
+
+/**
+ * 剥掉模型自作主张加在开头的「角色名：」「角色名说：」「**角色名**：」。
+ * 与后端 sanitizeSpeech 对偶：后端保证落库干净，这里保证流式展示和朗读干净。
+ */
+function stripRolePrefix(text: string, roleName?: string): string {
+  if (!text) return text
+  let out = text.trim()
+  const names = [roleName, '主持人'].filter((n): n is string => Boolean(n && n.trim()))
+  if (names.length === 0) return out
+  const escaped = names
+    .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')
+  const re = new RegExp(
+    `^(?:\\*\\*)?\\s*【?\\s*(?:${escaped})\\s*】?\\s*(?:说|表示|认为|指出)?\\s*(?:\\*\\*)?\\s*[：:]\\s*`
+  )
+  for (let i = 0; i < 3; i++) {
+    const next = out.replace(re, '')
+    if (next === out) break
+    out = next
+  }
+  return out.trim()
+}
+
 interface DisplayMessage {
   id: string
   roleKey: string
@@ -492,7 +518,7 @@ export default function RoundTableSessionPage() {
             roleName: msg.roleName || role?.name || ROLE_NAMES[msg.roleKey] || msg.roleKey,
             roleColor: role?.color || ROLE_COLORS[msg.roleKey] || '#6B655C',
             roleIcon: role?.icon || ROLE_ICONS[msg.roleKey] || '👤',
-            content: msg.content,
+            content: stripRolePrefix(msg.content, msg.roleName),
             timestamp: new Date(msg.createdAt).getTime(),
           }
         })
@@ -507,9 +533,11 @@ export default function RoundTableSessionPage() {
         activeRolesRef.current = sessionRoleKeys.length > 0
           ? rolesData.filter(r => sessionRoleKeys.includes(r.key))
           : rolesData.filter(r => r.selected)
-        const roleCount = activeRolesRef.current.length
-        if (roleCount > 0) {
-          setCurrentRound(Math.floor(messagesRef.current.length / roleCount) + 1)
+        // 轮次口径：ceil(嘉宾消息数 / 嘉宾数)，HOST 不计入（与后端一致）
+        const guestCount = activeRolesRef.current.filter(r => r.key !== 'HOST').length
+        if (guestCount > 0) {
+          const guestMsgCount = messagesRef.current.filter(m => m.roleKey !== 'HOST').length
+          setCurrentRound(Math.max(1, Math.ceil(guestMsgCount / guestCount)))
         }
         // 角色加载后，用后端数据补全消息的 icon/name/color
         setMessages(prev => prev.map(msg => {
@@ -885,6 +913,10 @@ export default function RoundTableSessionPage() {
             nextSpeaker = otherRoles[Math.floor(Math.random() * otherRoles.length)]
           }
         }
+        // 后端机制强制控场时会给主持人一句具体指令（为什么叫他、拉回哪一节）
+        if (nextSpeaker === 'HOST' && result.hostHint) {
+          speakTopic = result.hostHint
+        }
       }
 
       setGrabbingAnimation(nextSpeaker)
@@ -916,32 +948,43 @@ export default function RoundTableSessionPage() {
       stream.onMessage((text: string) => {
         if (!discussionLoopRef.current) { stream.abortController.abort(); return }
         currentContentRef.current += text
+        // 展示层剥掉「角色名：」前缀：模型偶尔会顺着历史格式续写，用户不该看到这种脏输出
+        const displayText = stripRolePrefix(currentContentRef.current, nextRole?.name)
         setMessages(prev => {
           const updated = [...prev]
           const idx = updated.findIndex(m => m.id === msgId)
-          if (idx >= 0) updated[idx] = { ...updated[idx], content: currentContentRef.current }
+          if (idx >= 0) updated[idx] = { ...updated[idx], content: displayText }
           return updated
         })
       })
 
       stream.onDone(() => {
+        const finalText = stripRolePrefix(currentContentRef.current, nextRole?.name)
         setMessages(prev => {
           const updated = [...prev]
           const idx = updated.findIndex(m => m.id === msgId)
-          if (idx >= 0) updated[idx] = { ...updated[idx], streaming: undefined }
+          if (idx >= 0) updated[idx] = { ...updated[idx], streaming: undefined, content: finalText }
           return updated
         })
         setSpeakingKey(null)
         speakingKeyRef.current = null
 
         if (ttsEnabledRef.current) {
-          enqueueTtsRef.current(currentContentRef.current, nextSpeaker, messagesRef.current.length)
+          enqueueTtsRef.current(finalText, nextSpeaker, messagesRef.current.length)
         }
 
-        // 按实际消息数/角色数计算轮数（每轮所有角色各发言一次）
-        const roleCount = activeRolesRef.current.length
-        setCurrentRound(roleCount > 0 ? Math.floor(messagesRef.current.length / roleCount) + 1 : 1)
+        // 轮次口径：ceil(嘉宾消息数 / 嘉宾数)，HOST 不计入（与后端一致）
+        const guestCount = activeRolesRef.current.filter(r => r.key !== 'HOST').length
+        const guestMsgCount = messagesRef.current.filter(m => m.roleKey !== 'HOST').length
+        const nextRound = guestCount > 0 ? Math.max(1, Math.ceil(guestMsgCount / guestCount)) : 1
+        setCurrentRound(nextRound)
         setCoverageVersion(prev => prev + 1)
+
+        // 前端兜底收场：后端硬上限 40 轮，这里再兜一层，避免后端异常时无限循环
+        if (nextRound >= MAX_ROUNDS_SAFETY) {
+          setTimeout(() => { endDiscussion() }, 1200)
+          return
+        }
 
         // 谢幕发言结束后 → 正式结束讨论，不再递归 grabMicAndSpeak
         if (pendingClosingRef.current) {

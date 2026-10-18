@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.common.util.SpeechSanitizer;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ai.AiConfig;
 import com.kbook.config.ai.AiConfigProvider;
@@ -258,6 +259,14 @@ public class RoundTableService {
      */
     private static final String ROLE_SCORES_KEY_PREFIX = "kbook:round-table:role-scores:";
 
+    /**
+     * 角色名册 Hash 前缀 — key = {prefix}{bookId}, field = roleKey, value = 该角色名册 JSON
+     * <p>
+     * 记录 LLM 为本次讨论赋值的 name/title/domainRelevance/languageStyle，
+     * 供 ZSet 命中路径与会话创建时复用（ZSet 只存 key，会丢失这些富字段）。
+     */
+    private static final String ROLE_ROSTER_KEY_PREFIX = "kbook:round-table:role-roster:";
+
     // ==================== 角色推荐（LLM 驱动） ====================
 
     /**
@@ -281,14 +290,10 @@ public class RoundTableService {
 
         // 1. 非刷新时优先从 ZSet 取 top 角色
         if (!refresh) {
-            List<RoleVO> zsetRoles = getTopSelectedRolesFromZSet(scoreKey);
+            List<RoleVO> zsetRoles = getTopSelectedRolesFromZSet(bookId, scoreKey);
             if (zsetRoles.size() >= 4) {
-                List<AiConfig.RoundTableRole> selectedEnums = zsetRoles.stream()
-                        .map(vo -> aiConfigProvider.getRoundTableRole(vo.getKey()))
-                        .filter(Objects::nonNull)
-                        .toList();
                 log.debug("ZSet 角色推荐命中: bookId={}, roles={}", bookId, zsetRoles.stream().map(RoleVO::getKey).toList());
-                return buildRoleListFromSelected(selectedEnums);
+                return buildRoleListFromSelected(zsetRoles);
             }
         }
 
@@ -303,15 +308,13 @@ public class RoundTableService {
                 result = CommonUtils.stripCodeFence(result);
                 List<RoleVO> llmSelectedRoles = parseLlmRoleSelection(result);
                 if (llmSelectedRoles != null && llmSelectedRoles.size() >= 3) {
+                    // 缓存 LLM 赋值的名册（domainRelevance/languageStyle），供 ZSet 命中路径与会话创建复用
+                    cacheRoleRoster(bookId, llmSelectedRoles);
                     // 记录 LLM 选择到 ZSet
                     for (RoleVO vo : llmSelectedRoles) {
                         stringRedisTemplate.opsForZSet().incrementScore(scoreKey, vo.getKey(), 1);
                     }
-                    List<AiConfig.RoundTableRole> selectedEnums = llmSelectedRoles.stream()
-                            .map(vo -> aiConfigProvider.getRoundTableRole(vo.getKey()))
-                            .filter(Objects::nonNull)
-                            .toList();
-                    return buildRoleListFromSelected(selectedEnums);
+                    return buildRoleListFromSelected(llmSelectedRoles);
                 }
             }
         } catch (Exception e) {
@@ -340,25 +343,95 @@ public class RoundTableService {
 
     /**
      * 从 ZSet 中读取使用次数 Top 4-6 的非 HOST 角色，返回 RoleVO 列表。
+     * <p>
+     * ZSet 只存 roleKey，domainRelevance/languageStyle 需从角色名册 Hash 回填，
+     * 否则每次 ZSet 命中都会退化成配置默认值（0/空），丢失首轮 LLM 赋值的富字段。
      */
-    private List<RoleVO> getTopSelectedRolesFromZSet(String scoreKey) {
+    private List<RoleVO> getTopSelectedRolesFromZSet(Long bookId, String scoreKey) {
         // reverseRangeByScore: score 从 0 开始，返回最多 8 个（含 HOST 则过滤）
         Set<String> topKeys = stringRedisTemplate.opsForZSet()
                 .reverseRangeByScore(scoreKey, 0, Double.MAX_VALUE, 0, 8);
         if (topKeys == null || topKeys.isEmpty()) return List.of();
 
+        Map<String, JsonNode> roster = readRoleRoster(bookId);
         List<RoleVO> result = new ArrayList<>();
         for (String key : topKeys) {
             if ("HOST".equals(key)) continue;
             AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
             if (role != null) {
                 RoleVO vo = RoleVO.fromConfig(role);
+                applyRosterEntry(vo, roster.get(key));
                 vo.setSelected(true);
                 result.add(vo);
             }
             if (result.size() >= 6) break;
         }
         return result;
+    }
+
+    /**
+     * 缓存 LLM 赋值的角色名册（Hash：field=roleKey，value=名册 JSON）。
+     * <p>
+     * 刷新时同 field 覆盖写入；回退路径不写，避免用配置默认值覆盖已有的 LLM 赋值。
+     */
+    private void cacheRoleRoster(Long bookId, List<RoleVO> roles) {
+        if (bookId == null || roles == null || roles.isEmpty()) return;
+        try {
+            String key = ROLE_ROSTER_KEY_PREFIX + bookId;
+            for (RoleVO vo : roles) {
+                if (vo == null || vo.getKey() == null || vo.getKey().isBlank()) continue;
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("key", vo.getKey());
+                entry.put("name", vo.getName());
+                entry.put("title", vo.getTitle());
+                entry.put("domainRelevance", vo.getDomainRelevance());
+                entry.put("languageStyle", vo.getLanguageStyle());
+                stringRedisTemplate.opsForHash().put(key, vo.getKey(), objectMapper.writeValueAsString(entry));
+            }
+        } catch (Exception e) {
+            log.debug("缓存角色名册失败: bookId={} - {}", bookId, e.getMessage());
+        }
+    }
+
+    /**
+     * 读取某本书的角色名册（key → 名册 JSON 节点），读取失败返回空表。
+     */
+    private Map<String, JsonNode> readRoleRoster(Long bookId) {
+        Map<String, JsonNode> result = new LinkedHashMap<>();
+        if (bookId == null) return result;
+        try {
+            Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(ROLE_ROSTER_KEY_PREFIX + bookId);
+            for (Map.Entry<Object, Object> e : entries.entrySet()) {
+                String key = String.valueOf(e.getKey());
+                try {
+                    result.put(key, objectMapper.readTree(String.valueOf(e.getValue())));
+                } catch (Exception ignored) {
+                    // 单个 field 损坏不影响其余角色
+                }
+            }
+        } catch (Exception e) {
+            log.debug("读取角色名册失败: bookId={} - {}", bookId, e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * 用名册条目回填 RoleVO 的富字段（name/title/domainRelevance/languageStyle）。
+     */
+    private void applyRosterEntry(RoleVO vo, JsonNode entry) {
+        if (vo == null || entry == null) return;
+        if (entry.hasNonNull("name") && !entry.get("name").asText().isBlank()) {
+            vo.setName(entry.get("name").asText());
+        }
+        if (entry.hasNonNull("title") && !entry.get("title").asText().isBlank()) {
+            vo.setTitle(entry.get("title").asText());
+        }
+        if (entry.has("domainRelevance")) {
+            vo.setDomainRelevance(entry.get("domainRelevance").asInt());
+        }
+        if (entry.hasNonNull("languageStyle")) {
+            vo.setLanguageStyle(entry.get("languageStyle").asText());
+        }
     }
 
     // buildRoleListWithSelection 已合并到 buildRoleListFromSelected
@@ -563,7 +636,8 @@ public class RoundTableService {
                         .filter(r -> !"HOST".equals(r.getKey()))
                         .toList();
                 if (llmRoles.size() >= 3) {
-                    return buildRoleListFromSelected(llmRoles);
+                    return buildRoleListFromSelected(llmRoles.stream()
+                            .map(RoleVO::fromConfig).collect(Collectors.toList()));
                 }
             }
         } catch (Exception e) {
@@ -573,13 +647,17 @@ public class RoundTableService {
         // 最终回退：标签硬匹配
         List<String> tags = parseTags(book.getFormatTags());
         List<AiConfig.RoundTableRole> matchedRoles = selectRolesByTags(tags);
-        return buildRoleListFromSelected(matchedRoles);
+        return buildRoleListFromSelected(matchedRoles.stream()
+                .map(RoleVO::fromConfig).collect(Collectors.toList()));
     }
 
     /**
      * 从已选角色列表构建 20 人名单（HOST 始终包含且选中）
+     * <p>
+     * 入参为 RoleVO（携带 LLM 赋值的 domainRelevance/languageStyle），
+     * 未选中的剩余角色用配置默认值补齐。
      */
-    private List<RoleVO> buildRoleListFromSelected(List<AiConfig.RoundTableRole> selectedRoles) {
+    private List<RoleVO> buildRoleListFromSelected(List<RoleVO> selectedRoles) {
         List<RoleVO> result = new ArrayList<>();
         Set<String> addedKeys = new HashSet<>();
 
@@ -607,12 +685,11 @@ public class RoundTableService {
             addedKeys.add("HOST");
         }
 
-        for (AiConfig.RoundTableRole role : selectedRoles) {
-            if ("HOST".equals(role.getKey()) || addedKeys.contains(role.getKey())) continue;
-            RoleVO vo = RoleVO.fromConfig(role);
+        for (RoleVO vo : selectedRoles) {
+            if (vo == null || vo.getKey() == null || "HOST".equals(vo.getKey()) || addedKeys.contains(vo.getKey())) continue;
             vo.setSelected(true);
             result.add(vo);
-            addedKeys.add(role.getKey());
+            addedKeys.add(vo.getKey());
         }
 
         List<AiConfig.RoundTableRole> remaining = aiConfigProvider.getRoundTableRoles().stream()
@@ -724,6 +801,10 @@ public class RoundTableService {
         Book book = bookService.getBookById(bookId);
         String title = book != null ? "《" + book.getTitle() + "》圆桌派讨论" : "圆桌派讨论";
 
+        // 规范化 roleConfigs：按 roleKeys 补齐富字段（前端传入 → LLM 名册 → 配置默认值），
+        // 保证 domainRelevance/languageStyle 能持久化，并被发言人选择与角色发言复用
+        String normalizedRoleConfigs = normalizeRoleConfigs(bookId, roleKeys, roleConfigs);
+
         String sessionId = "rt-" + bookId + "-" + UUID.randomUUID().toString().substring(0, 8);
 
         RoundTableSession session = RoundTableSession.builder()
@@ -732,7 +813,7 @@ public class RoundTableService {
                 .sessionId(sessionId)
                 .title(title)
                 .roleKeys(String.join(",", roleKeys))
-                .roleConfigs(roleConfigs)
+                .roleConfigs(normalizedRoleConfigs)
                 .status("ACTIVE")
                 .visibility("PUBLIC")
                 .build();
@@ -751,6 +832,96 @@ public class RoundTableService {
         readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
         return saved;
+    }
+
+    /**
+     * 规范化会话的角色配置 JSON。
+     * <p>
+     * 逐 roleKey 组装 {key,name,title,domainRelevance,languageStyle}，取值优先级：
+     * ① 前端传入的 roleConfigs（选中角色携带 LLM 赋值）
+     * ② 该书的角色名册缓存（后端自动补的角色从上次 LLM 推荐复用）
+     * ③ AiConfig 配置默认值（name/title）与富字段默认值（0/空）
+     *
+     * @param bookId      书籍ID
+     * @param roleKeys    最终参与角色 key 列表（含 HOST）
+     * @param roleConfigs 前端传入的角色配置 JSON（可能只含部分 key，可为 null）
+     * @return 规范化后的 roleConfigs JSON
+     */
+    private String normalizeRoleConfigs(Long bookId, List<String> roleKeys, String roleConfigs) {
+        Map<String, JsonNode> incoming = parseRoleConfigsJson(roleConfigs);
+        Map<String, JsonNode> roster = readRoleRoster(bookId);
+
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (String rawKey : roleKeys) {
+            if (rawKey == null || rawKey.isBlank()) continue;
+            String key = rawKey.trim();
+
+            JsonNode src = incoming.containsKey(key) ? incoming.get(key) : roster.get(key);
+            AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
+
+            String name = src != null && src.hasNonNull("name") && !src.get("name").asText().isBlank()
+                    ? src.get("name").asText()
+                    : defaultRoleName(key, role);
+            String title = src != null && src.hasNonNull("title") && !src.get("title").asText().isBlank()
+                    ? src.get("title").asText()
+                    : (role != null ? role.getTitle() : "");
+            int domainRelevance = src != null && src.has("domainRelevance")
+                    ? src.get("domainRelevance").asInt() : 0;
+            String languageStyle = src != null && src.hasNonNull("languageStyle")
+                    ? src.get("languageStyle").asText() : "";
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("key", key);
+            entry.put("name", name);
+            entry.put("title", title);
+            entry.put("domainRelevance", domainRelevance);
+            entry.put("languageStyle", languageStyle);
+            list.add(entry);
+        }
+
+        try {
+            return objectMapper.writeValueAsString(list);
+        } catch (Exception e) {
+            log.warn("规范化 roleConfigs 失败，沿用原始值: {}", e.getMessage());
+            return roleConfigs;
+        }
+    }
+
+    /**
+     * 角色名兜底：优先 AiConfig 角色配置名，HOST 用主持人配置名，最后回退 key 本身。
+     */
+    private String defaultRoleName(String key, AiConfig.RoundTableRole role) {
+        if (role != null && role.getName() != null && !role.getName().isBlank()) {
+            return role.getName();
+        }
+        if ("HOST".equals(key)) {
+            AiConfig.RoundTableHost host = aiConfigProvider.getRoundTableHost();
+            if (host != null && host.getName() != null && !host.getName().isBlank()) {
+                return host.getName();
+            }
+        }
+        return key;
+    }
+
+    /**
+     * 解析 roleConfigs JSON 数组为 key → 配置节点 映射，非法输入返回空表。
+     */
+    private Map<String, JsonNode> parseRoleConfigsJson(String json) {
+        Map<String, JsonNode> map = new LinkedHashMap<>();
+        if (json == null || json.isBlank()) return map;
+        try {
+            JsonNode arr = objectMapper.readTree(json);
+            if (arr.isArray()) {
+                for (JsonNode node : arr) {
+                    if (node.hasNonNull("key") && !node.get("key").asText().isBlank()) {
+                        map.put(node.get("key").asText().trim(), node);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("解析 roleConfigs 失败: {}", e.getMessage());
+        }
+        return map;
     }
 
     /**
@@ -976,6 +1147,49 @@ public class RoundTableService {
      */
     private static final int END_CHECK_WARMUP_ROLE_MULTIPLIER = 3;
 
+    // ==================== 机制兜底常量（不依赖 LLM 判断） ====================
+
+    /**
+     * 硬性轮数上限。覆盖度在「目录块 + 空摘要」的书上恒为 0（块 keywords 是章节标题碎片，
+     * 讨论永远命中不了），此时 END 的唯一门槛如果只挂在覆盖度上就是死锁——实测一场 29 轮、
+     * 173 条发言的讨论无法自行结束。轮数是最后一道闸。
+     */
+    private static final int MAX_ROUNDS_HARD_LIMIT = 32;
+
+    /**
+     * 连续这么多条嘉宾发言没有主持人控场 → 强制 HOST 出场。
+     * 实测主持人在 173 条发言里只出现 2 次，全靠 LLM 自觉，几乎必然失灵。
+     */
+    private static final int HOST_FORCE_AFTER_GUEST_MESSAGES = 10;
+
+    /**
+     * 跑题时提前拉主持人回来的门槛（配合 isOffBook）。
+     * 必须小于 STALL_END_MIN_GUESTS_SINCE_HOST，否则主持人还没被叫出来，讨论就结束了。
+     */
+    private static final int HOST_FORCE_AFTER_OFFBOOK_MESSAGES = 3;
+
+    /**
+     * 停滞收场的门槛：主持人上一次控场之后，至少又说了这么多条嘉宾发言，才允许因"原地踏步"收场。
+     * 这样升级路径是：跑题 → 主持人介入 → 仍然踏步 → 才收场，而不是一发现重复就掐断。
+     */
+    private static final int STALL_END_MIN_GUESTS_SINCE_HOST = 4;
+
+    /**
+     * 判定"原地踏步"的相似度阈值（字符二元组 Jaccard）。
+     */
+    private static final double STALL_SIMILARITY_THRESHOLD = 0.42;
+
+    /**
+     * 首轮不判停滞（预热阶段本来就容易重复开场话术）。
+     */
+    private static final int STALL_END_MIN_ROUNDS = 6;
+
+    /**
+     * 发言垄断硬上限：以"均分份额 × 此系数"为上限。
+     * 原实现用平均值 × 1.5 当阈值，头部角色说话越多平均值越高，上限跟着涨，等于没有上限。
+     */
+    private static final double SPEAKER_OVERWEIGHT_RATIO = 1.25;
+
     /**
      * 纯 LLM 判断下一轮发言人（同时判断是否应该结束讨论）
      * <p>
@@ -1043,15 +1257,61 @@ public class RoundTableService {
 
         // 4. 统计发言数据
         String[] roleKeys = session.getRoleKeys().split(",");
-        int roleCount = roleKeys.length;
-        // 轮次口径：消息总数 / 角色数（与前端 currentRound 显示一致）
-        int currentRound = roleCount > 0 ? allMessages.size() / roleCount : allMessages.size();
+        // 轮次口径（统一）：嘉宾发言数 / 嘉宾数，向上取整；HOST 不计入——它只控场，不参与轮次与公平性
+        long guestCount = Arrays.stream(roleKeys).map(String::trim)
+                .filter(k -> !k.isEmpty() && !"HOST".equals(k)).count();
         Map<String, Long> speakCounts = allMessages.stream()
                 .collect(Collectors.groupingBy(RoundTableMessage::getRoleKey, Collectors.counting()));
+        long guestMsgCount = allMessages.stream()
+                .filter(m -> !"HOST".equals(m.getRoleKey())).count();
+        int currentRound = guestCount > 0
+                ? (int) Math.ceil(guestMsgCount / (double) guestCount) : 0;
         String lastSpeaker = allMessages.get(allMessages.size() - 1).getRoleKey();
 
-        // 5. 判断是否打开"结束判断窗口"
-        int warmupRounds = Math.max(roleCount * END_CHECK_WARMUP_ROLE_MULTIPLIER, roleCount + 3);
+        // ==================== 机制兜底信号（不依赖 LLM 判断） ====================
+        // 这些信号直接由数据算出，LLM 的判断只作为"谁最想接话"的参考，
+        // 该不该控场、该不该结束由这里说了算。原因：选人用的是 TOOL 场景的 flash 级模型，
+        // 指望它自己发现"跑了 27 轮没主持人了"是不现实的。
+
+        // 距上次主持人发言过了多少条嘉宾发言
+        int guestMessagesSinceHost = 0;
+        for (int i = allMessages.size() - 1; i >= 0; i--) {
+            if ("HOST".equals(allMessages.get(i).getRoleKey())) break;
+            guestMessagesSinceHost++;
+        }
+        // 最近 3 条嘉宾发言（用于跑题/复读判定）
+        List<RoundTableMessage> recentGuestMessages = allMessages.stream()
+                .filter(m -> !"HOST".equals(m.getRoleKey()))
+                .skip(Math.max(0, guestMsgCount - 3))
+                .collect(Collectors.toList());
+        boolean offBook = isOffBook(recentGuestMessages, book);
+        boolean stalled = isStalled(allMessages, recentGuestMessages);
+
+        // 强制结束：轮数硬上限 / 原地踏步
+        String ruleClosingSummary = null;
+        if (currentRound >= MAX_ROUNDS_HARD_LIMIT) {
+            ruleClosingSummary = "讨论已经进行了" + currentRound + "轮，各方立场都已充分展开。"
+                    + "请在谢幕中收束核心分歧，点出最有价值的一两个碰撞，然后结束本期讨论。";
+        } else if (currentRound >= STALL_END_MIN_ROUNDS && stalled
+                && guestMessagesSinceHost >= STALL_END_MIN_GUESTS_SINCE_HOST) {
+            ruleClosingSummary = "讨论已连续多轮在原地打转，嘉宾反复用相似的论证回应彼此，没有产生新的信息量。"
+                    + "请在谢幕中点出这几个来回的核心分歧、评价各方立场，然后收场。";
+        }
+        boolean forceEndByRule = ruleClosingSummary != null;
+
+        // 强制控场：太久没主持人 / 明显跑题
+        boolean forceHostByRule = !forceEndByRule
+                && (guestMessagesSinceHost >= HOST_FORCE_AFTER_GUEST_MESSAGES
+                || (offBook && guestMessagesSinceHost >= HOST_FORCE_AFTER_OFFBOOK_MESSAGES));
+        String hostHint = null;
+        if (forceHostByRule) {
+            hostHint = buildHostHint(sessionId, guestMessagesSinceHost, offBook, stalled);
+            log.info("机制强制控场: sessionId={}, round={}, sinceHost={}, offBook={}, stalled={}",
+                    sessionId, currentRound, guestMessagesSinceHost, offBook, stalled);
+        }
+
+        // 5. 判断是否打开"结束判断窗口"（预热 = 每位嘉宾至少发言 3 轮）
+        int warmupRounds = Math.max((int) guestCount * END_CHECK_WARMUP_ROLE_MULTIPLIER, (int) guestCount + 3);
         boolean endCheckWindow = currentRound >= warmupRounds
                 && currentRound % END_CHECK_INTERVAL_ROUNDS == 0;
 
@@ -1079,6 +1339,12 @@ public class RoundTableService {
 
         // [消息4 - UserMessage] 公平性约束 + 输出格式（每轮完全变化，放最后不破坏前缀缓存）
         String fairnessConstraints = buildFairnessConstraints(roleKeys, speakCounts, allMessages);
+        if (forceEndByRule) {
+            fairnessConstraints += "\n- 【强制结束】讨论已到该收尾的时候（" + ruleClosingSummary + "）\n";
+        } else if (forceHostByRule) {
+            fairnessConstraints += "\n- 【强制控场】已经连续 " + guestMessagesSinceHost + " 条嘉宾发言没有主持人控场"
+                    + (offBook ? "，且最近的发言已经偏离书本内容" : "") + "。NEXT 第一位必须是 HOST，END 必须 false。\n";
+        }
         // 构建 角色中文名 → key 反向映射，用于解析 LLM 返回中文名时的容错
         Map<String, String> nameToKey = buildNameToKeyMap(session, roleKeys);
         // 明确列出所有合法 KEY，避免 LLM 把中文名当 key 返回（历史/约束里用的是中文名）
@@ -1087,7 +1353,16 @@ public class RoundTableService {
 
         // 输出格式：行式 KV（比 JSON 更不容易出格式错误，LLM 训练数据中大量存在）
         String outputFormat;
-        if (coverageHighEnough) {
+        if (forceEndByRule) {
+            outputFormat = "【强制结束】" + ruleClosingSummary + "\n\n"
+                    + "必须 END=true，NEXT=HOST，并给出谢幕提纲。\n\n"
+                    + "请按以下格式返回（每行一个字段，不要输出 JSON、不要输出 markdown 代码块）：\n\n"
+                    + "NEXT: HOST\n"
+                    + "END: true\n"
+                    + "SUMMARY: 不超过200字的谢幕提纲\n\n"
+                    + "规则：\n"
+                    + "- KEY 必须是以下英文标识符之一（区分大小写，原样返回）：" + validKeysList + "\n";
+        } else if (coverageHighEnough) {
             outputFormat = "【强制结束】话题覆盖度已达 " + String.format("%.0f", coverageScore)
                     + "（阈值 " + COVERAGE_FORCE_END_THRESHOLD + "），讨论已充分覆盖书籍核心内容，"
                     + "必须 END=true，NEXT=HOST，并给出谢幕提纲。\n\n"
@@ -1144,9 +1419,24 @@ public class RoundTableService {
                 log.warn("覆盖度触发强制谢幕: sessionId={}, llmShouldEnd=false→true", sessionId);
             }
 
+            // 机制兜底优先于 LLM：轮数上限 / 原地踏步
+            if (forceEndByRule) {
+                if (!shouldEnd) {
+                    log.info("机制触发强制谢幕: sessionId={}, round={}, stalled={}, llmShouldEnd=false→true",
+                            sessionId, currentRound, stalled);
+                }
+                shouldEnd = true;
+                if (closingSummary == null || closingSummary.isBlank()) {
+                    closingSummary = ruleClosingSummary;
+                }
+            }
+
             // shouldEnd=true 时强制 nextSpeaker=HOST，不走候选过滤
             String selectedKey;
             if (shouldEnd) {
+                selectedKey = "HOST";
+            } else if (forceHostByRule) {
+                // 机制强制控场：绕过候选过滤，直接给主持人
                 selectedKey = "HOST";
             } else {
                 // 从候选中按公平性过滤选择
@@ -1163,9 +1453,27 @@ public class RoundTableService {
                     .nextSpeaker(selectedKey)
                     .shouldEnd(shouldEnd)
                     .closingSummary(closingSummary != null ? closingSummary : "")
+                    .hostHint(hostHint)
                     .build();
         } catch (Exception e) {
             log.warn("纯LLM发言人选择失败，回退到简单模式: {}", e.getMessage());
+            // 机制兜底优先：即使 LLM 挂了，轮数上限/原地踏步也要能收尾
+            if (forceEndByRule) {
+                log.info("机制强制谢幕（LLM失败路径）: sessionId={}, round={}", sessionId, currentRound);
+                return NextSpeakerResult.builder()
+                        .nextSpeaker("HOST")
+                        .shouldEnd(true)
+                        .closingSummary(ruleClosingSummary)
+                        .build();
+            }
+            if (forceHostByRule) {
+                return NextSpeakerResult.builder()
+                        .nextSpeaker("HOST")
+                        .shouldEnd(false)
+                        .closingSummary("")
+                        .hostHint(hostHint)
+                        .build();
+            }
             // 覆盖度达标时即使 LLM 失败也强制结束，避免"覆盖度达标→LLM失败→回退→继续→覆盖度仍达标→..."死循环
             if (coverageHighEnough) {
                 log.warn("覆盖度达标+LLM失败，强制谢幕: sessionId={}", sessionId);
@@ -1175,9 +1483,10 @@ public class RoundTableService {
                         .closingSummary("话题覆盖度已达阈值，讨论已充分展开，请做总结谢幕。")
                         .build();
             }
+            // 兜底：优先从嘉宾里选发言最少者（HOST 不参与公平性兜底）
             String fallbackSpeaker = Arrays.stream(roleKeys)
                     .map(String::trim)
-                    .filter(k -> !k.equals(lastSpeaker))
+                    .filter(k -> !k.equals(lastSpeaker) && !"HOST".equals(k))
                     .min(Comparator.comparingLong(k -> speakCounts.getOrDefault(k, 0L)))
                     .orElse(roleKeys[0].trim());
             return NextSpeakerResult.builder()
@@ -1251,12 +1560,16 @@ public class RoundTableService {
     /**
      * 从候选列表中按公平性过滤选择发言人
      * <p>
+     * HOST 不参与公平性体系：它只在 LLM 明确点名（排在候选第 1 位）时允许控场/谢幕，
+     * 否则一律丢弃——避免主持人被当成"沉默救济对象"或平均发言者。
+     * <p>
      * 过滤逻辑：
      * 1. 跳过 lastSpeaker（禁止连续发言）
-     * 2. 跳过 speakCount > avg × 1.5 的角色（已超标，给其他人机会）
-     * 3. 从剩余候选中选 top-1（LLM 最想让他说的）
-     * 4. 候选全部超标 → 选 candidates 中 speakCount 最少的
-     * 5. 候选为空或全是 lastSpeaker → 回退到全局 speakCount 最少的非 lastSpeaker
+     * 2. 丢弃非首位候选的 HOST（除非 LLM 首位点名为控场/谢幕）
+     * 3. 跳过 speakCount > avg × 1.5 的角色（avg 只统计嘉宾，HOST 不计入）
+     * 4. 从剩余候选中选 top-1（LLM 最想让他说的）
+     * 5. 候选全部超标 → 选 candidates 中 speakCount 最少的
+     * 6. 候选为空或全是 lastSpeaker → 回退到嘉宾中 speakCount 最少的非 lastSpeaker
      *
      * @param candidates  LLM 返回的 top-3 候选（按意愿排序）
      * @param lastSpeaker 上一位发言人
@@ -1266,13 +1579,25 @@ public class RoundTableService {
      */
     private String selectSpeakerFromCandidates(List<String> candidates, String lastSpeaker,
                                                 Map<String, Long> speakCounts, String[] roleKeys) {
-        // 1. 过滤掉 lastSpeaker
+        // HOST 仅当位候选首位时有效（LLM 明确要主持人控场/谢幕）
+        boolean hostRequestedFirst = candidates != null && !candidates.isEmpty()
+                && "HOST".equals(candidates.get(0));
+
+        // 1. 过滤掉 lastSpeaker + 无效的 HOST
         List<String> filtered = candidates == null ? List.of() : candidates.stream()
                 .filter(k -> !k.equals(lastSpeaker))
+                .filter(k -> !"HOST".equals(k) || hostRequestedFirst)
                 .collect(Collectors.toList());
 
-        // 候选为空或全是 lastSpeaker → 回退到全局 speakCount 最少的非 lastSpeaker
+        // 候选为空 → 回退到嘉宾中 speakCount 最少的非 lastSpeaker
         if (filtered.isEmpty()) {
+            String fallback = Arrays.stream(roleKeys)
+                    .map(String::trim)
+                    .filter(k -> !k.equals(lastSpeaker) && !"HOST".equals(k))
+                    .min(Comparator.comparingLong(k -> speakCounts.getOrDefault(k, 0L)))
+                    .orElse(null);
+            if (fallback != null) return fallback;
+            // 场上无嘉宾可用时，才允许 HOST 兜底
             return Arrays.stream(roleKeys)
                     .map(String::trim)
                     .filter(k -> !k.equals(lastSpeaker))
@@ -1280,11 +1605,22 @@ public class RoundTableService {
                     .orElse(null);
         }
 
-        // 2. 计算 avg speakCount 和超标阈值
-        double avg = speakCounts.values().stream().mapToLong(Long::longValue).average().orElse(0);
-        double threshold = avg * 1.5;
+        // 2. 计算"均分份额"作为硬上限基准
+        //    旧实现用平均值 × 1.5：说得越多平均值越高，上限跟着一起涨，等于没有上限。
+        //    （实测 6 位嘉宾 173 条发言时 avg≈28.8、阈值 43.2，说满 42 条的刘强东始终"不超标"。）
+        //    改成以均分份额为基准：每人应得 = 嘉宾总发言 / 嘉宾数，超过 1.25 倍视为垄断。
+        long guestSpeakTotal = speakCounts.entrySet().stream()
+                .filter(e -> !"HOST".equals(e.getKey()))
+                .mapToLong(Map.Entry::getValue)
+                .sum();
+        long guestSeats = Arrays.stream(roleKeys)
+                .map(String::trim)
+                .filter(k -> !k.isEmpty() && !"HOST".equals(k))
+                .count();
+        double equalShare = guestSeats > 0 ? guestSpeakTotal / (double) guestSeats : 0;
+        double threshold = Math.max(2.0, Math.ceil(equalShare * SPEAKER_OVERWEIGHT_RATIO));
 
-        // 3. 过滤掉超标的（speakCount > avg × 1.5）
+        // 3. 过滤掉超标的（speakCount > 均分份额 × 1.25）
         List<String> notOverweight = filtered.stream()
                 .filter(k -> speakCounts.getOrDefault(k, 0L) <= threshold)
                 .collect(Collectors.toList());
@@ -1520,10 +1856,25 @@ public class RoundTableService {
                     .append("刚发过言，不能连续发言\n");
         }
 
-        // 2. 发言次数统计（供参考，从少到多）
-        sb.append("- 发言次数（供参考）：");
+        // 1.5 复读告警：刚发言者如果只是在重复前面的观点，明确告诉选人模型，别顺着复读往下接
+        if (allMessages.size() >= 3) {
+            RoundTableMessage last = allMessages.get(allMessages.size() - 1);
+            int start = Math.max(0, allMessages.size() - 9);
+            for (int i = start; i < allMessages.size() - 1; i++) {
+                if (SpeechSanitizer.similarity(last.getContent(), allMessages.get(i).getContent()) >= 0.6) {
+                    sb.append("- 【警告】").append(last.getRoleName())
+                            .append("刚才那段和前面某条高度重复，只是在复读。不要再接这个点，")
+                            .append("选一个能提出全新角度的人，或让 HOST 点出重复。\n");
+                    break;
+                }
+            }
+        }
+
+        // 2. 发言次数统计（只统计嘉宾，从少到多；HOST 不参与公平性体系）
+        sb.append("- 嘉宾发言次数（供参考）：");
         Arrays.stream(roleKeys)
                 .map(String::trim)
+                .filter(k -> !"HOST".equals(k))
                 .sorted(Comparator.comparingLong(k -> speakCounts.getOrDefault(k, 0L)))
                 .forEach(key -> {
                     AiConfig.RoundTableRole role = aiConfigProvider.getRoundTableRole(key);
@@ -1760,9 +2111,13 @@ public class RoundTableService {
                 }
 
                 // 消息顺序：SystemMessage(规则) → UserMessage(书籍信息) → History → UserMessage(RAG) → UserMessage(角色设定) → UserMessage(发言指令)
+                // 清洗用的角色名清单 + 未覆盖章节素材（在流式回调里也要用）
+                final List<String> allRoleNames = sessionRoleNames(session);
+                final List<String> uncoveredTitles = loadUncoveredTitles(request.getSessionId());
+
                 List<ChatMessage> messages = buildChatMessages(
                         request.getSessionId(), userId, systemPrompt, bookInfo, ragContent, roleSetting, extraInstructions, role.getName(),
-                        role, book);
+                        role, book, allRoleNames, uncoveredTitles);
 
                 // 构建流式模型（不使用 thinking 模式）
                 StreamingChatModel streamingChatModel = chatModelManager.getStreamingModelForScene(AiScene.ROUND_TABLE_SPEECH);
@@ -1792,8 +2147,10 @@ public class RoundTableService {
                     public void onComplete(String content, ChatResponse completeResponse) {
                         // 统一摘要日志已由 StreamingSseHandler.onCompleteResponse 打印
 
-                        if (!content.isBlank()) {
-                            saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), content);
+                        // 落库前清洗：剥名字前缀、截断串台、修第三人称旁白
+                        String cleaned = SpeechSanitizer.sanitize(content, role.getName(), allRoleNames);
+                        if (!cleaned.isBlank()) {
+                            saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), cleaned);
                             updateSessionTimestamp(request.getSessionId());
 
                             try {
@@ -1817,7 +2174,10 @@ public class RoundTableService {
                     public void onConnectionClosed(String partialContent) {
                         if (!partialContent.isBlank()) {
                             try {
-                                saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), partialContent);
+                                String cleaned = SpeechSanitizer.sanitize(partialContent, role.getName(), allRoleNames);
+                                if (!cleaned.isBlank()) {
+                                    saveMessage(userId, request.getSessionId(), bookId, role.getKey(), role.getName(), cleaned);
+                                }
                             } catch (Exception e) {
                                 log.warn("保存部分消息失败: {}", e.getMessage());
                             }
@@ -1918,7 +2278,8 @@ public class RoundTableService {
                         : closingSummary);
             }
             if (topic != null && !topic.isBlank()) {
-                return "【话题方向】\n请围绕以下方向引导讨论：" + topic;
+                return "【主持任务】\n" + topic
+                        + "\n（只说一两句，然后点名一位嘉宾发言，不要自己展开论述、不要总结全场。）";
             } else if (isOpening) {
                 return "【开场（第一轮）】这是圆桌派讨论的开场。你作为主持人，最重要的任务是做开场介绍："
                         + "首先欢迎各位嘉宾，然后简要介绍今天要讨论的书籍的核心主题和为什么值得讨论，"
@@ -2028,6 +2389,78 @@ public class RoundTableService {
         return "";
     }
 
+    // ==================== 发言后处理（清洗） ====================
+    // 清洗与相似度逻辑已抽到 SpeechSanitizer（可脱离 Spring 上下文用真实脏数据验证）。
+    // 调用点直接写 SpeechSanitizer.sanitize(...) / SpeechSanitizer.similarity(...)。
+
+
+    /**
+     * 解析书籍核心概念标签为可匹配关键词（含复合标签的分词）。
+     */
+    private List<String> parseConceptKeywords(String conceptTags) {
+        List<String> out = new ArrayList<>();
+        if (conceptTags == null || conceptTags.isBlank()) return out;
+        try {
+            JsonNode arr = objectMapper.readTree(conceptTags);
+            if (arr.isArray()) {
+                for (JsonNode n : arr) addConceptKeyword(out, n.asText());
+                return out;
+            }
+        } catch (Exception ignored) {
+            // 不是 JSON，走下面的分隔符拆分
+        }
+        for (String part : conceptTags.replaceAll("[\\[\\]\"]", "").split("[,，、]")) {
+            addConceptKeyword(out, part);
+        }
+        return out;
+    }
+
+    private void addConceptKeyword(List<String> out, String tag) {
+        if (tag == null) return;
+        String t = tag.trim();
+        if (t.length() < 2) return;
+        if (!out.contains(t)) out.add(t);
+        // "管制与干预成本" 这类复合标签拆开，才能命中发言里实际写的"管制成本"
+        for (String part : t.split("[与和、/]")) {
+            String p = part.trim();
+            if (p.length() >= 2 && !out.contains(p)) out.add(p);
+        }
+    }
+
+    /**
+     * 书外话题判定：最近几条嘉宾发言没有任何一条提到书里的核心概念。
+     */
+    private boolean isOffBook(List<RoundTableMessage> recent, Book book) {
+        if (book == null || recent == null || recent.isEmpty()) return false;
+        List<String> keywords = parseConceptKeywords(book.getConceptTags());
+        if (keywords.isEmpty()) return false;
+        for (RoundTableMessage m : recent) {
+            String c = m.getContent() == null ? "" : m.getContent();
+            for (String k : keywords) {
+                if (c.contains(k)) return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 原地踏步判定：最近两条高度相似，或最新一条与此前 8 条中任何一条高度重复。
+     */
+    private boolean isStalled(List<RoundTableMessage> all, List<RoundTableMessage> recent) {
+        if (recent == null || recent.size() < 2 || all == null || all.isEmpty()) return false;
+        String latest = recent.get(recent.size() - 1).getContent();
+        String previous = recent.get(recent.size() - 2).getContent();
+        if (SpeechSanitizer.similarity(latest, previous) >= STALL_SIMILARITY_THRESHOLD) return true;
+
+        int start = Math.max(0, all.size() - 9);
+        for (int i = start; i < all.size() - 1; i++) {
+            RoundTableMessage m = all.get(i);
+            if ("HOST".equals(m.getRoleKey())) continue;
+            if (SpeechSanitizer.similarity(latest, m.getContent()) >= 0.6) return true;
+        }
+        return false;
+    }
+
     // ==================== 消息构建 ====================
 
     /**
@@ -2038,7 +2471,8 @@ public class RoundTableService {
     private List<ChatMessage> buildChatMessages(String sessionId, Long userId,
                                                 String systemPrompt, String bookInfo, String ragContent,
                                                 String roleSetting, String extraInstructions, String roleName,
-                                                AiConfig.RoundTableRole role, Book book) {
+                                                AiConfig.RoundTableRole role, Book book,
+                                                List<String> allRoleNames, List<String> uncoveredTitles) {
         List<ChatMessage> messages = new ArrayList<>();
 
         // 1. 系统提示词（仅共享规则）— 全局静态
@@ -2109,7 +2543,130 @@ public class RoundTableService {
             messages.add(UserMessage.from("【外部参考知识】\n以下知识可帮助你从专业视角评价讨论话题：\n" + externalKnowledge));
         }
 
+        // 8. 收口指令（必须是最后一条）：
+        //    前面所有内容都以「角色名：内容」结尾，模型天然会顺着续写下一行，产出名字前缀甚至替别人发言。
+        //    把「现在轮到你」+ 自我重复禁区 + 书本素材放在最末尾，才能压住这个续写惯性。
+        messages.add(UserMessage.from(
+                buildSpeakTail(role, roleName, history, uncoveredTitles)));
+
         return messages;
+    }
+
+    /**
+     * 构建消息列表末尾的收口指令块。
+     */
+    private String buildSpeakTail(AiConfig.RoundTableRole role, String roleName,
+                                  List<RoundTableMessage> history, List<String> uncoveredTitles) {
+        StringBuilder sb = new StringBuilder();
+
+        if (uncoveredTitles != null && !uncoveredTitles.isEmpty()) {
+            String material = uncoveredTitles.stream()
+                    .filter(t -> t != null && !t.isBlank())
+                    .map(t -> "- 《" + t + "》")
+                    .collect(Collectors.joining("\n"));
+            if (!material.isBlank()) {
+                sb.append(String.format(AiPromptConstants.ROUND_TABLE_MATERIAL_BLOCK, material)).append("\n\n");
+            }
+        }
+
+        String own = recentOwnSpeeches(history, role.getKey(), 2);
+        if (!own.isBlank()) {
+            sb.append(String.format(AiPromptConstants.ROUND_TABLE_ANTI_REPEAT_BLOCK, own)).append("\n\n");
+        }
+
+        sb.append(String.format(AiPromptConstants.ROUND_TABLE_SPEAK_TAIL, roleName));
+        return sb.toString();
+    }
+
+    /**
+     * 提取该角色最近 N 条发言原文（用于生成"禁止复用"清单）。
+     */
+    private String recentOwnSpeeches(List<RoundTableMessage> history, String roleKey, int limit) {
+        if (history == null || history.isEmpty() || roleKey == null) return "";
+        List<String> lines = new ArrayList<>();
+        for (int i = history.size() - 1; i >= 0 && lines.size() < limit; i--) {
+            RoundTableMessage m = history.get(i);
+            if (!roleKey.equals(m.getRoleKey())) continue;
+            String content = m.getCompressedContent() != null && !m.getCompressedContent().isBlank()
+                    ? m.getCompressedContent() : m.getContent();
+            if (content == null || content.isBlank()) continue;
+            String line = content.replace("\n", " ").trim();
+            if (line.length() > 90) line = line.substring(0, 90) + "…";
+            lines.add("- " + line);
+        }
+        return String.join("\n", lines);
+    }
+
+    /**
+     * 解析会话内全部角色中文名（用于清洗名字前缀/串台）。
+     * 优先取 roleConfigs 里的会话级自定义名，回退到 AiConfig 预置名。
+     */
+    private List<String> sessionRoleNames(RoundTableSession session) {
+        List<String> names = new ArrayList<>();
+        if (session == null || session.getRoleKeys() == null || session.getRoleKeys().isBlank()) {
+            return names;
+        }
+        Map<String, String> configNames = new HashMap<>();
+        try {
+            if (session.getRoleConfigs() != null && !session.getRoleConfigs().isBlank()) {
+                JsonNode arr = objectMapper.readTree(session.getRoleConfigs());
+                if (arr.isArray()) {
+                    for (JsonNode n : arr) {
+                        if (n.hasNonNull("key") && n.hasNonNull("name")) {
+                            configNames.put(n.get("key").asText(), n.get("name").asText());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("解析角色配置名称失败: {}", e.getMessage());
+        }
+        for (String k : session.getRoleKeys().split(",")) {
+            String key = k.trim();
+            if (key.isEmpty()) continue;
+            String name = configNames.get(key);
+            if (name == null || name.isBlank()) {
+                AiConfig.RoundTableRole r = aiConfigProvider.getRoundTableRole(key);
+                name = r != null ? r.getName() : key;
+            }
+            if (!names.contains(name)) names.add(name);
+        }
+        // 主持人别名也算，防止模型写「主持人：」
+        for (String alias : List.of("主持人", "HOST")) {
+            if (!names.contains(alias)) names.add(alias);
+        }
+        return names;
+    }
+
+    /**
+     * 取尚未覆盖的章节标题，作为"把话题拉回书本"的素材。
+     */
+    private List<String> loadUncoveredTitles(String sessionId) {
+        try {
+            return coverageService.getUncoveredBlockTitles(sessionId, 3);
+        } catch (Exception e) {
+            log.debug("获取未覆盖章节标题失败: sessionId={} - {}", sessionId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * 给被强制叫出来的主持人一句具体指令——只说"你该控场了"没有用，得告诉他为什么、拉回哪一节。
+     */
+    private String buildHostHint(String sessionId, int guestMessagesSinceHost, boolean offBook, boolean stalled) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("已经连续 ").append(guestMessagesSinceHost).append(" 条嘉宾发言没有主持人控场");
+        if (offBook) sb.append("，而且大家在聊书外的事，已经偏离了这本书");
+        if (stalled) sb.append("，观点开始原地打转，在重复同一套说法");
+
+        List<String> titles = loadUncoveredTitles(sessionId);
+        if (!titles.isEmpty()) {
+            sb.append("。请点名一位嘉宾，把话题拉回书中《").append(titles.get(0)).append("》这一节讲的现象");
+        } else {
+            sb.append("。请点名一位嘉宾，让他就刚才的争议给出一个具体的、书里的例子");
+        }
+        sb.append("。一两句话即可，不要总结全场。");
+        return sb.toString();
     }
 
     // ==================== 消息持久化 ====================
@@ -2196,17 +2753,7 @@ public class RoundTableService {
     private void saveMessage(Long userId, String sessionId, Long bookId,
                              String roleKey, String roleName, String content) {
         try {
-            // 只查最后一条的 round 值，避免全量加载历史消息
-            RoundTableMessage lastMsg = messageRepository.query()
-                    .where(RoundTableMessage::getSessionId, eq(sessionId))
-                    .orderBy(RoundTableMessage::getId)
-                    .list()
-                    .stream().reduce((a, b) -> b).orElse(null);
-            int round = 1;
-            if (lastMsg != null) {
-                Integer lastRound = lastMsg.getRound();
-                round = (lastRound != null ? lastRound : 0) + 1;
-            }
+            int round = computeRound(sessionId, roleKey);
 
             RoundTableMessage record = RoundTableMessage.builder()
                     .userId(userId)
@@ -2222,6 +2769,30 @@ public class RoundTableService {
         } catch (Exception e) {
             log.warn("保存圆桌派消息失败: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 计算消息所属轮次 —— 统一口径 ceil(嘉宾发言数 / 嘉宾数)，HOST 不贡献自己的发言计数。
+     * <p>
+     * 例：3 位嘉宾时，第 1-3 条嘉宾发言属第 1 轮，第 4 条起进入第 2 轮；
+     * HOST 开场/串场/谢幕消息沿用当前轮次（至少 1）。
+     */
+    private int computeRound(String sessionId, String roleKey) {
+        String roleKeys = sessionRepository.query()
+                .where(RoundTableSession::getSessionId, eq(sessionId))
+                .list(1)
+                .stream().findFirst()
+                .map(RoundTableSession::getRoleKeys)
+                .orElse("");
+        long guestCount = Arrays.stream(roleKeys.split(","))
+                .map(String::trim)
+                .filter(k -> !k.isEmpty() && !"HOST".equals(k))
+                .count();
+        if (guestCount <= 0) guestCount = 1;
+
+        long guestBefore = messageRepository.countGuestMessages(sessionId);
+        long guestAfter = guestBefore + ("HOST".equals(roleKey) ? 0 : 1);
+        return (int) Math.max(1, Math.ceil(guestAfter / (double) guestCount));
     }
 
     /**
