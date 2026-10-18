@@ -234,7 +234,18 @@ export default function RoundTablePage() {
     }
 
     const roleKeys = Array.from(selectedKeys)
-    const roleConfigs = JSON.stringify(roleKeys.map(key => ({ key, selected: true })))
+    // 回传 LLM 赋值的富字段：后端据此持久化 domainRelevance/languageStyle，
+    // 供「发言人选择」与「角色发言」复用（缺失时后端从名册缓存/配置默认值补齐）
+    const roleConfigs = JSON.stringify(roleKeys.map(key => {
+      const role = availableRoles.find(r => r.key === key)
+      return {
+        key,
+        name: role?.name,
+        title: role?.title,
+        domainRelevance: role?.domainRelevance ?? 0,
+        languageStyle: role?.languageStyle ?? '',
+      }
+    }))
     try {
       const res = await createRoundTableSession(id, roleKeys, roleConfigs)
       const data = (res as { data?: RoundTableSession })?.data ?? res as RoundTableSession
@@ -244,7 +255,7 @@ export default function RoundTablePage() {
     } catch {
       toast.error('创建会话失败')
     }
-  }, [id, bookId, selectedKeys, navigate])
+  }, [id, bookId, selectedKeys, availableRoles, navigate])
 
   const loadHistorySession = useCallback((session: RoundTableSession) => {
     setHistoryOpen(false)
