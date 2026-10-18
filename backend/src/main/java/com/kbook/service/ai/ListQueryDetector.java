@@ -129,25 +129,55 @@ public class ListQueryDetector {
     /**
      * 快速预判：问题和上轮回答是否含有列表信号。
      * 完全没有信号的问题直接跳过 LLM，节省开销。
+     * <p>
+     * 信号集必须是通用的，不允许出现书名特例词（历史 bug：硬编码过"11项""14种""项能力"
+     * "种方法""类技巧"，对其他书一律失效）。
+     * <p>
+     * 分层策略（控制误判成本——检测本身要调一次 LLM）：
+     * <ul>
+     *   <li>枚举动词/指代词只扫<b>问题本身</b>——追问意图在问题里；上轮回答天然冗长，
+     *       扫它会几乎每轮都误触发。</li>
+     *   <li>计数模式（\d+项/种/条…）扫<b>问题+上轮回答</b>——检测器的上下文规则
+     *       （"上轮提到 N 项 + 用户追问"）依赖回答侧的计数信号。</li>
+     *   <li>序数模式（第N项/点/条…）只扫问题，量词必需——避免"第三章"这类章节引用误判。</li>
+     * </ul>
+     * 漏判可接受（退化为常规 RAG），设计原则：宁可漏判不可误判。
      */
+    private static final java.util.List<String> LIST_SIGNAL_WORDS = java.util.List.of(
+            // 枚举动词
+            "分别", "逐一", "逐条", "逐个", "挨个", "一个个", "一条条", "展开", "列出", "列举", "盘点",
+            "详细", "具体", "都讲讲", "讲讲", "每一",
+            // 指代（追问上轮列表的典型用词）
+            "这些", "那几个", "上面", "刚才", "前面说", "你说的", "你列", "你提到", "上述");
+
+    /** 明确计数模式："11项" "14 种" "3个方法" "5 条建议" —— 通用量词模式，不绑定具体数字 */
+    private static final Pattern COUNTED_LIST_PATTERN = Pattern.compile("\\d+\\s*[项种类条个]");
+
+    /** "第N项/点/条/种/类/个/步"模式——量词必需，"第三章/第二节"不算列表信号 */
+    private static final Pattern ORDINAL_PATTERN = Pattern.compile("第[一二三四五六七八九十百千\\d]+\\s*[项种类条个点步]");
+
     private boolean hasListSignal(String question, String lastAiAnswer) {
-        String combined = (question + " " + (lastAiAnswer != null ? lastAiAnswer : "")).toLowerCase();
-        // 至少包含一个列表信号词
-        return combined.contains("11项") || combined.contains("14种") ||
-               combined.contains("分别") || combined.contains("逐一") ||
-               combined.contains("列出") || combined.contains("展开") ||
-               combined.contains("详细介绍") || combined.contains("项能力") ||
-               combined.contains("种方法") || combined.contains("类技巧") ||
-               combined.contains("些能力") || combined.contains("些方法") ||
-               combined.contains("些观点") || combined.contains("些技巧") ||
-               combined.matches(".*\\d+\\s*[项种类个].*");
+        String q = question != null ? question : "";
+        for (String signal : LIST_SIGNAL_WORDS) {
+            if (q.contains(signal)) {
+                return true;
+            }
+        }
+        if (ORDINAL_PATTERN.matcher(q).find()) {
+            return true;
+        }
+        // 计数信号：问题里有，或上轮回答里有（配合"追问"上下文规则由 LLM 精判）
+        String combined = q + " " + (lastAiAnswer != null ? lastAiAnswer : "");
+        return COUNTED_LIST_PATTERN.matcher(combined).find();
     }
 
     private String buildUserMessage(String question, String lastAiAnswer) {
         StringBuilder sb = new StringBuilder();
         if (lastAiAnswer != null && !lastAiAnswer.isBlank()) {
+            // 500 字截断会把上轮列表的后半部分条目掐掉，导致检测器看不到完整清单
+            // （"展开这5点"被漏判的帮凶之一）。放宽到 2000，覆盖绝大多数列表回答。
             sb.append("【上轮AI回答】\n")
-              .append(truncate(lastAiAnswer, 500))
+              .append(truncate(lastAiAnswer, 2000))
               .append("\n\n");
         }
         sb.append("【用户问题】\n").append(question);

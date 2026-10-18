@@ -337,4 +337,28 @@ public final class RagPipelineComponents {
         }
         return sb.toString();
     }
+
+    /**
+     * 配额填充截断（§4.6 新增，供 ItemListRetriever 逐条配额使用）。
+     * <p>
+     * 与 {@link #truncateToChars} 的区别：某条放不下时 <b>跳过继续尝试后续较小的条</b>
+     * （break → continue），保证配额内尽量填满。旧方法被 RoundTableService 共用，
+     * 其 break 语义的修复需另行回归评估，故这里新增独立方法而不改旧函数。
+     *
+     * @param mergedChunks 已合并、已排序的 chunks
+     * @param maxChars     最大字符数（本条独立配额）
+     * @return 拼接后的上下文字符串
+     */
+    public static String truncateByQuota(List<EmbeddingMatch<TextSegment>> mergedChunks, int maxChars) {
+        StringBuilder sb = new StringBuilder();
+        int totalLen = 0;
+        for (EmbeddingMatch<TextSegment> match : mergedChunks) {
+            String chunkText = match.embedded() != null ? match.embedded().text() : "";
+            if (chunkText.isBlank()) continue;
+            if (totalLen + chunkText.length() > maxChars) continue;
+            sb.append(chunkText).append("\n\n");
+            totalLen += chunkText.length();
+        }
+        return sb.toString();
+    }
 }

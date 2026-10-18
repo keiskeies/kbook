@@ -21,6 +21,13 @@ public enum AiScene {
     // ==================== 图书问答域 ====================
     /** 图书问答主入口（SSE 流式 + RAG） */
     BOOK_QA("图书问答", Category.QA, true, true),
+    /**
+     * 图书问答列表展开流水线的单节生成（§3.3/Q6）。
+     * <p>QA_WITHOUT_THINKING 分类：未绑定时回退 QA 配置但 thinking 默认关闭；
+     * 管理后台可为本场景单独绑定快模型（零代码）。N 节串行生成，思考 token 成本不可接受。
+     * 主问答仍是 {@link #BOOK_QA}，本场景仅在流水线内使用。</p>
+     */
+    BOOK_QA_SEGMENT("图书问答-列表分节", Category.QA_WITHOUT_THINKING, true, false),
     /** AI 助理（通用对话 + 工具调用） */
     AI_ASSISTANT("AI 助理", Category.QA, true, true),
     /** 管理员助理（后台管理对话） */
@@ -79,6 +86,8 @@ public enum AiScene {
     LIST_QUERY_REFINE("列表查询精筛", Category.TOOL, false, false),
     /** 列表查询章节范围推断（从目录推断） */
     LIST_QUERY_CHAPTER_RANGE("列表章节范围推断", Category.TOOL, false, false),
+    /** 回答条目化：把概述/列表型回答转为结构化 outline（流水线任务骨架，服务端内部状态） */
+    ANSWER_OUTLINE("回答条目化", Category.TOOL, false, false),
 
     // ==================== 元数据/OCR/嵌入域 ====================
     /** 书籍元数据推断（作者/简介/标签） */

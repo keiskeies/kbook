@@ -96,6 +96,12 @@ public class AiProviderConfig extends BaseEntity {
     /** 模型上下文长度（token 数），用于计算历史压缩阈值。为空则默认 32768 (32K) */
     private Integer maxTokens;
 
+    /** 输出上限（maxOutputTokens，token 数）。§4.2 可选项：
+     *  非空时 ChatModelFactory 各 builder 设置输出截断（Ollama numPredict / OpenAI 输出上限），
+     *  为 null 则等价现状（provider 默认截断，行为不变——灰度安全）。
+     *  注意：与 maxTokens（上下文长度）语义不同，不可互相替代。 */
+    private Integer maxOutputTokens;
+
     /**
      * 思考模式 — 声明该模型支持的思考参数能力，决定场景配置时能选哪些选项。
      * <ul>

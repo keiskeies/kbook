@@ -79,6 +79,7 @@ public class AdminAiConfigController {
         if (config.getToolsEnabled() != null) existing.setToolsEnabled(config.getToolsEnabled());
         if (config.getRagTopK() != null) existing.setRagTopK(config.getRagTopK());
         if (config.getMaxTokens() != null) existing.setMaxTokens(config.getMaxTokens());
+        if (config.getMaxOutputTokens() != null) existing.setMaxOutputTokens(config.getMaxOutputTokens());
         if (config.getEnabled() != null) existing.setEnabled(config.getEnabled());
         if (config.getRoles() != null) existing.setRoles(config.getRoles());
         if (config.getEmbeddingDimension() != null) existing.setEmbeddingDimension(config.getEmbeddingDimension());

@@ -21,11 +21,13 @@ import java.util.concurrent.TimeUnit;
  * 所有线程池均配置 MDC 上下文传递，确保子线程日志中 {@code [clientIp] [userId]} 不丢失。
  *
  * <pre>
- * | Bean 名称       | 用途                  | core | max | queue | 前缀           | MDC 传递方式          |
- * |-----------------|----------------------|------|-----|-------|---------------|----------------------|
- * | taskExecutor    | @Async 默认执行器      | 8    | 32  | 200   | kbook-async-  | TaskDecorator        |
- * | sseExecutor     | SSE 流式响应           | 4    | 32  | 100   | kbook-sse-    | MdcAwareThreadPoolExecutor |
- * | taskScheduler   | @Scheduled 定时调度    | 4    | -   | -     | kbook-sched-  | N/A（无请求上下文）    |
+ * | Bean 名称          | 用途                  | core | max | queue | 前缀              | MDC 传递方式          |
+ * |--------------------|----------------------|------|-----|-------|-------------------|----------------------|
+ * | taskExecutor       | @Async 默认执行器      | 8    | 32  | 200   | kbook-async-      | TaskDecorator        |
+ * | sseExecutor        | SSE 流式响应           | 4    | 32  | 100   | kbook-sse-        | MdcAwareThreadPoolExecutor |
+ * | behaviorExecutor   | 行为画像抽取            | 2    | 4   | 50    | kbook-behavior-   | MdcAwareThreadPoolExecutor |
+ * | qaPrefetchExecutor | 列表流水线逐条预取       | 8    | 8   | 64    | kbook-qa-prefetch-| MdcAwareThreadPoolExecutor |
+ * | taskScheduler      | @Scheduled 定时调度    | 4    | -   | -     | kbook-sched-      | N/A（无请求上下文）    |
  * </pre>
  */
 @Configuration
@@ -82,6 +84,52 @@ public class AsyncSchedulingConfig implements AsyncConfigurer, SchedulingConfigu
                     return t;
                 },
                 new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+    }
+
+    // ==================== 图书问答流水线执行器 ====================
+
+    /**
+     * 列表展开流水线的逐条检索预取（prefetch）线程池。
+     * <p>独立于 {@code sseExecutor}：预取是 IO 密集的向量查询，与 SSE 流式生成隔离，
+     * 防止 {@code waitForContentEmbedding} 一类含 sleep 的任务占满池导致问答整体排队。
+     * <br>核心 8 / 最大 8 / 队列 64：N≤8 条并行一轮跑完；AbortPolicy——
+     * 队列满说明并发会话超限，快速失败由调用方兜底（该条退化为关键词检索空结果）。
+     */
+    @Bean(name = "qaPrefetchExecutor", destroyMethod = "shutdown")
+    public ThreadPoolExecutor qaPrefetchExecutor() {
+        java.util.concurrent.atomic.AtomicLong seq = new java.util.concurrent.atomic.AtomicLong(0);
+        return new MdcAwareThreadPoolExecutor(
+                8, 8, 60,
+                new ArrayBlockingQueue<>(64),
+                r -> {
+                    Thread t = new Thread(r);
+                    t.setName("kbook-qa-prefetch-" + seq.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.AbortPolicy()
+        );
+    }
+
+    /**
+     * 回答条目化（outline 异步生成/回填）线程池。
+     * <p>纯 fire-and-forget：失败或被丢弃不影响主流程（追问轮取不到 outline 会现场条目化）。
+     * <br>核心 2 / 最大 2 / 队列 20；AbortPolicy——提交点对 RejectedExecutionException 静默吞掉。
+     */
+    @Bean(name = "qaOutlineExecutor", destroyMethod = "shutdown")
+    public ThreadPoolExecutor qaOutlineExecutor() {
+        java.util.concurrent.atomic.AtomicLong seq = new java.util.concurrent.atomic.AtomicLong(0);
+        return new MdcAwareThreadPoolExecutor(
+                2, 2, 60,
+                new ArrayBlockingQueue<>(20),
+                r -> {
+                    Thread t = new Thread(r);
+                    t.setName("kbook-qa-outline-" + seq.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.AbortPolicy()
         );
     }
 

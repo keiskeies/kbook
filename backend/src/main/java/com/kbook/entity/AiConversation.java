@@ -80,6 +80,19 @@ public class AiConversation extends BaseEntity {
     private String followUpQuestions;
 
     /**
+     * 回答的结构化条目清单（JSON）。供后续"逐条展开"追问做定向检索与串行生成的任务骨架。
+     * <p>服务端内部状态：前端按键取值、不读此字段即无害；不参与历史压缩。
+     * schema：{@code {"topic":"...","items":[{"id":1,"title":"...","gist":"...",
+     * "keywords":["..."],"chunkAnchors":[12,13]}]}}
+     */
+    @Column(name = "answer_outline", columnDefinition = "TEXT")
+    private String answerOutline;
+
+    /** 最近一次流式结束原因 STOP/LENGTH/…（诊断依据） */
+    @Column(name = "finish_reason", length = 20)
+    private String finishReason;
+
+    /**
      * 工具调用 ID（当 role=tool 时记录）
      */
     @Column(name = "tool_call_id", length = 100)

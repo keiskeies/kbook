@@ -388,9 +388,9 @@ public class ChatModelFactory {
                 config.getThinkingMode(), tc.thinkingEnabled());
         return config.getProvider() == AiProviderConfig.Provider.OPENAI
                 ? buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, config.getApiKey(), tc)
+                config.getTemperature(), t, config.getApiKey(), tc, config.getMaxOutputTokens())
                 : buildOllamaChat(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, tc);
+                config.getTemperature(), t, tc, config.getMaxOutputTokens());
     }
 
     private StreamingChatModel buildStreaming(AiProviderConfig config, ThinkingConfig tc) {
@@ -400,53 +400,99 @@ public class ChatModelFactory {
                 config.getThinkingMode(), tc.thinkingEnabled());
         return config.getProvider() == AiProviderConfig.Provider.OPENAI
                 ? buildOpenAiStreaming(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, config.getApiKey(), tc)
+                config.getTemperature(), t, config.getApiKey(), tc, config.getMaxOutputTokens())
                 : buildOllamaStreaming(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, tc);
+                config.getTemperature(), t, tc, config.getMaxOutputTokens());
     }
 
     // ======================== 底层构建器 ========================
+    private OllamaChatModel buildOllamaChat(String baseUrl, String modelName,
+                                             Double temperature, Duration timeout, ThinkingConfig tc) {
+        return buildOllamaChat(baseUrl, modelName, temperature, timeout, tc, null);
+    }
 
     private OllamaChatModel buildOllamaChat(String baseUrl, String modelName,
-                                            Double temperature, Duration timeout, ThinkingConfig tc) {
+                                             Double temperature, Duration timeout, ThinkingConfig tc,
+                                             Integer maxOutputTokens) {
         // Ollama 仅支持 think + returnThinking；reasoningEffort/thinkingBudget 由 OpenAI 系模型支持
         boolean think = tc.shouldThink();
-        return OllamaChatModel.builder()
+        if (maxOutputTokens == null || maxOutputTokens <= 0) {
+            // 阶段0诊断：未显式设置输出上限（numPredict）→ 走 provider 默认截断，
+            // 回答被腰斩时表现为 finishReason=LENGTH
+            log.info("[诊断] Ollama Chat 输出上限未显式设置，使用 provider 默认: model={}", modelName);
+        }
+        var b = OllamaChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .think(think)
-                .returnThinking(think)
-//                .logRequests(true)
-                .build();
+                .returnThinking(think);
+        if (maxOutputTokens != null && maxOutputTokens > 0) {
+            b.numPredict(maxOutputTokens);
+            log.info("[诊断] Ollama Chat 输出上限已显式设置: model={}, numPredict={}", modelName, maxOutputTokens);
+        }
+        return b.build();
     }
 
     private OllamaStreamingChatModel buildOllamaStreaming(String baseUrl, String modelName,
-                                                          Double temperature, Duration timeout, ThinkingConfig tc) {
+                                                           Double temperature, Duration timeout, ThinkingConfig tc) {
+        return buildOllamaStreaming(baseUrl, modelName, temperature, timeout, tc, null);
+    }
+
+    private OllamaStreamingChatModel buildOllamaStreaming(String baseUrl, String modelName,
+                                                           Double temperature, Duration timeout, ThinkingConfig tc,
+                                                           Integer maxOutputTokens) {
         boolean think = tc.shouldThink();
-        return OllamaStreamingChatModel.builder()
+        if (maxOutputTokens == null || maxOutputTokens <= 0) {
+            // 阶段0诊断：未显式设置输出上限（numPredict）→ 走 provider 默认截断
+            log.info("[诊断] Ollama Streaming 输出上限未显式设置，使用 provider 默认: model={}", modelName);
+        }
+        var b = OllamaStreamingChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .customHeaders(AiModelProperties.UTF8_HEADERS)
                 .listeners(List.of(ollamaCounterListener()))
                 .think(think)
-                .returnThinking(think)
-//                .logRequests(true)
-                .build();
+                .returnThinking(think);
+        if (maxOutputTokens != null && maxOutputTokens > 0) {
+            b.numPredict(maxOutputTokens);
+            log.info("[诊断] Ollama Streaming 输出上限已显式设置: model={}, numPredict={}", modelName, maxOutputTokens);
+        }
+        return b.build();
+    }
+
+    private OpenAiChatModel buildOpenAiChat(String baseUrl, String modelName,
+                                             Double temperature, Duration timeout, String apiKey,
+                                             ThinkingConfig tc) {
+        return buildOpenAiChat(baseUrl, modelName, temperature, timeout, apiKey, tc, null);
     }
 
     private OpenAiChatModel buildOpenAiChat(String baseUrl, String modelName,
                                             Double temperature, Duration timeout, String apiKey,
-                                            ThinkingConfig tc) {
+                                            ThinkingConfig tc, Integer maxOutputTokens) {
         boolean gemini = isGeminiModel(baseUrl, modelName);
+        if (maxOutputTokens == null || maxOutputTokens <= 0) {
+            // 阶段0诊断：未显式设置输出上限（maxTokens/maxCompletionTokens）→ 走 provider 默认截断，
+            // 回答被腰斩时表现为 finishReason=LENGTH
+            log.info("[诊断] OpenAI Chat 输出上限未显式设置，使用 provider 默认: model={}", modelName);
+        }
         var builder = OpenAiChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .listeners(List.of(new DiagnosticChatListener()));
+        // 输出上限：LangChain4j 1.13 OpenAI builder 用 maxCompletionTokens（max_tokens 的现行对应物）；
+        // 与 Qwen3 thinking_budget / enable_thinking 的 customParameters 透传互不影响（不同字段）。
+        // Gemini 端点（Google 的 OpenAI 兼容网关）参数名不同（maxOutputTokens），max_completion_tokens 会 400，跳过
+        if (maxOutputTokens != null && maxOutputTokens > 0 && !gemini) {
+            builder.maxCompletionTokens(maxOutputTokens);
+            log.info("[诊断] OpenAI Chat 输出上限已显式设置: model={}, maxCompletionTokens={}", modelName, maxOutputTokens);
+        } else if (maxOutputTokens != null && maxOutputTokens > 0 && gemini) {
+            log.warn("[诊断] Gemini 端点跳过 max_completion_tokens（参数名不同）: model={}", modelName);
+        }
         // 联动 thinkingMode 决定发送哪些思考参数
         if (!gemini && tc.thinkingMode() != AiProviderConfig.ThinkingMode.NONE) {
             boolean think = tc.shouldThink();
@@ -475,14 +521,30 @@ public class ChatModelFactory {
     }
 
     private OpenAiStreamingChatModel buildOpenAiStreaming(String baseUrl, String modelName,
-                                                          Double temperature, Duration timeout, String apiKey,
-                                                          ThinkingConfig tc) {
+                                                           Double temperature, Duration timeout, String apiKey,
+                                                           ThinkingConfig tc) {
+        return buildOpenAiStreaming(baseUrl, modelName, temperature, timeout, apiKey, tc, null);
+    }
+
+    private OpenAiStreamingChatModel buildOpenAiStreaming(String baseUrl, String modelName,
+                                                           Double temperature, Duration timeout, String apiKey,
+                                                           ThinkingConfig tc, Integer maxOutputTokens) {
         boolean gemini = isGeminiModel(baseUrl, modelName);
+        if (maxOutputTokens == null || maxOutputTokens <= 0) {
+            // 阶段0诊断：未显式设置输出上限（maxTokens/maxCompletionTokens）→ 走 provider 默认截断
+            log.info("[诊断] OpenAI Streaming 输出上限未显式设置，使用 provider 默认: model={}", modelName);
+        }
         var builder = OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl).modelName(modelName)
                 .temperature(temperature != null ? temperature : 0.7)
                 .timeout(timeout != null ? timeout : Duration.ofSeconds(600))
                 .listeners(List.of(new DiagnosticChatListener()));
+        if (maxOutputTokens != null && maxOutputTokens > 0 && !gemini) {
+            builder.maxCompletionTokens(maxOutputTokens);
+            log.info("[诊断] OpenAI Streaming 输出上限已显式设置: model={}, maxCompletionTokens={}", modelName, maxOutputTokens);
+        } else if (maxOutputTokens != null && maxOutputTokens > 0 && gemini) {
+            log.warn("[诊断] Gemini 端点跳过 max_completion_tokens（参数名不同）: model={}", modelName);
+        }
         if (!gemini && tc.thinkingMode() != AiProviderConfig.ThinkingMode.NONE) {
             boolean think = tc.shouldThink();
             builder.returnThinking(think).sendThinking(false);

@@ -208,17 +208,21 @@ public class AiSceneConfigService {
             thinkingEnabled = scene.isThinking();
         }
 
-        return new ResolvedSceneConfig(providerConfig, scene, thinkingEnabled, reasoningEffort, thinkingBudget);
+        return new ResolvedSceneConfig(providerConfig, scene, thinkingEnabled, reasoningEffort,
+                thinkingBudget, null);
     }
 
     /**
      * 解析后的场景配置 — ChatModelFactory 构建模型时的输入。
+     *
+     * @param maxOutputTokens 输出上限（§4.2 可选，空 = 现状不变）
      */
     public record ResolvedSceneConfig(
             AiProviderConfig providerConfig,
             AiScene scene,
             boolean thinkingEnabled,
             String reasoningEffort,
-            Integer thinkingBudget
+            Integer thinkingBudget,
+            Integer maxOutputTokens
     ) {}
 }
