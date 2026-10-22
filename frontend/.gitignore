@@ -15,3 +15,14 @@ node_modules/
 
 # 忽略 PWA 生成文件
 dev-dist/
+
+# Android (Capacitor)
+# 生成目录 / 本机配置不入库
+android/local.properties
+android/.idea/
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+# sync 后拷贝进 assets 的前端构建产物，每次 cap:sync 会重新生成，不入库
+android/app/src/main/assets/public/

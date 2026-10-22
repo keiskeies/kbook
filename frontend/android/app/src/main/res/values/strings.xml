@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">KBook</string>
+    <string name="title_activity_main">KBook</string>
+    <string name="package_name">com.kbook.app</string>
+    <string name="custom_url_scheme">com.kbook.app</string>
+</resources>

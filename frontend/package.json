@@ -8,9 +8,15 @@
     "build": "tsc -b && vite build",
     "sbuild": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:cap": "set VITE_API_BASE_URL=https://book.keiskei.top/api && vite build",
+    "cap:sync": "npx cap sync",
+    "cap:open": "set CAPACITOR_ANDROID_STUDIO_PATH=C:\\Users\\Administrator\\AppData\\Local\\Programs\\Android Studio\\bin\\studio64.exe && npx cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
