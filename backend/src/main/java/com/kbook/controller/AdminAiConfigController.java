@@ -14,7 +14,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * AI 配置管理控制器 — 对话模型 + 嵌入模型 CRUD
@@ -113,42 +112,9 @@ public class AdminAiConfigController {
             return Result.fail("角色必须是 QA 或 TOOL");
         }
 
-        String upperRole = role.toUpperCase();
-        String currentRoles = config.getRoles();
-        if (currentRoles != null && currentRoles.contains(upperRole)) {
-            // 移除该角色（仅从当前配置中移除）
-            config.setRoles(currentRoles
-                    .replace(upperRole, "")
-                    .replace(",,", ",")
-                    .replaceAll("^,|,$", "")
-                    .trim());
-        } else {
-            // 添加该角色 — 先从所有其他 CHAT 配置中移除该角色，保证唯一
-            List<AiProviderConfig> others = configRepository
-                    .findAllByPurposeAndRolesContaining("CHAT", "%" + upperRole + "%")
-                    .stream()
-                    .filter(c -> !c.getId().equals(id))
-                    .collect(Collectors.toList());
-            for (AiProviderConfig other : others) {
-                String otherRoles = other.getRoles();
-                if (otherRoles != null) {
-                    other.setRoles(otherRoles
-                            .replace(upperRole, "")
-                            .replace(",,", ",")
-                            .replaceAll("^,|,$", "")
-                            .trim());
-                    configRepository.save(other);
-                }
-            }
-
-            String newRoles = (currentRoles != null && !currentRoles.isBlank())
-                    ? currentRoles + "," + upperRole
-                    : upperRole;
-            config.setRoles(newRoles);
-        }
-
-        AiProviderConfig saved = providerConfigService.saveConfig(config);
-        log.info("已切换配置角色: id={}, name={}, roles={}", id, config.getName(), saved.getRoles());
+        // 角色切换涉及多条配置的写入，交由 Service 在单个事务中完成并统一失效缓存
+        AiProviderConfig saved = providerConfigService.setRole(id, role);
+        log.info("已切换配置角色: id={}, name={}, roles={}", id, saved.getName(), saved.getRoles());
         return Result.ok(saved);
     }
 

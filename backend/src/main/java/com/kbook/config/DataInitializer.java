@@ -41,6 +41,8 @@ public class DataInitializer implements CommandLineRunner {
     private final RecommendCoefficientService coefficientService;
     /** AI 配置仓库 */
     private final AiProviderConfigRepository aiConfigRepository;
+    /** AI 配置缓存失效协调器 */
+    private final AiConfigCacheInvalidator aiConfigCacheInvalidator;
 
     /** 管理员邮箱 */
     @Value("${kbook.admin.email:admin@kbook.com}")
@@ -130,6 +132,10 @@ public class DataInitializer implements CommandLineRunner {
                 .build();
         aiConfigRepository.save(embeddingConfig);
         log.info("已创建默认 EMBEDDING 配置: model={}, dim={}", embeddingConfig.getModelName(), embeddingConfig.getEmbeddingDimension());
+
+        // 种子数据绕过了 Service 的写入路径，显式失效一次缓存：
+        // 防止启动早期有人先查过"配置不存在"而被负缓存（如 QA/EMBEDDING 查询返回空）
+        aiConfigCacheInvalidator.bumpVersion();
     }
 
     /**

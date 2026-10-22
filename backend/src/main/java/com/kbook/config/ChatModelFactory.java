@@ -1,5 +1,7 @@
 package com.kbook.config;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.kbook.config.properties.AiModelProperties;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
@@ -17,6 +19,7 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -26,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * AI 聊天模型工厂类
@@ -55,6 +59,9 @@ public class ChatModelFactory {
     /** AI 模型配置属性（视觉 OCR 模型等仅 YML 配置的部分） */
     private final AiModelProperties aiModelProperties;
 
+    /** AI 配置缓存失效协调器 — 配置变更后清空本工厂的模型/默认配置缓存 */
+    private final AiConfigCacheInvalidator cacheInvalidator;
+
     /**
      * AI 场景配置服务 — {@code @Lazy} 打破循环依赖：
      * ChatModelFactory ← AiSceneConfigService ← AiProviderConfigService ← ChatModelFactory
@@ -62,6 +69,90 @@ public class ChatModelFactory {
     @org.springframework.context.annotation.Lazy
     @org.springframework.beans.factory.annotation.Autowired
     private com.kbook.service.ai.AiSceneConfigService sceneConfigService;
+
+    // ======================== 缓存 ========================
+
+    /** 模型实例缓存兜底 TTL：即使失效机制失效，陈旧模型也不会无限期存活 */
+    private static final Duration MODEL_CACHE_TTL = Duration.ofMinutes(30);
+
+    /**
+     * 非流式模型实例缓存 — key = {@link #modelKey} 生成的构建参数指纹。
+     * <p>
+     * 指纹覆盖所有影响模型构建结果的参数（provider/baseUrl/modelName/apiKey/
+     * temperature/timeout/maxOutputTokens/thinkingMode + 场景思考参数），因此：
+     * <ul>
+     *   <li>多个场景复用同一份配置时共享同一个模型实例（连接池复用）；</li>
+     *   <li>配置被修改后指纹变化 → 自动构建新模型，无需依赖失效也能避免陈旧；</li>
+     *   <li>失效回调负责释放旧实例，控制内存。</li>
+     * </ul>
+     * 注意：apiKey 以 hashCode 参与指纹，避免明文密钥进入缓存键。
+     */
+    private final Cache<String, ChatModel> chatModelCache = Caffeine.newBuilder()
+            .maximumSize(128)
+            .expireAfterWrite(MODEL_CACHE_TTL)
+            .build();
+
+    /** 流式模型实例缓存 — key 规则同 {@code chatModelCache} */
+    private final Cache<String, StreamingChatModel> streamingModelCache = Caffeine.newBuilder()
+            .maximumSize(128)
+            .expireAfterWrite(MODEL_CACHE_TTL)
+            .build();
+
+    /**
+     * "按角色/用途取默认启用配置" 的缓存 — key 形如 {@code role:QA} / {@code purpose:EMBEDDING}。
+     * 值为 {@link Optional} 以缓存"未找到"的结果（Caffeine 不缓存 null）。
+     */
+    private final Cache<String, Optional<AiProviderConfig>> defaultConfigCache = Caffeine.newBuilder()
+            .maximumSize(32)
+            .expireAfterWrite(MODEL_CACHE_TTL)
+            .build();
+
+    /** 向失效协调器注册本工厂的缓存清空回调 */
+    @PostConstruct
+    void registerCacheInvalidation() {
+        cacheInvalidator.register(this::invalidateCaches);
+    }
+
+    /** 清空本工厂的所有缓存（本副本） */
+    public void invalidateCaches() {
+        chatModelCache.invalidateAll();
+        streamingModelCache.invalidateAll();
+        defaultConfigCache.invalidateAll();
+        log.debug("ChatModelFactory 模型/默认配置缓存已清空");
+    }
+
+    /**
+     * 构建模型实例缓存键 — 由各构建参数拼接成指纹字符串。
+     *
+     * @param variant 模型变体：chat / streaming / compression / vision
+     * @param config  AI 配置（vision 变体可传 null）
+     * @param tc      思考参数
+     */
+    private static String modelKey(String variant, AiProviderConfig config, ThinkingConfig tc) {
+        StringBuilder sb = new StringBuilder(160);
+        sb.append(variant).append('|');
+        if (config != null) {
+            sb.append(config.getId()).append('|')
+                    .append(config.getProvider()).append('|')
+                    .append(config.getBaseUrl()).append('|')
+                    .append(config.getModelName()).append('|')
+                    .append(apiKeyFingerprint(config.getApiKey())).append('|')
+                    .append(config.getTemperature()).append('|')
+                    .append(config.getTimeout()).append('|')
+                    .append(config.getMaxOutputTokens()).append('|')
+                    .append(config.getThinkingMode()).append('|');
+        }
+        sb.append(tc.thinkingMode()).append('|')
+                .append(tc.thinkingEnabled()).append('|')
+                .append(tc.reasoningEffort()).append('|')
+                .append(tc.thinkingBudget());
+        return sb.toString();
+    }
+
+    /** apiKey 指纹 — 不让明文密钥进入缓存键，同时能感知密钥变更 */
+    private static String apiKeyFingerprint(String apiKey) {
+        return apiKey == null ? "-" : Integer.toHexString(apiKey.hashCode());
+    }
 
     // ======================== 其他公开方法 ========================
 
@@ -74,45 +165,53 @@ public class ChatModelFactory {
      * <p>
      * 如果 vision 配置缺失（base-url 或 model-name 留空），则回退到 CHAT-QA 配置。
      * 关闭思考过程、使用低温度以提高 OCR 准确率。
+     * <p>
+     * 实例按构建参数指纹缓存，同一参数组合只构建一次。
      *
      * @return 聊天模型实例，已包装重试机制
      */
     public ChatModel buildVisionChatModel() {
-        AiModelProperties.VisionConfig vision = aiModelProperties.getVision();
-        ThinkingConfig tc = ThinkingConfig.off(); // OCR 关闭思考，提高准确率
+        final ThinkingConfig tc = ThinkingConfig.off(); // OCR 关闭思考，提高准确率
+        final AiModelProperties.VisionConfig vision = aiModelProperties.getVision();
 
-        // 回退逻辑：vision 配置缺失时使用 QA 配置
+        // 回退逻辑：vision 配置缺失时使用 QA 配置（依赖 DB，指纹含 QA 配置参数）
         if (vision == null
                 || vision.getBaseUrl() == null || vision.getBaseUrl().isBlank()
                 || vision.getModelName() == null || vision.getModelName().isBlank()) {
-            log.warn("Vision 配置缺失，回退到 CHAT-QA 配置构建 OCR 模型");
-            AiProviderConfig qaConfig = resolveQaConfig();
-            Duration timeout = Duration.ofSeconds(600);
-            double temperature = 0.3;
-            return qaConfig.getProvider() == AiProviderConfig.Provider.OPENAI
-                    ? wrap(buildOpenAiChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
-                            temperature, timeout, qaConfig.getApiKey(), tc), qaConfig)
-                    : wrap(buildOllamaChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
-                            temperature, timeout, tc), qaConfig);
+            final AiProviderConfig qaConfig = resolveQaConfig();
+            return chatModelCache.get(modelKey("vision-qa", qaConfig, tc), k -> {
+                log.warn("Vision 配置缺失，回退到 CHAT-QA 配置构建 OCR 模型");
+                Duration fallbackTimeout = Duration.ofSeconds(600);
+                double fallbackTemperature = 0.3;
+                return qaConfig.getProvider() == AiProviderConfig.Provider.OPENAI
+                        ? wrap(buildOpenAiChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
+                                fallbackTemperature, fallbackTimeout, qaConfig.getApiKey(), tc), qaConfig)
+                        : wrap(buildOllamaChat(qaConfig.getBaseUrl(), qaConfig.getModelName(),
+                                fallbackTemperature, fallbackTimeout, tc), qaConfig);
+            });
         }
 
-        AiProviderConfig.Provider provider = AiProviderConfig.Provider.from(vision.getProvider());
-        if (provider == null) {
-            provider = AiProviderConfig.Provider.OLLAMA;
-        }
-        Duration timeout = vision.getTimeout() != null ? vision.getTimeout() : Duration.ofSeconds(600);
-        double temperature = 0.3;
+        AiProviderConfig.Provider parsedProvider = AiProviderConfig.Provider.from(vision.getProvider());
+        final AiProviderConfig.Provider provider =
+                parsedProvider != null ? parsedProvider : AiProviderConfig.Provider.OLLAMA;
+        final Duration timeout = vision.getTimeout() != null ? vision.getTimeout() : Duration.ofSeconds(600);
+        final double temperature = 0.3;
 
-        log.info("构建 OCR 视觉 ChatModel (from vision config): provider={}, model={}, baseUrl={}, thinking=false",
-                provider, vision.getModelName(), vision.getBaseUrl());
+        // YML 配置为启动期静态值，指纹由 vision 参数自身构成
+        String key = "vision|" + provider + "|" + vision.getBaseUrl() + "|" + vision.getModelName()
+                + "|" + temperature + "|" + timeout + "|" + tc.shouldThink();
+        return chatModelCache.get(key, k -> {
+            log.info("构建 OCR 视觉 ChatModel (from vision config): provider={}, model={}, baseUrl={}, thinking=false",
+                    provider, vision.getModelName(), vision.getBaseUrl());
 
-        String providerKey = provider + ":" + vision.getModelName();
-        ChatModel model = provider == AiProviderConfig.Provider.OPENAI
-                ? buildOpenAiChat(vision.getBaseUrl(), vision.getModelName(),
-                        temperature, timeout, null, tc)
-                : buildOllamaChat(vision.getBaseUrl(), vision.getModelName(),
-                        temperature, timeout, tc);
-        return wrap(model, providerKey);
+            String providerKey = provider + ":" + vision.getModelName();
+            ChatModel model = provider == AiProviderConfig.Provider.OPENAI
+                    ? buildOpenAiChat(vision.getBaseUrl(), vision.getModelName(),
+                            temperature, timeout, null, tc)
+                    : buildOllamaChat(vision.getBaseUrl(), vision.getModelName(),
+                            temperature, timeout, tc);
+            return wrap(model, providerKey);
+        });
     }
 
     /**
@@ -147,26 +246,29 @@ public class ChatModelFactory {
      * VISION 场景特例：未显式绑定时优先用 YML {@code kbook.ai.vision} 配置
      * （保持原 {@link #buildVisionChatModel()} 行为，用于本地 OCR 模型）；
      * 用户在后台显式绑定或 YML 配置缺失时走 DB 解析结果。
+     * <p>
+     * 场景解析结果与模型实例均已缓存：缓存命中时本方法不产生任何 SQL，
+     * 也不会重建 HTTP 客户端。
      */
     public ChatModel buildForScene(com.kbook.entity.AiScene scene) {
         com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
                 sceneConfigService.resolveSceneConfig(scene);
-        com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
-        ThinkingConfig tc = ThinkingConfig.from(resolved);
-        // 场景构建日志降级为 DEBUG，避免与统一摘要日志（logAiSummary）重复打印模型信息
-        log.debug("构建场景 ChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
-                scene, config.getName(), config.getModelName(),
-                config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
 
         // VISION 场景特例：未显式绑定 + YML vision 配置有效 → 用 YML 配置（保持原 buildVisionChatModel 行为）
-        if (scene.getDefaultCategory() == com.kbook.entity.AiScene.Category.VISION
-                && !sceneConfigService.isExplicitlyBound(scene)
-                && isYmlVisionConfigured()) {
+        if (usesYmlVision(scene)) {
             log.debug("VISION 场景 [{}] 未绑定且 YML vision 配置有效，使用 YML 配置", scene);
             return buildVisionChatModel();
         }
 
-        return wrap(buildChat(config, tc), config);
+        final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
+        final ThinkingConfig tc = ThinkingConfig.from(resolved);
+        return chatModelCache.get(modelKey("chat", config, tc), k -> {
+            // 场景构建日志降级为 DEBUG，避免与统一摘要日志（logAiSummary）重复打印模型信息
+            log.debug("构建场景 ChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
+                    scene, config.getName(), config.getModelName(),
+                    config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
+            return wrap(buildChat(config, tc), config);
+        });
     }
 
     /**
@@ -175,12 +277,14 @@ public class ChatModelFactory {
     public StreamingChatModel buildStreamingForScene(com.kbook.entity.AiScene scene) {
         com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
                 sceneConfigService.resolveSceneConfig(scene);
-        com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
-        ThinkingConfig tc = ThinkingConfig.from(resolved);
-        log.debug("构建场景 StreamingChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
-                scene, config.getName(), config.getModelName(),
-                config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
-        return wrapStreaming(buildStreaming(config, tc), config);
+        final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
+        final ThinkingConfig tc = ThinkingConfig.from(resolved);
+        return streamingModelCache.get(modelKey("streaming", config, tc), k -> {
+            log.debug("构建场景 StreamingChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
+                    scene, config.getName(), config.getModelName(),
+                    config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
+            return wrapStreaming(buildStreaming(config, tc), config);
+        });
     }
 
     /**
@@ -189,24 +293,38 @@ public class ChatModelFactory {
     public ChatModel buildCompressionForScene(com.kbook.entity.AiScene scene) {
         com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
                 sceneConfigService.resolveSceneConfig(scene);
-        com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
-        Duration t = timeout(config.getTimeout());
-        ThinkingConfig tc = ThinkingConfig.off(); // 压缩强制关闭思考
-        log.debug("构建场景压缩 ChatModel: scene={}, config={}, model={}",
-                scene, config.getName(), config.getModelName());
-        return config.getProvider() == AiProviderConfig.Provider.OPENAI
-                ? wrap(buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
-                0.1, t, config.getApiKey(), tc), config)
-                : wrap(buildOllamaChat(config.getBaseUrl(), config.getModelName(),
-                0.1, t, tc), config);
+        final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
+        final ThinkingConfig tc = ThinkingConfig.off(); // 压缩强制关闭思考
+        // 温度固定 0.1 → 用显式 variant 区分，避免与同参数的 chat 模型串用
+        return chatModelCache.get(modelKey("compression", config, tc), k -> {
+            Duration t = timeout(config.getTimeout());
+            log.debug("构建场景压缩 ChatModel: scene={}, config={}, model={}",
+                    scene, config.getName(), config.getModelName());
+            return config.getProvider() == AiProviderConfig.Provider.OPENAI
+                    ? wrap(buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
+                    0.1, t, config.getApiKey(), tc), config)
+                    : wrap(buildOllamaChat(config.getBaseUrl(), config.getModelName(),
+                    0.1, t, tc), config);
+        });
+    }
+
+    /**
+     * 判断 VISION 场景是否应走 YML {@code kbook.ai.vision} 配置。
+     * <p>
+     * {@link #buildForScene} 与 {@link #buildLogContext} 共用此判定，
+     * 避免两处条件漂移导致"日志记录的模型与实际调用的模型不一致"。
+     */
+    private boolean usesYmlVision(com.kbook.entity.AiScene scene) {
+        return scene.getDefaultCategory() == com.kbook.entity.AiScene.Category.VISION
+                && !sceneConfigService.isExplicitlyBound(scene)
+                && isYmlVisionConfigured();
     }
 
     /**
      * 构建场景的日志上下文 — 供 callAiForScene / StreamingSseHandler 传递给 logAiSummary。
      * <p>
-     * 注意：此方法会调用 {@code sceneConfigService.resolveSceneConfig(scene)}，
-     * 与 {@link #buildForScene} 中的调用是独立的两次 DB 查询。
-     * 可接受的代价：摘要日志需要场景/模型/思考配置信息。
+     * 场景解析结果已由 {@link com.kbook.service.ai.AiSceneConfigService} 缓存，
+     * 本方法与 {@link #buildForScene} 复用同一份缓存条目，不再各自查库。
      *
      * @param scene AI 场景
      * @return 日志上下文（scene/modelName/configName/thinkingMode/thinkingEnabled/reasoningEffort）
@@ -219,14 +337,12 @@ public class ChatModelFactory {
                 ? config.getThinkingMode().name() : "SWITCH";
 
         // VISION 场景特例：未显式绑定 + YML vision 配置有效 → 日志记录 YML 模型名
-        // 与 buildForScene 的 VISION 分支保持一致，避免日志显示"未知模型"
+        // 与 buildForScene 的 VISION 分支共用 usesYmlVision，避免日志显示"未知模型"
         String modelName = config.getModelName();
         String configName = config.getName();
         boolean thinkingEnabled = resolved.thinkingEnabled();
         String reasoningEffort = resolved.reasoningEffort();
-        if (scene.getDefaultCategory() == com.kbook.entity.AiScene.Category.VISION
-                && !sceneConfigService.isExplicitlyBound(scene)
-                && isYmlVisionConfigured()) {
+        if (usesYmlVision(scene)) {
             AiModelProperties.VisionConfig vision = aiModelProperties.getVision();
             modelName = vision.getModelName();
             configName = "YML vision config";
@@ -280,14 +396,13 @@ public class ChatModelFactory {
     }
 
     /**
-     * 构建默认的嵌入模型 — 从数据库读取 EMBEDDING 用途的启用配置。
+     * 构建默认的嵌入模型 — 从数据库读取 EMBEDDING 用途的启用配置（配置查询带缓存）。
      *
      * @return 嵌入模型实例
      * @throws IllegalStateException 无可用 EMBEDDING 配置时抛出
      */
     public EmbeddingModel buildDefaultEmbeddingModel() {
-        AiProviderConfig config = configRepository.findFirstByPurposeAndEnabledTrueOrderByUpdatedAtDesc(
-                        AiProviderConfig.Purpose.EMBEDDING.name())
+        AiProviderConfig config = findFirstEnabledByPurpose(AiProviderConfig.Purpose.EMBEDDING.name())
                 .orElseThrow(() -> new IllegalStateException(
                         "未找到可用的嵌入模型配置，请在管理后台添加 EMBEDDING 用途的配置"));
 
@@ -308,13 +423,12 @@ public class ChatModelFactory {
     }
 
     /**
-     * 获取嵌入模型的服务基础地址 — 从 EMBEDDING 配置中读取。
+     * 获取嵌入模型的服务基础地址 — 从 EMBEDDING 配置中读取（带缓存）。
      */
     public String getEmbeddingBaseUrl() {
-        AiProviderConfig config = configRepository
-                .findFirstByPurposeAndEnabledTrueOrderByUpdatedAtDesc(AiProviderConfig.Purpose.EMBEDDING.name())
-                .orElse(null);
-        return config != null ? config.getBaseUrl() : "http://localhost:11434";
+        return findFirstEnabledByPurpose(AiProviderConfig.Purpose.EMBEDDING.name())
+                .map(AiProviderConfig::getBaseUrl)
+                .orElse("http://localhost:11434");
     }
 
     /**
@@ -325,23 +439,35 @@ public class ChatModelFactory {
     }
 
     /**
-     * 获取当前嵌入模型名称。
+     * 获取当前嵌入模型名称 — 从 EMBEDDING 配置中读取（带缓存）。
      */
     public String getEmbeddingModelName() {
-        AiProviderConfig config = configRepository
-                .findFirstByPurposeAndEnabledTrueOrderByUpdatedAtDesc(AiProviderConfig.Purpose.EMBEDDING.name())
-                .orElse(null);
-        return config != null ? config.getModelName() : "bge-m3:latest";
+        return findFirstEnabledByPurpose(AiProviderConfig.Purpose.EMBEDDING.name())
+                .map(AiProviderConfig::getModelName)
+                .orElse("bge-m3:latest");
     }
 
     // ======================== 内部方法 ========================
 
     /**
-     * 解析 CHAT-QA 配置。
+     * 按用途取首个启用的配置（带缓存）。
+     * <p>
+     * 与 {@link com.kbook.service.ai.AiProviderConfigService#getFirstEnabledByPurpose(String)}
+     * 走同一查询；缓存随配置变更整体失效（{@link #invalidateCaches}）。
+     * 返回 {@link Optional} 以便缓存"未找到"这一结果。
+     */
+    private Optional<AiProviderConfig> findFirstEnabledByPurpose(String purpose) {
+        return defaultConfigCache.get("purpose:" + purpose,
+                key -> configRepository.findFirstByPurposeAndEnabledTrueOrderByUpdatedAtDesc(purpose));
+    }
+
+    /**
+     * 解析 CHAT-QA 配置（带缓存）。
      */
     private AiProviderConfig resolveQaConfig() {
-        return configRepository.findByPurposeAndEnabledAndRolesContaining(
-                        AiProviderConfig.Purpose.CHAT.name(), "%QA%")
+        return defaultConfigCache.get("role:QA",
+                        key -> configRepository.findByPurposeAndEnabledAndRolesContaining(
+                                AiProviderConfig.Purpose.CHAT.name(), "%QA%"))
                 .orElseThrow(() -> new IllegalStateException(
                         "未找到可用的对话模型(roles=QA)配置，请在管理后台添加并启用"));
     }
