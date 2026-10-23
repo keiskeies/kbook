@@ -58,6 +58,81 @@ public class XiaomiTtsEngine implements TtsEngine {
         return supports(config);
     }
 
+    /**
+     * 小米 MiMo 支持渐进式 MP3 输出。
+     * <p>
+     * 依据：其 SSE 流以 base64 分片返回 MPEG2-Layer III 帧（24kHz 单声道，无 ID3），
+     * 帧边界严格对齐，因此把 delta 音频帧按序拼接即构成一个合法连续的 MP3 流，
+     * 浏览器可在下载过程中即时解码播放。
+     */
+    @Override
+    public boolean supportsProgressiveAudio(TtsConfig config) {
+        return supports(config);
+    }
+
+    @Override
+    public String audioFormat(TtsConfig config) {
+        return TtsCache.EXT_MP3;
+    }
+
+    /**
+     * 渐进式 MP3 合成：转发 MiMo SSE 的音频帧，不在服务端做解码或再编码。
+     * <p>
+     * 首帧实测 0.4~0.6s 即可产出，远快于一次性合成（约 5~27s），
+     * 这是长文本朗读能够「秒开」且全程无段间空隙的关键。
+     */
+    @Override
+    public void synthesizeProgressiveAudio(String text, TtsConfig config,
+                                           Consumer<byte[]> onChunk, Runnable onDone) {
+        try {
+            Map<String, Object> requestBody = buildRequestBody(text, config, "mp3", true);
+            String json = objectMapper.writeValueAsString(requestBody);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(resolveBaseUrl(config) + "/chat/completions"))
+                    .header("Content-Type", "application/json")
+                    .header("api-key", config.getApiKey())
+                    .timeout(Duration.ofMinutes(10))
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+
+            HttpResponse<java.io.InputStream> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofInputStream());
+
+            if (response.statusCode() != 200) {
+                String errorBody = new String(response.body().readAllBytes());
+                log.warn("Xiaomi TTS progressive API error: status={}, body={}",
+                        response.statusCode(), errorBody);
+                throw new RuntimeException("TTS 请求失败: HTTP " + response.statusCode());
+            }
+
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(response.body(), java.nio.charset.StandardCharsets.UTF_8));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("data: ")) continue;
+                String data = line.substring(6).trim();
+                if ("[DONE]".equals(data)) break;
+
+                JsonNode chunk = objectMapper.readTree(data);
+                JsonNode choices = chunk.path("choices");
+                if (!choices.isArray() || choices.isEmpty()) continue;
+                JsonNode audioNode = choices.get(0).path("delta").path("audio").path("data");
+                if (audioNode.isMissingNode() || audioNode.asText().isEmpty()) continue;
+
+                onChunk.accept(Base64.getDecoder().decode(audioNode.asText()));
+            }
+
+            onDone.run();
+        } catch (TtsClientGoneException e) {
+            // 客户端主动断开：原样上抛，交由调用方按「用户已停止」处理
+            throw e;
+        } catch (Exception e) {
+            log.error("Xiaomi TTS progressive synthesis failed", e);
+            throw new RuntimeException("TTS 合成失败: " + e.getMessage(), e);
+        }
+    }
+
     @Override
     public byte[] synthesize(String text, TtsConfig config) {
         try {

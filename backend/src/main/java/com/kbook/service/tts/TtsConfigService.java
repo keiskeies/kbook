@@ -203,6 +203,19 @@ public class TtsConfigService {
         );
     }
 
+    /**
+     * 解析并校验 TTS 配置，供渐进式播放等外部编排复用
+     * <p>
+     * 保持 {@link #resolveConfig(Long)} 的 private 语义不变，仅在其上做公开包装，
+     * 避免调用方各自重复「取默认配置 + 校验启用状态」的逻辑。
+     *
+     * @param configId 配置ID，为 null 时取当前默认配置
+     * @return 已启用的配置实体
+     */
+    public TtsConfig resolveConfigForStream(Long configId) {
+        return resolveConfig(configId);
+    }
+
     private TtsConfig resolveConfig(Long configId) {
         TtsConfig config;
         if (configId != null) {

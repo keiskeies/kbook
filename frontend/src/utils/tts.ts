@@ -1,8 +1,9 @@
 import { useTtsStore } from '@/store/tts'
 import type { TtsVoice } from '@/store/tts'
-import { synthesizeTts, isStreamingSupported } from '@/api/adminTts'
+import { isStreamingSupported } from '@/api/adminTts'
+import { ProgressiveStreamPlayer } from '@/utils/ttsStreamPlayer'
+import type { PlaybackMetadata, PlaybackProgress } from '@/utils/ttsStreamPlayer'
 
-const PCM_SAMPLE_RATE = 24000
 const CHUNK_FIRST_MAX_LEN = 50
 const CHUNK_MAX_LEN = 100
 const CHUNK_MIN_LEN = 50
@@ -102,110 +103,23 @@ function splitLongText(text: string, maxLen: number): string[] {
   return [first, ...splitLongText(rest, maxLen)]
 }
 
-class PcmStreamPlayer {
-  private audioContext: AudioContext | null = null
-  private nextPlayTime = 0
-  private gainNode: GainNode | null = null
-
-  init() {
-    if (!this.audioContext) {
-      this.audioContext = new AudioContext({ sampleRate: PCM_SAMPLE_RATE })
-    }
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume()
-    }
-    this.gainNode = this.audioContext.createGain()
-    this.gainNode.connect(this.audioContext.destination)
-    this.nextPlayTime = this.audioContext.currentTime
-  }
-
-  playPcmChunk(pcmBase64: string) {
-    if (!this.audioContext || !this.gainNode) return
-
-    // 每段之间的网络间隙可能导致 AudioContext 被浏览器挂起(无活跃 source 时 Chrome 自动 suspend)
-    // 必须在调度新音频前 resume，否则 currentTime 冻结，source.start() 永远不会触发
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume()
-    }
-
-    const binaryStr = atob(pcmBase64)
-    const bytes = new Uint8Array(binaryStr.length)
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i)
-    }
-
-    const int16 = new Int16Array(bytes.buffer)
-    const float32 = new Float32Array(int16.length)
-    for (let i = 0; i < int16.length; i++) {
-      float32[i] = int16[i] / 32768.0
-    }
-
-    const audioBuffer = this.audioContext.createBuffer(1, float32.length, PCM_SAMPLE_RATE)
-    audioBuffer.getChannelData(0).set(float32)
-
-    const source = this.audioContext.createBufferSource()
-    source.buffer = audioBuffer
-    source.connect(this.gainNode)
-
-    const now = this.audioContext.currentTime
-    // resume() 是异步的，挂起恢复后 currentTime 可能仍为旧值
-    // 若 nextPlayTime 落后于 now（挂起期间时间没走但 nextPlayTime 没变），重置到当前时间
-    if (this.nextPlayTime < now) {
-      this.nextPlayTime = now
-    }
-    source.start(this.nextPlayTime)
-    this.nextPlayTime += audioBuffer.duration
-  }
-
-  stop() {
-    if (this.audioContext) {
-      this.audioContext.close()
-      this.audioContext = null
-    }
-    this.gainNode = null
-  }
-
-  addPause(durationMs: number) {
-    if (!this.audioContext) return
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume()
-    }
-    const now = this.audioContext.currentTime
-    if (this.nextPlayTime < now) {
-      this.nextPlayTime = now
-    }
-    this.nextPlayTime += durationMs / 1000
-  }
-
-  get currentTime(): number {
-    return this.audioContext?.currentTime ?? 0
-  }
-
-  get isPlaying(): boolean {
-    return this.audioContext !== null && this.audioContext.state === 'running'
-  }
-
-  get remainingTime(): number {
-    if (!this.audioContext || !this.gainNode) return 0
-    return Math.max(0, this.nextPlayTime - this.audioContext.currentTime)
-  }
-
-  get state(): string {
-    return this.audioContext?.state ?? 'closed'
-  }
-
-  get nextPlayTimeVal(): number {
-    return this.nextPlayTime
-  }
-}
 
 class TtsService {
   private synth: SpeechSynthesis | null = null
-  private currentAudio: HTMLAudioElement | null = null
-  private abortController: AbortController | null = null
-  private streamPlayer: PcmStreamPlayer | null = null
-  private streamingEnabled = false
-  private longTextAbortController: AbortController | null = null
+
+  /**
+   * 后端朗读的统一播放内核。
+   * <p>
+   * 整篇文本在后端合成为一条连续 MP3 流，交由单个常驻 audio 元素播放，
+   * 因此锁屏、后台、系统媒体键全部由平台原生承担。
+   */
+  private progressivePlayer = new ProgressiveStreamPlayer()
+
+  /** 当前朗读的元信息，供系统媒体控制展示 */
+  private currentMetadata: PlaybackMetadata | null = null
+
+  /** 播放进度订阅者（界面进度条） */
+  private progressListeners = new Set<(progress: PlaybackProgress) => void>()
 
   // ── 长文本朗读(分段连续播放)的健壮性控制 ──
   // 代际计数:每次新的 speakLongText / cancel 递增,旧回调链据此作废,避免多次点击并发播报
@@ -248,18 +162,18 @@ class TtsService {
     return useTtsStore.getState().backendMode && useTtsStore.getState().backendConfig !== null
   }
 
+  /**
+   * 探测当前配置的能力。
+   * <p>
+   * 渐进式播放不再依赖此结论选择播放路径（后端会自动选择最优容器），
+   * 保留该探测用于观测与排查：返回 false 说明配置侧可能存在问题。
+   */
   async checkStreamingSupport(): Promise<boolean> {
     const configId = useTtsStore.getState().backendConfig?.id
-    if (!configId) {
-      this.streamingEnabled = false
-      return false
-    }
+    if (!configId) return false
     try {
-      const supported = await isStreamingSupported(configId)
-      this.streamingEnabled = supported
-      return supported
+      return await isStreamingSupported(configId)
     } catch {
-      this.streamingEnabled = false
       return false
     }
   }
@@ -386,6 +300,13 @@ class TtsService {
     this.synth.speak(utterance)
   }
 
+/**
+   * 按段落朗读（正文朗读入口）
+   * <p>
+   * 与图书问答共用同一个播放内核：把该段落作为一条连续音频流播放。
+   * 段落结束后依据代际守卫判断是否继续下一段，且即使 ended 事件丢失，
+   * 播放内核的看门狗也会发现停滞并自动恢复，不会让队列静默死掉。
+   */
   private async speakSegmentBackend(index: number): Promise<void> {
     const store = useTtsStore.getState()
     const { segments, bookId, status } = store
@@ -414,259 +335,155 @@ class TtsService {
       return
     }
 
-    this.currentAudio?.pause()
-    this.currentAudio = null
-    this.abortController?.abort()
-    this.streamPlayer?.stop()
-    this.streamPlayer = null
-
     useTtsStore.getState().setSegmentIndex(index)
 
-    try {
-      if (this.streamingEnabled) {
-        await this.speakSegmentStream(index, text, bookId)
-      } else {
-        await this.speakSegmentNonStream(index, text, bookId)
-      }
-    } catch (e: any) {
-      if (e.name === 'AbortError') return
-      console.warn('Backend TTS error, falling back to browser:', e.message)
-      useTtsStore.getState().setBackendMode(false)
-      this.speakSegmentBrowser(index)
+    const meta: PlaybackMetadata = {
+      title: store.bookTitle || '朗读',
+      artist: `第 ${index + 1} 段 / 共 ${segments.length} 段`,
+      album: store.bookTitle || '朗读',
     }
+    if (this.currentMetadata) {
+      meta.artworkUrl = this.currentMetadata.artworkUrl
+    }
+    this.currentMetadata = meta
+
+    await this.speakBackendViaStream(text, () => {
+      const current = useTtsStore.getState()
+      if (current.status === 'playing' && current.bookId === bookId) {
+        this.speakSegment(index + 1)
+      }
+    }, meta)
   }
 
-  private async speakSegmentNonStream(index: number, text: string, bookId: number | null): Promise<void> {
-    this.abortController = new AbortController()
-    const audioData = await synthesizeTts(text, useTtsStore.getState().backendConfig?.id)
-
-    if (useTtsStore.getState().status !== 'playing' || useTtsStore.getState().bookId !== bookId) {
-      return
-    }
-
-    const blob = new Blob([audioData], { type: 'audio/wav' })
-    const url = URL.createObjectURL(blob)
-
-    this.currentAudio = new Audio(url)
-
-    const onFinish = () => {
-      URL.revokeObjectURL(url)
-      const currentStatus = useTtsStore.getState().status
-      const currentBookId = useTtsStore.getState().bookId
-      if (currentStatus === 'playing' && currentBookId === bookId) {
-        setTimeout(() => { this.speakSegment(index + 1) }, 200)
-      }
-    }
-
-    this.currentAudio.addEventListener('ended', onFinish)
-    this.currentAudio.addEventListener('error', onFinish)
-
-    await this.currentAudio.play()
-  }
-
-  private async speakSegmentStream(index: number, text: string, bookId: number | null): Promise<void> {
-    this.streamPlayer = new PcmStreamPlayer()
-    this.streamPlayer.init()
-
-    const token = localStorage.getItem('kbook_token')
-    const configId = useTtsStore.getState().backendConfig?.id
-
-    const response = await fetch('/api/tts/synthesize/stream', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : '',
-        'Accept': 'text/event-stream',
-      },
-      body: JSON.stringify({ text, configId }),
-    })
-
-    if (!response.ok) {
-      throw new Error(`TTS stream request failed: HTTP ${response.status}`)
-    }
-
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('TTS stream: no readable body')
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let streamDone = false
-
-    while (!streamDone) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('event:audio')) {
-          continue
-        }
-        if (line.startsWith('data:')) {
-          const data = line.substring(5).trim()
-          if (!data) continue
-
-          this.streamPlayer.playPcmChunk(data)
-        }
-        if (line.startsWith('event:done')) {
-          streamDone = true
-          break
-        }
-        if (line.startsWith('event:error')) {
-          const errorData = line.startsWith('data:') ? line.substring(5).trim() : '流式合成失败'
-          throw new Error(errorData)
-        }
-      }
-    }
-
-    const checkPlaybackEnd = () => {
-      if (!this.streamPlayer) return
-      const currentStatus = useTtsStore.getState().status
-      const currentBookId = useTtsStore.getState().bookId
-      if (currentStatus === 'playing' && currentBookId === bookId) {
-        setTimeout(() => { this.speakSegment(index + 1) }, 200)
-      }
-    }
-
-    const estimatedDuration = text.length * 0.15
-    setTimeout(checkPlaybackEnd, estimatedDuration * 1000)
-  }
-
-  speakSingleText(text: string, onEnd?: () => void): void {
+  /**
+   * 朗读一段文本
+   *
+   * @param text     待朗读纯文本
+   * @param onEnd    播放结束回调
+   * @param metadata 系统媒体控制元信息（锁屏/通知栏展示用）
+   */
+  speakSingleText(text: string, onEnd?: () => void, metadata?: PlaybackMetadata): void {
     if (this.isBackendMode) {
-      this.speakSingleTextBackend(text, onEnd)
-    } else {
-      this.speakSingleTextBrowser(text, onEnd)
-    }
-  }
-
-  private speakSingleTextBrowser(text: string, onEnd?: () => void): void {
-    if (!this.synth) return
-
-    this.synth.cancel()
-
-    const utterance = new SpeechSynthesisUtterance(text)
-    const { settings, voices } = useTtsStore.getState()
-
-    utterance.rate = settings.rate
-
-    if (settings.voiceURI) {
-      const voice = voices.find((v: TtsVoice) => v.voiceURI === settings.voiceURI)
-      if (voice) {
-        const sv = this.synth.getVoices().find((v) => v.voiceURI === voice.voiceURI)
-        if (sv) utterance.voice = sv
-      }
-    }
-
-    utterance.onend = () => onEnd?.()
-    utterance.onerror = (e) => {
-      if (e.error !== 'canceled') {
-        console.warn('TTS error:', e.error)
-        onEnd?.()
-      }
-    }
-
-    this.synth.speak(utterance)
-  }
-
-  private async speakSingleTextBackend(text: string, onEnd?: () => void): Promise<void> {
-    try {
-      this.currentAudio?.pause()
-      this.currentAudio = null
-      this.streamPlayer?.stop()
-      this.streamPlayer = null
-
-      if (this.streamingEnabled) {
-        this.streamPlayer = new PcmStreamPlayer()
-        this.streamPlayer.init()
-
-        const token = localStorage.getItem('kbook_token')
-        const configId = useTtsStore.getState().backendConfig?.id
-
-        const response = await fetch('/api/tts/synthesize/stream', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': token ? `Bearer ${token}` : '',
-            'Accept': 'text/event-stream',
-          },
-          body: JSON.stringify({ text, configId }),
-        })
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-        const reader = response.body?.getReader()
-        if (!reader) throw new Error('No readable body')
-
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (line.startsWith('event:audio')) continue
-            if (line.startsWith('data:')) {
-              const data = line.substring(5).trim()
-              if (data) this.streamPlayer!.playPcmChunk(data)
-            }
-            if (line.startsWith('event:done')) break
-            if (line.startsWith('event:error')) {
-              throw new Error('TTS stream error')
-            }
-          }
-        }
-
-        const estimatedDuration = text.length * 0.15
-        setTimeout(() => onEnd?.(), estimatedDuration * 1000)
-      } else {
-        const audioData = await synthesizeTts(text, useTtsStore.getState().backendConfig?.id)
-        const blob = new Blob([audioData], { type: 'audio/wav' })
-        const url = URL.createObjectURL(blob)
-
-        this.currentAudio = new Audio(url)
-
-        const onFinish = () => {
-          URL.revokeObjectURL(url)
-          onEnd?.()
-        }
-        this.currentAudio.addEventListener('ended', onFinish)
-        this.currentAudio.addEventListener('error', onFinish)
-
-        await this.currentAudio.play()
-      }
-    } catch (e) {
-      console.warn('Backend TTS single text error, falling back to browser:', e)
-      useTtsStore.getState().setBackendMode(false)
-      this.speakSingleTextBrowser(text, onEnd)
-    }
-  }
-
-  speakLongText(text: string, onEnd?: () => void): void {
-    const chunks = smartChunkText(text)
-    console.log('[TTS] speakLongText start, chunks=', chunks.length, 'streaming=', this.streamingEnabled, 'backend=', this.isBackendMode)
-    if (chunks.length <= 1) {
-      console.log('[TTS] single chunk, use speakSingleText')
-      this.speakSingleText(text, onEnd)
+      this.speakBackendViaStream(text, onEnd, metadata)
       return
     }
-    // 新一轮朗读:递增代际,作废所有旧回调链(旧 onend/setTimeout/safety timer)
+    // 浏览器语音统一走分片路径：一次性读长文本在移动端会静默失败
+    this.speakFallbackBrowser(text, onEnd)
+  }
+
+  /**
+   * 在用户手势中同步调用，解锁后端播放所需的 audio 元素。
+   * <p>
+   * iOS Safari 要求音频播放必须由用户手势发起；而朗读需要先向后端申请播放凭据，
+   * 手势链会在 await 处断开。点击的同步阶段先用静音音频激活元素即可绕过该限制。
+   */
+  primeForGesture(): void {
+    // 这里不能按 backendMode 提前返回：backendConfig 是异步获取的，
+    // 页面加载后的第一次点击时它还是 null，此时若跳过解锁，
+    // 真正开始播放已经在 await 之后、脱离用户手势，iOS 会直接拒绝播放。
+    // 解锁本身只是让一个常驻元素播一小段静音，代价可忽略。
+    this.progressivePlayer.primeFromGesture()
+  }
+
+
+  /**
+   * 后端朗读：统一走渐进式音频流
+   * <p>
+   * 整段文本作为一个连续 MP3 流交给常驻 audio 元素播放。
+   * 相比旧实现「逐段合成 + 逐个 Audio 串联 + 只等 ended」：
+   * <ul>
+   *   <li>没有段间空隙，也没有「某段的 ended 丢失导致整条链路死掉」</li>
+   *   <li>锁屏 / 后台 / 系统媒体键由平台原生承担</li>
+   *   <li>播放位置停滞会被看门狗发现并从断点自动续播</li>
+   * </ul>
+   * 因此不再需要按文本长度分片，也不需要非流式 WAV 兜底路径。
+   */
+  private async speakBackendViaStream(
+    text: string,
+    onEnd?: () => void,
+    metadata?: PlaybackMetadata,
+  ): Promise<void> {
+    const configId = useTtsStore.getState().backendConfig?.id
+    const meta: PlaybackMetadata = metadata ?? this.currentMetadata ?? { title: '朗读' }
+    this.currentMetadata = meta
+
+    try {
+      await this.progressivePlayer.start(text, configId, meta, {
+        onEnd: () => {
+          onEnd?.()
+        },
+        onInterrupted: () => {
+          // 被系统中断（来电、其它 App 抢占音频焦点）且自动恢复失败：
+          // 明确告知界面已暂停，避免按钮停留在「朗读中」的假状态
+          console.warn('[TTS] 播放被系统中断，自动恢复失败，已暂停')
+          useTtsStore.getState().pause()
+        },
+        onStoppedBySystem: () => {
+          // 锁屏 / 耳机按了「停止」：凭据与音源已释放，无法原地继续，
+          // 界面必须退出朗读态，否则会留下一个点不动的假控件
+          onEnd?.()
+        },
+        onError: (e) => {
+          // 只对本次朗读降级，不修改全局 backendMode：
+          // 单次瞬时故障（网络抖动、TTS 上游超时）不应让整个会话永久退化到浏览器语音。
+          console.warn('[TTS] 后端朗读失败，本次降级到浏览器语音：', e.message)
+          // 先结束进度条：浏览器语音没有可定位的媒体元素，
+          // 保留进度条只会得到一个停在原地、按键全部失效的假控件。
+          onEnd?.()
+          this.speakFallbackBrowser(text, onEnd)
+        },
+        onProgress: (progress) => {
+          this.emitProgressToListeners(progress)
+        },
+      })
+    } catch (e) {
+      console.warn('[TTS] 后端朗读启动失败，本次降级到浏览器语音：', e)
+      this.speakFallbackBrowser(text, onEnd)
+    }
+  }
+
+  /**
+   * 后端不可用时的浏览器语音降级
+   * <p>
+   * 必须按标点分片朗读：speechSynthesis 一次读长文本在多数移动端会静默失败
+   * （不出声也不触发 onend），正是「读一两段就停」在纯浏览器路径上的成因。
+   * 因此这里复用带 heartbeat + 安全超时的分片实现，而不是一次性塞整篇。
+   */
+  private speakFallbackBrowser(text: string, onEnd?: () => void): void {
+    if (!this.synth) {
+      onEnd?.()
+      return
+    }
     this.longTextGeneration += 1
     const generation = this.longTextGeneration
+    this.speakLongTextBrowser(smartChunkText(text), onEnd, generation)
+  }
+
+  /**
+   * 朗读任意长度文本（图书问答、正文朗读等入口）
+   * <p>
+   * 后端模式下不再分片：整篇文本作为一条连续音频流播放，因此「长文本」与
+   * 「短文本」走完全相同的路径，不存在两种模式之间的行为差异。
+   * 浏览器语音模式仍按标点分片（speechSynthesis 无法一次读太长且需要 heartbeat 兜底）。
+   *
+   * @param text     待朗读纯文本
+   * @param onEnd    播放结束回调
+   * @param metadata 系统媒体控制元信息（锁屏/通知栏展示用）
+   */
+  speakLongText(text: string, onEnd?: () => void, metadata?: PlaybackMetadata): void {
+    // 新一轮朗读：递增代际，作废所有旧回调链
+    this.longTextGeneration += 1
+    const generation = this.longTextGeneration
+
     if (this.isBackendMode) {
-      this.speakLongTextBackend(chunks, onEnd, generation)
-    } else {
-      this.speakLongTextBrowser(chunks, onEnd, generation)
+      console.log('[TTS] 后端朗读，整篇单流播放，textLength=', text.length)
+      this.speakBackendViaStream(text, onEnd, metadata)
+      return
     }
+
+    const chunks = smartChunkText(text)
+    console.log('[TTS] 浏览器语音朗读，chunks=', chunks.length)
+    this.speakLongTextBrowser(chunks, onEnd, generation)
   }
 
   private speakLongTextBrowser(chunks: string[], onEnd?: () => void, generation = 0): void {
@@ -775,214 +592,100 @@ class TtsService {
     speakNext()
   }
 
-  private async speakLongTextBackend(chunks: string[], onEnd?: () => void, generation = 0): Promise<void> {
-    this.currentAudio?.pause()
-    this.currentAudio = null
-    this.streamPlayer?.stop()
-    this.streamPlayer = null
-    this.longTextAbortController?.abort()
-    this.longTextAbortController = new AbortController()
-    const signal = this.longTextAbortController.signal
+  /**
+   * 暂停朗读
+   * <p>
+   * 后端模式暂停常驻 audio 元素：系统媒体控制条会同步显示为暂停态，
+   * 位置得以保留，resume 可原地继续。
+   */
+  pause(): void {
+    if (this.isBackendMode) {
+      this.progressivePlayer.pause()
+      return
+    }
+    this.synth?.pause()
+  }
 
-    // 长文本强制走非流式 wav 路径：
-    // ① wav 有浏览器原生 ended 事件，段间衔接可靠（流式靠 remainingTime 推算 + setTimeout，不可靠）
-    // ② 非流式路径有段间预加载流水线，第 i 段播放期间并发预取第 i+1 段，消除段间网络空白
-    // ③ 流式 PCM 路径在段间 await fetch 间隙 AudioContext 会被浏览器挂起，导致后续段静音
-    // 流式仅用于单段短文本（speakSegmentStream），单段不存在段间衔接问题
-    console.log('[TTS] speakLongTextBackend, force non-stream wav path, chunks=', chunks.length)
+  /**
+   * 继续朗读
+   */
+  resume(): void {
+    if (this.isBackendMode) {
+      this.progressivePlayer.resume()
+      return
+    }
+    this.synth?.resume()
+  }
 
-    try {
-      await this.speakLongTextBackendNonStream(chunks, signal, onEnd, generation)
-    } catch (e: any) {
-      if (e.name === 'AbortError') return
-      console.warn('Backend TTS long text error, falling back to browser:', e)
-      useTtsStore.getState().setBackendMode(false)
-      this.speakLongTextBrowser(chunks, onEnd, generation)
+  /**
+   * 订阅播放进度（供界面渲染进度条）
+   * <p>
+   * 回调由播放内核按固定节拍推送，界面无需自己轮询；取消订阅后不再收到回调。
+   *
+   * @param listener 进度回调
+   * @returns 取消订阅函数
+   */
+  onProgress(listener: (progress: PlaybackProgress) => void): () => void {
+    this.progressListeners.add(listener)
+    return () => {
+      this.progressListeners.delete(listener)
     }
   }
 
-  /**
-   * 预加载单个 segment：仅合成 + 缓存 Blob，不创建 Audio 对象。
-   * 返回就绪的 { blob }，取消/失败返回 null。
-   * 关键：不在这里 new Audio()，避免预取的 Audio 与正在播放的 Audio 共享浏览器音频管线，
-   * 导致 ended 事件丢失或 play() 静默失败（未命中缓存长延迟场景的根因）。
-   */
-  private async prepareSegment(
-    text: string,
-    signal: AbortSignal,
-    generation: number,
-  ): Promise<{ blob: Blob } | null> {
-    const audioData = await synthesizeTts(text, useTtsStore.getState().backendConfig?.id)
-    if (signal.aborted || generation !== this.longTextGeneration) return null
-    return { blob: new Blob([audioData], { type: 'audio/wav' }) }
-  }
-
-  /**
-   * 播放单个已预加载的 segment。
-   * 播放时才创建 Audio 对象，ended/error 后立即释放。
-   * 单一活跃 Audio 原则：避免多 Audio 累积占用输出通道导致后续段无声。
-   */
-  private playSegment(
-    prepared: { blob: Blob },
-    isLast: boolean,
-    text: string,
-    signal: AbortSignal,
-    generation: number,
-  ): Promise<void> {
-    const { blob } = prepared
-    const url = URL.createObjectURL(blob)
-    const audio = new Audio(url)
-    this.currentAudio = audio
-
-    return new Promise<void>((resolve) => {
-      let finished = false
-      let readyTimer: ReturnType<typeof setTimeout> | null = null
-
-      const finish = () => {
-        if (finished) return
-        finished = true
-        // 移除所有监听器和定时器，防止 cancel 后回调仍触发（audio 后台播放的根因）
-        signal.removeEventListener('abort', onAbort)
-        audio.removeEventListener('canplaythrough', onReady)
-        if (readyTimer) clearTimeout(readyTimer)
-        try {
-          audio.pause()
-          audio.src = ''
-          audio.load()
-        } catch { /* ignore */ }
-        URL.revokeObjectURL(url)
-        if (signal.aborted || generation !== this.longTextGeneration) {
-          resolve()
-          return
-        }
-        // 段间停顿(最后一段不停顿)
-        const pause = isLast ? 0 : getPauseMs(text)
-        if (pause > 0) {
-          setTimeout(resolve, pause)
-        } else {
-          resolve()
-        }
-      }
-
-      // cancel 时立即 finish：释放 audio 资源 + resolve Promise，避免 audio 后台继续播放
-      const onAbort = () => finish()
-      signal.addEventListener('abort', onAbort)
-
-      audio.addEventListener('ended', finish)
-      audio.addEventListener('error', finish)
-
-      // play 前再次校验代际(cancel 可能在预取就绪后、play 前发生)
-      if (signal.aborted || generation !== this.longTextGeneration) {
-        finish()
-        return
-      }
-
-      // 等 canplaythrough 后再 play，确保浏览器已解码 wav 头部
-      // 未预解码直接 play() 在 Safari 上会静默失败
-      const onReady = () => {
-        audio.removeEventListener('canplaythrough', onReady)
-        readyTimer = null
-        startPlay()
-      }
-
-      const startPlay = () => {
-        if (signal.aborted || generation !== this.longTextGeneration) {
-          finish()
-          return
-        }
-        audio.play().catch(() => {
-          // play 失败(如 autoplay policy),直接结束本段推进下一段
-          finish()
-        })
-      }
-
-      if (audio.readyState >= 3) {
-        startPlay()
-      } else {
-        audio.addEventListener('canplaythrough', onReady)
-        // 10s 兜底：防止个别 wav 解码卡住阻塞流水线
-        readyTimer = setTimeout(() => {
-          if (!finished) startPlay()
-        }, 10000)
+  private emitProgressToListeners(progress: PlaybackProgress): void {
+    this.progressListeners.forEach((listener) => {
+      try {
+        listener(progress)
+      } catch {
+        // 单个订阅者异常不应影响播放
       }
     })
   }
 
-  private async speakLongTextBackendNonStream(chunks: string[], signal: AbortSignal, onEnd?: () => void, generation = 0): Promise<void> {
-    // 段间预取流水线:第 i 段播放期间并发预加载第 i+1 段(合成+等 canplaythrough),
-    // 第 i 段 ended 后第 i+1 段已就绪,立即 play,消除段间网络等待空白。
-    // play() 严格串行(由 ended 驱动),绝不叠加播放。
-    console.log('[TTS non-stream] enter, chunks=', chunks.length)
-
-    // 预加载第 0 段(首段无预取,需等合成)
-    let next = await this.prepareSegment(chunks[0], signal, generation)
-    console.log('[TTS non-stream] chunk 0 prepared, starting playback loop')
-
-    for (let i = 0; i < chunks.length; i++) {
-      if (signal.aborted || generation !== this.longTextGeneration) break
-
-      const cur = next
-      if (!cur) {
-        console.log(`[TTS non-stream] chunk ${i} cur is null, break`)
-        break
-      }
-
-      // 并发预取下一段(不阻塞当前播放);最后一段不预取
-      const nextPromise = (i < chunks.length - 1)
-        ? this.prepareSegment(chunks[i + 1], signal, generation)
-        : Promise.resolve(null)
-
-      // 播放当前段(等 ended)
-      console.log(`[TTS non-stream] playSegment ${i}/${chunks.length}`)
-      await this.playSegment(cur, i === chunks.length - 1, chunks[i], signal, generation)
-      console.log(`[TTS non-stream] chunk ${i} playSegment returned`)
-
-      // 等下一段就绪(通常在第 i 段播放期间早已就绪)
-      next = await nextPromise
-    }
-
-    // 代际守卫:cancel / 新一轮朗读后不再触发 onEnd
-    if (signal.aborted || generation !== this.longTextGeneration) return
-    onEnd?.()
+  /**
+   * 当前播放进度，供界面显示进度条
+   *
+   * @returns 播放位置与总时长（秒）；后端未在播放时返回 null
+   */
+  getProgress(): { currentTime: number; duration: number; seekable: boolean } | null {
+    if (!this.isBackendMode) return null
+    const p = this.progressivePlayer
+    if (!p.playing && p.currentTime === 0) return null
+    return { currentTime: p.currentTime, duration: p.duration, seekable: p.seekable }
   }
 
-  pause(): void {
-    if (this.streamPlayer) {
-      return
-    }
-    if (this.isBackendMode) {
-      this.currentAudio?.pause()
-    } else {
-      this.synth?.pause()
-    }
+  /**
+   * 跳转到指定播放位置（秒）
+   *
+   * @param seconds 目标位置
+   */
+  seek(seconds: number): void {
+    this.progressivePlayer.seek(seconds)
   }
 
-  resume(): void {
-    if (this.streamPlayer) {
-      return
-    }
-    if (this.isBackendMode) {
-      this.currentAudio?.play().catch(() => {})
-    } else {
-      this.synth?.resume()
-    }
-  }
-
+  /**
+   * 停止朗读并释放全部播放资源
+   * <p>
+   * 会被多个入口高频调用（切书、关闭面板、切换消息等），因此必须幂等且不抛异常。
+   */
   cancel(): void {
-    // 先递增代际 + 清理长文本定时器:作废所有 speakLongText 的旧 onend/setTimeout/safety 回调,
-    // 防止 cancel 后旧回调仍推进队列或重启语音(多次点击并发播报的根因)
+    // 先递增代际 + 清理长文本定时器：作废所有 speakLongText 的旧回调，
+    // 防止 cancel 后旧回调仍推进队列或重启语音（多次点击并发播报的根因）
     this.longTextGeneration += 1
     this.clearLongTextTimers()
 
-    this.currentAudio?.pause()
-    this.currentAudio = null
-    this.abortController?.abort()
-    this.abortController = null
-    this.longTextAbortController?.abort()
-    this.longTextAbortController = null
-    this.streamPlayer?.stop()
-    this.streamPlayer = null
+    // 播放内核负责：暂停 audio、解除音源（立即中止仍在进行的下载）、
+    // 释放服务端播放凭据、清空系统媒体控制信息
+    this.progressivePlayer.stop()
     this.synth?.cancel()
+  }
+
+  /**
+   * 页面卸载时彻底释放播放资源
+   */
+  dispose(): void {
+    this.cancel()
+    this.progressivePlayer.dispose()
   }
 }
 

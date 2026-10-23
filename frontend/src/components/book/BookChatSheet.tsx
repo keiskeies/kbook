@@ -16,6 +16,7 @@ import type { AiMessage } from '@/types/ai'
 import type { AiSessionItem } from '@/types/ai'
 import type { Book } from '@/types/book'
 import ChatHistoryPanel from './ChatHistoryPanel'
+import TtsProgressBar from './TtsProgressBar'
 
 interface BookChatSheetProps {
   book: Book
@@ -132,14 +133,14 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     }
   }, [open, speakingId])
 
-  // 组件卸载（路由切换/页面退出）时停止 TTS，避免 audio 在后台继续播放
+  // 组件卸载（路由切换/页面退出）时停止 TTS，并释放常驻 audio 元素
   useEffect(() => {
     return () => {
       if (abortRef.current) {
         abortRef.current.abort()
         abortRef.current = null
       }
-      ttsService.cancel()
+      ttsService.dispose()
     }
   }, [])
 
@@ -395,6 +396,9 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
       setSpeakingId(null)
       return
     }
+    // 必须在点击的同步阶段解锁音频元素：iOS Safari 要求播放由用户手势发起，
+    // 而下面 await 取配置会断掉手势链，之后再播放就会被自动播放策略拒绝。
+    ttsService.primeForGesture()
     if (!useTtsStore.getState().backendConfig) {
       try {
         const config = await getActiveTtsConfig()
@@ -422,10 +426,20 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     if (!plainText) return
     ttsService.cancel()
     setSpeakingId(msgId)
-    ttsService.speakLongText(plainText, () => {
-      setSpeakingId((prev) => prev === msgId ? null : prev)
-    })
-  }, [speakingId])
+    // 传入书名与封面：锁屏 / 通知栏的媒体控制条据此展示，用户不必解锁就能确认在听哪本书
+    ttsService.speakLongText(
+      plainText,
+      () => {
+        setSpeakingId((prev) => prev === msgId ? null : prev)
+      },
+      {
+        title: `《${book.title}》问答`,
+        artist: '图书问答朗读',
+        album: book.title,
+        artworkUrl: book.coverUrl ?? undefined,
+      },
+    )
+  }, [speakingId, book.title, book.coverUrl])
 
   const handleRegenerate = useCallback(() => {
     if (loading) return
@@ -769,6 +783,14 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
             )}
           </div>
         )}
+
+        <TtsProgressBar
+          active={speakingId !== null}
+          onStop={() => {
+            ttsService.cancel()
+            setSpeakingId(null)
+          }}
+        />
 
         <div className="shrink-0 border-t bg-background px-4 pt-2 pb-3 pb-safe-bottom">
           <div className="flex items-stretch gap-2">
