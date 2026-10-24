@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.roundtable;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -66,6 +66,11 @@ import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
 import static com.kbook.common.util.QueryBuilder.in;
+import com.kbook.service.ai.rag.RagPipelineComponents;
+import com.kbook.service.ai.core.ChatModelManager;
+import com.kbook.service.ai.core.AiProviderConfigService;
+import com.kbook.service.ai.core.AiSceneConfigService;
+import com.kbook.service.ai.core.AiUsageContext;
 
 /**
  * 圆桌派服务 — 多角色 AI 讨论功能

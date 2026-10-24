@@ -5,7 +5,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.kbook.config.properties.AiModelProperties;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
-import com.kbook.service.ai.AiUsageLogService;
+import com.kbook.service.ai.core.AiUsageLogService;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
@@ -72,7 +72,7 @@ public class ChatModelFactory {
      */
     @org.springframework.context.annotation.Lazy
     @org.springframework.beans.factory.annotation.Autowired
-    private com.kbook.service.ai.AiSceneConfigService sceneConfigService;
+    private com.kbook.service.ai.core.AiSceneConfigService sceneConfigService;
 
     // ======================== 缓存 ========================
 
@@ -234,7 +234,7 @@ public class ChatModelFactory {
     /**
      * 按场景构建聊天模型 — 路由层入口。
      * <p>
-     * 由 {@link com.kbook.service.ai.AiSceneConfigService#resolveSceneConfig(AiScene)} 解析：
+     * 由 {@link com.kbook.service.ai.core.AiSceneConfigService#resolveSceneConfig(AiScene)} 解析：
      * <ul>
      *   <li>AI 配置（providerConfig）— 优先场景绑定，回退到默认分类</li>
      *   <li>思考参数（thinkingEnabled/reasoningEffort/thinkingBudget）— 联动 providerConfig.thinkingMode</li>
@@ -255,7 +255,7 @@ public class ChatModelFactory {
      * 也不会重建 HTTP 客户端。
      */
     public ChatModel buildForScene(com.kbook.entity.AiScene scene) {
-        com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
+        com.kbook.service.ai.core.AiSceneConfigService.ResolvedSceneConfig resolved =
                 sceneConfigService.resolveSceneConfig(scene);
 
         // VISION 场景特例：未显式绑定 + YML vision 配置有效 → 用 YML 配置（保持原 buildVisionChatModel 行为）
@@ -285,7 +285,7 @@ public class ChatModelFactory {
      * 按场景构建流式聊天模型 — 路由层入口。
      */
     public StreamingChatModel buildStreamingForScene(com.kbook.entity.AiScene scene) {
-        com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
+        com.kbook.service.ai.core.AiSceneConfigService.ResolvedSceneConfig resolved =
                 sceneConfigService.resolveSceneConfig(scene);
         final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
         final ThinkingConfig tc = ThinkingConfig.from(resolved);
@@ -304,7 +304,7 @@ public class ChatModelFactory {
      * 按场景构建压缩专用模型（温度 0.1、关闭思考）。
      */
     public ChatModel buildCompressionForScene(com.kbook.entity.AiScene scene) {
-        com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
+        com.kbook.service.ai.core.AiSceneConfigService.ResolvedSceneConfig resolved =
                 sceneConfigService.resolveSceneConfig(scene);
         final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
         final ThinkingConfig tc = ThinkingConfig.off(); // 压缩强制关闭思考
@@ -339,14 +339,14 @@ public class ChatModelFactory {
     /**
      * 构建场景的日志上下文 — 供 callAiForScene / StreamingSseHandler 传递给 logAiSummary。
      * <p>
-     * 场景解析结果已由 {@link com.kbook.service.ai.AiSceneConfigService} 缓存，
+     * 场景解析结果已由 {@link com.kbook.service.ai.core.AiSceneConfigService} 缓存，
      * 本方法与 {@link #buildForScene} 复用同一份缓存条目，不再各自查库。
      *
      * @param scene AI 场景
      * @return 日志上下文（scene/modelName/configName/thinkingMode/thinkingEnabled/reasoningEffort）
      */
-    public com.kbook.service.ai.ChatModelManager.AiCallLogContext buildLogContext(com.kbook.entity.AiScene scene) {
-        com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved =
+    public com.kbook.service.ai.core.ChatModelManager.AiCallLogContext buildLogContext(com.kbook.entity.AiScene scene) {
+        com.kbook.service.ai.core.AiSceneConfigService.ResolvedSceneConfig resolved =
                 sceneConfigService.resolveSceneConfig(scene);
         com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
         String thinkingMode = config.getThinkingMode() != null
@@ -367,7 +367,7 @@ public class ChatModelFactory {
             reasoningEffort = null;
         }
 
-        return new com.kbook.service.ai.ChatModelManager.AiCallLogContext(
+        return new com.kbook.service.ai.core.ChatModelManager.AiCallLogContext(
                 scene.name(),
                 modelName,
                 configName,
@@ -468,7 +468,7 @@ public class ChatModelFactory {
     /**
      * 按用途取首个启用的配置（带缓存）。
      * <p>
-     * 与 {@link com.kbook.service.ai.AiProviderConfigService#getFirstEnabledByPurpose(String)}
+     * 与 {@link com.kbook.service.ai.core.AiProviderConfigService#getFirstEnabledByPurpose(String)}
      * 走同一查询；缓存随配置变更整体失效（{@link #invalidateCaches}）。
      * 返回 {@link Optional} 以便缓存"未找到"这一结果。
      */
@@ -756,7 +756,7 @@ public class ChatModelFactory {
             Integer thinkingBudget
     ) {
         /** 从 ResolvedSceneConfig 构建思考参数（联动） */
-        public static ThinkingConfig from(com.kbook.service.ai.AiSceneConfigService.ResolvedSceneConfig resolved) {
+        public static ThinkingConfig from(com.kbook.service.ai.core.AiSceneConfigService.ResolvedSceneConfig resolved) {
             AiProviderConfig.ThinkingMode mode = resolved.providerConfig().getThinkingMode();
             if (mode == null) {
                 mode = AiProviderConfig.ThinkingMode.SWITCH; // 老配置兼容

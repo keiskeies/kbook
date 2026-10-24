@@ -1,7 +1,7 @@
 package com.kbook.service.book;
 import com.kbook.service.user.UserService;
 import com.kbook.service.ai.BookChatService;
-import com.kbook.service.ai.ChatModelManager;
+import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.UserProfileBuilder;
 import com.kbook.service.ai.streaming.StreamingSseHandler;
 
@@ -99,7 +99,7 @@ public class BookParserService {
     private final ObjectMapper objectMapper; // JSON对象映射器
     private final BookStorageProperties storageProps; // 书籍存储配置属性
     private final ExecutorService sseExecutor;
-    private final com.kbook.service.ai.RagAnswerCache ragAnswerCache;
+    private final com.kbook.service.ai.rag.RagAnswerCache ragAnswerCache;
     private final com.kbook.service.ai.SpeedReadCache speedReadCache;
 
     public BookParserService(
@@ -112,7 +112,7 @@ public class BookParserService {
             EmbeddingService embeddingService,
             ObjectMapper objectMapper,
             BookStorageProperties storageProps,
-            com.kbook.service.ai.RagAnswerCache ragAnswerCache,
+            com.kbook.service.ai.rag.RagAnswerCache ragAnswerCache,
             com.kbook.service.ai.SpeedReadCache speedReadCache,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.chatModelFactory = chatModelFactory;

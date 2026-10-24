@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.debate;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,6 +52,8 @@ import java.time.LocalDateTime;
 
 import static com.kbook.common.util.QueryBuilder.eq;
 import static com.kbook.common.util.QueryBuilder.ne;
+import com.kbook.service.ai.core.ChatModelManager;
+import com.kbook.service.ai.core.AiUsageContext;
 
 /**
  * 奇葩说辩论服务 — AI 辩论功能核心

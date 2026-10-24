@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import com.kbook.service.ai.core.ChatModelManager;
 
 /**
  * AI 工具服务 — LangChain4j @Tool 注解方法，供大模型自主调用

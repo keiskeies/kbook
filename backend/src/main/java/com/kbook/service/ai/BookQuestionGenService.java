@@ -21,6 +21,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
+import com.kbook.service.ai.core.ChatModelManager;
+import com.kbook.service.ai.core.AiUsageContext;
 
 /**
  * 图书预设问题生成服务

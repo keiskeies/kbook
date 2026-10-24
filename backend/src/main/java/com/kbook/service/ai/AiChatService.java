@@ -39,6 +39,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.kbook.common.util.QueryBuilder.*;
+import com.kbook.service.ai.core.AiProviderConfigService;
+import com.kbook.service.ai.core.AiUsageContext;
 
 /**
  * AI 通用对话服务

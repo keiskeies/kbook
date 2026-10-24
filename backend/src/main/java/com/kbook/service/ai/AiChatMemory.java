@@ -24,6 +24,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
 import static com.kbook.common.util.QueryBuilder.*;
+import com.kbook.service.ai.core.AiSceneConfigService;
 
 /**
  * LangChain4j ChatMemory 存储实现

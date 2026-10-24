@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.ai.admin;
 
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.Result;

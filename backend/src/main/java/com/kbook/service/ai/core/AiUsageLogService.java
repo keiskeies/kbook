@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.ai.core;
 
 import com.kbook.entity.AiUsageLog;
 import com.kbook.repository.AiUsageLogRepository;

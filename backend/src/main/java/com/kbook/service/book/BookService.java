@@ -18,7 +18,7 @@ import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.UserReadHistoryRepository;
-import com.kbook.service.ai.ChatModelManager;
+import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.embedding.EmbeddingService;
 import com.kbook.service.recommend.BookDimensionScoreService;
 import dev.langchain4j.data.message.ChatMessage;

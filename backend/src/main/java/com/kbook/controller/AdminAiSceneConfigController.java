@@ -5,7 +5,7 @@ import com.kbook.entity.AiProviderConfig;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.AiSceneConfig;
 import com.kbook.repository.AiProviderConfigRepository;
-import com.kbook.service.ai.AiSceneConfigService;
+import com.kbook.service.ai.core.AiSceneConfigService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

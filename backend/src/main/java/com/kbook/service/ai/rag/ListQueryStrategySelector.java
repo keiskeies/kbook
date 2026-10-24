@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.ai.rag;
 
 import com.kbook.entity.Book;
 import com.kbook.service.embedding.EmbeddingService;

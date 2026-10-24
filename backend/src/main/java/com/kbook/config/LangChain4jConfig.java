@@ -1,5 +1,5 @@
 package com.kbook.config;
-import com.kbook.service.ai.AiProviderConfigService;
+import com.kbook.service.ai.core.AiProviderConfigService;
 
 import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiScene;

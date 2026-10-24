@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.ai.core;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;

@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.ai.core;
 
 import org.slf4j.MDC;
 

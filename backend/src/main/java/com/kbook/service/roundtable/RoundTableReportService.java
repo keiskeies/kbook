@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.roundtable;
 
 import com.kbook.common.exception.BusinessException;
 import com.kbook.config.annotation.RedisLock;
@@ -31,6 +31,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
+import com.kbook.service.ai.core.ChatModelManager;
+import com.kbook.service.ai.core.AiProviderConfigService;
+import com.kbook.service.ai.core.AiSceneConfigService;
 
 /**
  * 圆桌派解读报告服务

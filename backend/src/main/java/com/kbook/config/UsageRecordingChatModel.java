@@ -1,8 +1,8 @@
 package com.kbook.config;
 
-import com.kbook.service.ai.AiUsageContext;
-import com.kbook.service.ai.AiUsageLogService;
-import com.kbook.service.ai.AiUsageLogService.UsageEvent;
+import com.kbook.service.ai.core.AiUsageContext;
+import com.kbook.service.ai.core.AiUsageLogService;
+import com.kbook.service.ai.core.AiUsageLogService.UsageEvent;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;

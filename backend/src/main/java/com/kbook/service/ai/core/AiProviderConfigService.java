@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.ai.core;
 
 import com.kbook.common.util.TransactionUtils;
 import com.kbook.config.AiConfigCacheInvalidator;
@@ -20,6 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import com.kbook.service.ai.admin.BookAdminChatService;
+import com.kbook.service.ai.AiAssistant;
+import com.kbook.service.ai.AiChatMemory;
+import com.kbook.service.ai.AiToolService;
 
 /**
  * AI 配置服务 — 全部从数据库读取，不再回退 yml
@@ -28,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * - QA: 大型问答（图书问答、AI助理、圆桌派、奇葩说）
  * - TOOL: 小型工具（元数据推断、内容压缩、查询扩展等）
  * <p>
- * 缓存策略：配置解析结果由 {@link com.kbook.service.ai.AiSceneConfigService} 缓存，
+ * 缓存策略：配置解析结果由 {@link com.kbook.service.ai.core.AiSceneConfigService} 缓存，
  * Assistant 实例由本类的 {@code chatAssistantCache} 缓存；
  * 所有缓存在配置变更后由 {@link AiConfigCacheInvalidator} 统一失效（跨副本生效）。
  * 此前的 {@code kbook:ai:config:*} Redis 键为写后从不读取的死代码，已移除。

@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.debate;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +26,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
+import com.kbook.service.ai.core.ChatModelManager;
 
 /**
  * 奇葩说辩论评分服务 — 对单次发言进行7维度评分

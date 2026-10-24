@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.ai.admin;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
@@ -29,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.kbook.service.ai.core.AiUsageContext;
 
 /**
  * 管理员 AI 对话服务

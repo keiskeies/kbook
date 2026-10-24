@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.debate;
 
 import com.kbook.common.exception.BusinessException;
 import com.kbook.constants.AiPromptConstants;
@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
+import com.kbook.service.ai.core.ChatModelManager;
 
 /**
  * 奇葩说辩论报告服务 — 异步生成完整辩论报告

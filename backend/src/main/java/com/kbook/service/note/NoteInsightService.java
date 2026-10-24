@@ -11,7 +11,7 @@ import com.kbook.entity.Note;
 import com.kbook.entity.NoteInsight;
 import com.kbook.repository.NoteInsightRepository;
 import com.kbook.repository.NoteRepository;
-import com.kbook.service.ai.ChatModelManager;
+import com.kbook.service.ai.core.ChatModelManager;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;

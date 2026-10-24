@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.ai.admin;
 import com.kbook.service.book.BookScanService;
 import com.kbook.service.book.BookService;
 

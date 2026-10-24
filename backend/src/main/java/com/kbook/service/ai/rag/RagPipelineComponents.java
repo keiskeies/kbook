@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.ai.rag;
 
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.segment.TextSegment;

@@ -69,6 +69,15 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
+import com.kbook.service.ai.rag.ListQueryDetector;
+import com.kbook.service.ai.rag.ListQueryRetriever;
+import com.kbook.service.ai.rag.ListQueryStrategySelector;
+import com.kbook.service.ai.rag.ItemListRetriever;
+import com.kbook.service.ai.rag.RagPipelineComponents;
+import com.kbook.service.ai.core.ChatModelManager;
+import com.kbook.service.ai.core.AiProviderConfigService;
+import com.kbook.service.ai.core.AiSceneConfigService;
+import com.kbook.service.ai.core.AiUsageContext;
 
 /**
  * 图书问答服务

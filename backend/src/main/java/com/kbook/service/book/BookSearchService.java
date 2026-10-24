@@ -1,5 +1,5 @@
 package com.kbook.service.book;
-import com.kbook.service.ai.ChatModelManager;
+import com.kbook.service.ai.core.ChatModelManager;
 
 import com.kbook.service.embedding.EmbeddingService;
 

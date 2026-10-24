@@ -1,4 +1,4 @@
-package com.kbook.service.ai;
+package com.kbook.service.roundtable;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +28,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
+import com.kbook.service.ai.core.ChatModelManager;
 
 /**
  * 圆桌派覆盖度服务 — 从 RoundTableCoverageTest 提取的实时版

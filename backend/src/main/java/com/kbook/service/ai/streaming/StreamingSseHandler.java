@@ -2,7 +2,7 @@ package com.kbook.service.ai.streaming;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
-import com.kbook.service.ai.ChatModelManager.AiCallLogContext;
+import com.kbook.service.ai.core.ChatModelManager.AiCallLogContext;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
