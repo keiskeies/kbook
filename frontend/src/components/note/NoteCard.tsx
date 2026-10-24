@@ -1,23 +1,33 @@
 import { useNavigate } from 'react-router-dom'
-import { BookOpen } from 'lucide-react'
-import type { NoteVO } from '@/api/note'
+import { BookOpen, BookmarkPlus, Lightbulb, MessagesSquare, Quote } from 'lucide-react'
+import type { NoteType, NoteVO } from '@/api/note'
 import { formatRelativeTime } from '@/utils/time'
+import { cn } from '@/utils/cn'
 import { NOTE_TYPE_LABEL } from './meta'
 import { NoteSourceCard } from './NoteSourceCard'
 
+const TYPE_META: Record<NoteType, { icon: typeof Lightbulb; className: string }> = {
+  THOUGHT: { icon: Lightbulb, className: 'bg-amber-500/10 text-amber-600' },
+  REVIEW_CAPTURE: { icon: BookmarkPlus, className: 'bg-primary/10 text-primary' },
+  EXCERPT: { icon: Quote, className: 'bg-sky-500/10 text-sky-600' },
+  CONVERSATION: { icon: MessagesSquare, className: 'bg-violet-500/10 text-violet-600' },
+}
+
 export function NoteCard({ note }: { note: NoteVO }) {
   const navigate = useNavigate()
-  const openDetail = () => navigate(`/notes/${note.id}`)
+  const meta = TYPE_META[note.noteType] ?? TYPE_META.THOUGHT
+  const Icon = meta.icon
 
   return (
     <article
-      onClick={openDetail}
+      onClick={() => navigate(`/notes/${note.id}`)}
       className="cursor-pointer rounded-2xl border border-border/50 bg-card p-4 transition-colors hover:border-border"
     >
       <div className="flex items-center gap-2">
-        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-          {NOTE_TYPE_LABEL[note.noteType]}
+        <span className={cn('flex h-6 w-6 items-center justify-center rounded-lg', meta.className)}>
+          <Icon className="h-3.5 w-3.5" />
         </span>
+        <span className="text-xs font-medium text-muted-foreground">{NOTE_TYPE_LABEL[note.noteType]}</span>
         <span className="ml-auto text-xs text-muted-foreground">{formatRelativeTime(note.occurredAt)}</span>
       </div>
 

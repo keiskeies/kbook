@@ -65,6 +65,9 @@ export default function NoteDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['notes', 'detail', noteId] })
     queryClient.invalidateQueries({ queryKey: ['notes', 'revisions', noteId] })
     queryClient.invalidateQueries({ queryKey: ['notes', 'count'] })
+    queryClient.invalidateQueries({ queryKey: ['notes', 'stats'] })
+    queryClient.invalidateQueries({ queryKey: ['notes', 'throwback'] })
+    queryClient.invalidateQueries({ queryKey: ['notes', 'semantic'] })
   }
 
   const deleteMutation = useMutation({

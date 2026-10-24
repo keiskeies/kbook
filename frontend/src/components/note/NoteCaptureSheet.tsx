@@ -52,6 +52,9 @@ export function NoteCaptureSheet({ open, onOpenChange, review, initialExcerpt }:
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notes', 'timeline'] })
       queryClient.invalidateQueries({ queryKey: ['notes', 'count'] })
+      queryClient.invalidateQueries({ queryKey: ['notes', 'stats'] })
+      queryClient.invalidateQueries({ queryKey: ['notes', 'throwback'] })
+      queryClient.invalidateQueries({ queryKey: ['notes', 'semantic'] })
       if (review) queryClient.invalidateQueries({ queryKey: ['book', 'reviews', review.bookId] })
       queryClient.invalidateQueries({ queryKey: ['review', 'detail', review?.id] })
       toast.success('已收录进笔记')

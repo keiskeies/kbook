@@ -4,6 +4,7 @@ import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
 import com.kbook.dto.note.NoteCreateRequest;
 import com.kbook.dto.note.NoteRevisionVO;
+import com.kbook.dto.note.NoteStatsVO;
 import com.kbook.dto.note.NoteUpdateRequest;
 import com.kbook.dto.note.NoteVO;
 import com.kbook.dto.note.ReviewCaptureRequest;
@@ -53,6 +54,18 @@ public class NoteController extends BaseController {
     @GetMapping("/count")
     public Result<Long> countNotes() {
         return Result.ok(noteService.countNotes(extractUserId()));
+    }
+
+    @Operation(summary = "笔记成长概览")
+    @GetMapping("/stats")
+    public Result<NoteStatsVO> getStats() {
+        return Result.ok(noteService.getStats(extractUserId()));
+    }
+
+    @Operation(summary = "时光机：翻出一条过去的笔记")
+    @GetMapping("/throwback")
+    public Result<NoteVO> getThrowback() {
+        return Result.ok(noteService.getThrowback(extractUserId()));
     }
 
     @Operation(summary = "搜索我的笔记")

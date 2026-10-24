@@ -9,6 +9,7 @@ import com.kbook.common.util.QueryBuilder;
 import com.kbook.dto.note.NoteCreateRequest;
 import com.kbook.dto.note.NoteRevisionVO;
 import com.kbook.dto.note.NoteSourceSnapshot;
+import com.kbook.dto.note.NoteStatsVO;
 import com.kbook.dto.note.NoteUpdateRequest;
 import com.kbook.dto.note.NoteVO;
 import com.kbook.entity.Note;
@@ -26,15 +27,21 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
+import static com.kbook.common.util.QueryBuilder.between;
 import static com.kbook.common.util.QueryBuilder.eq;
 import static com.kbook.common.util.QueryBuilder.in;
 import static com.kbook.common.util.QueryBuilder.isNull;
+import static com.kbook.common.util.QueryBuilder.le;
 
 /**
  * 笔记服务 — 私人资产的 CRUD 与时间轴查询。
@@ -198,6 +205,88 @@ public class NoteService {
 
     public long countNotes(Long userId) {
         return noteRepository.countByUserIdAndDeletedAtIsNull(userId);
+    }
+
+    /**
+     * 成长概览 — 总数、本周、涉及书目、连续记录天数与各类型计数
+     */
+    public NoteStatsVO getStats(Long userId) {
+        LocalDateTime weekStart = LocalDate.now().with(DayOfWeek.MONDAY).atStartOfDay();
+        Set<LocalDate> days = noteRepository.findOccurredAtSince(userId, LocalDateTime.now().minusDays(400))
+                .stream()
+                .map(LocalDateTime::toLocalDate)
+                .collect(Collectors.toSet());
+        return NoteStatsVO.builder()
+                .total(noteRepository.countByUserIdAndDeletedAtIsNull(userId))
+                .weekCount(noteRepository.countByUserIdAndDeletedAtIsNullAndOccurredAtGreaterThanEqual(userId, weekStart))
+                .bookCount(noteRepository.countDistinctBooks(userId))
+                .streakDays(computeStreak(days))
+                .thoughtCount(noteRepository.countByUserIdAndDeletedAtIsNullAndNoteType(userId, NoteType.THOUGHT))
+                .captureCount(noteRepository.countByUserIdAndDeletedAtIsNullAndNoteType(userId, NoteType.REVIEW_CAPTURE))
+                .excerptCount(noteRepository.countByUserIdAndDeletedAtIsNullAndNoteType(userId, NoteType.EXCERPT))
+                .build();
+    }
+
+    /**
+     * 时光机 — 优先「去年今天」「一个月前的今天」，否则随机翻一条 30 天前的笔记
+     */
+    public NoteVO getThrowback(Long userId) {
+        LocalDateTime now = LocalDateTime.now();
+        NoteVO hit = firstInWindow(userId, now.minusYears(1).minusDays(2), now.minusYears(1).plusDays(2));
+        if (hit != null) {
+            return hit;
+        }
+        hit = firstInWindow(userId, now.minusMonths(1).minusDays(3), now.minusMonths(1).plusDays(3));
+        if (hit != null) {
+            return hit;
+        }
+
+        LocalDateTime cutoff = now.minusDays(30);
+        long count = noteRepository.query()
+                .where(Note::getUserId, eq(userId))
+                .and(Note::getDeletedAt, isNull())
+                .and(Note::getOccurredAt, le(cutoff))
+                .value();
+        if (count == 0) {
+            return null;
+        }
+        int offset = ThreadLocalRandom.current().nextInt((int) Math.min(count, 500));
+        Page<Note> page = noteRepository.query()
+                .where(Note::getUserId, eq(userId))
+                .and(Note::getDeletedAt, isNull())
+                .and(Note::getOccurredAt, le(cutoff))
+                .orderByDesc(Note::getOccurredAt)
+                .page(offset, 1);
+        return page.isEmpty() ? null : toVO(page.getContent().get(0));
+    }
+
+    private NoteVO firstInWindow(Long userId, LocalDateTime from, LocalDateTime to) {
+        Page<Note> page = noteRepository.query()
+                .where(Note::getUserId, eq(userId))
+                .and(Note::getDeletedAt, isNull())
+                .and(Note::getOccurredAt, between(from, to))
+                .orderByDesc(Note::getOccurredAt)
+                .page(0, 1);
+        return page.isEmpty() ? null : toVO(page.getContent().get(0));
+    }
+
+    /** 今天或昨天有记录即视为连续中，向前逐日统计 */
+    private long computeStreak(Set<LocalDate> days) {
+        if (days.isEmpty()) {
+            return 0;
+        }
+        LocalDate today = LocalDate.now();
+        LocalDate cursor = days.contains(today) ? today
+                : days.contains(today.minusDays(1)) ? today.minusDays(1) : null;
+        if (cursor == null) {
+            return 0;
+        }
+        long count = 0;
+        while (days.contains(cursor)) {
+            count++;
+            cursor = cursor.minusDays(1);
+        }
+        return count;
     }
 
     // ==================== 内部方法 ====================

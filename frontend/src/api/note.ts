@@ -62,6 +62,16 @@ export interface NoteInsightVO {
   createdAt: string
 }
 
+export interface NoteStatsVO {
+  total: number
+  weekCount: number
+  bookCount: number
+  streakDays: number
+  thoughtCount: number
+  captureCount: number
+  excerptCount: number
+}
+
 export interface CapturePayload {
   mode: CaptureMode
   excerpt?: string | null
@@ -87,6 +97,14 @@ export function getTimeline(params: TimelineParams) {
 
 export function countNotes() {
   return request.get<number>('/notes/count')
+}
+
+export function getNoteStats() {
+  return request.get<NoteStatsVO>('/notes/stats')
+}
+
+export function getThrowback() {
+  return request.get<NoteVO | null>('/notes/throwback')
 }
 
 export function searchNotes(keyword: string, page = 1, size = 20) {
