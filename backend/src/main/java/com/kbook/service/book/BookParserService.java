@@ -26,6 +26,7 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.output.FinishReason;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import nl.siegmann.epublib.domain.MediaType;
@@ -99,6 +100,7 @@ public class BookParserService {
     private final BookStorageProperties storageProps; // 书籍存储配置属性
     private final ExecutorService sseExecutor;
     private final com.kbook.service.ai.RagAnswerCache ragAnswerCache;
+    private final com.kbook.service.ai.SpeedReadCache speedReadCache;
 
     public BookParserService(
             ChatModelFactory chatModelFactory,
@@ -111,6 +113,7 @@ public class BookParserService {
             ObjectMapper objectMapper,
             BookStorageProperties storageProps,
             com.kbook.service.ai.RagAnswerCache ragAnswerCache,
+            com.kbook.service.ai.SpeedReadCache speedReadCache,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.chatModelFactory = chatModelFactory;
         this.chatModelManager = chatModelManager;
@@ -122,6 +125,7 @@ public class BookParserService {
         this.objectMapper = objectMapper;
         this.storageProps = storageProps;
         this.ragAnswerCache = ragAnswerCache;
+        this.speedReadCache = speedReadCache;
         this.sseExecutor = sseExecutor;
     }
 
@@ -2077,6 +2081,33 @@ public class BookParserService {
      * @param emitter SSE 发送器，用于推送流式数据
      */
     public void streamSpeedRead(Book book, User user, SseEmitter emitter) {
+        Long bookId = book.getId();
+        Long userId = user != null ? user.getId() : null;
+
+        // 书籍内容 + 稳定画像指纹：任一变化都视为未命中（画像更新还会整体 DEL 用户 key）
+        String bookContent = BookChatService.buildSpeedReadContent(book);
+        String bookFp = speedReadCache.fingerprint(bookContent);
+        String profileFp = speedReadCache.fingerprint(userProfileBuilder.buildStableSignature(user));
+
+        // ① 命中缓存：按行分块流式回放，前端协议与真实生成一致
+        String cached = speedReadCache.get(bookId, userId, bookFp, profileFp);
+        if (cached != null) {
+            speedReadCache.replay(emitter, cached);
+            return;
+        }
+
+        // ② 未命中：抢生成锁，避免同用户同书并发重复调用 LLM
+        boolean lockAcquired = speedReadCache.tryLock(bookId, userId);
+        if (!lockAcquired) {
+            String concurrentResult = speedReadCache.awaitCached(bookId, userId, bookFp, profileFp);
+            if (concurrentResult != null) {
+                speedReadCache.replay(emitter, concurrentResult);
+                return;
+            }
+            log.info("[SPEED-READ-CACHE] 另一请求生成中，本次降级为不写缓存: bookId={}, userId={}",
+                    bookId, userId);
+        }
+
         try {
             // 获取流式模型实例（按场景路由）
             StreamingChatModel model = chatModelFactory.buildStreamingForScene(AiScene.SPEED_READ);
@@ -2086,8 +2117,6 @@ public class BookParserService {
             }
             var logContext = chatModelFactory.buildLogContext(AiScene.SPEED_READ);
 
-            // 构建书籍内容和用户画像
-            String bookContent = BookChatService.buildSpeedReadContent(book);
             String userProfileDesc = userProfileBuilder.build(user);
 
             // 固定角色 + 格式指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
@@ -2101,8 +2130,6 @@ public class BookParserService {
                 messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc + "\n\n /no_think"));
             }
 
-            long startTime = System.currentTimeMillis();
-
             StreamingSseHandler.stream(model, messages, emitter, new StreamingSseHandler.Callback() {
                 @Override
                 public String getOperationName() {
@@ -2112,12 +2139,36 @@ public class BookParserService {
                 @Override
                 public void onComplete(String fullResponse, ChatResponse completeResponse) {
                     // 统一摘要日志已由 StreamingSseHandler.onCompleteResponse 打印
+                    if (!lockAcquired) return;
+                    FinishReason finishReason = completeResponse != null ? completeResponse.finishReason() : null;
+                    if (finishReason == FinishReason.LENGTH) {
+                        log.warn("[SPEED-READ-CACHE] 输出被 token 上限截断，跳过缓存: bookId={}, userId={}",
+                                bookId, userId);
+                        return;
+                    }
+                    if (!isCacheableSpeedRead(fullResponse)) {
+                        log.warn("[SPEED-READ-CACHE] 输出结构不完整，跳过缓存: bookId={}, userId={}",
+                                bookId, userId);
+                        return;
+                    }
+                    speedReadCache.put(bookId, userId, bookFp, profileFp, fullResponse);
                 }
             }, 2, logContext);
         } catch (Exception e) {
             if (Thread.currentThread().isInterrupted()) return;
-            log.warn("流式速读摘要异常: bookId={} - {}", book.getId(), e.getMessage());
+            log.warn("流式速读摘要异常: bookId={} - {}", bookId, e.getMessage());
             SseHelper.sendErrorAndComplete(emitter, SseHelper.extractFriendlyError(e));
+        } finally {
+            if (lockAcquired) {
+                speedReadCache.unlock(bookId, userId);
+            }
         }
+    }
+
+    /**
+     * 只有结构完整的输出才写入缓存，避免把半截内容或异常文本长期留在缓存里。
+     */
+    private static boolean isCacheableSpeedRead(String text) {
+        return text != null && text.length() >= 100 && text.contains("### ");
     }
 }

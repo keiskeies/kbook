@@ -3,10 +3,12 @@ import com.kbook.service.auth.AuthService;
 import com.kbook.service.notification.EmailNotificationService;
 
 import com.kbook.service.recommend.RecommendService;
+import com.kbook.service.ai.SpeedReadCache;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.common.util.TransactionUtils;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.BookStorageProperties;
@@ -67,6 +69,9 @@ public class UserService {
     @Autowired
     @Lazy
     private EmailNotificationService emailNotificationService;
+    /** 速读缓存（画像更新后整体清空该用户缓存） */
+    @Autowired
+    private SpeedReadCache speedReadCache;
 
     /**
      * 根据ID获取用户，不存在则抛出异常
@@ -333,6 +338,8 @@ public class UserService {
             user.setAspirationIncome(CommonUtils.sanitizeHtml(aspirationIncome));
         user = userRepository.save(user);
         recommendService.asyncRecompute(userId);
+        // 稳定画像变更：事务提交后清空该用户全部速读缓存（一次 DEL）
+        TransactionUtils.afterCommit(() -> speedReadCache.invalidateUser(userId));
         return user;
     }
 

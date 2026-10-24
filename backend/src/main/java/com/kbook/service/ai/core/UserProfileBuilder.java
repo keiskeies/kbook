@@ -30,6 +30,18 @@ public class UserProfileBuilder {
      * @return 用户画像描述文本，user 为 null 时返回空字符串
      */
     public String build(User user) {
+        return buildInternal(user, true);
+    }
+
+    /**
+     * 构建稳定画像签名 — 排除会频繁变化的「当前心情/阅读意图」，用于缓存失效判断。
+     * <p>年龄按当天计算，跨年生日会自然产生新签名。</p>
+     */
+    public String buildStableSignature(User user) {
+        return buildInternal(user, false);
+    }
+
+    private String buildInternal(User user, boolean includeMood) {
         if (user == null) return "";
 
         StringBuilder sb = new StringBuilder();
@@ -72,7 +84,7 @@ public class UserProfileBuilder {
         if (user.getAspirationIncome() != null) {
             sb.append("期望年收入：").append(RecommendMatchCalculator.getAnnualIncomeLabel(user.getAspirationIncome())).append("\n");
         }
-        if (user.getMood() != null && !user.getMood().isBlank()) {
+        if (includeMood && user.getMood() != null && !user.getMood().isBlank()) {
             String moodRaw = user.getMood();
             int pipeIdx = moodRaw.indexOf('|');
             if (pipeIdx > 0) {
