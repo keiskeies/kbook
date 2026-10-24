@@ -58,7 +58,7 @@ export function NoteStatsHero({ stats, onWrite, onOpenHeatmap }: Props) {
           )
         })}
       </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         {SEGMENTS.map((s) => (
           <span key={s.key} className="flex items-center gap-1">
             <i className={cn('h-1.5 w-1.5 rounded-full', s.className)} />
@@ -107,13 +107,13 @@ export function NoteStatsHero({ stats, onWrite, onOpenHeatmap }: Props) {
 
               <div className="mt-3">
                 {todayCount > 0 ? (
-                  <span className="inline-flex rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
+                  <span className="inline-flex h-9 items-center rounded-full bg-primary/10 px-3.5 text-xs font-medium text-primary">
                     今天已记 {todayCount} 条
                   </span>
                 ) : (
                   <button
                     onClick={onWrite}
-                    className="flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                    className="flex h-9 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
                   >
                     <PenLine className="h-3.5 w-3.5" />
                     {stats.streakDays > 0 ? '今天还没记，写一句保持连续' : '记下第一笔'}
@@ -126,12 +126,12 @@ export function NoteStatsHero({ stats, onWrite, onOpenHeatmap }: Props) {
           </div>
 
           <div className="mt-5 md:flex md:min-w-0 md:flex-1 md:flex-col md:justify-center md:pt-1">
-            <p className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">
+            <p className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
               <span>近 7 天节奏 · {weekTotal} 条</span>
               {onOpenHeatmap && (
                 <button
                   onClick={onOpenHeatmap}
-                  className="flex items-center gap-0.5 font-medium text-primary transition-colors hover:text-primary/80"
+                  className="flex h-8 items-center gap-0.5 px-1 font-medium text-primary transition-colors hover:text-primary/80"
                 >
                   全年足迹
                   <ArrowRight className="h-3 w-3" />
@@ -146,7 +146,7 @@ export function NoteStatsHero({ stats, onWrite, onOpenHeatmap }: Props) {
                   <div key={d.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
                     <span
                       className={cn(
-                        'text-[10px] tabular-nums transition-colors',
+                        'text-xs tabular-nums transition-colors',
                         d.count > 0 ? 'text-muted-foreground' : 'text-transparent'
                       )}
                     >
@@ -163,7 +163,7 @@ export function NoteStatsHero({ stats, onWrite, onOpenHeatmap }: Props) {
                     </div>
                     <span
                       className={cn(
-                        'text-[10px]',
+                        'text-xs',
                         isToday ? 'font-semibold text-foreground' : 'text-muted-foreground/70'
                       )}
                     >

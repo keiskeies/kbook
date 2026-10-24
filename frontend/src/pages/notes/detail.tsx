@@ -280,7 +280,7 @@ export default function NoteDetailPage() {
       <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-20 md:pb-8">
         <div className="mx-auto w-full max-w-2xl">
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
               {NOTE_TYPE_LABEL[note.noteType]}
             </span>
             <span className="text-xs text-muted-foreground">{formatRelativeTime(note.occurredAt)}</span>
@@ -305,7 +305,7 @@ export default function NoteDetailPage() {
           {(note.tags ?? []).length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {(note.tags ?? []).map((tag) => (
-                <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                   #{tag}
                 </span>
               ))}
@@ -356,8 +356,8 @@ export default function NoteDetailPage() {
                 >
                   <ChevronLeft className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0">
-                    <span className="block text-[10px] text-muted-foreground">上一条 · 更早</span>
-                    <span className="block truncate text-xs font-medium">{neighbors.prev!.title || '未命名笔记'}</span>
+                    <span className="block text-xs text-muted-foreground">上一条 · 更早</span>
+                    <span className="block truncate text-sm font-medium">{neighbors.prev!.title || '未命名笔记'}</span>
                   </span>
                 </button>
               ) : <span />}
@@ -367,8 +367,8 @@ export default function NoteDetailPage() {
                   className="flex items-center justify-end gap-2 rounded-xl border border-border/50 bg-card p-3 text-right transition-colors hover:border-primary/35"
                 >
                   <span className="min-w-0">
-                    <span className="block text-[10px] text-muted-foreground">下一条 · 更新</span>
-                    <span className="block truncate text-xs font-medium">{neighbors.next!.title || '未命名笔记'}</span>
+                    <span className="block text-xs text-muted-foreground">下一条 · 更新</span>
+                    <span className="block truncate text-sm font-medium">{neighbors.next!.title || '未命名笔记'}</span>
                   </span>
                   <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                 </button>

@@ -197,7 +197,7 @@ function ThrowbackCard({
       <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-warning/10 blur-2xl" />
       <button
         onClick={onDismiss}
-        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/60 transition-colors hover:bg-muted"
+        className="absolute right-1.5 top-1.5 flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground/60 transition-colors hover:bg-muted"
         aria-label="关闭时光机"
       >
         <X className="h-3.5 w-3.5" />
@@ -210,7 +210,7 @@ function ThrowbackCard({
       {note.title && <p className="mt-2 text-sm font-semibold leading-snug">{note.title}</p>}
       <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed">{words}</p>
       <div className="mt-2.5 flex items-center gap-3">
-        <button onClick={onOpen} className="text-xs font-semibold text-primary">再看看 →</button>
+        <button onClick={onOpen} className="inline-flex h-8 items-center px-1 text-xs font-semibold text-primary">再看看 →</button>
         <button
           onClick={onShuffle}
           disabled={refreshing}
@@ -234,7 +234,7 @@ function PromptCard({ question, onWrite }: { question: string; onWrite: () => vo
       <p className="mt-2 text-sm leading-relaxed">{question}</p>
       <button
         onClick={onWrite}
-        className="mt-3 flex items-center gap-1 text-xs font-semibold text-primary transition-transform active:translate-x-0.5"
+        className="mt-2 flex h-8 items-center gap-1 px-1 text-xs font-semibold text-primary transition-transform active:translate-x-0.5"
       >
         写一写 <ArrowRight className="h-3.5 w-3.5" />
       </button>
@@ -258,7 +258,7 @@ function BookRail({
           <LibraryBig className="h-3.5 w-3.5" />
           常写的书
         </p>
-        <button onClick={onAll} className="text-[11px] text-muted-foreground transition-colors hover:text-primary">
+        <button onClick={onAll} className="inline-flex h-8 items-center px-1 text-xs text-muted-foreground transition-colors hover:text-primary">
           全部
         </button>
       </div>
@@ -277,7 +277,7 @@ function BookRail({
               </span>
             )}
             <span className="min-w-0 flex-1 truncate text-xs font-medium">{book.bookTitle ?? '未命名书籍'}</span>
-            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{book.count}</span>
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{book.count}</span>
           </button>
         ))}
       </div>
@@ -306,7 +306,7 @@ function TagRail({
             key={t.tag}
             onClick={() => onSelect(t.tag)}
             className={cn(
-              'rounded-full px-2 py-0.5 text-[11px] transition-colors',
+              'flex h-8 items-center rounded-full px-3 text-xs transition-colors sm:h-7',
               activeTag === t.tag
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary'
@@ -366,7 +366,7 @@ function SearchField({
           onClick={onToggleSemantic}
           onMouseDown={(e) => e.preventDefault()}
           className={cn(
-            'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors',
+            'shrink-0 rounded-full px-2 py-0.5 text-xs font-medium transition-colors',
             semantic ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground'
           )}
           title="按语义相关度搜索"
@@ -730,7 +730,7 @@ export default function NotesPage() {
               <button
                 onClick={openAsk}
                 title="问我的笔记"
-                className="flex items-center gap-1.5 rounded-xl border border-border/60 bg-card px-2.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/35 hover:text-primary sm:px-3"
+                className="flex h-9 items-center gap-1.5 rounded-xl border border-border/60 bg-card px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/35 hover:text-primary"
               >
                 <MessagesSquare className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">问笔记</span>
@@ -738,7 +738,7 @@ export default function NotesPage() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
-                    className="flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     aria-label="更多操作"
                   >
                     <MoreHorizontal className="h-4 w-4" />
@@ -762,7 +762,7 @@ export default function NotesPage() {
               </DropdownMenu>
               <button
                 onClick={() => openComposer()}
-                className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-transform active:scale-95"
+                className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-transform active:scale-95"
               >
                 <PenLine className="h-3.5 w-3.5" />
                 记一笔
@@ -786,7 +786,7 @@ export default function NotesPage() {
               onMouseDown={(e) => e.preventDefault()}
               className="absolute left-4 right-4 top-full z-30 mt-1 flex items-center gap-1.5 overflow-x-auto rounded-xl border border-border/60 bg-popover p-2 shadow-lg scrollbar-hide md:left-auto md:right-6 md:w-[420px]"
             >
-              <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/70">
+              <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground/70">
                 <Clock3 className="h-3 w-3" />
                 {recentSearches.length ? '最近' : '常搜'}
               </span>
@@ -801,7 +801,7 @@ export default function NotesPage() {
                       selectTag(item)
                     }
                   }}
-                  className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                  className="flex h-8 shrink-0 items-center rounded-full bg-muted px-3 text-xs text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {recentSearches.length ? item : `#${item}`}
                 </button>
@@ -809,7 +809,7 @@ export default function NotesPage() {
               {recentSearches.length > 0 && (
                 <button
                   onClick={clearHistory}
-                  className="ml-auto shrink-0 text-[11px] text-muted-foreground/60 transition-colors hover:text-foreground"
+                  className="ml-auto flex h-8 shrink-0 items-center px-1.5 text-xs text-muted-foreground/60 transition-colors hover:text-foreground"
                 >
                   清除
                 </button>
@@ -834,7 +834,7 @@ export default function NotesPage() {
                           setFavoritedOnly(false)
                         }}
                         className={cn(
-                          'shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                          'flex h-9 shrink-0 items-center rounded-full px-3.5 text-xs font-medium transition-colors sm:h-8',
                           active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
                         )}
                       >
@@ -849,7 +849,7 @@ export default function NotesPage() {
                       setType('ALL')
                     }}
                     className={cn(
-                      'hidden shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors sm:flex',
+                      'hidden h-8 shrink-0 items-center gap-1 rounded-full px-3.5 text-xs font-medium transition-colors sm:flex',
                       favoritedOnly ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
                     )}
                   >
@@ -873,7 +873,7 @@ export default function NotesPage() {
                       <PopoverTrigger asChild>
                         <button
                           className={cn(
-                            'flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                            'flex h-8 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors',
                             range === 'ALL' && !dayFilter ? 'bg-muted text-muted-foreground' : 'bg-foreground text-background'
                           )}
                           title="时间范围"
@@ -892,7 +892,7 @@ export default function NotesPage() {
                               setRangeOpen(false)
                             }}
                             className={cn(
-                              'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-muted',
+                              'flex w-full items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors hover:bg-muted',
                               range === r.value && !dayFilter && 'bg-accent text-accent-foreground'
                             )}
                           >
@@ -907,7 +907,7 @@ export default function NotesPage() {
                       <PopoverTrigger asChild>
                         <button
                           className={cn(
-                            'flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                            'flex h-8 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors',
                             sort === 'updated' ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
                           )}
                           title="排序方式"
@@ -928,7 +928,7 @@ export default function NotesPage() {
                               setSortOpen(false)
                             }}
                             className={cn(
-                              'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-muted',
+                              'flex w-full items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors hover:bg-muted',
                               sort === option.value && 'bg-accent text-accent-foreground'
                             )}
                           >
@@ -943,7 +943,7 @@ export default function NotesPage() {
                       <PopoverTrigger asChild>
                         <button
                           className={cn(
-                            'flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                            'flex h-8 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors',
                             activeTag ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
                           )}
                           title="按标签筛选"
@@ -953,7 +953,7 @@ export default function NotesPage() {
                         </button>
                       </PopoverTrigger>
                       <PopoverContent align="end" className="w-52 p-1">
-                        <p className="px-2 py-1 text-[11px] font-medium text-muted-foreground">按标签筛选</p>
+                        <p className="px-2 py-1 text-xs font-medium text-muted-foreground">按标签筛选</p>
                         {tags && tags.length > 0 ? (
                           <div className="max-h-64 overflow-y-auto">
                             {tags.map((t) => (
@@ -961,7 +961,7 @@ export default function NotesPage() {
                                 key={t.tag}
                                 onClick={() => selectTag(t.tag)}
                                 className={cn(
-                                  'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-muted',
+                                  'flex w-full items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors hover:bg-muted',
                                   activeTag === t.tag && 'bg-accent text-accent-foreground'
                                 )}
                               >
@@ -971,7 +971,7 @@ export default function NotesPage() {
                             ))}
                           </div>
                         ) : (
-                          <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">还没有标签</p>
+                          <p className="px-2 py-3 text-center text-xs text-muted-foreground">还没有标签</p>
                         )}
                       </PopoverContent>
                     </Popover>
@@ -981,7 +981,7 @@ export default function NotesPage() {
                       <PopoverTrigger asChild>
                         <button
                           className={cn(
-                            'flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors lg:hidden',
+                            'flex h-9 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors lg:hidden',
                             (range !== 'ALL' || sort === 'updated' || activeTag || dayFilter || favoritedOnly)
                               ? 'bg-foreground text-background'
                               : 'bg-muted text-muted-foreground'
@@ -993,7 +993,7 @@ export default function NotesPage() {
                         </button>
                       </PopoverTrigger>
                       <PopoverContent align="end" className="w-64 p-2">
-                        <p className="px-1 py-1 text-[11px] font-medium text-muted-foreground">时间范围</p>
+                        <p className="px-1 py-1 text-xs font-medium text-muted-foreground">时间范围</p>
                         <div className="grid grid-cols-2 gap-1">
                           {RANGES.map((r) => (
                             <button
@@ -1003,7 +1003,7 @@ export default function NotesPage() {
                                 setDayFilter(null)
                               }}
                               className={cn(
-                                'rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted',
+                                'rounded-md px-2.5 py-2 text-left text-xs transition-colors hover:bg-muted',
                                 range === r.value && !dayFilter && 'bg-accent text-accent-foreground'
                               )}
                             >
@@ -1012,7 +1012,7 @@ export default function NotesPage() {
                           ))}
                         </div>
 
-                        <p className="mt-2 px-1 py-1 text-[11px] font-medium text-muted-foreground">排序</p>
+                        <p className="mt-2 px-1 py-1 text-xs font-medium text-muted-foreground">排序</p>
                         <div className="grid grid-cols-2 gap-1">
                           {[
                             { value: 'occurred', label: '记录时间' },
@@ -1022,7 +1022,7 @@ export default function NotesPage() {
                               key={option.value}
                               onClick={() => setSort(option.value as 'occurred' | 'updated')}
                               className={cn(
-                                'rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted',
+                                'rounded-md px-2.5 py-2 text-left text-xs transition-colors hover:bg-muted',
                                 sort === option.value && 'bg-accent text-accent-foreground'
                               )}
                             >
@@ -1037,7 +1037,7 @@ export default function NotesPage() {
                             setType('ALL')
                           }}
                           className={cn(
-                            'mt-2 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors',
+                            'mt-2 flex w-full items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors',
                             favoritedOnly ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'
                           )}
                         >
@@ -1050,7 +1050,7 @@ export default function NotesPage() {
 
                         {tags && tags.length > 0 && (
                           <>
-                            <p className="mt-2 px-1 py-1 text-[11px] font-medium text-muted-foreground">标签</p>
+                            <p className="mt-2 px-1 py-1 text-xs font-medium text-muted-foreground">标签</p>
                             <div className="max-h-40 overflow-y-auto">
                               {tags.map((t) => (
                                 <button
@@ -1060,7 +1060,7 @@ export default function NotesPage() {
                                     setMobileFilterOpen(false)
                                   }}
                                   className={cn(
-                                    'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted',
+                                    'flex w-full items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors hover:bg-muted',
                                     activeTag === t.tag && 'bg-accent text-accent-foreground'
                                   )}
                                 >
@@ -1095,7 +1095,7 @@ export default function NotesPage() {
                     onClick={() => setView('timeline')}
                     title="时间轴"
                     className={cn(
-                      'flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                      'flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium transition-colors',
                       view === 'timeline' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
                     )}
                   >
@@ -1106,7 +1106,7 @@ export default function NotesPage() {
                     onClick={() => setView('books')}
                     title="按书"
                     className={cn(
-                      'flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                      'flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium transition-colors',
                       view === 'books' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
                     )}
                   >
@@ -1117,7 +1117,7 @@ export default function NotesPage() {
 
                 <button
                   onClick={() => setView(view === 'timeline' ? 'books' : 'timeline')}
-                  className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors sm:hidden"
+                  className="flex h-9 items-center gap-1 rounded-full bg-muted px-3 text-xs font-medium text-muted-foreground transition-colors sm:hidden"
                 >
                   {view === 'timeline' ? <LibraryBig className="h-3.5 w-3.5" /> : <History className="h-3.5 w-3.5" />}
                   {view === 'timeline' ? '按书' : '时间轴'}
@@ -1145,24 +1145,24 @@ export default function NotesPage() {
             {effectiveView === 'timeline' && (activeBook || activeTag || dayFilter) && (
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 {activeBook && (
-                  <span className="flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs">
+                  <span className="flex h-8 items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 text-xs">
                     <BookOpen className="h-3.5 w-3.5 text-primary" />
                     只看《{activeBook.bookTitle ?? '未命名书籍'}》
-                    <button onClick={() => setActiveBook(null)} aria-label="清除书籍筛选"><X className="h-3 w-3" /></button>
+                    <button onClick={() => setActiveBook(null)} aria-label="清除书籍筛选" className="flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:bg-primary/10"><X className="h-3.5 w-3.5" /></button>
                   </span>
                 )}
                 {activeTag && (
-                  <span className="flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs">
+                  <span className="flex h-8 items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 text-xs">
                     <Tag className="h-3.5 w-3.5 text-primary" />
                     #{activeTag}
-                    <button onClick={() => setActiveTag(null)} aria-label="清除标签筛选"><X className="h-3 w-3" /></button>
+                    <button onClick={() => setActiveTag(null)} aria-label="清除标签筛选" className="flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:bg-primary/10"><X className="h-3.5 w-3.5" /></button>
                   </span>
                 )}
                 {dayFilter && (
-                  <span className="flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs">
+                  <span className="flex h-8 items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 text-xs">
                     <CalendarDays className="h-3.5 w-3.5 text-primary" />
                     只看 {shortDayLabel(dayFilter)}
-                    <button onClick={() => setDayFilter(null)} aria-label="清除日期筛选"><X className="h-3 w-3" /></button>
+                    <button onClick={() => setDayFilter(null)} aria-label="清除日期筛选" className="flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:bg-primary/10"><X className="h-3.5 w-3.5" /></button>
                   </span>
                 )}
               </div>
@@ -1189,7 +1189,7 @@ export default function NotesPage() {
                     <NotebookPen className="h-7 w-7 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm">这个筛选下还没有笔记</p>
-                  <button onClick={clearAllFilters} className="text-xs font-medium text-primary">清除筛选</button>
+                  <button onClick={clearAllFilters} className="inline-flex h-8 items-center px-2 text-xs font-medium text-primary">清除筛选</button>
                 </div>
               ) : (
                 <WelcomeState onWrite={() => openComposer()} onPrompt={(seed) => openComposer(seed)} />
@@ -1218,7 +1218,7 @@ export default function NotesPage() {
                         <div className="mb-2 flex items-center gap-2">
                           <Pin className="h-3 w-3 rotate-45 text-primary" />
                           <p className="text-xs font-semibold text-primary">置顶</p>
-                          <span className="text-[11px] text-muted-foreground/60">{pinnedNotes.length} 条</span>
+                          <span className="text-xs text-muted-foreground/60">{pinnedNotes.length} 条</span>
                           <div className="h-px flex-1 bg-border/60" />
                         </div>
                         <div className="space-y-3">
@@ -1266,7 +1266,7 @@ export default function NotesPage() {
                           <div className="mb-2 flex items-center gap-2">
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
                             <p className="shrink-0 text-xs font-semibold text-muted-foreground">{dayLabel(g.key)}</p>
-                            <span className="shrink-0 text-[11px] text-muted-foreground/60">{g.items.length} 条</span>
+                            <span className="shrink-0 text-xs text-muted-foreground/60">{g.items.length} 条</span>
                             <div className="h-px flex-1 bg-border/60" />
                           </div>
                           <div className="space-y-3">

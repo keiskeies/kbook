@@ -56,21 +56,21 @@ export function NoteHeatmap({ days, selected, onSelectDay }: Props) {
 
   return (
     <div className="overflow-x-auto pb-1 scrollbar-hide">
-      <div className="min-w-[720px]">
+      <div className="min-w-[900px] sm:min-w-[820px]">
         {/* 月份标签 */}
         <div className="mb-1 flex gap-[3px] pl-7">
           {monthLabels.map((label, i) => (
-            <div key={i} className="relative w-2.5 shrink-0">
-              {label && <span className="absolute left-0 top-0 whitespace-nowrap text-[10px] text-muted-foreground">{label}</span>}
+            <div key={i} className="relative w-3.5 shrink-0 sm:w-3">
+              {label && <span className="absolute left-0 top-0 whitespace-nowrap text-xs text-muted-foreground">{label}</span>}
             </div>
           ))}
         </div>
 
         <div className="flex gap-1">
           {/* 星期标签 */}
-          <div className="flex w-6 shrink-0 flex-col gap-[3px]">
+          <div className="flex w-7 shrink-0 flex-col gap-[3px]">
             {Array.from({ length: 7 }, (_, i) => (
-              <span key={i} className="flex h-2.5 items-center text-[9px] leading-none text-muted-foreground">
+              <span key={i} className="flex h-3.5 items-center text-[11px] leading-none text-muted-foreground sm:h-3">
                 {WEEK_ROWS.includes(i) ? ['日', '一', '二', '三', '四', '五', '六'][i] : ''}
               </span>
             ))}
@@ -87,23 +87,23 @@ export function NoteHeatmap({ days, selected, onSelectDay }: Props) {
                   disabled={cell.count === 0}
                   onClick={() => onSelectDay?.(cell.date)}
                   className={cn(
-                    'h-2.5 w-2.5 rounded-[3px] transition-transform',
+                    'h-3.5 w-3.5 rounded-[4px] transition-transform sm:h-3 sm:w-3',
                     levelClass(cell.count),
                     cell.count > 0 && 'hover:scale-125',
                     selected === cell.date && 'ring-2 ring-foreground/50 ring-offset-1 ring-offset-background'
                   )}
                 />
               ) : (
-                <span key={i} className="h-2.5 w-2.5" />
+                <span key={i} className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
               )
             )}
           </div>
         </div>
 
-        <div className="mt-2 flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
+        <div className="mt-2 flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
           <span>少</span>
           {[0, 1, 3, 6, 10].map((n) => (
-            <span key={n} className={cn('h-2.5 w-2.5 rounded-[3px]', levelClass(n))} />
+            <span key={n} className={cn('h-3.5 w-3.5 rounded-[4px] sm:h-3 sm:w-3', levelClass(n))} />
           ))}
           <span>多</span>
         </div>

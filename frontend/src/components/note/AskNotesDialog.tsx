@@ -90,7 +90,7 @@ export function AskNotesDialog({ open, onOpenChange }: Props) {
                   <button
                     key={s}
                     onClick={() => submit(s)}
-                    className="rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                    className="flex h-9 items-center rounded-full border border-border/60 bg-background px-3.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
                   >
                     {s}
                   </button>
@@ -103,7 +103,7 @@ export function AskNotesDialog({ open, onOpenChange }: Props) {
             <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
               <p className="text-sm">正在翻你的笔记…</p>
-              <p className="text-[11px] text-muted-foreground/70">先检索相关笔记，再组织回答</p>
+              <p className="text-xs text-muted-foreground/70">先检索相关笔记，再组织回答</p>
             </div>
           )}
 
@@ -129,14 +129,14 @@ export function AskNotesDialog({ open, onOpenChange }: Props) {
                         onClick={() => openSource(source.id)}
                         className="flex w-full items-start gap-2.5 rounded-xl border border-border/50 bg-card p-3 text-left transition-colors hover:border-primary/35"
                       >
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-[11px] font-bold text-primary">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">
                           {index + 1}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-xs font-semibold">
                             {source.title || source.snippet || '未命名笔记'}
                           </span>
-                          <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                             {source.bookTitle && <><BookOpen className="h-3 w-3" />《{source.bookTitle}》·</>}
                             {formatRelativeTime(source.occurredAt)}
                           </span>
@@ -153,7 +153,7 @@ export function AskNotesDialog({ open, onOpenChange }: Props) {
                   setQuestion('')
                   inputRef.current?.focus()
                 }}
-                className="text-xs font-medium text-primary"
+                className="inline-flex h-8 items-center px-1 text-xs font-medium text-primary"
               >
                 再问一个 →
               </button>
@@ -186,7 +186,7 @@ export function AskNotesDialog({ open, onOpenChange }: Props) {
               {askMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
             </button>
           </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground/60">只检索你自己的笔记，不会联网</p>
+          <p className="mt-1.5 text-xs text-muted-foreground/60">只检索你自己的笔记，不会联网</p>
         </div>
       </DialogContent>
     </Dialog>

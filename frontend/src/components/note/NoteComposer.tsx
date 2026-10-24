@@ -183,7 +183,7 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
                   key={p.label}
                   type="button"
                   onClick={() => applyPrompt(p.template)}
-                  className="shrink-0 rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                  className="flex h-9 shrink-0 items-center rounded-full border border-border/60 bg-background px-3.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
                 >
                   {p.label}
                 </button>
@@ -204,7 +204,7 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
 
           <TagInput value={tags} onChange={setTags} className="border-transparent bg-muted/60 shadow-none" />
 
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="tabular-nums">{words} 字</span>
             {restored && (
               <button
@@ -229,14 +229,14 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
           <button
             type="button"
             onClick={() => setContent((v) => `${v}${v && !v.endsWith('\n') ? '\n' : ''}- `)}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="flex h-8 items-center px-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             插入列表
           </button>
           <button
             type="button"
             onClick={() => setContent((v) => `${v}${v && !v.endsWith('\n') ? '\n' : ''}> `)}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="flex h-8 items-center px-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             引用
           </button>

@@ -127,14 +127,14 @@ export function NoteCard({ note, keyword, onPin, onFavorite, onDelete, onEdit, o
           {note.pinned && <Pin className="h-3 w-3 rotate-45 text-primary" aria-label="已置顶" />}
           {note.favorited && <Star className="h-3 w-3 fill-warning text-warning" aria-label="已收藏" />}
           {note.version > 1 && (
-            <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">已编辑</span>
+            <span className="rounded-full bg-muted px-1.5 py-px text-[11px] font-medium text-muted-foreground">已编辑</span>
           )}
           <span className="ml-auto shrink-0 text-xs text-muted-foreground/80">{formatRelativeTime(note.occurredAt)}</span>
 
           <DropdownMenuTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
-              className="-mr-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground/60 opacity-100 transition-all hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
+              className="-mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground/60 opacity-100 transition-all hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
               aria-label="笔记操作"
             >
               <MoreHorizontal className="h-4 w-4" />
@@ -190,7 +190,7 @@ export function NoteCard({ note, keyword, onPin, onFavorite, onDelete, onEdit, o
               <button
                 key={tag}
                 onClick={() => onTagClick?.(tag)}
-                className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                className="flex h-8 items-center rounded-full bg-muted px-2.5 text-xs text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary sm:h-7"
               >
                 #{tag}
               </button>
@@ -199,7 +199,7 @@ export function NoteCard({ note, keyword, onPin, onFavorite, onDelete, onEdit, o
         )}
 
         {(words > 0 || note.version > 1) && (
-          <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground/70">
+          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground/70">
             {words > 0 && <span>{words} 字</span>}
             {words > 0 && note.version > 1 && <span className="h-2.5 w-px bg-border" />}
             {note.version > 1 && <span>第 {note.version} 版</span>}
