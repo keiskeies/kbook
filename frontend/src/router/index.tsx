@@ -20,6 +20,11 @@ const AdminAiScenePage = lazy(() => import('@/pages/admin/ai-scene-config'))
 const AdminTtsConfigPage = lazy(() => import('@/pages/admin/tts-config'))
 
 const BookDetailPage = lazy(() => import('@/pages/book/detail'))
+const ReviewEditorPage = lazy(() => import('@/pages/book/review-editor'))
+const ReviewDetailPage = lazy(() => import('@/pages/book/review-detail'))
+const MyReviewsPage = lazy(() => import('@/pages/profile/reviews'))
+const NoteDetailPage = lazy(() => import('@/pages/notes/detail'))
+const NoteInsightsPage = lazy(() => import('@/pages/notes/insights'))
 const SearchPage = lazy(() => import('@/pages/search'))
 const ReadingListPage = lazy(() => import('@/pages/profile/reading-list'))
 const BookTrashPage = lazy(() => import('@/pages/profile/trash'))
@@ -46,8 +51,15 @@ export const router = createBrowserRouter([
       { index: true, element: <></> },
       { path: ROUTES.HOME, element: <></> },
       { path: ROUTES.DISCOVER, element: <></> },
+      { path: ROUTES.NOTES, element: <></> },
       { path: ROUTES.PROFILE, element: <></> },
       { path: ROUTES.BOOK_DETAIL, element: <LazyLoad><BookDetailPage /></LazyLoad> },
+      { path: ROUTES.BOOK_REVIEWS_NEW, element: <LazyLoad><ReviewEditorPage /></LazyLoad> },
+      { path: ROUTES.BOOK_REVIEW_EDIT, element: <LazyLoad><ReviewEditorPage /></LazyLoad> },
+      { path: ROUTES.BOOK_REVIEW_DETAIL, element: <LazyLoad><ReviewDetailPage /></LazyLoad> },
+      { path: ROUTES.MY_REVIEWS, element: <LazyLoad><MyReviewsPage /></LazyLoad> },
+      { path: ROUTES.NOTE_INSIGHTS, element: <LazyLoad><NoteInsightsPage /></LazyLoad> },
+      { path: ROUTES.NOTE_DETAIL, element: <LazyLoad><NoteDetailPage /></LazyLoad> },
       { path: ROUTES.SEARCH, element: <LazyLoad><SearchPage /></LazyLoad> },
       { path: ROUTES.READING_LIST, element: <LazyLoad><ReadingListPage /></LazyLoad> },
       { path: ROUTES.TRASH, element: <LazyLoad><BookTrashPage /></LazyLoad> },

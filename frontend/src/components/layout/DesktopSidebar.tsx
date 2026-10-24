@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Home, Compass, User, BookOpenCheck, Sun, Moon } from 'lucide-react'
+import { Home, Compass, NotebookPen, User, BookOpenCheck, Sun, Moon } from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { cn } from '@/utils/cn'
 import { useAuthStore } from '@/store/auth'
@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 const navItems = [
   { path: ROUTES.HOME, label: '首页', icon: Home },
   { path: ROUTES.DISCOVER, label: '发现', icon: Compass },
+  { path: ROUTES.NOTES, label: '笔记', icon: NotebookPen },
   { path: ROUTES.PROFILE, label: '我的', icon: User },
 ]
 

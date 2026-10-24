@@ -73,6 +73,8 @@ const SCENE_DESCRIPTION: Record<string, string> = {
   BOOK_PARSE_COMBINED: '一次性生成标签/评分/相关度/简介',
   PDF_OCR: '扫描版 PDF 视觉识别（书名/作者/全文）',
   EMBEDDING: '生成文本向量用于 RAG 检索',
+  // 笔记域
+  NOTE_INSIGHT: '按时间窗把私人笔记总结成阶段性成长回顾',
   // 压缩域
   CHAT_COMPRESSION: '压缩普通对话历史',
   ROUND_TABLE_COMPRESSION: '压缩圆桌派历史（保留论点/态度/情绪）',
@@ -400,6 +402,7 @@ function getDomain(sceneKey: string): string {
   if (sceneKey === 'BOOK_METADATA_INFER' || sceneKey === 'BOOK_PARSE_COMBINED' || sceneKey === 'PDF_OCR' || sceneKey === 'EMBEDDING') {
     return '元数据/OCR/嵌入域'
   }
+  if (sceneKey === 'NOTE_INSIGHT') return '笔记域'
   if (sceneKey.endsWith('_COMPRESSION')) return '压缩域'
   return '其他'
 }

@@ -99,6 +99,10 @@ public enum AiScene {
     /** 向量嵌入 */
     EMBEDDING("向量嵌入", Category.EMBEDDING, false, false),
 
+    // ==================== 笔记/成长域 ====================
+    /** 笔记成长总结（按时间窗把私人笔记总结成阶段性回顾） */
+    NOTE_INSIGHT("笔记成长总结", Category.QA_WITHOUT_THINKING, false, false),
+
     // ==================== 压缩域 ====================
     /** 通用对话压缩 */
     CHAT_COMPRESSION("通用对话压缩", Category.COMPRESSION, false, false),

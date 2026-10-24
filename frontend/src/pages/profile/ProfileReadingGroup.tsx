@@ -1,4 +1,4 @@
-import { BookOpen, SlidersHorizontal, Trash2, Sparkles, ChevronRight } from 'lucide-react'
+import { BookOpen, SlidersHorizontal, Trash2, Sparkles, ChevronRight, PenLine } from 'lucide-react'
 import { ROUTES } from '@/constants'
 import { Card } from '@/components/ui/card'
 
@@ -25,6 +25,11 @@ export default function ProfileReadingGroup({ totalBooks, trashCount, bookChatSt
       icon: BookOpen,
       extra: `${totalBooks ?? 0}本`,
       onClick: () => onNavigate(ROUTES.READING_LIST),
+    },
+    {
+      label: '我的书评',
+      icon: PenLine,
+      onClick: () => onNavigate(ROUTES.MY_REVIEWS),
     },
     {
       label: '阅读偏好',

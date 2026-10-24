@@ -55,6 +55,11 @@ public enum ErrorCode {
     ALREADY_LIKED(3002, "已点赞"),
     ALREADY_FAVORITED(3003, "已收藏"),
 
+    /** 书评不存在 */
+    REVIEW_NOT_FOUND(3010, "书评不存在"),
+    /** 笔记不存在 */
+    NOTE_NOT_FOUND(3020, "笔记不存在"),
+
     /** AI 服务异常 */
     AI_SERVICE_ERROR(4001, "AI 服务异常"),
     /** AI 超时 */

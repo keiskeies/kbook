@@ -19,6 +19,7 @@ import {
   AiQaEntry,
 } from '@/components/book/detail'
 import { useMatchScores } from '@/hooks/useMatchScores'
+import { ReviewSection } from '@/components/review/ReviewSection'
 import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
@@ -450,6 +451,11 @@ export default function BookDetailPage() {
 
         {/* AI 深度问答入口 */}
         <AiQaEntry bookId={id} onOpenChat={handleOpenChat} isMobile />
+
+        {/* 书评 */}
+        <div className="mt-4">
+          <ReviewSection bookId={id} />
+        </div>
       </div>
 
       </div>{/* end md:hidden */}
@@ -531,6 +537,7 @@ export default function BookDetailPage() {
               <MatchScoreCard bookId={id} ms={ms} />
               <SpeedReadCard data={speedReadData} loading={speedReadLoading} />
               <AiQaEntry bookId={id} onOpenChat={handleOpenChat} />
+              <ReviewSection bookId={id} />
             </div>
           </div>
         </div>

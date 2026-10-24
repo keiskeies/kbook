@@ -23,6 +23,8 @@ public class QdrantProperties {
     private String bookCollection = "kbook_books";
     /** RAG 内容向量集合名 */
     private String contentCollection = "kbook_content";
+    /** 用户私人笔记向量集合名 */
+    private String userNoteCollection = "kbook_user_notes";
 
     /** 向量维度（需与 embedding 模型输出维度一致） */
     private int vectorDimension = 1024;

@@ -9,11 +9,13 @@ import { lazy, Suspense, useRef, useEffect, useCallback } from 'react'
 
 const HomePage = lazy(() => import('@/pages/home'))
 const DiscoverPage = lazy(() => import('@/pages/discover'))
+const NotesPage = lazy(() => import('@/pages/notes'))
 const ProfilePage = lazy(() => import('@/pages/profile'))
 
 const TAB_ROUTES = [
   { path: ROUTES.HOME, component: HomePage },
   { path: ROUTES.DISCOVER, component: DiscoverPage },
+  { path: ROUTES.NOTES, component: NotesPage },
   { path: ROUTES.PROFILE, component: ProfilePage },
 ]
 

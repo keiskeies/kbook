@@ -14,6 +14,15 @@ interface MarkdownRendererProps {
 }
 
 /**
+ * rehypeRaw 会放行原始 HTML。书评/笔记是用户可直接写入的内容，
+ * 这里屏蔽可执行或可嵌入的标签，避免 UGC 注入脚本、外链框架或页面劫持。
+ */
+const DISALLOWED_ELEMENTS = [
+  'script', 'iframe', 'object', 'embed', 'form', 'input', 'button',
+  'textarea', 'select', 'style', 'link', 'meta', 'base',
+]
+
+/**
  * 解析图书块数据 — 主格式 《书名》(bid:数字)，兼容 [BOOK:id=数字]
  * 新格式（AI推荐输出）：序号. [BOOK:id=数字]《书名》
  * 旧格式（工具原始输出）：[BOOK:id=数字]《书名》 作者:xxx 评分:4.5 ...
@@ -171,6 +180,7 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeRaw, rehypeHighlight]}
           components={markdownComponents}
+          disallowedElements={DISALLOWED_ELEMENTS}
         >
           {segments[0].content}
         </ReactMarkdown>
@@ -191,6 +201,7 @@ export default function MarkdownRenderer({ content, className = '', bookMap }: M
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw, rehypeHighlight]}
             components={markdownComponents}
+            disallowedElements={DISALLOWED_ELEMENTS}
           >
             {seg.content}
           </ReactMarkdown>
