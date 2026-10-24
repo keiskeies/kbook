@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 新建纯想法笔记
@@ -19,4 +20,7 @@ public class NoteCreateRequest {
 
     /** 想法发生的时间，可回填；不传取当前时间 */
     private LocalDateTime occurredAt;
+
+    /** 标签，最多 8 个 */
+    private List<@Size(max = 20, message = "单个标签不能超过 20 字") String> tags;
 }

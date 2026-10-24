@@ -1,13 +1,35 @@
-import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, BookOpen, History, Pencil, Trash2 } from 'lucide-react'
-import { deleteNote, getNote, getRevisions, updateNote } from '@/api/note'
+import {
+  ArrowLeft,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  History,
+  Pencil,
+  Pin,
+  Star,
+  Trash2,
+} from 'lucide-react'
+import {
+  deleteNote,
+  getNote,
+  getNoteNeighbors,
+  getRevisions,
+  setNoteFavorited,
+  setNotePinned,
+  updateNote,
+} from '@/api/note'
 import { formatRelativeTime } from '@/utils/time'
+import { countWords } from '@/utils/text'
+import { cn } from '@/utils/cn'
 import { useGoBack } from '@/hooks/useGoBack'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import { NoteSourceCard } from '@/components/note/NoteSourceCard'
+import { TagInput } from '@/components/note/TagInput'
 import { NOTE_TYPE_LABEL } from '@/components/note/meta'
 import {
   AlertDialog,
@@ -41,12 +63,15 @@ export default function NoteDetailPage() {
   const navigate = useNavigate()
   const goBack = useGoBack()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [occurredAt, setOccurredAt] = useState('')
+  const [tags, setTags] = useState<string[]>([])
+  const autoEditDone = useRef(false)
 
   const { data: note, isLoading } = useQuery({
     queryKey: ['notes', 'detail', noteId],
@@ -60,6 +85,12 @@ export default function NoteDetailPage() {
     enabled: !!noteId && historyOpen,
   })
 
+  const { data: neighbors } = useQuery({
+    queryKey: ['notes', 'neighbors', noteId],
+    queryFn: () => getNoteNeighbors(Number(noteId)),
+    enabled: !!noteId,
+  })
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['notes', 'timeline'] })
     queryClient.invalidateQueries({ queryKey: ['notes', 'detail', noteId] })
@@ -68,6 +99,9 @@ export default function NoteDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['notes', 'stats'] })
     queryClient.invalidateQueries({ queryKey: ['notes', 'throwback'] })
     queryClient.invalidateQueries({ queryKey: ['notes', 'semantic'] })
+    queryClient.invalidateQueries({ queryKey: ['notes', 'books'] })
+    queryClient.invalidateQueries({ queryKey: ['notes', 'tags'] })
+    queryClient.invalidateQueries({ queryKey: ['notes', 'neighbors'] })
   }
 
   const deleteMutation = useMutation({
@@ -80,12 +114,31 @@ export default function NoteDetailPage() {
     onError: (err: Error) => toast.error(err.message || '删除失败'),
   })
 
+  const pinMutation = useMutation({
+    mutationFn: (pinned: boolean) => setNotePinned(Number(noteId), pinned),
+    onSuccess: (_data, pinned) => {
+      invalidate()
+      toast.success(pinned ? '已置顶' : '已取消置顶')
+    },
+    onError: (err: Error) => toast.error(err.message || '操作失败'),
+  })
+
+  const favoriteMutation = useMutation({
+    mutationFn: (favorited: boolean) => setNoteFavorited(Number(noteId), favorited),
+    onSuccess: (_data, favorited) => {
+      invalidate()
+      toast.success(favorited ? '已收藏' : '已取消收藏')
+    },
+    onError: (err: Error) => toast.error(err.message || '操作失败'),
+  })
+
   const updateMutation = useMutation({
     mutationFn: () =>
       updateNote(Number(noteId), {
         title: title.trim() || null,
         contentMd: content.trim() || null,
         occurredAt: occurredAt ? (occurredAt.length === 16 ? `${occurredAt}:00` : occurredAt) : null,
+        tags,
       }),
     onSuccess: () => {
       invalidate()
@@ -100,7 +153,35 @@ export default function NoteDetailPage() {
     setTitle(note.title ?? '')
     setContent(note.contentMd ?? '')
     setOccurredAt(toLocalInput(note.occurredAt))
+    setTags(note.tags ?? [])
     setEditOpen(true)
+  }
+
+  // 从列表「编辑」直达时自动打开编辑弹窗
+  useEffect(() => {
+    if (!note || autoEditDone.current) return
+    if (searchParams.get('edit') === '1') {
+      autoEditDone.current = true
+      openEdit()
+      const next = new URLSearchParams(searchParams)
+      next.delete('edit')
+      setSearchParams(next, { replace: true })
+    }
+  }, [note, searchParams, setSearchParams])
+
+  const copyContent = async () => {
+    if (!note) return
+    const text = [note.title, note.contentMd].filter(Boolean).join('\n\n')
+    if (!text.trim()) {
+      toast.error('这条笔记没有可复制的正文')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('已复制')
+    } catch {
+      toast.error('复制失败')
+    }
   }
 
   if (isLoading) {
@@ -139,6 +220,28 @@ export default function NoteDetailPage() {
         </button>
         <h1 className="flex-1 truncate text-base font-bold">笔记</h1>
         <div className="flex shrink-0 items-center gap-1">
+          <button
+            onClick={() => pinMutation.mutate(!note.pinned)}
+            className={cn(
+              'flex h-9 w-9 items-center justify-center rounded-xl transition-colors hover:bg-muted',
+              note.pinned ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+            )}
+            aria-label={note.pinned ? '取消置顶' : '置顶'}
+            title={note.pinned ? '取消置顶' : '置顶'}
+          >
+            <Pin className={cn('h-4 w-4', note.pinned && 'rotate-45')} />
+          </button>
+          <button
+            onClick={() => favoriteMutation.mutate(!note.favorited)}
+            className={cn(
+              'flex h-9 w-9 items-center justify-center rounded-xl transition-colors hover:bg-muted',
+              note.favorited ? 'text-warning' : 'text-muted-foreground hover:text-foreground'
+            )}
+            aria-label={note.favorited ? '取消收藏' : '收藏'}
+            title={note.favorited ? '取消收藏' : '收藏'}
+          >
+            <Star className={cn('h-4 w-4', note.favorited && 'fill-warning')} />
+          </button>
           {note.version > 1 && (
             <button
               onClick={() => setHistoryOpen(true)}
@@ -149,6 +252,14 @@ export default function NoteDetailPage() {
               <History className="h-4 w-4" />
             </button>
           )}
+          <button
+            onClick={copyContent}
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="复制正文"
+            title="复制正文"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
           <button
             onClick={openEdit}
             className="flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -176,7 +287,30 @@ export default function NoteDetailPage() {
             {note.version > 1 && (
               <span className="text-xs text-muted-foreground/70">· 已编辑</span>
             )}
+            {countWords(note.contentMd) > 0 && (
+              <span className="text-xs text-muted-foreground/70">· {countWords(note.contentMd)} 字</span>
+            )}
+            {note.pinned && (
+              <span className="flex items-center gap-0.5 text-xs text-primary">
+                <Pin className="h-3 w-3 rotate-45" />置顶
+              </span>
+            )}
+            {note.favorited && (
+              <span className="flex items-center gap-0.5 text-xs text-warning">
+                <Star className="h-3 w-3 fill-warning" />收藏
+              </span>
+            )}
           </div>
+
+          {(note.tags ?? []).length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(note.tags ?? []).map((tag) => (
+                <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
 
           {note.bookId != null && (
             <button
@@ -212,6 +346,35 @@ export default function NoteDetailPage() {
               }
             />
           )}
+
+          {(neighbors?.prev || neighbors?.next) && (
+            <div className="mt-8 grid grid-cols-2 gap-3 border-t border-border/50 pt-4">
+              {neighbors?.prev ? (
+                <button
+                  onClick={() => navigate(`/notes/${neighbors.prev!.id}`)}
+                  className="flex items-center gap-2 rounded-xl border border-border/50 bg-card p-3 text-left transition-colors hover:border-primary/35"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0">
+                    <span className="block text-[10px] text-muted-foreground">上一条 · 更早</span>
+                    <span className="block truncate text-xs font-medium">{neighbors.prev!.title || '未命名笔记'}</span>
+                  </span>
+                </button>
+              ) : <span />}
+              {neighbors?.next ? (
+                <button
+                  onClick={() => navigate(`/notes/${neighbors.next!.id}`)}
+                  className="flex items-center justify-end gap-2 rounded-xl border border-border/50 bg-card p-3 text-right transition-colors hover:border-primary/35"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-[10px] text-muted-foreground">下一条 · 更新</span>
+                    <span className="block truncate text-xs font-medium">{neighbors.next!.title || '未命名笔记'}</span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              ) : <span />}
+            </div>
+          )}
         </div>
       </div>
 
@@ -238,11 +401,15 @@ export default function NoteDetailPage() {
                 onChange={(e) => setOccurredAt(e.target.value)}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">标签</Label>
+              <TagInput value={tags} onChange={setTags} />
+            </div>
           </div>
           <div className="border-t border-border/50 p-4">
             <button
               onClick={() => updateMutation.mutate()}
-              disabled={updateMutation.isPending || (!title.trim() && !content.trim() && !occurredAt)}
+              disabled={updateMutation.isPending || (!title.trim() && !content.trim() && !occurredAt && tags.length === 0)}
               className="h-11 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-50"
             >
               {updateMutation.isPending ? '保存中...' : '保存'}

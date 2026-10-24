@@ -31,6 +31,9 @@ export interface NoteVO {
   bookId: number | null
   bookTitle: string | null
   bookCover: string | null
+  tags: string[]
+  pinned: boolean
+  favorited: boolean
   occurredAt: string
   version: number
   createdAt: string
@@ -41,6 +44,7 @@ export interface NotePayload {
   title?: string | null
   contentMd?: string | null
   occurredAt?: string | null
+  tags?: string[] | null
 }
 
 export interface NoteRevisionVO {
@@ -62,14 +66,60 @@ export interface NoteInsightVO {
   createdAt: string
 }
 
+export interface NoteDailyCount {
+  date: string
+  count: number
+}
+
 export interface NoteStatsVO {
   total: number
   weekCount: number
   bookCount: number
   streakDays: number
+  activeDays?: number
   thoughtCount: number
   captureCount: number
   excerptCount: number
+  favoriteCount: number
+  recentDays?: NoteDailyCount[]
+  heatmap?: NoteDailyCount[]
+}
+
+export interface NoteTagVO {
+  tag: string
+  count: number
+}
+
+export interface NoteNeighborVO {
+  id: number
+  title: string | null
+  occurredAt: string
+}
+
+export interface NoteNeighborsVO {
+  prev: NoteNeighborVO | null
+  next: NoteNeighborVO | null
+}
+
+export interface NoteAskSourceVO {
+  id: number
+  title: string | null
+  bookTitle: string | null
+  occurredAt: string
+  snippet: string
+}
+
+export interface NoteAskVO {
+  answer: string
+  sources: NoteAskSourceVO[]
+}
+
+export interface NoteBookVO {
+  bookId: number
+  bookTitle: string | null
+  bookCover: string | null
+  count: number
+  lastOccurredAt: string
 }
 
 export interface CapturePayload {
@@ -83,6 +133,9 @@ export interface TimelineParams {
   bookId?: number
   from?: string
   to?: string
+  tag?: string
+  favorited?: boolean
+  sort?: 'occurred' | 'updated'
   page?: number
   size?: number
 }
@@ -105,6 +158,34 @@ export function getNoteStats() {
 
 export function getThrowback() {
   return request.get<NoteVO | null>('/notes/throwback')
+}
+
+export function getNoteBooks() {
+  return request.get<NoteBookVO[]>('/notes/books')
+}
+
+export function getNoteTags() {
+  return request.get<NoteTagVO[]>('/notes/tags')
+}
+
+export function setNotePinned(noteId: number, pinned: boolean) {
+  return request.put<NoteVO>(`/notes/${noteId}/pin`, null, { params: { pinned } })
+}
+
+export function setNoteFavorited(noteId: number, favorited: boolean) {
+  return request.put<NoteVO>(`/notes/${noteId}/favorite`, null, { params: { favorited } })
+}
+
+export function updateNoteTags(noteId: number, tags: string[]) {
+  return request.put<NoteVO>(`/notes/${noteId}/tags`, { tags })
+}
+
+export function getNoteNeighbors(noteId: number) {
+  return request.get<NoteNeighborsVO>(`/notes/${noteId}/neighbors`)
+}
+
+export function askNotes(question: string) {
+  return request.post<NoteAskVO>('/notes/ask', { question })
 }
 
 export function searchNotes(keyword: string, page = 1, size = 20) {

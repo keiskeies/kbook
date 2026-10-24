@@ -1,6 +1,7 @@
 package com.kbook.repository;
 
 import com.kbook.common.repository.BaseRepository;
+import com.kbook.dto.note.NoteBookVO;
 import com.kbook.entity.Note;
 import com.kbook.entity.NoteType;
 import org.springframework.data.domain.Page;
@@ -37,6 +38,23 @@ public interface NoteRepository extends BaseRepository<Note, Long> {
     @Query("SELECT n.occurredAt FROM Note n "
             + "WHERE n.userId = :userId AND n.deletedAt IS NULL AND n.occurredAt >= :since")
     List<LocalDateTime> findOccurredAtSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
+
+    /**
+     * 取本人所有笔记的标签串（逗号分隔），在内存里聚合成标签云
+     */
+    @Query("SELECT n.tags FROM Note n "
+            + "WHERE n.userId = :userId AND n.deletedAt IS NULL AND n.tags IS NOT NULL")
+    List<String> findTagsByUserId(@Param("userId") Long userId);
+
+    long countByUserIdAndDeletedAtIsNullAndFavoritedAtIsNotNull(Long userId);
+
+    /**
+     * 按书聚合笔记数量与最近记录时间，供「按书回顾」视图使用
+     */
+    @Query("SELECT new com.kbook.dto.note.NoteBookVO(n.bookId, MAX(n.bookTitle), MAX(n.bookCover), COUNT(n), MAX(n.occurredAt)) "
+            + "FROM Note n WHERE n.userId = :userId AND n.deletedAt IS NULL AND n.bookId IS NOT NULL "
+            + "GROUP BY n.bookId ORDER BY MAX(n.occurredAt) DESC")
+    List<NoteBookVO> aggregateByBook(@Param("userId") Long userId);
 
     /**
      * 在本人未删除的笔记里按标题/正文关键词搜索。

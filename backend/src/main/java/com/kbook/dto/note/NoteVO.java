@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 笔记视图对象
@@ -30,6 +31,10 @@ public class NoteVO {
     private Long bookId;
     private String bookTitle;
     private String bookCover;
+
+    private List<String> tags;
+    private boolean pinned;
+    private boolean favorited;
 
     private LocalDateTime occurredAt;
     private Integer version;

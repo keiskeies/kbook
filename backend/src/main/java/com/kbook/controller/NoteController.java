@@ -2,12 +2,19 @@ package com.kbook.controller;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.api.Result;
+import com.kbook.dto.note.NoteAskRequest;
+import com.kbook.dto.note.NoteAskVO;
+import com.kbook.dto.note.NoteBookVO;
 import com.kbook.dto.note.NoteCreateRequest;
+import com.kbook.dto.note.NoteNeighborsVO;
 import com.kbook.dto.note.NoteRevisionVO;
 import com.kbook.dto.note.NoteStatsVO;
+import com.kbook.dto.note.NoteTagVO;
+import com.kbook.dto.note.NoteTagsRequest;
 import com.kbook.dto.note.NoteUpdateRequest;
 import com.kbook.dto.note.NoteVO;
 import com.kbook.dto.note.ReviewCaptureRequest;
+import com.kbook.service.note.NoteAskService;
 import com.kbook.service.note.NoteCaptureService;
 import com.kbook.service.note.NoteService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,6 +38,7 @@ public class NoteController extends BaseController {
 
     private final NoteService noteService;
     private final NoteCaptureService noteCaptureService;
+    private final NoteAskService noteAskService;
 
     @Operation(summary = "新建纯想法笔记")
     @PostMapping
@@ -45,9 +53,13 @@ public class NoteController extends BaseController {
             @RequestParam(required = false) Long bookId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) String tag,
+            @RequestParam(required = false) Boolean favorited,
+            @RequestParam(defaultValue = "occurred") String sort,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(noteService.getTimeline(extractUserId(), type, bookId, from, to, page, size));
+        return Result.ok(noteService.getTimeline(extractUserId(), type, bookId, from, to,
+                tag, favorited, sort, page, size));
     }
 
     @Operation(summary = "笔记数量")
@@ -60,6 +72,24 @@ public class NoteController extends BaseController {
     @GetMapping("/stats")
     public Result<NoteStatsVO> getStats() {
         return Result.ok(noteService.getStats(extractUserId()));
+    }
+
+    @Operation(summary = "按书聚合我的笔记")
+    @GetMapping("/books")
+    public Result<List<NoteBookVO>> listBooks() {
+        return Result.ok(noteService.listBooks(extractUserId()));
+    }
+
+    @Operation(summary = "我的标签云")
+    @GetMapping("/tags")
+    public Result<List<NoteTagVO>> listTags() {
+        return Result.ok(noteService.listTags(extractUserId()));
+    }
+
+    @Operation(summary = "问我的笔记")
+    @PostMapping("/ask")
+    public Result<NoteAskVO> ask(@Valid @RequestBody NoteAskRequest req) {
+        return Result.ok(noteAskService.ask(extractUserId(), req.getQuestion()));
     }
 
     @Operation(summary = "时光机：翻出一条过去的笔记")
@@ -96,6 +126,30 @@ public class NoteController extends BaseController {
     @GetMapping("/{noteId}")
     public Result<NoteVO> getNote(@PathVariable Long noteId) {
         return Result.ok(noteService.getNote(extractUserId(), noteId));
+    }
+
+    @Operation(summary = "相邻笔记（上一条/下一条）")
+    @GetMapping("/{noteId}/neighbors")
+    public Result<NoteNeighborsVO> getNeighbors(@PathVariable Long noteId) {
+        return Result.ok(noteService.getNeighbors(extractUserId(), noteId));
+    }
+
+    @Operation(summary = "置顶/取消置顶")
+    @PutMapping("/{noteId}/pin")
+    public Result<NoteVO> setPinned(@PathVariable Long noteId, @RequestParam boolean pinned) {
+        return Result.ok(noteService.setPinned(extractUserId(), noteId, pinned));
+    }
+
+    @Operation(summary = "收藏/取消收藏")
+    @PutMapping("/{noteId}/favorite")
+    public Result<NoteVO> setFavorited(@PathVariable Long noteId, @RequestParam boolean favorited) {
+        return Result.ok(noteService.setFavorited(extractUserId(), noteId, favorited));
+    }
+
+    @Operation(summary = "更新笔记标签")
+    @PutMapping("/{noteId}/tags")
+    public Result<NoteVO> updateTags(@PathVariable Long noteId, @Valid @RequestBody NoteTagsRequest req) {
+        return Result.ok(noteService.updateTags(extractUserId(), noteId, req.getTags()));
     }
 
     @Operation(summary = "笔记历史版本")

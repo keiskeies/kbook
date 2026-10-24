@@ -89,6 +89,18 @@ public class Note extends BaseEntity {
     @Column(name = "occurred_at", nullable = false)
     private LocalDateTime occurredAt;
 
+    /** 标签，逗号分隔且带首尾逗号（如 ,读书,认知,），便于 LIKE 精确匹配 */
+    @Column(length = 500)
+    private String tags;
+
+    /** 置顶时间，非空即置顶；时间轴中置顶笔记始终排在最前 */
+    @Column(name = "pinned_at")
+    private LocalDateTime pinnedAt;
+
+    /** 收藏时间，非空即收藏 */
+    @Column(name = "favorited_at")
+    private LocalDateTime favoritedAt;
+
     /** 编辑版本号，Phase 3 起配合 note_revisions 使用 */
     @Column
     @Builder.Default

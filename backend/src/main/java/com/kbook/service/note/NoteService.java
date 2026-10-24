@@ -6,10 +6,15 @@ import com.kbook.common.api.ErrorCode;
 import com.kbook.common.api.PageResult;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.common.util.QueryBuilder;
+import com.kbook.dto.note.NoteBookVO;
 import com.kbook.dto.note.NoteCreateRequest;
+import com.kbook.dto.note.NoteDailyCountVO;
+import com.kbook.dto.note.NoteNeighborVO;
+import com.kbook.dto.note.NoteNeighborsVO;
 import com.kbook.dto.note.NoteRevisionVO;
 import com.kbook.dto.note.NoteSourceSnapshot;
 import com.kbook.dto.note.NoteStatsVO;
+import com.kbook.dto.note.NoteTagVO;
 import com.kbook.dto.note.NoteUpdateRequest;
 import com.kbook.dto.note.NoteVO;
 import com.kbook.entity.Note;
@@ -30,18 +35,26 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static com.kbook.common.util.QueryBuilder.between;
 import static com.kbook.common.util.QueryBuilder.eq;
+import static com.kbook.common.util.QueryBuilder.gt;
 import static com.kbook.common.util.QueryBuilder.in;
+import static com.kbook.common.util.QueryBuilder.isNotNull;
 import static com.kbook.common.util.QueryBuilder.isNull;
 import static com.kbook.common.util.QueryBuilder.le;
+import static com.kbook.common.util.QueryBuilder.like;
+import static com.kbook.common.util.QueryBuilder.lt;
 
 /**
  * 笔记服务 — 私人资产的 CRUD 与时间轴查询。
@@ -65,6 +78,7 @@ public class NoteService {
                 .noteType(NoteType.THOUGHT)
                 .sourceType(NoteSourceType.MANUAL)
                 .sourceStatus(SourceStatus.ACTIVE)
+                .tags(normalizeTags(req.getTags()))
                 .occurredAt(req.getOccurredAt() != null ? req.getOccurredAt() : LocalDateTime.now())
                 .build();
         noteRepository.save(note);
@@ -96,10 +110,91 @@ public class NoteService {
             note.setContentMd(newContent);
             note.setOccurredAt(newOccurredAt);
             note.setVersion(note.getVersion() + 1);
+        }
+        // 标签属于元数据：null 表示本次不修改，空数组表示清空
+        boolean tagsChanged = req.getTags() != null
+                && !Objects.equals(note.getTags(), normalizeTags(req.getTags()));
+        if (tagsChanged) {
+            note.setTags(normalizeTags(req.getTags()));
+        }
+        if (changed || tagsChanged) {
             noteRepository.save(note);
+        }
+        if (changed) {
             noteEmbeddingService.index(note);
         }
         return toVO(note);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public NoteVO setPinned(Long userId, Long noteId, boolean pinned) {
+        Note note = loadOwnedNote(userId, noteId);
+        note.setPinnedAt(pinned ? LocalDateTime.now() : null);
+        noteRepository.save(note);
+        return toVO(note);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public NoteVO setFavorited(Long userId, Long noteId, boolean favorited) {
+        Note note = loadOwnedNote(userId, noteId);
+        note.setFavoritedAt(favorited ? LocalDateTime.now() : null);
+        noteRepository.save(note);
+        return toVO(note);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public NoteVO updateTags(Long userId, Long noteId, List<String> tags) {
+        Note note = loadOwnedNote(userId, noteId);
+        note.setTags(normalizeTags(tags));
+        noteRepository.save(note);
+        return toVO(note);
+    }
+
+    /**
+     * 标签云 — 按使用次数降序
+     */
+    public List<NoteTagVO> listTags(Long userId) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (String stored : noteRepository.findTagsByUserId(userId)) {
+            for (String tag : parseTags(stored)) {
+                counts.merge(tag, 1L, Long::sum);
+            }
+        }
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue(Comparator.reverseOrder())
+                        .thenComparing(Map.Entry.comparingByKey()))
+                .limit(50)
+                .map(e -> new NoteTagVO(e.getKey(), e.getValue()))
+                .toList();
+    }
+
+    /**
+     * 当前笔记的前后邻居（按发生时间，不含置顶影响）
+     */
+    public NoteNeighborsVO getNeighbors(Long userId, Long noteId) {
+        Note current = loadOwnedNote(userId, noteId);
+        Note prev = noteRepository.query()
+                .where(Note::getUserId, eq(userId))
+                .and(Note::getDeletedAt, isNull())
+                .and(Note::getOccurredAt, lt(current.getOccurredAt()))
+                .orderByDesc(Note::getOccurredAt)
+                .orderByDesc(Note::getId)
+                .list(1)
+                .stream().findFirst().orElse(null);
+        Note next = noteRepository.query()
+                .where(Note::getUserId, eq(userId))
+                .and(Note::getDeletedAt, isNull())
+                .and(Note::getOccurredAt, gt(current.getOccurredAt()))
+                .orderBy(Note::getOccurredAt)
+                .orderBy(Note::getId)
+                .list(1)
+                .stream().findFirst().orElse(null);
+        return NoteNeighborsVO.builder()
+                .prev(prev == null ? null : NoteNeighborVO.builder()
+                        .id(prev.getId()).title(prev.getTitle()).occurredAt(prev.getOccurredAt()).build())
+                .next(next == null ? null : NoteNeighborVO.builder()
+                        .id(next.getId()).title(next.getTitle()).occurredAt(next.getOccurredAt()).build())
+                .build();
     }
 
     /**
@@ -176,10 +271,18 @@ public class NoteService {
      * 时间轴 — 一律按 occurred_at 倒序
      */
     public PageResult<NoteVO> getTimeline(Long userId, String noteType, Long bookId,
-                                          LocalDateTime from, LocalDateTime to, int page, int size) {
+                                          LocalDateTime from, LocalDateTime to,
+                                          String tag, Boolean favorited, String sort,
+                                          int page, int size) {
         QueryBuilder<Note> query = noteRepository.query()
                 .where(Note::getUserId, eq(userId))
                 .and(Note::getDeletedAt, isNull());
+        if (Boolean.TRUE.equals(favorited)) {
+            query.and(Note::getFavoritedAt, isNotNull());
+        }
+        if (tag != null && !tag.isBlank()) {
+            query.and(Note::getTags, like("%," + sanitizeTag(tag) + ",%"));
+        }
         if (noteType != null && !noteType.isBlank()) {
             NoteType parsed;
             try {
@@ -198,7 +301,15 @@ public class NoteService {
         if (to != null) {
             query.and(Note::getOccurredAt, QueryBuilder.le(to));
         }
-        Page<Note> result = query.orderByDesc(Note::getOccurredAt).page(page - 1, size);
+        // 置顶永远优先（MySQL DESC 下 NULL 排在最后），其次按所选排序
+        query.orderByDesc(Note::getPinnedAt);
+        if ("updated".equalsIgnoreCase(sort)) {
+            query.orderByDesc(Note::getUpdatedAt);
+        } else {
+            query.orderByDesc(Note::getOccurredAt);
+        }
+        query.orderByDesc(Note::getId);
+        Page<Note> result = query.page(page - 1, size);
         return PageResult.of(result.getContent().stream().map(this::toVO).toList(),
                 result.getTotalElements(), page, size);
     }
@@ -208,23 +319,44 @@ public class NoteService {
     }
 
     /**
-     * 成长概览 — 总数、本周、涉及书目、连续记录天数与各类型计数
+     * 成长概览 — 总数、本周、涉及书目、连续记录天数、各类型计数与最近 7 天节奏
      */
     public NoteStatsVO getStats(Long userId) {
         LocalDateTime weekStart = LocalDate.now().with(DayOfWeek.MONDAY).atStartOfDay();
-        Set<LocalDate> days = noteRepository.findOccurredAtSince(userId, LocalDateTime.now().minusDays(400))
+        Map<LocalDate, Long> dailyCounts = noteRepository.findOccurredAtSince(userId, LocalDateTime.now().minusDays(400))
                 .stream()
-                .map(LocalDateTime::toLocalDate)
-                .collect(Collectors.toSet());
+                .collect(Collectors.groupingBy(LocalDateTime::toLocalDate, Collectors.counting()));
+        Set<LocalDate> days = dailyCounts.keySet();
+        LocalDate today = LocalDate.now();
+        List<NoteDailyCountVO> recentDays = IntStream.rangeClosed(0, 6)
+                .mapToObj(i -> today.minusDays(6 - i))
+                .map(date -> new NoteDailyCountVO(date, dailyCounts.getOrDefault(date, 0L)))
+                .toList();
+        List<NoteDailyCountVO> heatmap = IntStream.rangeClosed(0, 363)
+                .mapToObj(i -> today.minusDays(363 - i))
+                .map(date -> new NoteDailyCountVO(date, dailyCounts.getOrDefault(date, 0L)))
+                .toList();
         return NoteStatsVO.builder()
                 .total(noteRepository.countByUserIdAndDeletedAtIsNull(userId))
                 .weekCount(noteRepository.countByUserIdAndDeletedAtIsNullAndOccurredAtGreaterThanEqual(userId, weekStart))
                 .bookCount(noteRepository.countDistinctBooks(userId))
                 .streakDays(computeStreak(days))
+                // 与「全年足迹」同一口径，避免连续天数面板与热力图的累计天数对不上
+                .activeDays(heatmap.stream().filter(d -> d.getCount() > 0).count())
                 .thoughtCount(noteRepository.countByUserIdAndDeletedAtIsNullAndNoteType(userId, NoteType.THOUGHT))
                 .captureCount(noteRepository.countByUserIdAndDeletedAtIsNullAndNoteType(userId, NoteType.REVIEW_CAPTURE))
                 .excerptCount(noteRepository.countByUserIdAndDeletedAtIsNullAndNoteType(userId, NoteType.EXCERPT))
+                .favoriteCount(noteRepository.countByUserIdAndDeletedAtIsNullAndFavoritedAtIsNotNull(userId))
+                .recentDays(recentDays)
+                .heatmap(heatmap)
                 .build();
+    }
+
+    /**
+     * 按书聚合 — 最近有记录的书排前面，供「按书回顾」使用
+     */
+    public List<NoteBookVO> listBooks(Long userId) {
+        return noteRepository.aggregateByBook(userId);
     }
 
     /**
@@ -317,6 +449,9 @@ public class NoteService {
                 .bookId(note.getBookId())
                 .bookTitle(note.getBookTitle())
                 .bookCover(note.getBookCover())
+                .tags(parseTags(note.getTags()))
+                .pinned(note.getPinnedAt() != null)
+                .favorited(note.getFavoritedAt() != null)
                 .occurredAt(note.getOccurredAt())
                 .version(note.getVersion())
                 .createdAt(note.getCreatedAt())
@@ -350,5 +485,43 @@ public class NoteService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /** 标签统一存成 ",a,b," 形式，便于 LIKE 精确匹配；去重、去空、限 8 个 */
+    private String normalizeTags(List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return null;
+        }
+        List<String> cleaned = new ArrayList<>();
+        for (String raw : tags) {
+            String tag = sanitizeTag(raw);
+            if (!tag.isEmpty() && !cleaned.contains(tag) && cleaned.size() < 8) {
+                cleaned.add(tag);
+            }
+        }
+        return cleaned.isEmpty() ? null : "," + String.join(",", cleaned) + ",";
+    }
+
+    /** 去掉逗号（分隔符）以及 LIKE 通配符，避免标签破坏查询语义 */
+    private String sanitizeTag(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String tag = raw.replace(",", " ").replace("%", "").replace("_", "").trim();
+        return tag.length() > 20 ? tag.substring(0, 20) : tag;
+    }
+
+    private List<String> parseTags(String stored) {
+        if (stored == null || stored.isBlank()) {
+            return List.of();
+        }
+        List<String> tags = new ArrayList<>();
+        for (String part : stored.split(",")) {
+            String tag = part.trim();
+            if (!tag.isEmpty()) {
+                tags.add(tag);
+            }
+        }
+        return tags;
     }
 }

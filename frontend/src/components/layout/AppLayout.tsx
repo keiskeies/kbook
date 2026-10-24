@@ -2,6 +2,9 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { TabBar } from './TabBar'
 import { DesktopSidebar } from './DesktopSidebar'
 import { AiFab } from './AiFab'
+import { GlobalNoteComposer } from '@/components/note/GlobalNoteComposer'
+import { QuickCaptureFab } from '@/components/note/QuickCaptureFab'
+import { useQuickCapture } from '@/hooks/useQuickCapture'
 import { useUiStore } from '@/store/ui'
 import { useKeepAliveStore } from '@/store/keepAlive'
 import { ROUTES } from '@/constants'
@@ -94,6 +97,7 @@ export function AppLayout() {
   const tabBarVisible = useUiStore((s) => s.tabBarVisible)
   const location = useLocation()
   const setActiveTab = useKeepAliveStore((s) => s.setActiveTab)
+  useQuickCapture()
 
   const currentTabPath = isTabPath(location.pathname)
 
@@ -150,6 +154,8 @@ export function AppLayout() {
           {/* 移动端底部 TabBar - PC隐藏 */}
           {isOnTabPage && tabBarVisible && <TabBar />}
           <AiFab />
+          <QuickCaptureFab />
+          <GlobalNoteComposer />
         </div>
       </div>
     </>
