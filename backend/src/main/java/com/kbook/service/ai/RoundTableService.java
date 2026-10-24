@@ -2051,7 +2051,7 @@ public class RoundTableService {
         // 获取角色的 languageStyle（从 roleConfigs JSON 中读取）
         String languageStyle = resolveLanguageStyle(role, session.getRoleConfigs());
 
-        Future<?> aiFuture = sseExecutor.submit(() -> {
+        Future<?> aiFuture = AiUsageContext.submit(sseExecutor, bookId, session.getSessionId(), () -> {
             try {
                 Book book = bookService.getBookById(bookId);
 

@@ -264,6 +264,8 @@ kbook:
   # 注意：默认值含冒号(:)必须用引号包裹，否则 Spring 占位符解析会把冒号当成分隔符导致默认值丢失。
   # ========================
   ai:
+    # AI 用量明细保留天数；<=0 表示永久保留（每天凌晨清理）
+    usage-retention-days: ${AI_USAGE_RETENTION_DAYS:365}
     vision:
       provider: ${AI_VISION_PROVIDER:OLLAMA}
       base-url: ${AI_VISION_BASE_URL:http://192.168.1.10:11434}

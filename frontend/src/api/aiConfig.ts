@@ -29,6 +29,10 @@ export interface AiProviderConfig {
   enabled?: boolean
   ragTopK?: number
   maxTokens?: number
+  /** 输入单价（元 / 百万 token） */
+  inputPrice?: number | null
+  /** 输出单价（元 / 百万 token） */
+  outputPrice?: number | null
   embeddingDimension?: number
   /** 思考模式 — 声明模型支持的思考能力（NONE/SWITCH/REASONING_EFFORT/THINKING_BUDGET） */
   thinkingMode?: string | null

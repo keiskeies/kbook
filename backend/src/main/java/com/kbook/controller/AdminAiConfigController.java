@@ -79,6 +79,9 @@ public class AdminAiConfigController {
         if (config.getRagTopK() != null) existing.setRagTopK(config.getRagTopK());
         if (config.getMaxTokens() != null) existing.setMaxTokens(config.getMaxTokens());
         if (config.getMaxOutputTokens() != null) existing.setMaxOutputTokens(config.getMaxOutputTokens());
+        // 计价字段允许显式清空（null 表示未配置），因此直接覆盖
+        existing.setInputPrice(config.getInputPrice());
+        existing.setOutputPrice(config.getOutputPrice());
         if (config.getEnabled() != null) existing.setEnabled(config.getEnabled());
         if (config.getRoles() != null) existing.setRoles(config.getRoles());
         if (config.getEmbeddingDimension() != null) existing.setEmbeddingDimension(config.getEmbeddingDimension());

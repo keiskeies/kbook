@@ -102,6 +102,11 @@ function renderConfigRow(
           </div>
           <p className="text-xs text-muted-foreground truncate">
             {c.provider} / {c.modelName}
+            {(c.inputPrice != null || c.outputPrice != null) && (
+              <span title="输入/输出单价（元/百万 tokens）">
+                {' '}/ ¥{c.inputPrice ?? '-'} · ¥{c.outputPrice ?? '-'} /M
+              </span>
+            )}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -403,6 +408,49 @@ export default function AiConfigPage() {
             <label className="mb-1.5 block text-sm font-medium">嵌入向量维度</label>
             <input type="number" value={form.embeddingDimension ?? ''} onChange={e => { const val = e.target.value; setForm(f => ({ ...f, embeddingDimension: val === '' ? undefined : Number(val) })) }} min={64} max={8192} step={128} placeholder="如: 1024 (bge-m3)" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />
             <p className="mt-1 text-xs text-muted-foreground">向量维度需与 Qdrant 集合中配置的维度一致。</p>
+          </div>
+        )}
+
+        {isChatForm && (
+          <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+            <div>
+              <span className="text-sm font-medium">计价（元 / 百万 tokens）</span>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                用于数据看板成本折算。留空表示未配置，该模型的费用按 0 计；同一模型走不同网关请分别填写。
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">输入单价</label>
+                <input
+                  type="number"
+                  value={form.inputPrice ?? ''}
+                  onChange={e => {
+                    const val = e.target.value
+                    setForm(f => ({ ...f, inputPrice: val === '' ? null : Number(val) }))
+                  }}
+                  min={0}
+                  step="0.01"
+                  placeholder="如: 0.5"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">输出单价</label>
+                <input
+                  type="number"
+                  value={form.outputPrice ?? ''}
+                  onChange={e => {
+                    const val = e.target.value
+                    setForm(f => ({ ...f, outputPrice: val === '' ? null : Number(val) }))
+                  }}
+                  min={0}
+                  step="0.01"
+                  placeholder="如: 2"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                />
+              </div>
+            </div>
           </div>
         )}
 

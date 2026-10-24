@@ -84,7 +84,7 @@ public class BookQuestionGenService {
                     UserMessage.from(userPrompt));
 
             // 使用 Future 实现超时控制，防止 AI 调用阻塞线程
-            Future<String> future = sseExecutor.submit(() ->
+            Future<String> future = AiUsageContext.submit(sseExecutor, bookId, null, () ->
                     chatModelManager.callAiForScene(AiScene.PRESET_QUESTION, "生成预设问题",
                             String.format("bookId=%d", bookId),
                             messages));

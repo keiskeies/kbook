@@ -678,7 +678,7 @@ public class DebateService {
         String sideFull = getSideFull(positionKey);
         String positionLabel = getPositionLabel(positionKey);
 
-        sseExecutor.submit(() -> {
+        AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
                 String systemPrompt = String.format(
                         AiPromptConstants.DEBATE_OPENING_PROMPT);
@@ -730,7 +730,7 @@ public class DebateService {
         String sideFull = getSideFull(positionKey);
         String positionLabel = getPositionLabel(positionKey);
 
-        sseExecutor.submit(() -> {
+        AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
                 String systemPrompt = String.format(
                         AiPromptConstants.DEBATE_ATTACK_PROMPT);
@@ -790,7 +790,7 @@ public class DebateService {
         String sideFull = getSideFull(positionKey);
         String positionLabel = getPositionLabel(positionKey);
 
-        sseExecutor.submit(() -> {
+        AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
                 // 根据质询角色选择不同的系统提示词
                 boolean isQuestioner = "QUESTIONER".equals(examRole);
@@ -870,7 +870,7 @@ public class DebateService {
         String sideFull = getSideFull(positionKey);
         String positionLabel = getPositionLabel(positionKey);
 
-        sseExecutor.submit(() -> {
+        AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
                 String systemPrompt = AiPromptConstants.DEBATE_REBUTTAL_PROMPT;
 
@@ -922,7 +922,7 @@ public class DebateService {
         String sideFull = getSideFull(positionKey);
         String positionLabel = getPositionLabel(positionKey);
 
-        sseExecutor.submit(() -> {
+        AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
 
                 String systemPrompt = String.format(
@@ -973,7 +973,7 @@ public class DebateService {
         String sideFull = getSideFull(positionKey);
         String positionLabel = getPositionLabel(positionKey);
 
-        sseExecutor.submit(() -> {
+        AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
                 // 构建全场辩论摘要
                 String debateSummary = buildDebateSummary(session);
@@ -1030,7 +1030,7 @@ public class DebateService {
             return emitter;
         }
 
-        sseExecutor.submit(() -> {
+        AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
                 // 按缓存命中率排序：静态规则 → 静态人设 → 动态上下文
                 List<ChatMessage> messages = new ArrayList<>();

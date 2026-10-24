@@ -102,6 +102,14 @@ public class AiProviderConfig extends BaseEntity {
      *  注意：与 maxTokens（上下文长度）语义不同，不可互相替代。 */
     private Integer maxOutputTokens;
 
+    /** 输入单价（元 / 百万 token），用于成本看板折算；为空表示未配置 */
+    @Column(name = "input_price")
+    private Double inputPrice;
+
+    /** 输出单价（元 / 百万 token），用于成本看板折算；为空表示未配置 */
+    @Column(name = "output_price")
+    private Double outputPrice;
+
     /**
      * 思考模式 — 声明该模型支持的思考参数能力，决定场景配置时能选哪些选项。
      * <ul>

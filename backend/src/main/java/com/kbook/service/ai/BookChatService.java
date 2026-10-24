@@ -292,7 +292,7 @@ public class BookChatService {
 
 
 
-        Future<?> aiFuture = sseExecutor.submit(() -> {
+        Future<?> aiFuture = AiUsageContext.submit(sseExecutor, bookId, effectiveSessionId, () -> {
             try {
                 // 上一轮 AI 回答（用于追问场景的 RAG 查询扩展，不缓存答案——不同用户画像应得到不同回答）
                 String lastAiAnswer = getLastAiAnswer(userId, effectiveSessionId);

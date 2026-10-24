@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.kbook.config.properties.AiModelProperties;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
+import com.kbook.service.ai.AiUsageLogService;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
@@ -61,6 +62,9 @@ public class ChatModelFactory {
 
     /** AI 配置缓存失效协调器 — 配置变更后清空本工厂的模型/默认配置缓存 */
     private final AiConfigCacheInvalidator cacheInvalidator;
+
+    /** AI 调用用量记录 — 模型装饰器每次调用后异步落库 */
+    private final AiUsageLogService usageLogService;
 
     /**
      * AI 场景配置服务 — {@code @Lazy} 打破循环依赖：
@@ -257,18 +261,24 @@ public class ChatModelFactory {
         // VISION 场景特例：未显式绑定 + YML vision 配置有效 → 用 YML 配置（保持原 buildVisionChatModel 行为）
         if (usesYmlVision(scene)) {
             log.debug("VISION 场景 [{}] 未绑定且 YML vision 配置有效，使用 YML 配置", scene);
-            return buildVisionChatModel();
+            String visionModel = aiModelProperties.getVision() != null
+                    ? aiModelProperties.getVision().getModelName() : null;
+            return new UsageRecordingChatModel(buildVisionChatModel(), usageLogService,
+                    scene.name(), visionModel, "YML vision config", null, null);
         }
 
         final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
         final ThinkingConfig tc = ThinkingConfig.from(resolved);
-        return chatModelCache.get(modelKey("chat", config, tc), k -> {
+        ChatModel model = chatModelCache.get(modelKey("chat", config, tc), k -> {
             // 场景构建日志降级为 DEBUG，避免与统一摘要日志（logAiSummary）重复打印模型信息
             log.debug("构建场景 ChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
                     scene, config.getName(), config.getModelName(),
                     config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
             return wrap(buildChat(config, tc), config);
         });
+        return new UsageRecordingChatModel(model, usageLogService,
+                scene.name(), config.getModelName(), config.getName(),
+                config.getInputPrice(), config.getOutputPrice());
     }
 
     /**
@@ -279,12 +289,15 @@ public class ChatModelFactory {
                 sceneConfigService.resolveSceneConfig(scene);
         final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
         final ThinkingConfig tc = ThinkingConfig.from(resolved);
-        return streamingModelCache.get(modelKey("streaming", config, tc), k -> {
+        StreamingChatModel model = streamingModelCache.get(modelKey("streaming", config, tc), k -> {
             log.debug("构建场景 StreamingChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
                     scene, config.getName(), config.getModelName(),
                     config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
             return wrapStreaming(buildStreaming(config, tc), config);
         });
+        return new UsageRecordingStreamingChatModel(model, usageLogService,
+                scene.name(), config.getModelName(), config.getName(),
+                config.getInputPrice(), config.getOutputPrice());
     }
 
     /**
@@ -296,7 +309,7 @@ public class ChatModelFactory {
         final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
         final ThinkingConfig tc = ThinkingConfig.off(); // 压缩强制关闭思考
         // 温度固定 0.1 → 用显式 variant 区分，避免与同参数的 chat 模型串用
-        return chatModelCache.get(modelKey("compression", config, tc), k -> {
+        ChatModel model = chatModelCache.get(modelKey("compression", config, tc), k -> {
             Duration t = timeout(config.getTimeout());
             log.debug("构建场景压缩 ChatModel: scene={}, config={}, model={}",
                     scene, config.getName(), config.getModelName());
@@ -306,6 +319,9 @@ public class ChatModelFactory {
                     : wrap(buildOllamaChat(config.getBaseUrl(), config.getModelName(),
                     0.1, t, tc), config);
         });
+        return new UsageRecordingChatModel(model, usageLogService,
+                scene.name(), config.getModelName(), config.getName(),
+                config.getInputPrice(), config.getOutputPrice());
     }
 
     /**

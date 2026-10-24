@@ -37,6 +37,11 @@ public interface UserRepository extends BaseRepository<User, Long> {
                            Pageable pageable);
 
     /**
+     * 按角色查询用户（成本告警发送给所有管理员）
+     */
+    List<User> findByRole(String role);
+
+    /**
      * 统计各状态用户数
      */
     @Query("SELECT u.status, COUNT(u) FROM User u GROUP BY u.status")

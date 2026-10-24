@@ -111,7 +111,7 @@ public class BookAdminChatService {
         ensureSession(userId, sessionId, userMessage);
         saveMessage(userId, sessionId, "user", userMessage);
 
-        Future<?> aiFuture = sseExecutor.submit(() -> {
+        Future<?> aiFuture = AiUsageContext.submit(sseExecutor, null, sessionId, () -> {
             StringBuilder fullResponse = new StringBuilder();
             StringBuilder fullThinking = new StringBuilder();
             AtomicBoolean cancelled = new AtomicBoolean(false);

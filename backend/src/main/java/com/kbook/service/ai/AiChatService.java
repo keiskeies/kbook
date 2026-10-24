@@ -178,7 +178,7 @@ public class AiChatService {
         SecurityContext securityContext = SecurityContextHolder.getContext();
 
         // 在独立线程中执行 AI 对话，避免阻塞主线程
-        Future<?> aiFuture = sseExecutor.submit(() -> {
+        Future<?> aiFuture = AiUsageContext.submit(sseExecutor, null, sessionId, () -> {
             // 恢复安全上下文
             SecurityContextHolder.setContext(securityContext);
             // 恢复请求上下文

@@ -90,7 +90,9 @@ public class EmailNotificationService {
         /** 账号封禁通知：管理员封禁或拒绝用户账号 */
         ACCOUNT_BANNED("账号封禁通知", "account-banned"),
         /** 账号解封通知：管理员解封用户账号 */
-        ACCOUNT_UNBANNED("账号解封通知", "account-unbanned");
+        ACCOUNT_UNBANNED("账号解封通知", "account-unbanned"),
+        /** AI 成本预算告警：月费用达到预算阈值时通知管理员 */
+        AI_BUDGET_ALERT("AI 成本告警", "ai-budget-alert");
 
         private final String displayName;
         private final String templateId;
@@ -317,6 +319,26 @@ public class EmailNotificationService {
         } catch (Exception e) {
             log.error("邮件发送失败: to={}", to, e);
         }
+    }
+
+    /**
+     * 发送 AI 月成本预算告警邮件
+     *
+     * @param toEmail    管理员邮箱
+     * @param adminName  管理员昵称
+     * @param monthCost  本月已产生费用（元）
+     * @param budget     月度预算（元）
+     * @param usedPercent 已使用百分比
+     */
+    public void sendAiBudgetAlert(String toEmail, String adminName, double monthCost,
+                                  double budget, int usedPercent) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("adminName", adminName != null && !adminName.isBlank() ? adminName : "管理员");
+        data.put("monthCost", String.format("%.2f", monthCost));
+        data.put("budget", String.format("%.2f", budget));
+        data.put("usedPercent", usedPercent);
+        data.put("overBudget", monthCost >= budget);
+        sendHtmlEmail(toEmail, "【KBook】AI 成本预算告警", EmailType.AI_BUDGET_ALERT, data);
     }
 
     /**
