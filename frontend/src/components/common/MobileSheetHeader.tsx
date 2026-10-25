@@ -43,9 +43,9 @@ export default function MobileSheetHeader({
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <h3 className="text-base font-bold truncate">{title}</h3>
+        <h3 className="text-base font-bold truncate" title={title}>{title}</h3>
         {description && (
-          <p className="text-xs text-muted-foreground truncate">{description}</p>
+          <p className="text-xs text-muted-foreground truncate" title={description}>{description}</p>
         )}
       </div>
       {actions && <div className="flex items-center gap-0.5">{actions}</div>}

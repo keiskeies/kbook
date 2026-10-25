@@ -1082,7 +1082,7 @@ export default function AdminBooksPage() {
       {showChat && (
         <div className="fixed inset-0 z-50 flex items-end md:items-stretch md:justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowChat(false)} />
-          <div className="relative flex w-full flex-col overflow-hidden bg-background h-[85vh] md:h-full md:w-[420px] md:max-w-[420px] rounded-t-2xl md:rounded-none border-t md:border-l md:border-t-0 shadow-xl">
+          <div className="relative flex w-full flex-col overflow-hidden bg-background h-[85vh] md:h-full md:w-[36rem] md:max-w-[36rem] rounded-t-2xl md:rounded-none border-t md:border-l md:border-t-0 shadow-xl">
             {/* 标题栏 */}
             <div className="flex items-center gap-3 border-b px-4 py-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 text-white">

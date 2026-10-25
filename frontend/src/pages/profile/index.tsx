@@ -109,6 +109,7 @@ export default function ProfilePage() {
 
   const adminMenuItems = [
     { label: '数据看板', icon: BarChart3, path: ROUTES.ADMIN_DASHBOARD },
+    { label: '人群选书', icon: Sparkles, path: ROUTES.ADMIN_PROFILE_BOOKS },
     { label: '图书管理', icon: Book, path: ROUTES.ADMIN_BOOKS },
     { label: '用户审核', icon: Users, path: ROUTES.ADMIN_REVIEW },
     { label: 'AI 配置', icon: Bot, path: ROUTES.ADMIN_AI_CONFIG },

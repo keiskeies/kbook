@@ -247,8 +247,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     setMessages((prev) => [...prev, userMsg])
 
     if (!chatTitle) {
-      const questionPreview = message.length > 15 ? message.slice(0, 15) + '...' : message
-      setChatTitle(`${book.title}-${questionPreview}`)
+      setChatTitle(message.length > 20 ? `${message.slice(0, 20)}…` : message)
     }
 
     setInput('')
@@ -535,7 +534,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
         <MobileSheetHeader
           icon={<BlinkingBot className="h-5 w-5 text-primary" />}
           title={chatTitle || 'AI 书籍问答'}
-          description={`基于原著内容回答关于《${book.title}》的问题`}
+          description={`《${book.title}》`}
           actions={
             <>
               {hasMessages && sessionId && (

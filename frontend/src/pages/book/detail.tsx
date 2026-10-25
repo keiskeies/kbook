@@ -425,7 +425,7 @@ export default function BookDetailPage() {
       </div>
 
       {/* 匹配度卡片 + 速读卡片 */}
-      <div className="px-4">
+      <div className="px-4 pb-4">
         <MatchScoreCard bookId={id} ms={ms} />
         <SpeedReadCard data={speedReadData} loading={speedReadLoading} />
 
