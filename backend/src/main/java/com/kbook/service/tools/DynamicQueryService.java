@@ -5,7 +5,6 @@ import com.kbook.dto.stats.ConditionDTO;
 import com.kbook.entity.Book;
 import com.kbook.service.book.BookService;
 import com.kbook.common.enums.ConditionEnum;
-import org.springframework.context.annotation.Lazy;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -55,7 +54,7 @@ public class DynamicQueryService {
 
     private final BookService bookService;
 
-    public DynamicQueryService(@Lazy BookService bookService) {
+    public DynamicQueryService(BookService bookService) {
         this.bookService = bookService;
     }
 

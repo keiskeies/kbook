@@ -75,7 +75,7 @@ import com.kbook.service.ai.rag.ListQueryStrategySelector;
 import com.kbook.service.ai.rag.ItemListRetriever;
 import com.kbook.service.ai.rag.RagPipelineComponents;
 import com.kbook.service.ai.core.ChatModelManager;
-import com.kbook.service.ai.core.AiProviderConfigService;
+import com.kbook.service.ai.core.AiAssistantProvider;
 import com.kbook.service.ai.core.AiSceneConfigService;
 import com.kbook.service.ai.core.AiUsageContext;
 
@@ -102,7 +102,7 @@ public class BookChatService {
     private final EmbeddingService embeddingService;
     private final BookService bookService;
     private final BookParserService bookParserService;
-    private final AiProviderConfigService aiProviderConfigService;
+    private final AiAssistantProvider assistantProvider;
     private final AiSceneConfigService aiSceneConfigService;
     private final ChatModelFactory chatModelFactory;
     private final ChatModelManager chatModelManager;
@@ -134,7 +134,7 @@ public class BookChatService {
             EmbeddingService embeddingService,
             BookService bookService,
             BookParserService bookParserService,
-            AiProviderConfigService aiProviderConfigService,
+            AiAssistantProvider assistantProvider,
             AiSceneConfigService aiSceneConfigService,
             ChatModelFactory chatModelFactory,
             ChatModelManager chatModelManager,
@@ -162,7 +162,7 @@ public class BookChatService {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
         this.bookParserService = bookParserService;
-        this.aiProviderConfigService = aiProviderConfigService;
+        this.assistantProvider = assistantProvider;
         this.aiSceneConfigService = aiSceneConfigService;
         this.chatModelFactory = chatModelFactory;
         this.chatModelManager = chatModelManager;
@@ -448,14 +448,14 @@ public class BookChatService {
 
                     @Override
                     public void onError(Throwable error) {
-                        aiProviderConfigService.clearAssistantCache();
+                        assistantProvider.clearAssistantCache();
                     }
                 }, 2, logContext);
 
             } catch (Exception e) {
                 if (Thread.currentThread().isInterrupted()) return;
                 log.error("图书问答异常: bookId={} - {}", bookId, e.getMessage(), e);
-                aiProviderConfigService.clearAssistantCache();
+                assistantProvider.clearAssistantCache();
                 SseHelper.sendErrorAndComplete(emitter, "AI 响应异常: " + SseHelper.extractFriendlyError(e));
             }
         });

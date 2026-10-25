@@ -18,7 +18,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -77,7 +76,7 @@ public class BookSearchService {
 
     public BookSearchService(BookSearchRepository searchRepository,
                              BookRepository bookRepository,
-                             @Lazy EmbeddingService embeddingService,
+                             EmbeddingService embeddingService,
                              ChatModelManager chatModelManager) {
         this.searchRepository = searchRepository;
         this.bookRepository = bookRepository;

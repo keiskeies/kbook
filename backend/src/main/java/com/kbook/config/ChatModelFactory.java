@@ -67,10 +67,10 @@ public class ChatModelFactory {
     private final AiUsageLogService usageLogService;
 
     /**
-     * AI 场景配置服务 — {@code @Lazy} 打破循环依赖：
-     * ChatModelFactory ← AiSceneConfigService ← AiProviderConfigService ← ChatModelFactory
+     * AI 场景配置服务 — 场景路由解析。
+     * （原 {@code @Lazy} 已移除：AiProviderConfigService 瘦身为纯数据职责后，
+     * ChatModelFactory ← AiSceneConfigService ← AiProviderConfigService 的环已断。）
      */
-    @org.springframework.context.annotation.Lazy
     @org.springframework.beans.factory.annotation.Autowired
     private com.kbook.service.ai.core.AiSceneConfigService sceneConfigService;
 

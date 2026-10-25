@@ -2,77 +2,38 @@ package com.kbook.service.ai.core;
 
 import com.kbook.common.util.TransactionUtils;
 import com.kbook.config.AiConfigCacheInvalidator;
-import com.kbook.config.ChatModelFactory;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiProviderConfig;
-import com.kbook.entity.AiScene;
 import com.kbook.repository.AiProviderConfigRepository;
-import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.service.AiServices;
-import dev.langchain4j.service.SystemMessage;
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import com.kbook.service.ai.admin.BookAdminChatService;
-import com.kbook.service.ai.AiAssistant;
-import com.kbook.service.ai.AiChatMemory;
-import com.kbook.service.ai.AiToolService;
 
 /**
- * AI 配置服务 — 全部从数据库读取，不再回退 yml
+ * AI 配置服务 — 全部从数据库读取，不再回退 yml。纯数据职责：查询 + 写入 + 版本失效触发。
  * <p>
  * CHAT 用途分两个角色：
  * - QA: 大型问答（图书问答、AI助理、圆桌派、奇葩说）
  * - TOOL: 小型工具（元数据推断、内容压缩、查询扩展等）
  * <p>
- * 缓存策略：配置解析结果由 {@link com.kbook.service.ai.core.AiSceneConfigService} 缓存，
- * Assistant 实例由本类的 {@code chatAssistantCache} 缓存；
- * 所有缓存在配置变更后由 {@link AiConfigCacheInvalidator} 统一失效（跨副本生效）。
+ * 缓存策略：本服务不再持有任何本地缓存（M4 解循环依赖后，Assistant 实例缓存
+ * 移至 {@link AiAssistantProvider}，各缓存持有方自行向 {@link AiConfigCacheInvalidator}
+ * 注册失效回调）；写入操作提交后递增版本号触发全副本失效。
  * 此前的 {@code kbook:ai:config:*} Redis 键为写后从不读取的死代码，已移除。
  */
 @Slf4j
 @Service
 public class AiProviderConfigService {
 
-    private final AiChatMemory chatMemoryStore;
-    private final ObjectProvider<AiToolService> toolServiceProvider;
-    private final ChatModelFactory chatModelFactory;
     private final AiProviderConfigRepository configRepository;
-    private final ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider;
-    private final AiSceneConfigService sceneConfigService;
     private final AiConfigCacheInvalidator cacheInvalidator;
 
-    /** AI 助理 AiAssistant 缓存，key = configId，配置变更时清空 */
-    private final ConcurrentHashMap<Long, AiAssistant> chatAssistantCache = new ConcurrentHashMap<>();
-
     public AiProviderConfigService(
-            AiChatMemory chatMemoryStore,
-            ObjectProvider<AiToolService> toolServiceProvider,
-            ChatModelFactory chatModelFactory,
             AiProviderConfigRepository configRepository,
-            ObjectProvider<BookAdminChatService> bookAdminChatServiceProvider,
-            @Lazy AiSceneConfigService sceneConfigService,
             AiConfigCacheInvalidator cacheInvalidator) {
-        this.chatMemoryStore = chatMemoryStore;
-        this.toolServiceProvider = toolServiceProvider;
-        this.chatModelFactory = chatModelFactory;
         this.configRepository = configRepository;
-        this.bookAdminChatServiceProvider = bookAdminChatServiceProvider;
-        this.sceneConfigService = sceneConfigService;
         this.cacheInvalidator = cacheInvalidator;
-    }
-
-    /** 向失效协调器注册本服务的本地缓存清空回调 */
-    @jakarta.annotation.PostConstruct
-    void registerCacheInvalidation() {
-        cacheInvalidator.register(this::invalidateAllCacheLocal);
     }
 
     // ==================== 查询 ====================
@@ -115,81 +76,6 @@ public class AiProviderConfigService {
      */
     public void invalidateAllCache() {
         cacheInvalidator.bumpVersion();
-    }
-
-    /** 本副本缓存清空（失效协调器回调 + 兼容入口） */
-    private void invalidateAllCacheLocal() {
-        invalidateChatAssistantCache();
-        bookAdminChatServiceProvider.ifAvailable(BookAdminChatService::clearCache);
-    }
-
-    /**
-     * 使对话 Assistant 缓存失效
-     */
-    public void invalidateChatAssistantCache() {
-        chatAssistantCache.clear();
-        log.debug("对话 Assistant 缓存已清空");
-    }
-
-    /**
-     * 清理当前 Assistant 缓存（错误恢复时调用，使下一个请求重新创建 Assistant）。
-     * <p>
-     * 同时清空 {@link ChatModelFactory} 的本副本模型缓存 — 与改动前"每次重建 Assistant
-     * 都会新建模型实例"的恢复语义保持一致（重置底层 HTTP 客户端），
-     * 但<b>不</b>递增 Redis 版本号：数据库配置未变化，无需通知其他副本。
-     */
-    public void clearAssistantCache() {
-        invalidateChatAssistantCache();
-        chatModelFactory.invalidateCaches();
-    }
-
-    // ==================== 对话 AI ====================
-
-    /**
-     * 获取 AI 助理的 AiAssistant（带缓存）。
-     * <p>
-     * 配置解析走 {@link AiSceneConfigService#resolveConfig(AiScene)} 场景路由：
-     * 优先使用 AiScene.AI_ASSISTANT 显式绑定的配置，回退到 Category.QA 默认配置。
-     */
-    public AiAssistant getChatAssistant() {
-        AiProviderConfig config = sceneConfigService.resolveConfig(AiScene.AI_ASSISTANT);
-        if (config == null) {
-            throw new IllegalStateException("未找到可用 AI 助理对话配置（AiScene.AI_ASSISTANT 未绑定且无 QA 默认配置）");
-        }
-        return chatAssistantCache.computeIfAbsent(config.getId(),
-                id -> buildChatAssistant("AI_ASSISTANT", config));
-    }
-
-    /**
-     * 构建指定角色的 AiAssistant
-     */
-    private AiAssistant buildChatAssistant(String role, AiProviderConfig config) {
-
-        boolean toolsSupported = chatModelFactory.isToolsSupported(config);
-
-        log.info("构建对话 AI Assistant: role={}, model={}, toolsEnabled={}, baseUrl={}",
-                role, config.getModelName(), toolsSupported, config.getBaseUrl());
-
-        // AI 助理用自己的场景配置（AI_ASSISTANT），不再误用 BOOK_QA 场景
-        ChatModel chatModel = chatModelFactory.buildForScene(AiScene.AI_ASSISTANT);
-        StreamingChatModel streamingModel = chatModelFactory.buildStreamingForScene(AiScene.AI_ASSISTANT);
-
-        var builder = AiServices.builder(AiAssistant.class)
-                .chatModel(chatModel)
-                .streamingChatModel(streamingModel)
-                .chatMemoryProvider(sessionId -> dev.langchain4j.memory.chat.MessageWindowChatMemory.builder()
-                        .id(sessionId)
-                        .maxMessages(AiPromptConstants.ADMIN_MAX_MESSAGES)
-                        .chatMemoryStore(chatMemoryStore)
-                        .build());
-
-        if (toolsSupported) {
-            Object toolObj = toolServiceProvider.getObject();
-            builder.tools(toolObj);
-            log.info("  已注册 AI 工具: class={}", toolObj.getClass().getName());
-        }
-
-        return builder.build();
     }
 
     // ==================== 写入 ====================

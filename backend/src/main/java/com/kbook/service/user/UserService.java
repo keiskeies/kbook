@@ -3,7 +3,7 @@ import com.kbook.service.auth.AuthService;
 import com.kbook.service.admin.BookProfileDimension;
 import com.kbook.service.notification.EmailNotificationService;
 
-import com.kbook.service.recommend.RecommendService;
+import com.kbook.service.recommend.event.UserPreferenceChangedEvent;
 import com.kbook.service.ai.SpeedReadCache;
 
 import com.kbook.common.api.PageResult;
@@ -17,7 +17,6 @@ import com.kbook.entity.User;
 import com.kbook.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -62,13 +61,11 @@ public class UserService {
     /** 文件存储配置 */
     @Autowired
     private BookStorageProperties storageProps;
-    /** 推荐服务（@Lazy 避免循环依赖） */
+    /** 事件发布器（M4：偏好变更后发事件由推荐侧异步重算，解 Recommend↔User 互指环） */
     @Autowired
-    @Lazy
-    private RecommendService recommendService;
-    /** 邮件通知服务（@Lazy 避免循环依赖） */
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+    /** 邮件通知服务 */
     @Autowired
-    @Lazy
     private EmailNotificationService emailNotificationService;
     /** 速读缓存（画像更新后整体清空该用户缓存） */
     @Autowired
@@ -335,7 +332,7 @@ public class UserService {
             user.setAspirationIncome(ProfileValues.require(BookProfileDimension.INCOME, aspirationIncome));
         }
         user = userRepository.save(user);
-        recommendService.asyncRecompute(userId);
+        eventPublisher.publishEvent(new UserPreferenceChangedEvent(userId));
         // 稳定画像变更：事务提交后清空该用户全部速读缓存（一次 DEL）
         TransactionUtils.afterCommit(() -> speedReadCache.invalidateUser(userId));
         return user;
@@ -368,7 +365,7 @@ public class UserService {
         User user = getUserById(userId);
         user.setMood(mood != null && !mood.isBlank() ? mood : null);
         user = userRepository.save(user);
-        recommendService.asyncRecompute(userId);
+        eventPublisher.publishEvent(new UserPreferenceChangedEvent(userId));
         return user;
     }
 

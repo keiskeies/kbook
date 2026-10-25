@@ -3,7 +3,9 @@ import com.kbook.service.user.UserService;
 
 import com.kbook.service.recommend.RecommendMatchCalculator;
 
-import com.kbook.service.recommend.RecommendService;
+import com.kbook.service.recommend.event.BookRestoredEvent;
+import com.kbook.service.recommend.event.BookTrashedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,19 +48,20 @@ public class BookTrashService {
     private final BookRepository bookRepository;
     private final UserService userService;
     private final ObjectMapper objectMapper;
-    private final RecommendService recommendService;
+    /** 事件发布器（M4：替代对 RecommendService 的直接依赖，解互指环） */
+    private final ApplicationEventPublisher eventPublisher;
 
     public BookTrashService(
             BookTrashRepository bookTrashRepository,
             BookRepository bookRepository,
             UserService userService,
             ObjectMapper objectMapper,
-            @Lazy RecommendService recommendService) {
+            ApplicationEventPublisher eventPublisher) {
         this.bookTrashRepository = bookTrashRepository;
         this.bookRepository = bookRepository;
         this.userService = userService;
         this.objectMapper = objectMapper;
-        this.recommendService = recommendService;
+        this.eventPublisher = eventPublisher;
     }
 
     private static final int BASE_RATER_COUNT = 1000;
@@ -108,7 +110,7 @@ public class BookTrashService {
         bookRepository.save(book);
 
         // 从推荐有序集合中移除该图书，避免已丢弃的图书仍出现在推荐中
-        recommendService.removeSingleBook(userId, bookId);
+        eventPublisher.publishEvent(new BookTrashedEvent(userId, bookId));
 
         // 记录日志
         log.info("图书丢入垃圾桶: userId={}, bookId={}, dimensionRatingCount={}", userId, bookId, newCount);
@@ -151,7 +153,7 @@ public class BookTrashService {
         bookRepository.save(book);
 
         // 单独计算该图书的匹配得分并加入推荐有序集合
-        recommendService.computeAndAddSingleBook(userId, bookId);
+        eventPublisher.publishEvent(new BookRestoredEvent(userId, bookId));
 
         // 记录日志
         log.info("图书移出垃圾桶: userId={}, bookId={}, dimensionRatingCount={}", userId, bookId, newCount);

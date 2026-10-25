@@ -13,7 +13,6 @@ import com.kbook.common.enums.chart.TimeDeltaEnum;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -53,7 +52,7 @@ public class AdminBookToolService {
 
     public AdminBookToolService(
             BookService bookService,
-            @Lazy BookScanService bookScanService,
+            BookScanService bookScanService,
             RepositoryHelper repositoryHelper,
             BookRepository bookRepository,
             EntityManager entityManager

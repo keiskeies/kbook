@@ -2,6 +2,7 @@ package com.kbook.service.ai.admin;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
+import com.kbook.config.AiConfigCacheInvalidator;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.entity.AiConversation;
@@ -56,6 +57,8 @@ public class BookAdminChatService {
     /** 管理员 Assistant 实例缓存（单例） */
     private final ConcurrentHashMap<String, BookAdminAssistant> adminAssistantCache = new ConcurrentHashMap<>();
     private final ChatModelFactory chatModelFactory;
+    /** AI 配置缓存失效协调器 — 配置变更后清空会话缓存 */
+    private final AiConfigCacheInvalidator cacheInvalidator;
 
     public BookAdminChatService(
             AiConversationRepository conversationRepository,
@@ -63,13 +66,21 @@ public class BookAdminChatService {
             ObjectProvider<AdminBookToolService> adminToolServiceProvider,
             BookAdminChatMemory bookAdminChatMemory,
             @Qualifier("sseExecutor") ExecutorService sseExecutor,
-            ChatModelFactory chatModelFactory) {
+            ChatModelFactory chatModelFactory,
+            AiConfigCacheInvalidator cacheInvalidator) {
         this.conversationRepository = conversationRepository;
         this.sessionRepository = sessionRepository;
         this.adminToolServiceProvider = adminToolServiceProvider;
         this.bookAdminChatMemory = bookAdminChatMemory;
         this.sseExecutor = sseExecutor;
         this.chatModelFactory = chatModelFactory;
+        this.cacheInvalidator = cacheInvalidator;
+    }
+
+    /** AI 配置变更后清空本服务的会话缓存（自注册，替代原配置服务代清） */
+    @jakarta.annotation.PostConstruct
+    void registerCacheInvalidation() {
+        cacheInvalidator.register(this::clearCache);
     }
 
     /**

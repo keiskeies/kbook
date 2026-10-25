@@ -22,11 +22,14 @@ import com.kbook.service.user.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
+import com.kbook.service.recommend.event.BookRestoredEvent;
+import com.kbook.service.recommend.event.BookTrashedEvent;
+import com.kbook.service.recommend.event.UserPreferenceChangedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -76,9 +79,9 @@ public class RecommendService {
             UserBookPreferenceRepository preferenceRepository,
             ObjectMapper objectMapper,
             RedisTemplate<String, Object> redisTemplate,
-            @Lazy RecommendCoefficientService coefficientService,
-            @Lazy DimensionStatsService dimensionStatsService,
-            @Lazy BookTrashService bookTrashService,
+            RecommendCoefficientService coefficientService,
+            DimensionStatsService dimensionStatsService,
+            BookTrashService bookTrashService,
             NamedParameterJdbcTemplate namedJdbc,
             ScoreSqlBuilder scoreSqlBuilder
     ) {
@@ -320,6 +323,27 @@ public class RecommendService {
      *
      * @param userId 用户ID
      */
+    // ==================== 事件监听（M4 解循环依赖） ====================
+    // 替代 BookTrashService/UserService 对本服务的直接回调；同步监听在发布方事务内执行，
+    // 与原跨 Bean 调用语义一致（被调方法均无自身事务注解）。
+
+    @EventListener
+    public void onBookTrashed(BookTrashedEvent event) {
+        removeSingleBook(event.userId(), event.bookId());
+    }
+
+    @EventListener
+    public void onBookRestored(BookRestoredEvent event) {
+        computeAndAddSingleBook(event.userId(), event.bookId());
+    }
+
+    /** 用户画像/偏好变更 → 异步重算推荐（保持原 asyncRecompute 的发后即忘语义） */
+    @Async
+    @EventListener
+    public void onUserPreferenceChanged(UserPreferenceChangedEvent event) {
+        asyncRecompute(event.userId());
+    }
+
     @Async
     @LogAction("异步重算推荐")
     public void asyncRecompute(Long userId) {

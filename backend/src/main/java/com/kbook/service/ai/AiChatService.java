@@ -39,7 +39,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.kbook.common.util.QueryBuilder.*;
-import com.kbook.service.ai.core.AiProviderConfigService;
+import com.kbook.service.ai.core.AiAssistantProvider;
 import com.kbook.service.ai.core.AiUsageContext;
 
 /**
@@ -58,7 +58,7 @@ public class AiChatService {
 
     private final AiConversationRepository conversationRepository;
     private final AiSessionRepository sessionRepository;
-    private final AiProviderConfigService providerConfigService;
+    private final AiAssistantProvider assistantProvider;
     private final AiChatMemory chatMemoryStore;
     private final ExecutorService sseExecutor;
     private final ObjectMapper objectMapper;
@@ -72,7 +72,7 @@ public class AiChatService {
     public AiChatService(
             AiConversationRepository conversationRepository,
             AiSessionRepository sessionRepository,
-            AiProviderConfigService providerConfigService,
+            AiAssistantProvider assistantProvider,
             AiChatMemory chatMemoryStore,
             @Qualifier("sseExecutor") ExecutorService sseExecutor,
             ObjectMapper objectMapper,
@@ -84,7 +84,7 @@ public class AiChatService {
             ApplicationEventPublisher eventPublisher) {
         this.conversationRepository = conversationRepository;
         this.sessionRepository = sessionRepository;
-        this.providerConfigService = providerConfigService;
+        this.assistantProvider = assistantProvider;
         this.chatMemoryStore = chatMemoryStore;
         this.sseExecutor = sseExecutor;
         this.objectMapper = objectMapper;
@@ -200,7 +200,7 @@ public class AiChatService {
             ThoughtTagParser thoughtParser = new ThoughtTagParser();
             try {
                 long startTime = System.currentTimeMillis();
-                AiAssistant assistant = providerConfigService.getChatAssistant();
+                AiAssistant assistant = assistantProvider.getChatAssistant();
                 if (assistant == null) {
                     log.warn("AI 助理未配置: userId={}", userId);
                     String hint = "AI 助理暂未配置，请联系管理员在后台配置 LLM 接口后再试。";
@@ -364,7 +364,7 @@ public class AiChatService {
                             }
                             // 其他错误
                             log.error("流式对话异常: sessionId={}", sessionId, error);
-                            providerConfigService.clearAssistantCache();
+                            assistantProvider.clearAssistantCache();
                             String errMsg = SseHelper.extractFriendlyError(error);
                             try {
                                 emitter.send(SseEmitter.event().name("error").data(errMsg));
@@ -389,7 +389,7 @@ public class AiChatService {
                 // 启动异常处理
                 if (cancelled.get()) return;
                 log.error("流式对话启动异常: sessionId={}", sessionId, e);
-                providerConfigService.clearAssistantCache();
+                assistantProvider.clearAssistantCache();
                 String errMsg = SseHelper.extractFriendlyError(e);
                 try {
                     emitter.send(SseEmitter.event().name("error").data(errMsg));

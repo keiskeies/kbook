@@ -25,7 +25,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -81,8 +80,8 @@ public class BookService {
 
     public BookService(BookRepository bookRepository,
                        BookSearchService bookSearchService,
-                       @Lazy EmbeddingService embeddingService,
-                       @Lazy ChatModelManager chatModelManager,
+                       EmbeddingService embeddingService,
+                       ChatModelManager chatModelManager,
                        StringRedisTemplate redisTemplate,
                        BookStorageProperties storageProps,
                        ObjectMapper objectMapper,

@@ -54,9 +54,9 @@ public class AiToolService {
             BookService bookService,
             BookshelfService bookshelfService,
             ChatModelManager chatModelManager,
-            @Lazy EmbeddingService embeddingService,
+            EmbeddingService embeddingService,
             UserBookPreferenceService preferenceService,
-            @Lazy RecommendService recommendService,
+            RecommendService recommendService,
             ObjectMapper objectMapper,
             QdrantProperties qdrantProperties
     ) {
