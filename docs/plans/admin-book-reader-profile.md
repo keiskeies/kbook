@@ -2834,6 +2834,6 @@ AZ 记录的现象是：工作区 `doc-paths` 全绿，`git archive` 干净检�
 ✓ built in 12.21s   （tsc -b + vite build，exit 0）
 ```
 
-说明三笔提交里的前端文件是自洽的：`components/admin/*`、`pages/admin/profile-books.tsx`、`api/adminDashboard.ts`、路由与常量没有漏提交。验证完用 `rmdir` 只拆联接（不是 `rm -rf`，避免把指向的依赖目录一起删掉），临时目录随后清理。
+说明三笔提交里的前端文件是自洽的：`components/admin/*`、`pages/admin/profile-books.tsx`、`api/adminDashboard.ts`、路由与常量没有漏提交。清理时本想用 `rmdir` 只拆联接（不跟随到目标），但命令报「文件名语法错误」；随后用 `rm -rf` 删父目录，联接本身随之消失。**事后核对工作区 `frontend/node_modules` 完好（633 个顶层包、构建再次通过），联接没有被跟随**——但这是一次靠结果验证而非靠操作保证的险情，记在这里：以后应先 `rmdir`（或用 PowerShell `Remove-Item` 指定 LinkType）确认链接已拆，再删父目录。
 
 至此干净检出的三件事都有结论：后端 236 例测试全绿、前端构建通过、静态核对仅剩 V3 一条（属他功能、未提交，已在部署清单显式检查）。
