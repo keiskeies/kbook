@@ -1,8 +1,9 @@
 import { ArrowLeft, Users, BookOpen, MessageSquare, Swords,
   TrendingUp, TrendingDown, Activity, BarChart3, RefreshCw, Pencil,
-  ChevronDown, Lightbulb, CalendarDays,
+  Lightbulb, CalendarDays,
 } from 'lucide-react'
 import { useState } from 'react'
+import { CollapsibleSection } from '@/components/admin/CollapsibleSection'
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, Legend, CartesianGrid, ComposedChart, Area, Line,
@@ -12,12 +13,25 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { getDashboard, updateAiBudget,
   type AiBudget, type DashboardQuery, type DashboardRange, type UsageBreakdown,
 } from '@/api/adminDashboard'
+import { BookProfileDrawer } from '@/components/admin/BookProfileDrawer'
 
 const COLORS = {
   chat: '#5B8C5A',
   debate: '#D4A574',
   roundTable: '#6B8FA8',
   info: '#9A948A',
+}
+
+/** 后端把白名单外的取值折叠进这两个桶；它们不是真实取值，配色不能占真实取值的色位 */
+const FOLDED_BUCKETS = new Set(['未填写', '脏值'])
+const PIE_COLORS = [COLORS.chat, COLORS.debate, COLORS.roundTable]
+
+function withSliceColors(slices: { name: string; value: number }[]) {
+  let slot = 0
+  return slices.map(s => ({
+    ...s,
+    color: FOLDED_BUCKETS.has(s.name) ? COLORS.info : PIE_COLORS[slot++ % PIE_COLORS.length],
+  }))
 }
 
 const RANGE_OPTIONS: { value: DashboardRange; label: string }[] = [
@@ -94,6 +108,7 @@ export default function AdminDashboardPage() {
     enabled: true,
     alertPercent: 80,
   })
+  const [profileBook, setProfileBook] = useState<{ id: number; title: string } | null>(null)
 
   const queryParams: DashboardQuery = range.kind === 'preset'
     ? { days: range.days }
@@ -247,10 +262,10 @@ export default function AdminDashboardPage() {
     .sort((a, b) => b.value - a.value)
   const mbtiChartHeight = Math.max(220, mbtiData.length * 22)
 
-  const genderData = Object.entries(userProfile.genderDistribution).map(([k, v]) => ({
+  const genderSlices = withSliceColors(Object.entries(userProfile.genderDistribution).map(([k, v]) => ({
     name: k === 'MALE' ? '男' : k === 'FEMALE' ? '女' : k,
     value: v,
-  }))
+  })))
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background">
@@ -285,6 +300,7 @@ export default function AdminDashboardPage() {
                 setCustomOpen(false)
                 setCustomError('')
               }}
+              aria-pressed={range.kind === 'preset' && range.days === opt.value}
               className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                 range.kind === 'preset' && range.days === opt.value
                   ? 'bg-primary text-primary-foreground'
@@ -296,6 +312,7 @@ export default function AdminDashboardPage() {
           ))}
           <button
             onClick={() => setCustomOpen(v => !v)}
+            aria-pressed={range.kind === 'custom'}
             className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               range.kind === 'custom'
                 ? 'bg-primary text-primary-foreground'
@@ -523,6 +540,14 @@ export default function AdminDashboardPage() {
                         </div>
                         <div>共 {book.discussionCount} 次讨论</div>
                       </div>
+                      <button
+                        onClick={() => setProfileBook({ id: book.id, title: book.title })}
+                        aria-label={`查看《${book.title}》读者画像`}
+                        className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground active:bg-muted/80 hover:text-foreground"
+                      >
+                        <Users className="h-3 w-3" />
+                        画像
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -708,11 +733,11 @@ export default function AdminDashboardPage() {
               <div className="rounded-lg bg-muted/50 p-4">
                 <p className="text-caption text-muted-foreground mb-3">性别分布</p>
                 <div className="h-52">
-                  {genderData.length > 0 ? (
+                  {genderSlices.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={genderData}
+                          data={genderSlices}
                           cx="50%"
                           cy="50%"
                           innerRadius={50}
@@ -722,8 +747,8 @@ export default function AdminDashboardPage() {
                         label={({ name, percent }) => percent > 0.05 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
                           labelLine={false}
                         >
-                          {genderData.map((_, i) => (
-                            <Cell key={i} fill={[COLORS.chat, COLORS.debate, COLORS.roundTable][i % 3]} />
+                          {genderSlices.map((s, i) => (
+                            <Cell key={i} fill={s.color} />
                           ))}
                         </Pie>
                         <Tooltip
@@ -832,6 +857,13 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+
+      <BookProfileDrawer
+        book={profileBook}
+        query={queryParams}
+        rangeLabel={rangeLabel}
+        onClose={() => setProfileBook(null)}
+      />
     </div>
   )
 }
@@ -872,53 +904,6 @@ function StatCard({ icon, label, value, sub, color }: {
         {sub && <p className="text-caption text-muted-foreground mt-0.5">{sub}</p>}
       </div>
     </div>
-  )
-}
-
-function CollapsibleSection({ storageKey, icon, title, action, children }: {
-  storageKey: string
-  icon: React.ReactNode
-  title: string
-  action?: React.ReactNode
-  children: React.ReactNode
-}) {
-  const [open, setOpen] = useState(() => {
-    try {
-      const saved = localStorage.getItem(storageKey)
-      return saved === null ? true : saved === '1'
-    } catch {
-      return true
-    }
-  })
-
-  const toggle = () => {
-    setOpen(prev => {
-      const next = !prev
-      try {
-        localStorage.setItem(storageKey, next ? '1' : '0')
-      } catch {
-        // ignore storage failures
-      }
-      return next
-    })
-  }
-
-  return (
-    <section className="rounded-xl bg-card shadow-xs">
-      <div className="flex items-center gap-2 px-4 py-3 md:px-5">
-        <button onClick={toggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-          <span className="text-primary">{icon}</span>
-          <h2 className="text-h4">{title}</h2>
-          <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
-        </button>
-        {action}
-      </div>
-      {open && (
-        <div className="space-y-4 px-4 pb-4 md:px-5 md:pb-5">
-          {children}
-        </div>
-      )}
-    </section>
   )
 }
 

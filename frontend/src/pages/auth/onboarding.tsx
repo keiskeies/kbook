@@ -126,7 +126,7 @@ export default function OnboardingPage() {
         hasChildren: hasChildren ? hasChildren === 'yes' : undefined,
         childrenAgeRanges: hasChildren === 'yes' && childrenAgeRanges.length > 0
           ? childrenAgeRanges.join(',')
-          : (hasChildren === 'no' ? 'no_children' : undefined),
+          : (hasChildren === 'no' ? 'children_no_children' : undefined),
         mbti: mbti || undefined,
         occupation: occupations.length > 0 ? occupations.join(',') : undefined,
         aspirationEducation: education || undefined,

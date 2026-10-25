@@ -22,6 +22,7 @@ export const ROUTES = {
   ADMIN_REVIEW: '/admin/review',
   ADMIN_BIND_EMAIL: '/admin/bind-email',
   ADMIN_BOOKS: '/admin/books',
+  ADMIN_PROFILE_BOOKS: '/admin/profile-books',
   ADMIN_AI_CONFIG: '/admin/ai-config',
   ADMIN_AI_SCENE: '/admin/ai-scene',
   ADMIN_TTS_CONFIG: '/admin/tts-config',

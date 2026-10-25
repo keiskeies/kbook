@@ -51,6 +51,20 @@ function calcAge(birthday: string | null | undefined): number | null {
   return age >= 0 ? age : null
 }
 
+/**
+ * 后端写入端把多值列归一成白名单 token（大写，如 `CHILDREN_0_2`），而历史数据是小写、
+ * 「无孩」还有裸值 `no_children` 三种写法。这里的职责是把任意写法折回 CHILDREN_AGE_RANGE_OPTIONS
+ * 的 value 空间，否则回显时勾选框认不出自己写进去的值。
+ */
+function parseChildRanges(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)
+    .map((v) => (v.startsWith('children_') ? v : `children_${v}`))
+}
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -65,11 +79,9 @@ export default function ProfileTraitsSheet({ open, onOpenChange, userInfo, updat
   const [traitGender, setTraitGender] = useState(userInfo?.gender ?? '')
   const [traitMarried, setTraitMarried] = useState(userInfo?.married === true ? 'yes' : userInfo?.married === false ? 'no' : '')
   const [traitHasChildren, setTraitHasChildren] = useState(userInfo?.hasChildren === true ? 'yes' : userInfo?.hasChildren === false ? 'no' : '')
-  const [traitChildrenAgeRanges, setTraitChildrenAgeRanges] = useState<string[]>(() => {
-    const ranges = userInfo?.childrenAgeRanges
-    if (!ranges) return []
-    return ranges.split(',').filter(Boolean).map((v: string) => v.startsWith('children_') ? v : 'children_' + v)
-  })
+  const [traitChildrenAgeRanges, setTraitChildrenAgeRanges] = useState<string[]>(
+    () => parseChildRanges(userInfo?.childrenAgeRanges)
+  )
   const [traitMbti, setTraitMbti] = useState(userInfo?.mbti ?? '')
   const [traitOccupations, setTraitOccupations] = useState<string[]>(() => {
     const occ = userInfo?.occupation
@@ -86,8 +98,7 @@ export default function ProfileTraitsSheet({ open, onOpenChange, userInfo, updat
       setTraitGender(userInfo?.gender ?? '')
       setTraitMarried(userInfo?.married === true ? 'yes' : userInfo?.married === false ? 'no' : '')
       setTraitHasChildren(userInfo?.hasChildren === true ? 'yes' : userInfo?.hasChildren === false ? 'no' : '')
-      const ranges = userInfo?.childrenAgeRanges
-      setTraitChildrenAgeRanges(ranges ? ranges.split(',').filter(Boolean).map((v: string) => v.startsWith('children_') ? v : 'children_' + v) : [])
+      setTraitChildrenAgeRanges(parseChildRanges(userInfo?.childrenAgeRanges))
       setTraitMbti(userInfo?.mbti ?? '')
       const occ = userInfo?.occupation
       setTraitOccupations(occ ? occ.split(',').filter(Boolean) : [])
@@ -107,7 +118,7 @@ export default function ProfileTraitsSheet({ open, onOpenChange, userInfo, updat
         hasChildren: traitHasChildren ? traitHasChildren === 'yes' : null,
         childrenAgeRanges: traitHasChildren === 'yes' && traitChildrenAgeRanges.length > 0
           ? traitChildrenAgeRanges.join(',')
-          : (traitHasChildren === 'no' ? 'no_children' : null),
+          : (traitHasChildren === 'no' ? 'children_no_children' : null),
         mbti: traitMbti || null,
         occupation: traitOccupations.length > 0 ? traitOccupations.join(',') : null,
         aspirationEducation: traitEducation || null,
