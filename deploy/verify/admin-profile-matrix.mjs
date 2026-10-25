@@ -369,6 +369,18 @@ const finish = code => {
     `核对到的 siteRatio=${checkedSiteRatios} 越界=${JSON.stringify(leakedSite)}` +
       (checkedSiteRatios === 0 ? '（dev 全站各桶都 <5，本条在此数据集上只做回归守卫，正面证据靠单测+变异）' : ''))
 
+  // ---------- P3 受众吻合度与反查榜的时间窗契约 ----------
+  const fitWindow = await call(LOOSE, `/book-audience-fit?bookId=${BOOK}&basis=DEEP&start=2026-10-01&end=2026-10-10`, ADMIN)
+  const fw = fitWindow.j && fitWindow.j.data
+  row('P3 受众吻合度区间：rangeDays=10 且起止回显',
+    !!fw && fw.rangeDays === 10 && fw.rangeStart === '2026-10-01' && fw.rangeEnd === '2026-10-10',
+    fw ? `rangeDays=${fw.rangeDays} ${fw.rangeStart}~${fw.rangeEnd}` : '无数据')
+
+  const booksInverted = await call(BASE, `/profile-books?dim=GENDER&value=FEMALE&start=2026-10-10&end=2026-10-01`, ADMIN)
+  row('§2.2 反查榜 start>end：业务错误且文案一致',
+    !!booksInverted.j && booksInverted.j.code !== 0 && /开始日期不能晚于结束日期/.test(booksInverted.j.message || ''),
+    `code=${booksInverted.j && booksInverted.j.code} message=${booksInverted.j && booksInverted.j.message}`)
+
   // ---------- 趋势端点（只读；不触发快照写入）----------
   const trendOk = await call(BASE, `/book-profile-trend?bookId=${BOOK}&basis=DEEP&days=7`, ADMIN)
   const trendAnon = await call(BASE, `/book-profile-trend?bookId=${BOOK}&basis=DEEP&days=7`, null)
