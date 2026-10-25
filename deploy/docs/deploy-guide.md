@@ -303,6 +303,7 @@ docker compose up -d
 - [ ] 阈值先校准再上线：`mysql -h<生产库> -u<user> -p <db> < deploy/sql/profile-threshold-audit.sql`，纯只读，跑完直接给「三种口径各有多少书达到 `min-cohort-size`」的结论。dev 库上这三个结论都是「不达标」，所以别把 dev 的默认值当生产值。
 - [ ] 新接口 + 新索引必须**同一镜像发布**：先更新 `package/`（`deploy/download.sh`，或本机打包脚本）→ `deploy/docker/build.sh`（Windows：`deploy/docker/build.bat`）→ `up -d`，**不能只 `restart`**（restart 用的还是旧镜像，会出现前端新 / 后端旧，设计文档 §12 记过这就是已发生过的事故）。读者画像的取值校验那部分不受这条约束，两端可以任意先后（附录 F.5）。
 - [ ] **本次新增一张表**：`book_profile_daily`（单书画像每日快照）由 Flyway `V4__create_book_profile_daily.sql` 创建，不依赖 `ddl-auto`。默认不启用定时写入（`KBOOK_ADMIN_BOOK_PROFILE_SNAPSHOT_ENABLED=false`），确认阈值与候选量后再打开；保留策略是永久保留，磁盘由运维归档。
+- [ ] **确认 `V3__add_note_occurred_at.sql` 在发布包里**：它修 `notes.occurred_at` 缺列（附录 B.5）。截至 2026-10-25 该迁移**尚未提交进本仓库**；若发布包取自 git，缺失它会让笔记时光机 500。`V4`（画像快照表）已在本仓库内。
 - [ ] 顺带一条同源风险：**给有存量数据的表加 `NOT NULL` 列必须写 Flyway 迁移**，`ddl-auto: update` 会静默失败并把连带索引一起丢掉（本次 `notes.occurred_at` 就是这么修的，见附录 B.5）。只加索引不受影响。
 
 ### ⚠️ 生产环境建议
