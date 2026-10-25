@@ -41,3 +41,7 @@ deploy/.env
 deploy/docker/.env
 reasonix.toml
 .bug
+
+# 本地验证产物：自签 token 一律不入库
+.verify-token.txt
+.verify-*.token

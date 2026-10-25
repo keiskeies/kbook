@@ -36,9 +36,8 @@ deploy/
 ├── .env.example           ← 配置模板（复制到 compose/.env 后修改）
 ├── ai-config.json         ← AI 外部配置（可直接编辑，点"重载"生效）
 │
-├── package.sh             ← Linux/Mac：构建前端 dist + 后端 JAR → package/
-├── package.bat            ← Windows：同上
-├── package/               ← 构建产物（由 package.sh/bat 生成）
+├── （打包脚本在仓库根目录 package/ 下，不在 deploy/ 内）
+├── package/               ← 构建产物（由 package/package.sh|bat 生成，或由 download.sh 下载）
 │   ├── dist/              ←   前端静态文件
 │   ├── app.jar            ←   后端 JAR
 │   └── ai-config.json     ←   复制的 AI 配置
@@ -70,9 +69,10 @@ deploy/
 # 1. 进入部署目录
 cd deploy
 
-# 2. 打包前端 + 后端（生成 package/ 目录）
-./package.sh              # Linux/Mac
-package.bat               # Windows（双击）
+# 2. 回到仓库根目录打包（脚本在 package/ 下，不在 deploy/ 内）
+cd ..
+package/package.sh        # Linux/Mac
+package/package.bat       # Windows（双击）
 # 此步骤会自动 npm install → npm run build → mvn package → 复制到 package/
 
 # 3. 进入 compose 目录，复制配置模板
@@ -94,7 +94,7 @@ start.bat                 # Windows（双击）
 ```
 
 > ⏱ 首次启动耗时 3-10 分钟（下载镜像），打包阶段另外耗时。
-> ⚠️ 后续更新代码只需要重新运行 package.sh/bat，然后 `docker compose restart app`。
+> ⚠️ 后续更新代码只需要重新运行 package/package.sh 或 package/package.bat，然后 `docker compose restart app`。
 
 ### 核心配置说明
 
@@ -110,6 +110,12 @@ start.bat                 # Windows（双击）
 | `AI_VISION_TIMEOUT` | 按需 | 视觉模型超时（默认 `600s`） |
 | `BOOK_PATH_EPUB_HOST` | 按需 | 宿主机上的 EPUB 图书目录 |
 | `APP_PORT_HOST` | 按需 | 前端端口（默认 80，被占则改 8080） |
+| `KBOOK_PROFILE_MIN_COHORT_SIZE` | 按需 | 读者画像的 k-匿名门槛（默认 `10`）：某本书的读者数低于它，接口只回「样本过小」保护态、不给分布。生产值要先用 `deploy/sql/profile-threshold-audit.sql` 校准（见第 7 节） |
+| `KBOOK_PROFILE_MIN_BUCKET_SIZE` / `KBOOK_PROFILE_SIGNIFICANT_MIN_COUNT` / `KBOOK_PROFILE_HIGHLIGHT_MIN_COUNT` | 按需 | 分桶最小人数 / 可判显著的最小人数 / 进结论文案的最小人数，默认 `5 / 10 / 20` |
+| `KBOOK_ADMIN_BOOK_PROFILE_SNAPSHOT_ENABLED` / `_BASES` / `_MAX_BOOKS` / `_CRON` | 按需 | 每日快照的开关（默认 `false`）、口径列表（默认 `DEEP`）、候选上限（默认 `500`）、cron（默认 `0 10 3 * * *`）。四个 env 名都实测过（`BASES=READ,DEEP` + `MAX_BOOKS=2` → 两行各 2 本）。**启用前先跑 A.3 校准**；表是永久保留，磁盘由运维归档 |
+| `KBOOK_ADMIN_EMAIL` | 按需 | 管理员账号邮箱，默认值见 `application.yml` |
+| `KBOOK_CORS_ORIGINS` | 按需 | 允许的跨域来源（默认只放行 localhost 系），生产按实际域名收窄 |
+| `KBOOK_PROFILE_CACHE_MINUTES` / `KBOOK_PROFILE_BASELINE_CACHE_MINUTES` | 一般不设 | 单书画像缓存 / 全站基线缓存的寿命（默认 `5 / 10` 分钟），只在启动时读取，改了要重启。把基线那条调小会让 `users` 更频繁地跑 15 个 `GROUP BY`（§7.3 没给画像列建过索引），生产上不建议长期低于默认；主要用途是本地复现「分子分母不同龄」这条已知缺陷 |
 
 ### 常用命令
 
@@ -291,6 +297,14 @@ docker compose up -d
 - [ ] KBOOK_ADMIN_PASSWORD 已改为强密码（12 位+）
 - [ ] .env 未提交到 Git
 - [ ] Linux: `chmod 600 .env`
+
+### 📇 本次发布含索引变更（图书 × 读者画像）
+
+- [ ] **首启会自动建 4 条「按书查」索引**：`idx_progress_book_updated`、`idx_history_book_created`、`idx_shelf_book_added`、`idx_note_book_created`。生产 `reading_progress` 是热表，建索引期间与首查会明显变慢，**这不是功能坏了**（口径见 `docs/plans/admin-book-reader-profile.md` §7.3）。
+- [ ] 阈值先校准再上线：`mysql -h<生产库> -u<user> -p <db> < deploy/sql/profile-threshold-audit.sql`，纯只读，跑完直接给「三种口径各有多少书达到 `min-cohort-size`」的结论。dev 库上这三个结论都是「不达标」，所以别把 dev 的默认值当生产值。
+- [ ] 新接口 + 新索引必须**同一镜像发布**：走 `package/package.bat`（Linux/Mac：`package/package.sh`）→ `deploy/docker/build.sh`（Windows：`deploy/docker/build.bat`）→ `up -d`，**不能只 `restart`**（restart 用的还是旧镜像，会出现前端新 / 后端旧，设计文档 §12 记过这就是已发生过的事故）。读者画像的取值校验那部分不受这条约束，两端可以任意先后（附录 F.5）。
+- [ ] **本次新增一张表**：`book_profile_daily`（单书画像每日快照）由 Flyway `V4__create_book_profile_daily.sql` 创建，不依赖 `ddl-auto`。默认不启用定时写入（`KBOOK_ADMIN_BOOK_PROFILE_SNAPSHOT_ENABLED=false`），确认阈值与候选量后再打开；保留策略是永久保留，磁盘由运维归档。
+- [ ] 顺带一条同源风险：**给有存量数据的表加 `NOT NULL` 列必须写 Flyway 迁移**，`ddl-auto: update` 会静默失败并把连带索引一起丢掉（本次 `notes.occurred_at` 就是这么修的，见附录 B.5）。只加索引不受影响。
 
 ### ⚠️ 生产环境建议
 
