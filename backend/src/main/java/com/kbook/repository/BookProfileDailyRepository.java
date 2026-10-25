@@ -11,6 +11,7 @@ public interface BookProfileDailyRepository extends JpaRepository<BookProfileDai
 
     Optional<BookProfileDaily> findByBookIdAndSnapshotDateAndBasis(Long bookId, LocalDate snapshotDate, String basis);
 
-    List<BookProfileDaily> findByBookIdAndBasisAndSnapshotDateGreaterThanEqualOrderBySnapshotDateAsc(
-            Long bookId, String basis, LocalDate from);
+    /** 趋势窗口是闭区间 [from, to]：to 固定为今天，未来日期的行不该出现在“近 N 天”里 */
+    List<BookProfileDaily> findByBookIdAndBasisAndSnapshotDateBetweenOrderBySnapshotDateAsc(
+            Long bookId, String basis, LocalDate from, LocalDate to);
 }

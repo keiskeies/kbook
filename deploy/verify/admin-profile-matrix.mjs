@@ -391,6 +391,20 @@ const finish = code => {
 
   const trendBadBasis = await call(BASE, '/book-profile-trend?bookId=' + BOOK + '&basis=%7B%7B7*7%7D%7D&days=7', ADMIN)
   const trendGhost = await call(BASE, '/book-profile-trend?bookId=987654321&basis=DEEP&days=7', ADMIN)
+  const trendAsc = await call(BASE, `/book-profile-trend?bookId=${BOOK}&basis=DEEP&days=30`, ADMIN)
+  const pts = (trendAsc.j && trendAsc.j.data) || []
+  const ascending = pts.every((p, i) => i === 0 || pts[i - 1].date < p.date)
+  row('P3 趋势日期严格升序（图表按此顺序连线）', pts.length > 1 && ascending,
+    pts.map(p => p.date).join(' → ') || '无数据')
+
+  const trendZero = await call(BASE, `/book-profile-trend?bookId=${BOOK}&basis=DEEP&days=0`, ADMIN)
+  const trendHuge = await call(BASE, `/book-profile-trend?bookId=${BOOK}&basis=DEEP&days=9999`, ADMIN)
+  row('P3 趋势 days 边界：0 与超大值都不报错且点数受窗口约束',
+    trendZero.status === 200 && trendHuge.status === 200
+      && ((trendZero.j && trendZero.j.data) || []).length <= 1
+      && ((trendHuge.j && trendHuge.j.data) || []).length <= 366,
+    `days=0 点数=${((trendZero.j && trendZero.j.data) || []).length} days=9999 点数=${((trendHuge.j && trendHuge.j.data) || []).length}`)
+
   row('P3 趋势入参：非法口径给业务错误（HTTP 200 + code≠0）、无快照的书返回空而不是 500',
     trendBadBasis.status !== 500 && !!trendBadBasis.j && trendBadBasis.j.code !== 0 && trendGhost.status !== 500 && Array.isArray(trendGhost.j && trendGhost.j.data)
       && trendGhost.j.data.length === 0,

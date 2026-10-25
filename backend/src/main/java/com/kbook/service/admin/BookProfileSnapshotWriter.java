@@ -79,9 +79,10 @@ public class BookProfileSnapshotWriter {
     public List<BookProfileTrendPointVO> trend(Long bookId, String basisParam, int days) {
         BookProfileService.Basis basis = BookProfileService.Basis.parse(basisParam);
         int span = Math.min(Math.max(days, 1), 366);
-        LocalDate from = LocalDate.now().minusDays(span - 1L);
+        LocalDate to = LocalDate.now();
+        LocalDate from = to.minusDays(span - 1L);
         return repository
-                .findByBookIdAndBasisAndSnapshotDateGreaterThanEqualOrderBySnapshotDateAsc(bookId, basis.name(), from)
+                .findByBookIdAndBasisAndSnapshotDateBetweenOrderBySnapshotDateAsc(bookId, basis.name(), from, to)
                 .stream()
                 .map(row -> BookProfileTrendPointVO.builder()
                         .date(row.getSnapshotDate().toString())
