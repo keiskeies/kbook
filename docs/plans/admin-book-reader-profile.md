@@ -2825,3 +2825,15 @@ AZ 记录的现象是：工作区 `doc-paths` 全绿，`git archive` 干净检�
 为什么不计入判定：这是**跨功能**的信息（V3 属笔记功能，不在本功能的提交范围），把它变成红会让本功能的验证长期处于"看起来坏了"的状态；但把它藏起来又会在发布时咬人。所以：工作区提示、干净检出真红、部署清单另有一条显式检查（`1bf8fc4`）。三处指向同一件事，任何一处被看到都能拦住它。
 
 另外两个边界：不在 git 工作树时（archive 解出的目录）跳过这段——没有版本信息可查；`ALLOW` 里登记的本机工具（`package/*`、`frontend/dist`、`.verify-token.txt`）不重复提示。
+
+### BA.1 干净检出的前端构建
+
+同一份 `git archive HEAD` 导出里，给 `frontend/node_modules` 建一个目录联接（junction，指向工作区已有依赖），直接 `npm run build`：
+
+```
+✓ built in 12.21s   （tsc -b + vite build，exit 0）
+```
+
+说明三笔提交里的前端文件是自洽的：`components/admin/*`、`pages/admin/profile-books.tsx`、`api/adminDashboard.ts`、路由与常量没有漏提交。验证完用 `rmdir` 只拆联接（不是 `rm -rf`，避免把指向的依赖目录一起删掉），临时目录随后清理。
+
+至此干净检出的三件事都有结论：后端 236 例测试全绿、前端构建通过、静态核对仅剩 V3 一条（属他功能、未提交，已在部署清单显式检查）。
