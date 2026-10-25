@@ -2,6 +2,8 @@ package com.kbook.service.ai.rag;
 
 import com.kbook.entity.Book;
 import com.kbook.service.ai.outline.AnswerOutline;
+import com.kbook.service.embedding.EmbeddingIndexService;
+import com.kbook.service.embedding.EmbeddingIndexService.ChunkInfo;
 import com.kbook.service.embedding.EmbeddingService;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
@@ -156,13 +158,13 @@ public class ItemListRetriever {
         int max = anchors.stream().mapToInt(Integer::intValue).max().orElse(-1);
         if (min < 0) return "";
 
-        List<EmbeddingService.ChunkInfo> chunks =
+        List<EmbeddingIndexService.ChunkInfo> chunks =
                 embeddingService.scrollChunksByIndexRange(book.getId(), Math.max(0, min - 1), max + 2);
         if (chunks.isEmpty()) {
             return "";
         }
         StringBuilder sb = new StringBuilder();
-        for (EmbeddingService.ChunkInfo c : chunks) {
+        for (EmbeddingIndexService.ChunkInfo c : chunks) {
             if (c.text() == null || c.text().isBlank()) continue;
             if (sb.length() + c.text().length() > PER_ITEM_MAX_CHARS) break;
             sb.append(c.text()).append("\n\n");
