@@ -289,7 +289,7 @@ LangChain4jConfig 默认 AiAssistant Bean（:63-66，@Lazy+@Primary）
 
 **v2.1 补记（2026-10-25）**：评估时"`src/test` 为空"的前提已过时——其间其他迭代补入了 263 例（profile/审计域，见 AdminRangeRulesTest、BookProfileCalculatorTest 等）。§0/§3 的测试现状描述已按实际修正；缺口重定位为"推荐/AI/RAG 域零覆盖"，由第 1 批 55 例开始填补。
 
-**v2.4 补记（2026-10-26）**：M5 全部完成——阶段 5 小项清理（21 文件：枚举统一 common/enums、util 合并、config 拆 security/ 与装饰器 model/、dto 归位 tts/、backfill 移 service/admin）；AiPromptConstants 七拆；BookChatService 四拆+主类；BookParserService 三拆。全程每步 379 测试全绿 + 启动冒烟。执行沉淀两条工具化经验：文本块感知的括号配对、javadoc 上溯需穿注解行。至此 §0 表五项全部完成。追加项：EmbeddingService 拆分亦已完成（355192c，v2.4 之后）。方案遗留：DebateService 拆分（1508 行）、RecommendService（1313，可选）、阶段 2 第 2 批状态机用例（A5）。
+**v2.4 补记（2026-10-26）**：M5 全部完成——阶段 5 小项清理（21 文件：枚举统一 common/enums、util 合并、config 拆 security/ 与装饰器 model/、dto 归位 tts/、backfill 移 service/admin）；AiPromptConstants 七拆；BookChatService 四拆+主类；BookParserService 三拆。全程每步 379 测试全绿 + 启动冒烟。执行沉淀两条工具化经验：文本块感知的括号配对、javadoc 上溯需穿注解行。至此 §0 表五项全部完成。追加项：EmbeddingService 拆分亦已完成（355192c，v2.4 之后）。方案遗留清零：DebateService 拆分完成（07bf7fa，四服务+门面，巨型类全部清零）、A5 状态机单测完成（23 例，mvn test 402 全绿）。RecommendService（1313）与 BookParserService（1256）微超属可选项。
 
 **v2.3 补记（2026-10-25）**：阶段 4（§5 解循环依赖）完成，@Lazy 19→5（低于 ≤6 目标）。§5.2 中「RecommendService:79,:80 待核对」的结论：两服务（RecommendCoefficientService/DimensionStatsService）依赖闭包均为仓储+Redis+Jackson，无环，属历史遗留 @Lazy，已直接摘除。
 
