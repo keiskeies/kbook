@@ -1,6 +1,6 @@
 package com.kbook.service.book;
 import com.kbook.service.user.UserService;
-import com.kbook.service.ai.BookChatService;
+import com.kbook.service.ai.BookContentUtils;
 import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.UserProfileBuilder;
 import com.kbook.service.ai.streaming.StreamingSseHandler;
@@ -2086,7 +2086,7 @@ public class BookParserService {
         Long userId = user != null ? user.getId() : null;
 
         // 书籍内容 + 稳定画像指纹：任一变化都视为未命中（画像更新还会整体 DEL 用户 key）
-        String bookContent = BookChatService.buildSpeedReadContent(book);
+        String bookContent = BookContentUtils.buildSpeedReadContent(book);
         String bookFp = speedReadCache.fingerprint(bookContent);
         String profileFp = speedReadCache.fingerprint(userProfileBuilder.buildStableSignature(user));
 
