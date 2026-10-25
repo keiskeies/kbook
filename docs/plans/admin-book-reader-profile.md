@@ -2976,7 +2976,7 @@ BG 教会我们"域断言会被清洗层遮蔽"，于是按维度检查谁还只
 
 变异：把 `case CHILDREN -> boolToken(raw, "HAS_CHILD", "NO_CHILD")` 的两个桶互换 → 测试红（`expected: "HAS_CHILD" but was: "NO_CHILD"`），还原后全绿。`mvn -o test` **247 例**。
 
-至此 11 个有映射逻辑的维度里：GENDER/AGE/MBTI×5/CHILD_AGE/OCCUPATION/EDUCATION/INCOME/ENTREPRENEURSHIP/CHAT_STYLE 均有直接取值断言，`MARITAL`/`CHILDREN` 由本轮补齐。
+至此 15 个维度全部有直接取值断言：GENDER/AGE/MBTI_TYPE/MBTI 四条轴/CHILD_AGE/OCCUPATION/EDUCATION/INCOME/ENTREPRENEURSHIP/CHAT_STYLE 原本已覆盖，`MARITAL`/`CHILDREN` 由本轮补齐。（原文写「11 个」是笔误：枚举一共 15 个，此处更正。）
 
 ## 附录 BI：四个阈值默认值第一次有测试
 
