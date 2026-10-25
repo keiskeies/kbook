@@ -3043,3 +3043,23 @@ BD 记录的缺口（`Note.occurred_at NOT NULL` 已提交、V3 迁移未提交�
 过程中 `doc-paths` 又揪出一条：文档在 BA.1 里提到 `frontend/node_modules`（依赖目录，同样 gitignore），干净检出里不存在 → 已作为已知偏差登记（`b7c942c`）。这再次说明：**工作区全绿 ≠ 干净检出全绿**，每次提交后都值得跑一次 `git archive` 复核。
 
 至此 HEAD 自洽：代码、迁移、文档、验证脚本在同一棵树上，静态与单测均可从零复现。剩下的只有 A.3 生产校准（等只读连接）。
+
+## 附录 BM：A.3 的执行不再依赖临时脚本
+
+此前"无 mysql 客户端"的跑法只存在于我在 `%TEMP%` 里现写的运行器。现在入仓三件：
+
+| 文件 | 作用 |
+|---|---|
+| `deploy/sql/RunSqlFile.java` | 逐句执行 SQL；只允许 SELECT/WITH/SHOW/EXPLAIN/SET，其余直接拒绝（退出码 3）；连接信息只读环境变量 |
+| `deploy/sql/run-audit.bat` | Windows 启动器：mvn 解析 `mysql-connector-j` classpath → 编译 → 运行审计脚本 |
+| `deploy/sql/run-audit.sh` | Linux/Mac 启动器；顺带兼容 Git Bash（`cygpath` 归一路径、classpath 分隔符按 `uname` 选 `;` 或 `:`） |
+
+dev 实测（只读）：
+
+- `run-audit.bat` → 20 条语句、exit 0；
+- `run-audit.sh` → 同样 20 条、exit 0（Windows Git Bash 下两条启动器都跑过）；
+- **只读守卫**：喂一份含 `UPDATE users …` 的临时 SQL → 输出「拒绝执行非只读语句（UPDATE）」并 exit 3，UPDATE 未执行。
+
+两次环境坑记录：`.bat` 用 LF 行尾时 cmd.exe 会把命令切碎（必须 CRLF）；Git Bash 里 `javac/java` 不认 MSYS 路径（用 `cygpath -w` 归一），classpath 分隔符也不能写死 `:`。
+
+生产执行方式因此变成：设好 `DB_URL/DB_USER/DB_PASS` → `deploy/sql/run-audit.bat`（或 `.sh`）→ 直接得到 1d/1e/1f 的结论。A.3 现在只差那条连接本身。
