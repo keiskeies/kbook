@@ -3063,3 +3063,19 @@ dev 实测（只读）：
 两次环境坑记录：`.bat` 用 LF 行尾时 cmd.exe 会把命令切碎（必须 CRLF）；Git Bash 里 `javac/java` 不认 MSYS 路径（用 `cygpath -w` 归一），classpath 分隔符也不能写死 `:`。
 
 生产执行方式因此变成：设好 `DB_URL/DB_USER/DB_PASS` → `deploy/sql/run-audit.bat`（或 `.sh`）→ 直接得到 1d/1e/1f 的结论。A.3 现在只差那条连接本身。
+
+## 附录 BN：索引 EXPLAIN 也做成了仓库脚本（A.3 的第二半）
+
+AC 当时的 EXPLAIN 是在临时程序里手敲的。现在 `deploy/sql/profile-index-explain.sql` 把三条按书查固定下来（`SET @BOOK := 24715;`，生产上改成一本文档 1d 输出里"有读者"的书），配合 `run-audit.sh/bat` 直接执行：
+
+| 查询 | dev 实测 |
+|---|---|
+| READ 读者池 | `ref` · `idx_progress_book_updated` · rows=10 |
+| DEEP·notes 分支 | `ref` · `idx_note_book_created` · rows=1 |
+| TOUCH 两分支 | `ref` · `idx_shelf_book_added` / `idx_history_book_created` · rows=1/1 |
+
+（AC 里 bookshelf 在**聚合**查询中是 `ALL`，因为那个形状没有书过滤；按书查的这版是 `ref`，两者不矛盾。）
+
+`EXPLAIN` 里使用用户变量 `@BOOK` 实测可用（MySQL 8.4），因此不用每次改字面量。只读守卫对 `EXPLAIN`/`SET` 放行、对写语句拒绝（附录 BM），整份脚本走同一个执行器。
+
+至此 A.3 的执行面完整：`profile-threshold-audit.sql`（阈值分布与建议）+ `profile-index-explain.sql`（索引选择），两条命令、同一只读启动器。仍缺的只有生产连接本身。

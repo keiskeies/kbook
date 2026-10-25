@@ -300,6 +300,7 @@ docker compose up -d
 ### 📇 本次发布含索引变更（图书 × 读者画像）
 
 - [ ] **首启会自动建 4 条「按书查」索引**：`idx_progress_book_updated`、`idx_history_book_created`、`idx_shelf_book_added`、`idx_note_book_created`。生产 `reading_progress` 是热表，建索引期间与首查会明显变慢，**这不是功能坏了**（口径见 `docs/plans/admin-book-reader-profile.md` §7.3）。
+  - **索引 EXPLAIN 复跑**：`deploy/sql/profile-index-explain.sql`（把文件里的 `@BOOK` 改成一本文档 1d 输出里"有读者"的书），同样用下面的启动器执行；三条按书查应命中 `idx_progress_book_updated` / `idx_note_book_created` / `idx_shelf_book_added` + `idx_history_book_created`。
   - **没有 `mysql` 客户端时**（Windows 生产常见）：用仓库内的启动器 `deploy/sql/run-audit.bat`（Linux/Mac 用 `deploy/sql/run-audit.sh`），它用后端自带的 JDBC 驱动只读执行同一份脚本；`RunSqlFile.java` 会拒绝任何非 SELECT/WITH/SHOW/EXPLAIN/SET 语句（实测 UPDATE 被拒、退出码 3）。连接信息仍走环境变量。连接信息走环境变量（`DB_URL` / `DB_USER` / `DB_PASS`），不要写进命令行历史或文件；逐句执行时注意 `SET` 这类无结果集语句要用 `execute()`，用 `executeQuery()` 会直接报错。具体做法与坑记录在 `docs/plans/admin-book-reader-profile.md` 附录 AO/AP，脚本本身一字不改。
 - [ ] 阈值先校准再上线：`mysql -h<生产库> -u<user> -p <db> < deploy/sql/profile-threshold-audit.sql`，纯只读，跑完直接给「三种口径各有多少书达到 `min-cohort-size`」的结论。dev 库上这三个结论都是「不达标」，所以别把 dev 的默认值当生产值。
 - [ ] 新接口 + 新索引必须**同一镜像发布**：先更新 `package/`（`deploy/download.sh`，或本机打包脚本）→ `deploy/docker/build.sh`（Windows：`deploy/docker/build.bat`）→ `up -d`，**不能只 `restart`**（restart 用的还是旧镜像，会出现前端新 / 后端旧，设计文档 §12 记过这就是已发生过的事故）。读者画像的取值校验那部分不受这条约束，两端可以任意先后（附录 F.5）。
