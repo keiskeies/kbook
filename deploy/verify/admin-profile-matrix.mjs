@@ -244,7 +244,7 @@ const finish = code => {
     + ' 泄漏=' + JSON.stringify(viol.slice(0, 3)) + ' 成员差异=' + JSON.stringify(memberMismatch.slice(0, 3)))
 
   // 附录 L：看板的「全站用户画像」区块要和读者画像同口径——只算 APPROVED、脏值不上桶标签、
-  // 未填写单独成行。逐桶人数必须对得上库里的真值，所以真值由 --db-male 从只读 SQL 传进来；
+  // 未填写单独成行。逐桶人数必须对得上库里的真值：优先 --db-male（只读 SQL），缺省时从 /admin/users 分页统计；
   // 不传就 SKIP。dev 上旧实现各桶之和恰好等于 siteReaders（空值全被 IS NOT NULL 丢掉），
   // 只比 HTTP 自洽是抓不到它的——这正是那条恒绿断言的翻版。
   const dashL = await call(BASE, '?days=0', ADMIN)

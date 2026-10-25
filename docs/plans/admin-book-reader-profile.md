@@ -2101,7 +2101,7 @@ S.3/S.4 登记的欠账已经跑完。环境（全部是自建实例，别人的
 | 静态 | `run-static.mjs`（内含两个） | 无 | 秒级 |
 | 单测 | `mvn -o test` | 无（不连库） | ~15s |
 | 构建 | `npm run build` | 无 | ~12s |
-| 接口 | `admin-profile-matrix.mjs` | 两个自建实例（8300 默认阈值 / 8301 `KBOOK_PROFILE_MIN_COHORT_SIZE=1`）+ ADMIN 与真实 USER token + `--db-male` 真值 | ~1 分钟 |
+| 接口 | `admin-profile-matrix.mjs` | 两个自建实例（8300 默认阈值 / 8301 `KBOOK_PROFILE_MIN_COHORT_SIZE=1`）+ ADMIN 与真实 USER token（`--db-male` 可缺省，矩阵自动统计真值） | ~1 分钟 |
 | 视口 | 临时脚本（折叠/首屏/吻合度） | 自建后端 + `TAURI=1 vite`（走既有同源代理分支）+ 降阈值 | ~2 分钟 |
 | 写路径 | `book_profile_daily` 快照与趋势 | **需要写库授权**（本轮没有） | — |
 
@@ -2856,7 +2856,7 @@ AZ 记录的现象是：工作区 `doc-paths` 全绿，`git archive` 干净检�
 |---|---|---|
 | 单测 | `mvn -o test` | 236 例全绿（干净检出同样是 236） |
 | 构建 | `npm run build` | 通过（干净检出用联接依赖跑过，12.21s） |
-| 接口 | `deploy/verify/admin-profile-matrix.mjs` | 26/26（两实例 + ADMIN/USER token + `--db-male`） |
+| 接口 | `deploy/verify/admin-profile-matrix.mjs` | 26/26（两实例 + ADMIN/USER token，真值自动统计） |
 | 静态 | `deploy/verify/run-static.mjs` | 4/4（契约、文档路径、清单 env、接口路径） |
 | 视口 | 折叠 11 / 首屏 5 / 吻合度 8 / 趋势 6 / 反查页 6+5 | 全绿（临时脚本在 `%TEMP%`） |
 
@@ -2869,7 +2869,7 @@ AZ 记录的现象是：工作区 `doc-paths` 全绿，`git archive` 干净检�
 
 ## 附录 BC：矩阵第 15 行不再依赖人工真值（2026-10-25）
 
-「看板画像与读者画像同口径」需要"库内 APPROVED 男性人数"作真值，之前只能由人手工传 `--db-male`，不传就 SKIP。现在矩阵自己在没有该参数时从 `/admin/users` 分页统计（每页 500、最多 10 页），并在明细里标明来源：
+「看板画像与读者画像同口径」需要"库内 APPROVED 男性人数"作真值，之前只能由人手工传 `--db-male`，不传就 SKIP。现在矩阵自己在没有该参数时从 `/admin/users` 分页统计（每页 500、最多 50 页），并在明细里标明来源：
 
 ```
 [PASS] L 看板画像与读者画像同口径
