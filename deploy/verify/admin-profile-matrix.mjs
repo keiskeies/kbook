@@ -259,11 +259,13 @@ const finish = code => {
   // 后者走的是用户管理的 JPA 路径，与画像的聚合 SQL 不同源，足以交叉验证；分页上限 10 页 × 500。
   let dbMale = args['db-male']
   let dbMaleSource = '--db-male'
+  let truthTruncated = false
   if (!dbMale) {
+    const MAX_PAGES = 50 // 2.5 万用户；超过就判定"真值不完整"，宁可 SKIP 也不拿截断的真值去判 FAIL
     let page = 1
     let approved = 0
     let male = 0
-    while (page <= 10) {
+    while (page <= MAX_PAGES) {
       const res = await fetch(BASE.replace(/\/admin\/dashboard$/, `/admin/users?page=${page}&size=500`),
         { headers: { Authorization: 'Bearer ' + ADMIN } }).then(r => r.json()).catch(() => null)
       const rows = (res && res.data && (res.data.records || res.data.list || res.data.content)) || []
@@ -276,7 +278,8 @@ const finish = code => {
       if (rows.length < 500) break
       page++
     }
-    if (approved > 0) {
+    truthTruncated = page > MAX_PAGES
+    if (approved > 0 && !truthTruncated) {
       dbMale = String(male)
       dbMaleSource = `/admin/users 分页（APPROVED=${approved}）`
     }
@@ -284,6 +287,7 @@ const finish = code => {
   const detailL = `genderDistribution=${JSON.stringify(genderL)} siteReaders=${siteReaders} 求和=${genderTotal}`
   if (!dbMale) {
     row('L 看板画像同口径（SKIP：缺真值）', null, detailL
+      + (truthTruncated ? '；/admin/users 分页达上限，真值不完整' : '')
       + "；取真值：SELECT COUNT(*) FROM users WHERE status='APPROVED' AND TRIM(IFNULL(gender,''))='MALE'")
   } else {
     row('L 看板画像与读者画像同口径',
