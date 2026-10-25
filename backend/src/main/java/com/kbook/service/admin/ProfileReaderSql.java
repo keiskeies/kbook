@@ -62,6 +62,20 @@ final class ProfileReaderSql {
                 + " GROUP BY x.book_id";
     }
 
+    /**
+     * 各 cohort 档位上「有读者的书」分布：A.3 原来要人跑出这张表再脑算比例，
+     * 现在由应用每天自己算一次（见 {@link ThresholdCalibration}）。
+     * 一次 GROUP BY 出全部档位，档位是代码里的整数常量，不接收外部输入。
+     */
+    static String cohortDistribution(BookProfileService.Basis basis, java.util.List<Integer> tiers) {
+        StringBuilder sums = new StringBuilder();
+        for (Integer tier : tiers) {
+            sums.append(", SUM(g.cnt >= ").append(tier).append(") AS t").append(tier);
+        }
+        return "SELECT COUNT(*) AS books" + sums
+                + " FROM (" + bookUserAggregate(basis, "1 = 1", "") + ") g";
+    }
+
     /** 命中某分桶的读者 id：原始值取回 Java 侧判定，避免归一化规则在 SQL 里再写一遍 */
     static String bucketUserIds(String valueSql) {
         return "SELECT u.id, " + valueSql + " AS bucket FROM users u WHERE " + APPROVED;

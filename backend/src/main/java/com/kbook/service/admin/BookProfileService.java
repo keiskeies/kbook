@@ -51,9 +51,8 @@ public class BookProfileService {
 
     private final EntityManager em;
     private final BookRepository bookRepository;
+    private final ProfileThresholdCalibrationService thresholdCalibration;
 
-    @Value("${kbook.admin.book-profile.min-cohort-size:10}")
-    private int minCohortSize;
     @Value("${kbook.admin.book-profile.min-bucket-size:5}")
     private int minBucketSize;
     @Value("${kbook.admin.book-profile.significant-min-count:10}")
@@ -91,14 +90,24 @@ public class BookProfileService {
                 .build();
     }
 
-    /** 阈值全部来自配置（4.1 校准后要改的是配置，不是代码），三条取数路径共用同一份 */
-    /** 快照作业判断候选书用：阈值只在 thresholds() 读一次配置，不在别处再读一份 */
-    boolean isCohortProtected(long readers) {
-        return thresholds().isSampleProtected(readers);
+    /**
+     * 阈值：min-cohort-size 走运行时自适应（配置值是硬下界，只会往上收紧，见
+     * {@link ProfileThresholdCalibrationService}），其余三条仍只来自配置。
+     * 三条取数路径与快照作业共用同一份生效值，不在别处再读一份。
+     */
+    boolean isCohortProtected(Basis basis, long readers) {
+        return readers < thresholdCalibration.minCohortSize(basis);
     }
 
+    private BookProfileCalculator.Thresholds thresholds(Basis basis) {
+        return new BookProfileCalculator.Thresholds(thresholdCalibration.minCohortSize(basis),
+                minBucketSize, significantMinCount, highlightMinCount);
+    }
+
+    /** 全站维度选择器与读者口径无关，用配置的硬下界即可 */
     private BookProfileCalculator.Thresholds thresholds() {
-        return new BookProfileCalculator.Thresholds(minCohortSize, minBucketSize, significantMinCount, highlightMinCount);
+        return new BookProfileCalculator.Thresholds(thresholdCalibration.minCohortSize(Basis.READ),
+                minBucketSize, significantMinCount, highlightMinCount);
     }
 
     /** 读者口径：三个并列视角，彼此没有包含关系（实测 READ 并不小于 TOUCH） */
@@ -143,7 +152,7 @@ public class BookProfileService {
             return cached;
         }
 
-        BookProfileCalculator.Thresholds thresholds = thresholds();
+        BookProfileCalculator.Thresholds thresholds = thresholds(basis);
         List<Long> readers = readerPool(basis, bookId, window);
 
         BookProfileVO.BookProfileVOBuilder vo = BookProfileVO.builder()
@@ -214,7 +223,7 @@ public class BookProfileService {
         boolean byLift = !"READERS".equalsIgnoreCase(trimOrEmpty(sortBy));
 
         BaselineSnapshot site = siteBaseline();
-        BookProfileCalculator.Thresholds thresholds = thresholds();
+        BookProfileCalculator.Thresholds thresholds = thresholds(basis);
         BookProfileCalculator.DimCounts siteDim = site.value().counts().get(dim);
         long bucketUsers = siteDim.buckets().getOrDefault(token, 0L);
         if (thresholds.isSampleProtected(bucketUsers)) {
@@ -455,7 +464,7 @@ public class BookProfileService {
         Basis basis = Basis.parse(basisParam);
         Window window = resolveRange(days, start, end);
         BaselineSnapshot site = siteBaseline();
-        BookProfileCalculator.Thresholds thresholds = thresholds();
+        BookProfileCalculator.Thresholds thresholds = thresholds(basis);
         List<Long> readers = readerPool(basis, bookId, window);
 
         List<String> tags = splitTags(book.getTargetReaderTags());

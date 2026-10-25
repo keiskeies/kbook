@@ -109,7 +109,9 @@ start.bat                 # Windows（双击）
 | `AI_VISION_TIMEOUT` | 按需 | 视觉模型超时（默认 `600s`） |
 | `BOOK_PATH_EPUB_HOST` | 按需 | 宿主机上的 EPUB 图书目录 |
 | `APP_PORT_HOST` | 按需 | 前端端口（默认 80，被占则改 8080） |
-| `KBOOK_PROFILE_MIN_COHORT_SIZE` | 按需 | 读者画像的 k-匿名门槛（默认 `10`）：某本书的读者数低于它，接口只回「样本过小」保护态、不给分布。生产值要先用 `deploy/sql/profile-threshold-audit.sql` 校准（见第 7 节） |
+| `KBOOK_PROFILE_MIN_COHORT_SIZE` | 按需 | 读者画像的 k-匿名门槛的**硬下界**（默认 `10`）：某本书的读者数低于生效阈值，接口只回「样本过小」保护态、不给分布。生效阈值由应用每天按 20% 规则自适应，只往上调、不会降破这个配置值（设计文档附录 BX）；`min-cohort-size` 的含义因此从"生效值"变成"硬下界" |
+| `KBOOK_PROFILE_THRESHOLD_AUTO` | 按需 | 阈值自适应开关，默认 `true`。`false` = 完全沿用上面那个配置值，是生产逃生口 |
+| `KBOOK_PROFILE_THRESHOLD_CALIBRATION_CRON` | 按需 | 重算 cohort 阈值的 Spring cron，默认 `0 40 3 * * *`（每天 03:40）。分布查询是全表 `GROUP BY`，嫌贵就降频或关掉自适应 |
 | `KBOOK_PROFILE_MIN_BUCKET_SIZE` / `KBOOK_PROFILE_SIGNIFICANT_MIN_COUNT` / `KBOOK_PROFILE_HIGHLIGHT_MIN_COUNT` | 按需 | 分桶最小人数 / 可判显著的最小人数 / 进结论文案的最小人数，默认 `5 / 10 / 20` |
 | `KBOOK_ADMIN_BOOK_PROFILE_SNAPSHOT_ENABLED` / `_BASES` / `_MAX_BOOKS` / `_CRON` | 按需 | 每日快照的开关（默认 `false`）、口径列表（默认 `DEEP`）、候选上限（默认 `500`）、cron（默认 `0 10 3 * * *`）。四个 env 名都实测过（`BASES=READ,DEEP` + `MAX_BOOKS=2` → 两行各 2 本）。**启用前先跑 A.3 校准**；表是永久保留，磁盘由运维归档 |
 | `KBOOK_ADMIN_EMAIL` | 按需 | 管理员账号邮箱，默认值见 `application.yml` |
@@ -302,10 +304,10 @@ docker compose up -d
 - [ ] **首启会自动建 4 条「按书查」索引**：`idx_progress_book_updated`、`idx_history_book_created`、`idx_shelf_book_added`、`idx_note_book_created`。生产 `reading_progress` 是热表，建索引期间与首查会明显变慢，**这不是功能坏了**（口径见 `docs/plans/admin-book-reader-profile.md` §7.3）。
   - **索引 EXPLAIN 复跑**：`deploy/sql/profile-index-explain.sql`（把文件里的 `@BOOK` 改成一本文档 1d 输出里"有读者"的书），同样用下面的启动器执行；三条按书查应命中 `idx_progress_book_updated` / `idx_note_book_created` / `idx_shelf_book_added` + `idx_history_book_created`。
   - **没有 `mysql` 客户端时**（Windows 生产常见）：用仓库内的启动器 `deploy/sql/run-audit.bat`（Linux/Mac 用 `deploy/sql/run-audit.sh`），它用后端自带的 JDBC 驱动只读执行同一份脚本；`RunSqlFile.java` 会拒绝任何非 SELECT/WITH/SHOW/EXPLAIN/SET 语句（实测 UPDATE 被拒、退出码 3）。连接信息仍走环境变量。连接信息走环境变量（`DB_URL` / `DB_USER` / `DB_PASS`），不要写进命令行历史或文件；逐句执行时注意 `SET` 这类无结果集语句要用 `execute()`，用 `executeQuery()` 会直接报错。具体做法与坑记录在 `docs/plans/admin-book-reader-profile.md` 附录 AO/AP，脚本本身一字不改。
-- [ ] 阈值先校准再上线：`mysql -h<生产库> -u<user> -p <db> < deploy/sql/profile-threshold-audit.sql`，纯只读，跑完直接给「三种口径各有多少书达到 `min-cohort-size`」的结论。dev 库上这三个结论都是「不达标」，所以别把 dev 的默认值当生产值。
+- [x] ~~阈值先校准再上线~~ → **已改成运行时自适应**（附录 BX）：上线前不再需要有人在生产库跑一次分布再拍阈值；`min-cohort-size` 现在是硬下界，应用每天按同一条 20% 规则自行收紧。`deploy/sql/profile-threshold-audit.sql` 保留，用途降级成对账——它 1e/1f 的计数应与 `GET /api/admin/dashboard/book-profile-thresholds` 一致（首启后要先等第一次作业跑完才有真生效值，在那之前生效值就是下界）。原命令：`mysql -h<生产库> -u<user> -p <db> < deploy/sql/profile-threshold-audit.sql`，纯只读，跑完直接给「三种口径各有多少书达到 `min-cohort-size`」的结论。dev 库上这三个结论都是「不达标」，所以别把 dev 的默认值当生产值。
 - [ ] 新接口 + 新索引必须**同一镜像发布**：先更新 `package/`（`deploy/download.sh`，或本机打包脚本）→ `deploy/docker/build.sh`（Windows：`deploy/docker/build.bat`）→ `up -d`，**不能只 `restart`**（restart 用的还是旧镜像，会出现前端新 / 后端旧，设计文档 §12 记过这就是已发生过的事故）。读者画像的取值校验那部分不受这条约束，两端可以任意先后（附录 F.5）。
 - [ ] **本次新增一张表**：`book_profile_daily`（单书画像每日快照）由 Flyway `V4__create_book_profile_daily.sql` 创建，不依赖 `ddl-auto`。默认不启用定时写入（`KBOOK_ADMIN_BOOK_PROFILE_SNAPSHOT_ENABLED=false`），确认阈值与候选量后再打开；保留策略是永久保留，磁盘由运维归档。
-- [ ] **确认 `V3__add_note_occurred_at.sql` 在发布包里**：它修 `notes.occurred_at` 缺列（附录 B.5）。截至 2026-10-25 该迁移**尚未提交进本仓库**；若发布包取自 git，缺失它会让笔记时光机 500。`V4`（画像快照表）已在本仓库内。
+- [ ] **确认 `V3__add_note_occurred_at.sql` 在发布包里**：它修 `notes.occurred_at` 缺列（附录 B.5）。该迁移与 `V4`（画像快照表）现在都已提交进仓库，缺 V3 会让笔记时光机 500；这条检查的实际含义变成：确认发布包是从**含 V3/V4 的提交**打出来的，而不是更早的树。
 - [ ] 顺带一条同源风险：**给有存量数据的表加 `NOT NULL` 列必须写 Flyway 迁移**，`ddl-auto: update` 会静默失败并把连带索引一起丢掉（本次 `notes.occurred_at` 就是这么修的，见附录 B.5）。只加索引不受影响。
 
 ### ⚠️ 生产环境建议

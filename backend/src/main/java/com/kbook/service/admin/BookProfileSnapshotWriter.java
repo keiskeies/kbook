@@ -127,7 +127,7 @@ public class BookProfileSnapshotWriter {
         String sql = ProfileReaderSql.bookUserAggregate(basis, "1 = 1", "");
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery(sql).getResultList();
-        return pickCandidates(rows, maxBooks, bookProfileService::isCohortProtected);
+        return pickCandidates(rows, maxBooks, readers -> bookProfileService.isCohortProtected(basis, readers));
     }
 
     /**

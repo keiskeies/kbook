@@ -15,7 +15,8 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 四个隐私 / 显著性阈值的默认值第一次有测试（§4.1、§3.2、§3.1）。
+ * 三条计数阈值（bucket / significant / highlight）的默认值有测试（§4.1、§3.2、§3.1）。
+min-cohort-size 已交给运行时自适应，它的下界断言在 ProfileThresholdAutoConfigTest。
  *
  * 这些数是"读者不足就不出分布"的闸门：默认值被改错，页面不会报错，只会悄悄多给或少给分布。
  * 与缓存 TTL 一样，生效的是 **application.yml** 里的默认值（@Value 的兜底只在属性缺失时用），
@@ -27,7 +28,6 @@ class BookProfileThresholdConfigTest {
     private static final Map<String, String[]> FIELDS = new LinkedHashMap<>();
 
     static {
-        FIELDS.put("minCohortSize", new String[]{"min-cohort-size", "10", "KBOOK_PROFILE_MIN_COHORT_SIZE"});
         FIELDS.put("minBucketSize", new String[]{"min-bucket-size", "5", "KBOOK_PROFILE_MIN_BUCKET_SIZE"});
         FIELDS.put("significantMinCount", new String[]{"significant-min-count", "10", "KBOOK_PROFILE_SIGNIFICANT_MIN_COUNT"});
         FIELDS.put("highlightMinCount", new String[]{"highlight-min-count", "20", "KBOOK_PROFILE_HIGHLIGHT_MIN_COUNT"});
@@ -41,7 +41,7 @@ class BookProfileThresholdConfigTest {
     }
 
     @Test
-    @DisplayName("四个阈值的 @Value 兜底就是文档里的 10 / 5 / 10 / 20")
+    @DisplayName("三条计数阈值的 @Value 兜底就是文档里的 5 / 10 / 20")
     void annotationDefaultsMatchDocumentation() throws Exception {
         FIELDS.forEach((field, spec) -> {
             try {

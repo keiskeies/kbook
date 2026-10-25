@@ -13,6 +13,7 @@ import com.kbook.service.admin.AdminDashboardService;
 import com.kbook.service.admin.AiBudgetService;
 import com.kbook.service.admin.BookProfileService;
 import com.kbook.service.admin.BookProfileSnapshotService;
+import com.kbook.service.admin.ProfileThresholdCalibrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 管理后台仪表盘控制器
@@ -43,6 +45,7 @@ public class AdminDashboardController {
     private final AiBudgetService budgetService;
     private final BookProfileService bookProfileService;
     private final BookProfileSnapshotService bookProfileSnapshotService;
+    private final ProfileThresholdCalibrationService thresholdCalibrationService;
 
     @Operation(summary = "获取仪表盘数据")
     @GetMapping
@@ -86,6 +89,18 @@ public class AdminDashboardController {
     public Result<List<BookProfileSnapshotResultVO>> snapshotBookProfiles(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return Result.ok(bookProfileSnapshotService.snapshot(date == null ? LocalDate.now() : date));
+    }
+
+    @Operation(summary = "画像 cohort 阈值的生效值与自适应状态")
+    @GetMapping("/book-profile-thresholds")
+    public Result<Map<String, Object>> getBookProfileThresholds() {
+        return Result.ok(thresholdCalibrationService.status());
+    }
+
+    @Operation(summary = "手工重算一次 cohort 阈值（只收紧，不降破配置下界）")
+    @PostMapping("/book-profile-thresholds")
+    public Result<Map<String, Integer>> recalibrateBookProfileThresholds() {
+        return Result.ok(thresholdCalibrationService.recalibrate());
     }
 
     @Operation(summary = "单书画像趋势（每日快照，人数与填写数）")

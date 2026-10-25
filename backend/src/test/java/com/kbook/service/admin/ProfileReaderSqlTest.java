@@ -120,6 +120,24 @@ class ProfileReaderSqlTest {
         assertThat(field.get(null)).isEqualTo(BookChatScope.sqlFilter(""));
     }
 
+    @DisplayName("阈值分布查询：一次 GROUP BY 出全部档位，仍然带 APPROVED，档位来自常量")
+    void cohortDistributionShape() {
+        for (BookProfileService.Basis basis : BookProfileService.Basis.values()) {
+            String sql = ProfileReaderSql.cohortDistribution(basis, ThresholdCalibration.COHORT_TIERS);
+
+            assertThat(sql)
+                    .as("%s 的分布查询漏掉账号状态过滤，未审核读者会虚增达标书数", basis)
+                    .contains("u.status = 'APPROVED'");
+            assertThat(sql).contains("GROUP BY x.book_id");
+            for (Integer tier : ThresholdCalibration.COHORT_TIERS) {
+                assertThat(sql).as("档位 %s 没进分布查询，自适应就只能看到部分档位", tier)
+                        .contains("SUM(g.cnt >= " + tier + ") AS t" + tier);
+            }
+            // 外层是单行聚合：不能有 LIMIT，也不能残留给调用方的命名参数
+            assertThat(sql).doesNotContain(":bookId").doesNotContain("LIMIT");
+        }
+    }
+
     @Test
     @DisplayName("全时间窗口不拼区间条件，也不留悬空的 :start / :end")
     void allTimeWindowOmitsBindingPlaceholders() {

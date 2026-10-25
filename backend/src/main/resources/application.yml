@@ -197,6 +197,9 @@ kbook:
       min-bucket-size: ${KBOOK_PROFILE_MIN_BUCKET_SIZE:5}
       significant-min-count: ${KBOOK_PROFILE_SIGNIFICANT_MIN_COUNT:10}
       highlight-min-count: ${KBOOK_PROFILE_HIGHLIGHT_MIN_COUNT:20}
+      # cohort 阈值的运行时自适应：min-cohort-size 是硬下界，作业按 A.3 那条 20% 规则只会往上收紧
+      threshold-auto: ${KBOOK_PROFILE_THRESHOLD_AUTO:true}
+      threshold-calibration-cron: ${KBOOK_PROFILE_THRESHOLD_CALIBRATION_CRON:0 40 3 * * *}
       # 两份缓存的寿命，默认与 §7.4 一致；调小只用于本地复现附录 Q 的分子分母龄期差
       profile-cache-minutes: ${KBOOK_PROFILE_CACHE_MINUTES:5}
       baseline-cache-minutes: ${KBOOK_PROFILE_BASELINE_CACHE_MINUTES:10}

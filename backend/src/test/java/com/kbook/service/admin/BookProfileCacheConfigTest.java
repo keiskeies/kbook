@@ -46,8 +46,20 @@ class BookProfileCacheConfigTest {
         return eviction.isPresent() ? String.valueOf(eviction.get().getMaximum()) : "<无上限>";
     }
 
+    /** 阈值自适应服务用配置下界 10、未跑过作业的状态 */
+    private static ProfileThresholdCalibrationService calibration() throws Exception {
+        ProfileThresholdCalibrationService service = new ProfileThresholdCalibrationService(null);
+        for (var pair : new Object[][]{{"configuredMinCohortSize", 10}, {"auto", true}}) {
+            Field field = ProfileThresholdCalibrationService.class.getDeclaredField((String) pair[0]);
+            field.setAccessible(true);
+            field.set(service, pair[1]);
+        }
+        service.init();
+        return service;
+    }
+
     private static BookProfileService serviceWith(int profileMinutes, int baselineMinutes) throws Exception {
-        BookProfileService service = new BookProfileService(null, null);
+        BookProfileService service = new BookProfileService(null, null, calibration());
         setField(service, "profileCacheMinutes", profileMinutes);
         setField(service, "baselineCacheMinutes", baselineMinutes);
         service.buildCaches();
@@ -112,7 +124,7 @@ class BookProfileCacheConfigTest {
     @Test
     @DisplayName("缓存字段在 @PostConstruct 之前是 null——这就是不能在字段初始化时读 @Value 的原因")
     void cachesExistOnlyAfterPostConstruct() throws Exception {
-        BookProfileService service = new BookProfileService(null, null);
+        BookProfileService service = new BookProfileService(null, null, calibration());
 
         assertThat(field(service, "profileCache")).isNull();
         assertThat(field(service, "siteCache")).isNull();
