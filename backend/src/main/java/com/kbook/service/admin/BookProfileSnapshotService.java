@@ -47,6 +47,10 @@ public class BookProfileSnapshotService {
 
     /** 可手工触发（管理端接口），与定时任务走同一条写路径 */
     public List<BookProfileSnapshotResultVO> snapshot(LocalDate date) {
+        // 未来日期没有任何业务含义，却会让趋势/对账多出一行“还没发生”的快照（附录 BT 的成因）
+        if (date != null && date.isAfter(LocalDate.now())) {
+            throw new BusinessException("快照日期不能晚于今天");
+        }
         return writer.snapshot(date);
     }
 
