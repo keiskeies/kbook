@@ -2890,3 +2890,28 @@ AZ 记录的现象是：工作区 `doc-paths` 全绿，`git archive` 干净检�
 - 正常翻完 → PASS/FAIL 按真值判；显式 `--db-male` 始终优先。
 
 带守卫复跑：**26/26，0 SKIP**（dev 12 个 APPROVED 一页翻完）。这条与 AU/AV 的思路一致：**验证工具自己也要有"看不清时承认看不清"的路径**，否则它给出的红绿都不可信。
+
+## 附录 BD：HEAD 缺 V3 不是文档问题，是部署故障（2026-10-25 取证）
+
+此前记的"V3 未入库"只是 `doc-paths` 的一条红。取证后确认它更严重：
+
+```
+git grep occurred_at HEAD -- backend/src/main
+  Note.java:91   @Column(name = "occurred_at", nullable = false)
+  Note.java:29   @Index(name = "idx_note_user_occurred", columnList = "user_id,occurred_at")
+git ls-tree HEAD backend/src/main/resources/db/migration/
+  V1__create_ai_usage_log.sql
+  V2__ai_cost_governance.sql
+  V4__create_book_profile_daily.sql
+  fix_debate_score_role_key.sql          ← 没有 V3
+```
+
+也就是说**当前 HEAD 自相矛盾**：已提交的实体声明了一个 NOT NULL 列，而创建它的迁移没提交。全新部署时：
+
+1. Flyway 只跑 V1/V2/V4；
+2. `ddl-auto: update` 试图给有存量数据的 `notes` 表加 `occurred_at NOT NULL`——B.5 记过，这一步会被 MySQL 严格模式拒绝，且**连带索引一起丢掉**；
+3. 笔记时光机/统计接口 500，而编译、单测、`mvn package` 全都正常。
+
+这正是"提交拆分"带来的一个真实副作用：V3 属笔记功能，未被纳入本功能的提交，但本功能的文档引用了它，干净检出的静态核对把它揪了出来。
+
+处理：**本功能不擅自提交他功能文件**。已把问题写进部署清单（`1bf8fc4`）与这里。建议单独提交 V3（`fix(notes): 补提交 notes.occurred_at 迁移，此前遗漏`），一行命令即可，随后干净检出的最后一条红项消失、HEAD 恢复自洽。
