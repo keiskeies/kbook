@@ -168,6 +168,40 @@ JOIN (SELECT 3 AS min_cohort UNION ALL SELECT 5 UNION ALL SELECT 10 UNION ALL SE
 GROUP BY t.basis, k.min_cohort
 ORDER BY t.basis, k.min_cohort;
 
+-- 1f) 按 A.3 判定规则直接给建议：达 min-cohort 的书占比 >= 20% 的最小档位；
+--     若没有任何档位达到 20%，按 §4.1 第 4 条建议先做「人群选书」而不是单书画像。
+WITH per_book AS (
+  SELECT 'READ' AS basis, rp.book_id, COUNT(DISTINCT rp.user_id) AS c
+  FROM reading_progress rp JOIN users u ON u.id = rp.user_id AND u.status = 'APPROVED'
+  WHERE rp.progress > 0 GROUP BY rp.book_id
+  UNION ALL
+  SELECT 'TOUCH', x.book_id, COUNT(DISTINCT x.user_id)
+  FROM (SELECT book_id, user_id FROM bookshelf
+        UNION ALL SELECT book_id, user_id FROM user_read_history) x
+  JOIN users u ON u.id = x.user_id AND u.status = 'APPROVED'
+  GROUP BY x.book_id
+  UNION ALL
+  SELECT 'DEEP', x.book_id, COUNT(DISTINCT x.user_id)
+  FROM (SELECT book_id, user_id FROM book_reviews
+        UNION ALL SELECT book_id, user_id FROM notes WHERE deleted_at IS NULL
+        UNION ALL SELECT book_id, user_id FROM ai_sessions
+                 WHERE book_id IS NOT NULL AND type IN ('book_chat', 'BOOK')) x
+  JOIN users u ON u.id = x.user_id AND u.status = 'APPROVED'
+  GROUP BY x.book_id
+), sweep AS (
+  SELECT t.basis, k.min_cohort,
+         SUM(t.c >= k.min_cohort) * 100.0 / COUNT(*) AS pct
+  FROM per_book t
+  JOIN (SELECT 3 AS min_cohort UNION ALL SELECT 5 UNION ALL SELECT 10 UNION ALL SELECT 20) k
+  GROUP BY t.basis, k.min_cohort
+)
+SELECT basis,
+       COALESCE(CAST(MIN(CASE WHEN pct >= 20 THEN min_cohort END) AS CHAR), '无') AS 建议_min_cohort,
+       CASE WHEN MIN(CASE WHEN pct >= 20 THEN min_cohort END) IS NULL
+            THEN '没有任何档位达到 20%：按 4.1 第 4 条先做「人群选书」'
+            ELSE CONCAT('采用最小达标档位 ', MIN(CASE WHEN pct >= 20 THEN min_cohort END)) END AS 建议
+FROM sweep GROUP BY basis ORDER BY basis;
+
 -- 2) 画像非空率（填表率）。<30 人这条判定交给接口更准：这里是不去脏的「非空」，
 --    有效样本要扣掉白名单之外的值，看 GET /api/admin/dashboard/profile-dimensions
 --    的 coverage / unknownCount / dirtyCount 三个数。
