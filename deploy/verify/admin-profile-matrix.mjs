@@ -369,6 +369,19 @@ const finish = code => {
     `核对到的 siteRatio=${checkedSiteRatios} 越界=${JSON.stringify(leakedSite)}` +
       (checkedSiteRatios === 0 ? '（dev 全站各桶都 <5，本条在此数据集上只做回归守卫，正面证据靠单测+变异）' : ''))
 
+  // ---------- 默认口径与基线一致性 ----------
+  const noBasis = await call(BASE, `/book-profile?bookId=${BOOK}&days=0`, ADMIN)
+  row('§2.1 省略 basis 时默认 READ',
+    !!noBasis.j && noBasis.j.data && noBasis.j.data.basis === 'READ',
+    noBasis.j && noBasis.j.data ? `basis=${noBasis.j.data.basis}` : '无数据')
+
+  const siteA = await call(BASE, `/book-profile?bookId=${BOOK}&basis=DEEP&days=0`, ADMIN)
+  const siteB = await call(BASE, `/book-profile?bookId=${PROTECTED_BOOK}&basis=DEEP&days=0`, ADMIN)
+  const sa = siteA.j && siteA.j.data && siteA.j.data.siteReaders
+  const sb = siteB.j && siteB.j.data && siteB.j.data.siteReaders
+  row('§3 siteReaders 是全局量：两本书必须相同',
+    typeof sa === 'number' && sa === sb, `${BOOK}→${sa} / ${PROTECTED_BOOK}→${sb}`)
+
   // ---------- 入参边界的兜底语义 ----------
   const daysFallback = await call(BASE, `/book-profile?bookId=${BOOK}&basis=DEEP&days=1`, ADMIN)
   const df = daysFallback.j && daysFallback.j.data
