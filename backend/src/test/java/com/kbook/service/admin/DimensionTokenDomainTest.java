@@ -92,6 +92,29 @@ class DimensionTokenDomainTest {
                 .isEqualTo(expected));
     }
 
+    /**
+     * 布尔维度（婚姻/子女）此前只有域断言、没有具体取值断言：把 truthy/falsy 写反或桶名拼错，
+     * 结果会被清洗成脏值——域断言照样过，但"有孩子"的读者会从该维度的有效样本里消失。
+     */
+    @Test
+    @DisplayName("布尔维度黄金表：1/true 与 0/false 各归其桶，其余脏值，空值未填写")
+    void booleanDimensionsAreExact() {
+        assertThat(BookProfileDimension.CHILDREN.toToken("1")).isEqualTo("HAS_CHILD");
+        assertThat(BookProfileDimension.CHILDREN.toToken("true")).isEqualTo("HAS_CHILD");
+        assertThat(BookProfileDimension.CHILDREN.toToken("0")).isEqualTo("NO_CHILD");
+        assertThat(BookProfileDimension.CHILDREN.toToken("false")).isEqualTo("NO_CHILD");
+        assertThat(BookProfileDimension.CHILDREN.toToken("2")).isEqualTo(BookProfileDimension.DIRTY);
+        assertThat(BookProfileDimension.CHILDREN.toToken("")).isEqualTo(BookProfileDimension.UNKNOWN);
+
+        assertThat(BookProfileDimension.MARITAL.toToken("1")).isEqualTo("MARRIED");
+        assertThat(BookProfileDimension.MARITAL.toToken("0")).isEqualTo("UNMARRIED");
+        assertThat(BookProfileDimension.MARITAL.toToken("2")).isEqualTo(BookProfileDimension.DIRTY);
+
+        // 规则表把「有孩子」写成 HAS_CHILD；两处必须指同一个 token
+        assertThat(BookProfileDimension.CHILDREN.getAllowed()).containsKey("HAS_CHILD");
+        assertThat(BookProfileDimension.CHILDREN.getAllowed()).containsKey("NO_CHILD");
+    }
+
     private static String describe(String raw) {
         return raw.isEmpty() ? "(空串)" : "「" + raw + "」";
     }
