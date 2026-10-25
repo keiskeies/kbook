@@ -369,6 +369,28 @@ const finish = code => {
     `核对到的 siteRatio=${checkedSiteRatios} 越界=${JSON.stringify(leakedSite)}` +
       (checkedSiteRatios === 0 ? '（dev 全站各桶都 <5，本条在此数据集上只做回归守卫，正面证据靠单测+变异）' : ''))
 
+  // ---------- 入参边界的兜底语义 ----------
+  const daysFallback = await call(BASE, `/book-profile?bookId=${BOOK}&basis=DEEP&days=1`, ADMIN)
+  const df = daysFallback.j && daysFallback.j.data
+  row('§2.2 days=1 回落为近 7 天（8 天窗口）',
+    !!df && df.rangeDays === 7, df ? `rangeDays=${df.rangeDays}` : '无数据')
+
+  const limitZero = await call(BASE, `/profile-books?dim=GENDER&value=FEMALE&days=0&basis=DEEP&limit=0`, ADMIN)
+  const limitHuge = await call(BASE, `/profile-books?dim=GENDER&value=FEMALE&days=0&basis=DEEP&limit=999`, ADMIN)
+  const zeroLen = ((limitZero.j && limitZero.j.data) || []).length
+  const hugeLen = ((limitHuge.j && limitHuge.j.data) || []).length
+  // 两个列表都空时断言会平凡成立（0 <= 1 且 0 <= 50），所以记 SKIP 而不是 PASS
+  row('§6.2 limit 截断到 1..50（0 与 999 都不越界）',
+    zeroLen + hugeLen === 0 ? null
+      : (limitZero.status === 200 && limitHuge.status === 200 && zeroLen <= 1 && hugeLen <= 50),
+    `limit=0 行数=${zeroLen} limit=999 行数=${hugeLen}`
+      + (zeroLen + hugeLen === 0 ? '（bucket=5 下无行，截断未被观测；见附录 BT.1 的 bucket=1 验证）' : ''))
+
+  const fitBadBasis = await call(BASE, `/book-audience-fit?bookId=${BOOK}&basis=%7B%7B7*7%7D%7D`, ADMIN)
+  row('P3 吻合度非法口径：业务错误而不是 500',
+    fitBadBasis.status !== 500 && !!fitBadBasis.j && fitBadBasis.j.code !== 0,
+    `status=${fitBadBasis.status} code=${fitBadBasis.j && fitBadBasis.j.code}`)
+
   // ---------- P3 受众吻合度与反查榜的时间窗契约 ----------
   const fitWindow = await call(LOOSE, `/book-audience-fit?bookId=${BOOK}&basis=DEEP&start=2026-10-01&end=2026-10-10`, ADMIN)
   const fw = fitWindow.j && fitWindow.j.data
