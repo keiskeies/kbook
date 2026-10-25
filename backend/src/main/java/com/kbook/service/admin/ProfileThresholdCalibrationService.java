@@ -6,6 +6,8 @@ import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -74,6 +76,26 @@ public class ProfileThresholdCalibrationService {
             log.debug("画像阈值自适应已关闭，沿用配置的 min-cohort-size={}", configuredMinCohortSize);
             return;
         }
+        calibrateAll();
+    }
+
+    /**
+     * 启动后补算一次。没有这一步，重启会**临时放宽**闸门：昨天自适应到 20 的实例，
+     * 今天 14:00 重启后到 03:40 之前生效值是下界 10——回退方向正好是 §4 最不该发生的那种。
+     * 放异步线程里是因为三条全表 GROUP BY 不能拖慢就绪与健康检查。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void calibrateOnStartup() {
+        if (!auto) {
+            return;
+        }
+        Thread worker = new Thread(this::calibrateAll, "profile-threshold-calibration");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /** 定时任务、启动补算、手工重算共用这一条计算路径 */
+    void calibrateAll() {
         for (Basis basis : Basis.values()) {
             try {
                 calibrate(basis);

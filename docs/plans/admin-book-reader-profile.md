@@ -3251,17 +3251,24 @@ BT 修的是趋势窗口没有上界；根因的另一半是**手工触发放行
 
 矩阵 **35 行、0 FAIL、1 SKIP**（limit 截断在 bucket=5 下观测不到，见 BU）。
 
-### BX.7 矩阵这一轮没有复跑，以及为什么可以不跑
+### BX.7 矩阵复跑（0 FAIL / 35），以及三个把人挡在门外的坑
 
-35 行的接口矩阵需要「严格实例 + `KBOOK_PROFILE_MIN_COHORT_SIZE=1` 的宽松实例」两个进程。这一轮两个实例都起了，
-但脚本的前置闸门连着两次拒绝开跑（一次是 USER token 过期，一次是 `/api/user/me` 撞上瞬时 500 返回「系统繁忙」）——
-这正是附录 X.1 要的那种「绿了也不代表对」的护栏在起作用，它没有替我伪造一行 PASS。我没有继续追这个抖动，
-而是把这一轮的证据面写清楚：
+第一轮两个实例起了、矩阵却被前置闸门两次拒跑；补了一次启动校准之后复跑通过：
 
-- 生效阈值在 dev 三口径下都等于配置下界（BX.4 的三行日志是实测，不是推断）。矩阵的每一行都建立在这条闸门数字之上，
-  生效值没变 ⇒ 行的期望值不会变。这是逻辑推理，不是实跑，所以写在这里而不写进「已通过」。
-- 新代码自身的实跑证据：`GET /book-profile-thresholds` 回 `{auto:true, READ:10, TOUCH:10, DEEP:10, tiers, minPublishableShare}`；
-  `POST` 手工重算返回同一组数并打出三口径日志；`/book-profile?bookId=24715&basis=DEEP` 仍是 `readers=10` 的分布态。
-- 静态四项（含部署清单 env 与配置源一致性）全绿：新增的 `KBOOK_PROFILE_THRESHOLD_AUTO` 与 `..._CALIBRATION_CRON` 能被应用识别。
+```
+FAIL 数 = 0 / 35  （另有 1 行 SKIP，需补外部真值）
+```
 
-下一轮开工要补的第一件事，就是把矩阵在两个自建实例上复跑一次（先重签两个 token，别复用过期那份）。
+那 1 行 SKIP 与附录 BU 同一行（0 行时无法证 `limit` 边界），不是新出现的。升档分支这一轮也补了接线测试：
+假的 `EntityManager` 返回「1000 本有读者、300 本达 20 人」，断言生效值变 20 **且** 一本 15 读者的书被判保护态——
+纯函数算得对但没接到闸门上，是这类改动最容易漏的一环。
+
+顺手记下三个坑，下次照这个顺序做：
+
+1. `--base` / `--loose` 要带 `/api/admin/dashboard` 段（脚本把它当端点根，前置检查靠 `replace(/\/admin\/dashboard$/, '/user/me')` 反推）。
+   只传 `http://host:port` 时请求会打到根路径，报的是 `No static resource .`，看起来像服务坏了。
+2. token 每次都要重签（2 小时过期），secret 取 **active profile 那份**（`application-dev.yml` 会覆盖 `application.yml`），
+   并且要解析 `${JWT_SECRET:...}` 里的默认值——直接把整个占位符当 secret 签出来的 token 全是 401。
+3. `mvn spring-boot:run` 起的实例会随父 shell 一起死（这一轮两个进程在服务完一次请求后就 `exit code 1`，
+   日志里有请求、无异常）。改用 `java -cp target/classes;<依赖清单> com.kbook.KBookApplication --server.port=...`，
+   两个实例各起一个进程，互不影响。

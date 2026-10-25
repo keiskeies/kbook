@@ -3,10 +3,15 @@ package com.kbook.service.admin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -15,6 +20,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * cohort 阈值自适应的配置装配（A.3 改成运行时之后，这份配置就是「人工钉阈值」的唯一入口）。
@@ -148,5 +156,54 @@ class ProfileThresholdAutoConfigTest {
             throw new AssertionError("application.yml 里没有键 " + key);
         }
         return m.group(1).trim();
+    }
+
+    @Test
+    @DisplayName("升档真的传到闸门上：1000 本书里 300 本达 20 人 → 生效 20，15 个读者的书判为保护态")
+    void tightenedThresholdReachesTheGate() throws Exception {
+        EntityManager em = mock(EntityManager.class);
+        Query query = mock(Query.class);
+        when(em.createNativeQuery(anyString())).thenReturn(query);
+        when(query.getSingleResult()).thenReturn(new Object[]{
+                1000L, new BigDecimal("300"), new BigDecimal("300"), new BigDecimal("300"), new BigDecimal("300")});
+
+        ProfileThresholdCalibrationService service = new ProfileThresholdCalibrationService(em);
+        set(service, "configuredMinCohortSize", 10);
+        set(service, "auto", true);
+        service.init();
+        service.calibrateAll();
+
+        assertThat(service.minCohortSize(BookProfileService.Basis.DEEP)).isEqualTo(20);
+        BookProfileService profile = new BookProfileService(null, null, service);
+        assertThat(profile.isCohortProtected(BookProfileService.Basis.DEEP, 15))
+                .as("自适应收紧到 20 之后，15 个读者必须被判保护——否则阈值只是算出来好看")
+                .isTrue();
+        assertThat(profile.isCohortProtected(BookProfileService.Basis.DEEP, 20)).isFalse();
+    }
+
+    @Test
+    @DisplayName("重算抛异常：生效值不变，闸门不会因为一次失败而消失")
+    void failureKeepsPreviousValue() throws Exception {
+        EntityManager em = mock(EntityManager.class);
+        when(em.createNativeQuery(anyString())).thenThrow(new IllegalStateException("库不可用"));
+        ProfileThresholdCalibrationService service = new ProfileThresholdCalibrationService(em);
+        set(service, "configuredMinCohortSize", 10);
+        set(service, "auto", true);
+        service.init();
+
+        service.calibrateAll();
+
+        for (BookProfileService.Basis basis : BookProfileService.Basis.values()) {
+            assertThat(service.minCohortSize(basis)).isEqualTo(10);
+        }
+    }
+
+    @Test
+    @DisplayName("启动后要补算一次：否则昨天收紧到 20 的实例重启后到 03:40 之前会回落到下界")
+    void startupHookExists() throws Exception {
+        Method method = ProfileThresholdCalibrationService.class.getMethod("calibrateOnStartup");
+        assertThat(method.getAnnotation(EventListener.class))
+                .as("没有启动补算，重启就成了静默放宽闸门的窗口")
+                .isNotNull();
     }
 }
