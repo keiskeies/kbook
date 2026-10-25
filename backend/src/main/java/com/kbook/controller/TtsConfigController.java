@@ -2,7 +2,7 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.config.properties.GptSovitsProperties;
-import com.kbook.dto.request.TtsSynthesizeRequest;
+import com.kbook.dto.tts.TtsSynthesizeRequest;
 import com.kbook.entity.TtsConfig;
 import com.kbook.service.tts.TtsConfigService;
 import io.swagger.v3.oas.annotations.Operation;

@@ -1,10 +1,11 @@
-package com.kbook.util;
+package com.kbook.common.util;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import com.kbook.common.util.RefreshTokenCookieUtil;
 
 /**
  * Refresh Token Cookie 工具类

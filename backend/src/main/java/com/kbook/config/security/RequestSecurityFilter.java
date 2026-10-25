@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.config.security;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -17,6 +17,7 @@ import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import com.kbook.config.security.RequestSecurityFilter;
 
 /**
  * 请求安全过滤器 — 防护路径绕过 + CSRF + 全角 Unicode 注入

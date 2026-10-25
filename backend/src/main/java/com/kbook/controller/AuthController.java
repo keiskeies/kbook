@@ -10,7 +10,7 @@ import com.kbook.dto.auth.RegisterRequest;
 import com.kbook.dto.auth.ResetPasswordRequest;
 import com.kbook.dto.auth.TokenRefreshRequest;
 import com.kbook.service.auth.AuthService;
-import com.kbook.util.RefreshTokenCookieUtil;
+import com.kbook.common.util.RefreshTokenCookieUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;

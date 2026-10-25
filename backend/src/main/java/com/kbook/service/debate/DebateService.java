@@ -14,7 +14,7 @@ import com.kbook.entity.Book;
 import com.kbook.entity.debate.DebateMessage;
 import com.kbook.entity.debate.DebateScore;
 import com.kbook.entity.debate.DebateSession;
-import com.kbook.enums.DebateRole;
+import com.kbook.common.enums.DebateRole;
 import com.kbook.repository.BookRepository;
 import com.kbook.repository.debate.DebateMessageRepository;
 import com.kbook.repository.debate.DebateScoreRepository;

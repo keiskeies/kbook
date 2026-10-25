@@ -1,9 +1,9 @@
 package com.kbook.dto.note;
 
-import com.kbook.entity.CaptureMode;
-import com.kbook.entity.NoteSourceType;
-import com.kbook.entity.NoteType;
-import com.kbook.entity.SourceStatus;
+import com.kbook.common.enums.CaptureMode;
+import com.kbook.common.enums.NoteSourceType;
+import com.kbook.common.enums.NoteType;
+import com.kbook.common.enums.SourceStatus;
 import lombok.Builder;
 import lombok.Data;
 

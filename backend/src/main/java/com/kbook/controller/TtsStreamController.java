@@ -1,8 +1,8 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
-import com.kbook.dto.request.TtsStreamPrepareRequest;
-import com.kbook.dto.response.TtsStreamTicket;
+import com.kbook.dto.tts.TtsStreamPrepareRequest;
+import com.kbook.dto.tts.TtsStreamTicket;
 import com.kbook.service.tts.TtsClientGoneException;
 import com.kbook.service.tts.TtsProgressiveService;
 import com.kbook.service.tts.TtsStreamTicketStore;

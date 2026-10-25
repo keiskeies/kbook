@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.service.ai.core.model;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.ChatModel;
@@ -8,6 +8,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
+import com.kbook.service.ai.core.model.CircuitBreakerChatModel;
 
 /**
  * 非流式 ChatModel 熔断器装饰器

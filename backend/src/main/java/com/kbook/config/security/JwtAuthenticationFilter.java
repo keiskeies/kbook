@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.config.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.api.Result;
@@ -20,6 +20,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
+import com.kbook.config.security.JwtAuthenticationFilter;
+import com.kbook.config.security.JwtUtil;
 
 /**
  * JWT 认证过滤器 - 拦截请求校验 Token + 黑名单检查

@@ -31,6 +31,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import com.kbook.service.ai.core.model.CircuitBreakerChatModel;
+import com.kbook.service.ai.core.model.CircuitBreakerStreamingChatModel;
+import com.kbook.service.ai.core.model.RetryableChatModel;
+import com.kbook.service.ai.core.model.UsageRecordingChatModel;
+import com.kbook.service.ai.core.model.UsageRecordingStreamingChatModel;
 
 /**
  * AI 聊天模型工厂类

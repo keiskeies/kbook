@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.service.ai.core.model;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.ChatModel;
@@ -10,6 +10,8 @@ import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.List;
+import com.kbook.service.ai.core.model.RetryableChatModel;
+import com.kbook.config.AiRetryInterruptedException;
 
 /**
  * ChatModel 重试包装器 — 对 AI API 429 限速/5xx/网络错误自动重试

@@ -4,7 +4,7 @@ import com.kbook.service.notification.NotificationService;
 import com.kbook.service.admin.BookProfileDimension;
 import com.kbook.service.user.ProfileValues;
 import com.kbook.common.exception.BusinessException;
-import com.kbook.config.JwtUtil;
+import com.kbook.config.security.JwtUtil;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.VerificationProperties;

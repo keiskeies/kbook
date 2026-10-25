@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.service.ai.core.model;
 
 import com.kbook.service.ai.core.AiUsageContext;
 import com.kbook.service.ai.core.AiUsageLogService;
@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.TokenUsage;
 
 import java.util.List;
+import com.kbook.service.ai.core.model.UsageRecordingChatModel;
 
 /**
  * 非流式 ChatModel 用量记录装饰器。

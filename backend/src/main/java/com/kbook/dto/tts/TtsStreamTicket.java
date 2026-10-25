@@ -1,4 +1,5 @@
-package com.kbook.dto.response;
+package com.kbook.dto.tts;
+import com.kbook.dto.tts.TtsStreamTicket;
 
 /**
  * 渐进式播放凭据响应

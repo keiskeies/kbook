@@ -10,6 +10,10 @@ import lombok.Setter;
 import lombok.ToString;
 
 import java.time.LocalDateTime;
+import com.kbook.common.enums.CaptureMode;
+import com.kbook.common.enums.NoteSourceType;
+import com.kbook.common.enums.NoteType;
+import com.kbook.common.enums.SourceStatus;
 
 /**
  * 笔记实体 — 用户的私人知识资产，生命周期独立于任何来源内容。

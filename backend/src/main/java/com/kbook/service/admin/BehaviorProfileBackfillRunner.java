@@ -1,4 +1,4 @@
-package com.kbook.backfill;
+package com.kbook.service.admin;
 
 import com.kbook.entity.UserBehaviorProfile;
 import com.kbook.repository.UserBehaviorProfileRepository;
@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import com.kbook.service.admin.BehaviorProfileBackfillRunner;
 
 /**
  * 行为画像离线回填 — 扫描存量 ai_conversations 表，批量抽取用户行为画像。

@@ -1,9 +1,10 @@
-package com.kbook.dto.request;
+package com.kbook.dto.tts;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import com.kbook.dto.tts.TtsStreamPrepareRequest;
 
 /**
  * 渐进式语音播放凭据申请

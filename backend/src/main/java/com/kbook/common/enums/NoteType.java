@@ -1,4 +1,5 @@
-package com.kbook.entity;
+package com.kbook.common.enums;
+import com.kbook.common.enums.NoteType;
 
 /**
  * 笔记类型 — 决定 AI 成长总结时的权重：

@@ -1,4 +1,5 @@
-package com.kbook.entity;
+package com.kbook.common.enums;
+import com.kbook.common.enums.NoteSourceType;
 
 /**
  * 笔记来源类型

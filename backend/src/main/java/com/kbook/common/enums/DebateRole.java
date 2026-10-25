@@ -1,8 +1,9 @@
-package com.kbook.enums;
+package com.kbook.common.enums;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.Getter;
+import com.kbook.common.enums.DebateRole;
 
 /**
  * 奇葩说辩论角色枚举 — 1个主持人 + 16种辩论性格

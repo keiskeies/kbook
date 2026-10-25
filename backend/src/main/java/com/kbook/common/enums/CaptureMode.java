@@ -1,4 +1,5 @@
-package com.kbook.entity;
+package com.kbook.common.enums;
+import com.kbook.common.enums.CaptureMode;
 
 /**
  * 收录时的展示方式

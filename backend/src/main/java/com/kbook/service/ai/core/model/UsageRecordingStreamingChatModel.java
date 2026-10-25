@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.service.ai.core.model;
 
 import com.kbook.service.ai.core.AiUsageContext;
 import com.kbook.service.ai.core.AiUsageLogService;
@@ -16,6 +16,7 @@ import dev.langchain4j.model.output.TokenUsage;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.kbook.service.ai.core.model.UsageRecordingStreamingChatModel;
 
 /**
  * 流式 StreamingChatModel 用量记录装饰器。

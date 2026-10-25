@@ -17,6 +17,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.filter.CorsFilter;
+import com.kbook.config.security.JwtAuthenticationFilter;
+import com.kbook.config.security.RequestSecurityFilter;
 
 /**
  * Spring Security 配置 - JWT 无状态认证 + CORS + 接口权限

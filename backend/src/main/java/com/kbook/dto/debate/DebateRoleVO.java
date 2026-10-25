@@ -1,6 +1,6 @@
 package com.kbook.dto.debate;
 
-import com.kbook.enums.DebateRole;
+import com.kbook.common.enums.DebateRole;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

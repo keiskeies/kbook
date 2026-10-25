@@ -1,4 +1,5 @@
-package com.kbook.entity;
+package com.kbook.common.enums;
+import com.kbook.common.enums.SourceStatus;
 
 /**
  * 笔记来源的存活状态 — 来源删除只改状态与指针，不动快照

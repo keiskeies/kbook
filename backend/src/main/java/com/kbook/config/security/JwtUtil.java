@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.config.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -13,6 +13,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.Map;
+import com.kbook.config.security.JwtUtil;
 
 /**
  * JWT 工具类 - Token 生成、解析、校验

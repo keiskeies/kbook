@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.config.security;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -12,6 +12,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import com.kbook.config.security.ClientIpFilter;
 
 /**
  * 客户端 IP 过滤器 — 所有请求都记录真实 IP 到 MDC

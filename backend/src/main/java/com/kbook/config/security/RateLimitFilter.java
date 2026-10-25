@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.config.security;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -17,6 +17,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Duration;
+import com.kbook.config.security.RateLimitFilter;
 
 /**
  * 限流过滤器 — 基于 Bucket4j + Caffeine 本地令牌桶

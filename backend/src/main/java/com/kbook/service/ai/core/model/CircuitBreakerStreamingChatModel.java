@@ -1,4 +1,4 @@
-package com.kbook.config;
+package com.kbook.service.ai.core.model;
 
 import com.kbook.common.util.SseHelper;
 import dev.langchain4j.data.message.ChatMessage;
@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import com.kbook.service.ai.core.model.CircuitBreakerStreamingChatModel;
 
 /**
  * 流式 StreamingChatModel 熔断器装饰器

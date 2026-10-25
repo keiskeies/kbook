@@ -3,7 +3,7 @@ package com.kbook.repository;
 import com.kbook.common.repository.BaseRepository;
 import com.kbook.dto.note.NoteBookVO;
 import com.kbook.entity.Note;
-import com.kbook.entity.NoteType;
+import com.kbook.common.enums.NoteType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
