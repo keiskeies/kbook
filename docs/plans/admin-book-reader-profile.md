@@ -3108,3 +3108,18 @@ AC 当时的 EXPLAIN 是在临时程序里手敲的。现在 `deploy/sql/profile
 - `profile-index-explain.sql` → 三条 EXPLAIN 均出现目标索引名（`idx_progress_book_updated` / `idx_note_book_created` / `idx_shelf_book_added` + `idx_history_book_created`）。
 
 也就是说，这套 A.3 执行工具不依赖我的本机残留：**任何拿到仓库与只读连接的人都能复现**。
+
+## 附录 BP：反查榜 `sortBy` 的排序契约第一次验证
+
+§6.2 只说 `sortBy=LIFT|READERS`，排序本身此前没有断言（矩阵里 dev 数据在 bucket=5 下出不了两行）。用一个临时实例（cohort=1、**bucket=1**，只为让 dev 能出多行）验证：
+
+| sortBy | 结果 | 顺序 |
+|---|---|---|
+| LIFT | 目标字段（lift）单调不增，exit 0 | `20321 / count=1 / lift=1.5` → `24715 / count=2 / lift=0.6` |
+| READERS | 目标字段（count）单调不增，exit 0 | `24715 / count=2 / lift=0.6` → `20321 / count=1 / lift=1.5` |
+
+两条都能看出"按目标字段排、另一字段不参与"，说明 `byLift` 分支与次级排序（count 作为 tie-breaker）工作正常。
+
+为什么没做成矩阵行：矩阵的 loose 实例按设计必须保持 `bucket=5`（小桶并「其他」与出榜下限两条只在 bucket=5 下可观测），而 bucket=5 时 dev 出不了两行。所以这条留在文档里、需要时按上面的 env 复跑；矩阵不为了它破坏自己的既有前提。
+
+自纠：第一次跑时脚本里 `$sort` 被 shell 提前展开，出现 `ReferenceError: LIFT is not defined`——数据本身是对的（两种排序都单调），但退出码不可信；用环境变量传参重跑后才拿到干净 exit 0。记在这里，与 AJ/BG 同型：**shell 与脚本的边界要显式传值**。
