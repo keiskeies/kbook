@@ -28,6 +28,7 @@ const ALLOW = new Map([
   ['frontend/dist', '构建产物，gitignore 不追踪；文档只把它当输出目录'],
   ['package/package.sh', '本机打包工具，package/ 已 gitignore（指南改为 download.sh）'],
   ['package/package.bat', '同上'],
+  ['backend/.verify-token.txt', '本机自签 token 文件，已 gitignore；文档描述的是它被忽略这件事'],
 ])
 
 const SKIP = new Set(['node_modules', 'dist', 'target', '.git', '.gitnexus', '.idea', '.vscode', 'logs', 'tmp'])

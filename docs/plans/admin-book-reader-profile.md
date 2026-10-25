@@ -1201,7 +1201,7 @@ H.3 留的那条「没有单测」补上了，做法就是当初记的那条：�
 
 `mvn -o test` **126 例全绿**（此前 122）：`ProfileValuesTest` 73 + `BookProfileCalculatorTest` 24 + `TargetAudienceRulesTest` 13 + `AdminRangeRulesTest` 12 + `GlobalExceptionHandlerTest` 4。前端 `npm run build` 未动（本轮无前端改动）。
 
-环境：自建 8300/8301 两台（I.2 的矩阵）+ 后续为 I.7 重跑的 8300 与 15196 静态同源代理，全部 CommandLine 核对归属后才启动、验证完全部关闭；未触碰 8181/8182/15173/15174/15180 等既有端口与 `D:\item\kbook` 那份副本，MySQL/Redis 未写一行。token、脚本、`dist-local` 都在 `%TEMP%\kbook-verify`，未进仓库。仓库里那个历史遗留的 `backend/.verify-token.txt` 之前**没被 gitignore**（`git add -A` 就会把自签 token 提上去），已在 `.gitignore` 补一行 `.verify-token.txt` 挡住；文件本身不属于本轮产物，没擅自删。
+环境：自建 8300/8301 两台（I.2 的矩阵）+ 后续为 I.7 重跑的 8300 与 15196 静态同源代理，全部 CommandLine 核对归属后才启动、验证完全部关闭；未触碰 8181/8182/15173/15174/15180 等既有端口与 `D:\item\kbook` 那份副本，MySQL/Redis 未写一行。token、脚本、`dist-local` 都在 `%TEMP%\kbook-verify`，未进仓库。仓库里那个历史遗留的「backend/.verify-token.txt」之前**没被 gitignore**（`git add -A` 就会把自签 token 提上去），已在 `.gitignore` 补一行 `.verify-token.txt` 挡住；文件本身不属于本轮产物，没擅自删。
 
 ### I.7 把 H.8 留的「admin 深链原因未定位」做实——它不是 bug，是我的脚手架
 
