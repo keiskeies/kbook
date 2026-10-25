@@ -36,8 +36,9 @@ deploy/
 ├── .env.example           ← 配置模板（复制到 compose/.env 后修改）
 ├── ai-config.json         ← AI 外部配置（可直接编辑，点"重载"生效）
 │
-├── （打包脚本在仓库根目录 package/ 下，不在 deploy/ 内）
-├── package/               ← 构建产物（由 package/package.sh|bat 生成，或由 download.sh 下载）
+├── download.sh / download.bat ← 获取 package/（预构建产物，地址见 PACKAGE_URL）
+├── （本机打包脚本不在仓库内：package/ 已 gitignore）
+├── package/               ← 构建产物（由 download.sh 获取，或本机打包后拷入）
 │   ├── dist/              ←   前端静态文件
 │   ├── app.jar            ←   后端 JAR
 │   └── ai-config.json     ←   复制的 AI 配置
@@ -69,11 +70,9 @@ deploy/
 # 1. 进入部署目录
 cd deploy
 
-# 2. 回到仓库根目录打包（脚本在 package/ 下，不在 deploy/ 内）
-cd ..
-package/package.sh        # Linux/Mac
-package/package.bat       # Windows（双击）
-# 此步骤会自动 npm install → npm run build → mvn package → 复制到 package/
+# 2. 准备构建产物 package/（仓库不保存打包脚本，该目录已 gitignore）
+./download.sh             # Linux/Mac：从 PACKAGE_URL 下载 app.jar 与前端包
+download.bat              # Windows
 
 # 3. 进入 compose 目录，复制配置模板
 cd compose
@@ -94,7 +93,7 @@ start.bat                 # Windows（双击）
 ```
 
 > ⏱ 首次启动耗时 3-10 分钟（下载镜像），打包阶段另外耗时。
-> ⚠️ 后续更新代码只需要重新运行 package/package.sh 或 package/package.bat，然后 `docker compose restart app`。
+> ⚠️ 后续更新代码只需要重新运行 `deploy/download.sh` 或本机打包脚本，然后 `docker compose restart app`。
 
 ### 核心配置说明
 
@@ -302,7 +301,7 @@ docker compose up -d
 
 - [ ] **首启会自动建 4 条「按书查」索引**：`idx_progress_book_updated`、`idx_history_book_created`、`idx_shelf_book_added`、`idx_note_book_created`。生产 `reading_progress` 是热表，建索引期间与首查会明显变慢，**这不是功能坏了**（口径见 `docs/plans/admin-book-reader-profile.md` §7.3）。
 - [ ] 阈值先校准再上线：`mysql -h<生产库> -u<user> -p <db> < deploy/sql/profile-threshold-audit.sql`，纯只读，跑完直接给「三种口径各有多少书达到 `min-cohort-size`」的结论。dev 库上这三个结论都是「不达标」，所以别把 dev 的默认值当生产值。
-- [ ] 新接口 + 新索引必须**同一镜像发布**：走 `package/package.bat`（Linux/Mac：`package/package.sh`）→ `deploy/docker/build.sh`（Windows：`deploy/docker/build.bat`）→ `up -d`，**不能只 `restart`**（restart 用的还是旧镜像，会出现前端新 / 后端旧，设计文档 §12 记过这就是已发生过的事故）。读者画像的取值校验那部分不受这条约束，两端可以任意先后（附录 F.5）。
+- [ ] 新接口 + 新索引必须**同一镜像发布**：先更新 `package/`（`deploy/download.sh`，或本机打包脚本）→ `deploy/docker/build.sh`（Windows：`deploy/docker/build.bat`）→ `up -d`，**不能只 `restart`**（restart 用的还是旧镜像，会出现前端新 / 后端旧，设计文档 §12 记过这就是已发生过的事故）。读者画像的取值校验那部分不受这条约束，两端可以任意先后（附录 F.5）。
 - [ ] **本次新增一张表**：`book_profile_daily`（单书画像每日快照）由 Flyway `V4__create_book_profile_daily.sql` 创建，不依赖 `ddl-auto`。默认不启用定时写入（`KBOOK_ADMIN_BOOK_PROFILE_SNAPSHOT_ENABLED=false`），确认阈值与候选量后再打开；保留策略是永久保留，磁盘由运维归档。
 - [ ] 顺带一条同源风险：**给有存量数据的表加 `NOT NULL` 列必须写 Flyway 迁移**，`ddl-auto: update` 会静默失败并把连带索引一起丢掉（本次 `notes.occurred_at` 就是这么修的，见附录 B.5）。只加索引不受影响。
 

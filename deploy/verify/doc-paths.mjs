@@ -25,6 +25,7 @@ const docs = argIdx > -1
 const ALLOW = new Map([
   ['pages/admin/book-profiles.tsx', 'B.2 已记：实际文件是 profile-books.tsx'],
   ['frontend/vite.verify.config.ts', 'C.4 / G.5 自述为临时文件、验证后删除；不是失效引用'],
+  ['frontend/dist', '构建产物，gitignore 不追踪；文档只把它当输出目录'],
 ])
 
 const SKIP = new Set(['node_modules', 'dist', 'target', '.git', '.gitnexus', '.idea', '.vscode', 'logs', 'tmp'])
