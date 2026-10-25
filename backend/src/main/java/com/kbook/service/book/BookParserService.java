@@ -90,17 +90,20 @@ import com.kbook.constants.ai.BookMetaPrompts;
 @LogModule("图书解析")
 public class BookParserService {
 
+    /** AI 内容预算字符上限（提取器侧同名常量独立） */
+    private static final int MAX_CONTENT_FOR_AI = 15000;
+
     private final ChatModelFactory chatModelFactory;
     private final ChatModelManager chatModelManager;
     private final UserProfileBuilder userProfileBuilder;
     private final BookMetadataInferrer bookMetadataInferrer;
     private final BookService bookService; // 书籍服务
     private final UserService userService; // 用户服务
-    private final EmbeddingService embeddingService; // 嵌入向量服务
     private final ObjectMapper objectMapper; // JSON对象映射器
     private final BookStorageProperties storageProps; // 书籍存储配置属性
     private final ExecutorService sseExecutor;
-    private final com.kbook.service.ai.rag.RagAnswerCache ragAnswerCache;
+    private final BookFullTextExtractor extractor;
+    private final BookAiDataService aiDataService;
     private final com.kbook.service.ai.SpeedReadCache speedReadCache;
 
     public BookParserService(
@@ -110,11 +113,11 @@ public class BookParserService {
             BookMetadataInferrer bookMetadataInferrer,
             BookService bookService,
             UserService userService,
-            EmbeddingService embeddingService,
             ObjectMapper objectMapper,
             BookStorageProperties storageProps,
-            com.kbook.service.ai.rag.RagAnswerCache ragAnswerCache,
             com.kbook.service.ai.SpeedReadCache speedReadCache,
+            BookFullTextExtractor extractor,
+            BookAiDataService aiDataService,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.chatModelFactory = chatModelFactory;
         this.chatModelManager = chatModelManager;
@@ -122,11 +125,11 @@ public class BookParserService {
         this.bookMetadataInferrer = bookMetadataInferrer;
         this.bookService = bookService;
         this.userService = userService;
-        this.embeddingService = embeddingService;
         this.objectMapper = objectMapper;
         this.storageProps = storageProps;
-        this.ragAnswerCache = ragAnswerCache;
         this.speedReadCache = speedReadCache;
+        this.extractor = extractor;
+        this.aiDataService = aiDataService;
         this.sseExecutor = sseExecutor;
     }
 
@@ -135,12 +138,6 @@ public class BookParserService {
      * 用于等比例压缩封面图片，确保统一尺寸
      */
     private static final int COVER_MAX_WIDTH = 300;
-
-    /**
-     * AI 调用操作类型常量
-     * 用于日志记录，标识合并请求的类型（标签+评分+相关度）
-     */
-    private static final String AI_OP_COMBINED = "合并请求（标签+评分+相关度）";
 
 
     /**
@@ -224,12 +221,12 @@ public class BookParserService {
         // 如果标准解析未提取到内容，再次尝试ZIP降级模式
         if (book.getRagContent() == null || book.getRagContent().isBlank()) {
             log.info("EPUB 标准解析未提取到内容，尝试 ZIP 降级: bookId={}", book.getId());
-            String fullText = extractEpubTextViaZip(filePath); // 通过ZIP方式提取文本
+            String fullText = extractor.extractEpubTextViaZip(filePath); // 通过ZIP方式提取文本
             if (fullText != null && !fullText.isBlank()) {
                 book.setRagContent(fullText); // 设置RAG全文内容
                 book.setFullText(fullText); // 持久化全文，用于向量重建
                 // 构建用于AI标签生成的内容（分层采样全文）
-                book.setParsedContent(buildContentForTags(book, stratifiedSample(fullText)));
+                book.setParsedContent(extractor.buildContentForTags(book, extractor.stratifiedSample(fullText)));
             }
         }
     }
@@ -239,11 +236,11 @@ public class BookParserService {
      */
     private void fallbackToZipExtraction(Book book, Path filePath) {
         log.info("EPUB 降级模式: 尝试 ZIP 提取全文: bookId={}", book.getId());
-        String fullText = extractEpubTextViaZip(filePath);
+        String fullText = extractor.extractEpubTextViaZip(filePath);
         if (fullText != null && !fullText.isBlank()) {
             book.setRagContent(fullText);
             book.setFullText(fullText); // 持久化全文，用于向量重建
-            book.setParsedContent(buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), 15000))));
+            book.setParsedContent(extractor.buildContentForTags(book, fullText.substring(0, Math.min(fullText.length(), 15000))));
         }
     }
 
@@ -322,7 +319,7 @@ public class BookParserService {
      */
     private void extractEpubTextContent(Book book, nl.siegmann.epublib.domain.Book epubBook) {
         // 提取目录结构并保存到 book.toc
-        String toc = buildEpubToc(epubBook);
+        String toc = extractor.buildEpubTocInternal(epubBook);
         if (!toc.isEmpty()) {
             book.setToc(toc);
         }
@@ -331,64 +328,15 @@ public class BookParserService {
         book.setChapterSummary(extractEpubChapterSummary(epubBook));
 
         // 提取用于AI标签生成的正文内容（目录 + 按章均匀分配）
-        book.setParsedContent(buildContentForTags(book, buildChapterBasedContent(epubBook)));
+        book.setParsedContent(extractor.buildContentForTags(book, extractor.buildChapterBasedContent(epubBook)));
 
         // 提取用于RAG的完整全文内容
-        book.setRagContent(extractEpubFullTextFromEpubBook(epubBook));
+        book.setRagContent(extractor.extractEpubFullTextFromEpubBook(epubBook));
         book.setFullText(book.getRagContent()); // 持久化全文，用于向量重建
     }
 
-    /**
-     * 提取 EPUB 目录文本（供 buildChapterBasedContent / extractEpubChapterSummary 复用）
-     */
-    private String buildEpubToc(nl.siegmann.epublib.domain.Book epubBook) {
-        StringBuilder sb = new StringBuilder();
-        if (epubBook.getTableOfContents() != null) {
-            extractEpubTocChildren(epubBook.getTableOfContents().getTocReferences(), sb, 0);
-        }
-        return sb.toString().trim();
-    }
 
-    /**
-     * 按章均匀分配预算构建内容（目录 + 正文）
-     * 遍历 spine 去 HTML 标签后，将 maxChars 均分给每章，最后一章吃剩余
-     */
-    private String buildChapterBasedContent(nl.siegmann.epublib.domain.Book epubBook) {
-        String toc = buildEpubToc(epubBook);
 
-        java.util.List<String> chapters = new java.util.ArrayList<>();
-        for (var spineRef : epubBook.getSpine().getSpineReferences()) {
-            try {
-                var resource = spineRef.getResource();
-                if (resource == null || resource.getData() == null) continue;
-                String html = new String(resource.getData(), StandardCharsets.UTF_8);
-                String text = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
-                if (text.length() >= 50) chapters.add(text);
-                if (chapters.size() >= 200) break;
-            } catch (Exception ignored) {
-            }
-        }
-
-        StringBuilder sb = new StringBuilder();
-        if (!toc.isEmpty()) {
-            sb.append("【目录】\n").append(toc).append("\n\n");
-        }
-        sb.append("【正文】\n");
-
-        int remaining = BookParserService.MAX_CONTENT_FOR_AI - sb.length();
-        int perChapter = chapters.isEmpty() || remaining <= 0 ? 0 : Math.max(1, remaining / chapters.size());
-
-        for (int i = 0; i < chapters.size() && sb.length() < BookParserService.MAX_CONTENT_FOR_AI; i++) {
-            String text = chapters.get(i);
-            int take = Math.min(text.length(), perChapter);
-            if (i == chapters.size() - 1) {
-                take = Math.min(text.length(), BookParserService.MAX_CONTENT_FOR_AI - sb.length());
-            }
-            sb.append(text, 0, take).append("\n\n");
-        }
-
-        return sb.toString();
-    }
 
     /**
      * 从EPUB图书中提取封面图片
@@ -587,7 +535,7 @@ public class BookParserService {
             int totalBudget = MAX_CONTENT_FOR_AI;
 
             // 1. 提取目录
-            String toc = buildEpubToc(epubBook);
+            String toc = extractor.buildEpubTocInternal(epubBook);
             int tocLen = toc.length();
 
             // 2. 遍历所有章节，提取文本并记录有效章节的索引和内容
@@ -661,7 +609,6 @@ public class BookParserService {
     /**
      * AI 标签生成时送入大模型的正文最大字符数（128k 上下文窗口内留出提示词和输出空间）
      */
-    private static final int MAX_CONTENT_FOR_AI = 15000;
 
     /**
      * 分层采样段数 — 从全书开头/25%/50%/75%/结尾各取一段
@@ -805,11 +752,11 @@ public class BookParserService {
             }
 
             // 7. 构建 AI 标签生成的内容
-            book.setParsedContent(buildContentForTags(book, firstPagesText));
+            book.setParsedContent(extractor.buildContentForTags(book, firstPagesText));
 
             // 8. 提取全文用于RAG（在PDDocument已打开时提取，避免后续二次加载文件）
             try {
-                String fullText = extractPdfFullTextFromDocument(book, document, isScanned); // 提取全文
+                String fullText = extractor.extractPdfFullTextFromDocument(book, document, isScanned); // 提取全文
                 if (fullText != null && !fullText.isBlank()) {
                     book.setRagContent(fullText); // 设置RAG全文内容
                     book.setFullText(fullText); // 持久化全文，用于向量重建
@@ -879,7 +826,7 @@ public class BookParserService {
                 BufferedImage image = null;
                 try {
                     image = renderer.renderImageWithDPI(i, 100);
-                    String base64 = imageToJpegBase64(image);
+                    String base64 = extractor.imageToJpegBase64(image);
                     imageDataUris.add("data:image/jpeg;base64," + base64);
                 } finally {
                     if (image != null) image.flush();
@@ -894,7 +841,7 @@ public class BookParserService {
             List<Content> contents = new ArrayList<>();
             contents.add(TextContent.from(ocrPrompt));
             for (String dataUri : imageDataUris) {
-                contents.add(toImageContent(dataUri));
+                contents.add(extractor.toImageContent(dataUri));
             }
 
             UserMessage userMessage =
@@ -1014,20 +961,7 @@ public class BookParserService {
         }
     }
 
-    /**
-     * 递归提取 EPUB 目录子节点（TOCReference 树形结构）
-     */
-    private void extractEpubTocChildren(List<TOCReference> children,
-                                        StringBuilder tocBuilder, int depth) {
-        if (children == null || depth > 3) return; // 最多3层深度
-        for (var item : children) {
-            String title = item.getTitle();
-            if (title != null && !title.isBlank()) {
-                tocBuilder.append("  ".repeat(depth)).append(title.trim()).append("\n");
-            }
-            extractEpubTocChildren(item.getChildren(), tocBuilder, depth + 1);
-        }
-    }
+
 
     /**
      * 解析 TXT 格式图书
@@ -1047,7 +981,7 @@ public class BookParserService {
 
             // 取前15000字符用于 AI 评分和标签生成
             String preview = content.length() > 15000 ? content.substring(0, 15000) : content;
-            book.setParsedContent(buildContentForTags(book, preview)); // 构建AI标签生成内容
+            book.setParsedContent(extractor.buildContentForTags(book, preview)); // 构建AI标签生成内容
 
             // 核心章节摘要：取开头3000字（去掉前200字可能的书名/版权信息）
             int summaryStart = Math.min(200, content.length()); // 跳过前200字（可能是书名或版权信息）
@@ -1110,927 +1044,42 @@ public class BookParserService {
         }
     }
 
-    /**
-     * 构建用于 AI 标签/评分/简介生成的内容摘要
-     * 提供更多正文内容，帮助模型深度理解图书质量
-     * 32k 上下文约 8-10 万字符，充分利用空间
-     * 分层采样：从全文中等距取 STRATIFIED_SEGMENTS 段，确保 AI 看到开头、中间、结尾。
-     * 内容不足 totalChars 则原样返回，不做截断。
-     */
-    private String stratifiedSample(String content) {
-        int len = content.length();
-        if (len <= BookParserService.MAX_CONTENT_FOR_AI) return content;
 
-        int segmentSize = BookParserService.MAX_CONTENT_FOR_AI / STRATIFIED_SEGMENTS;
-        int remaining = BookParserService.MAX_CONTENT_FOR_AI % STRATIFIED_SEGMENTS;
-        StringBuilder sb = new StringBuilder(BookParserService.MAX_CONTENT_FOR_AI + STRATIFIED_SEGMENTS * 30);
-        int segments = STRATIFIED_SEGMENTS;
-        for (int i = 0; i < segments; i++) {
-            int posPercent = Math.round(100f * i / (segments - 1));
-            // 用浮点定位避免 int 截断导致最后一段偏前
-            int center = (int) ((double) i / (segments - 1) * (len - segmentSize));
-            int start = Math.max(0, center);
-            int end = Math.min(start + segmentSize + (i == segments - 1 ? remaining : 0), len);
-            // 尽量在段落边界断开
-            if (end < len && end + 200 < len) {
-                int breakAt = content.indexOf('\n', end);
-                if (breakAt > end && breakAt - end < 200) end = breakAt;
-            }
-            sb.append("--- [").append(posPercent).append("% 位置] ---\n");
-            sb.append(content, start, end).append("\n\n");
-        }
-        return sb.toString();
-    }
 
-    /**
-     * 构建用于AI标签/评分/简介生成的内容摘要
-     * <p>
-     * 组合图书元数据（书名、作者、简介）和正文内容，
-     * 为大模型提供完整的上下文信息，用于生成标签、评分和简介。
-     *
-     * @param book         图书实体对象
-     * @param extraContent 额外的正文内容（如目录、章节摘要等）
-     * @return 格式化后的完整内容字符串
-     */
-    private String buildContentForTags(Book book, String extraContent) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("书名：").append(book.getTitle()).append("\n");
-        if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
-            sb.append("作者：").append(book.getAuthor()).append("\n");
-        }
-        if (book.getDescription() != null && !book.getDescription().isBlank()) {
-            sb.append("简介：").append(CommonUtils.truncateText(book.getDescription(), 1500)).append("\n");
-        }
-        if (extraContent != null && !extraContent.isBlank()) {
-            sb.append("内容/目录：\n").append(CommonUtils.truncateText(extraContent, MAX_CONTENT_FOR_AI)).append("\n");
-        }
-        return sb.toString();
-    }
 
-    /**
-     * 从图书文件中重新提取内容用于标签生成
-     */
-    private String extractContentForTags(Book book) {
-        if (book.getFileUrl() == null) {
-            return null;
-        }
-        Path filePath = storageProps.resolveBookPath(book.getFileUrl(), book.getFormat());
-        if (!Files.exists(filePath)) {
-            return null;
-        }
 
-        try {
-            return switch (book.getFormat()) {
-                case "EPUB" -> extractEpubContent(book, filePath);
-                case "PDF" -> extractPdfContent(book, filePath);
-                case "TXT" -> extractTxtContent(book, filePath);
-                default -> null;
-            };
-        } catch (Exception e) {
-            log.warn("提取图书内容失败: {} - {}", book.getTitle(), e.getMessage());
-            return null;
-        }
-    }
 
-    /**
-     * 提取 EPUB 内容 — 重新读文件，委托给 buildChapterBasedContent（用于评分和标签生成）
-     */
-    private String extractEpubContent(Book book, Path filePath) {
-        try (InputStream is = Files.newInputStream(filePath)) {
-            EpubReader epubReader = new EpubReader();
-            nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
-            return buildContentForTags(book, buildChapterBasedContent(epubBook));
-        } catch (Exception e) {
-            if (e.getMessage() != null && e.getMessage().contains("SAXParseException")) {
-                log.warn("EPUB XML 解析失败 (文件损坏或格式不规范): {} - {}", book.getTitle(), e.getMessage());
-            } else {
-                log.warn("提取 EPUB 内容失败: {} - {}", book.getTitle(), e.getMessage());
-            }
-            return null;
-        }
-    }
-
-    /**
-     * 提取 PDF 内容 — 从全书均匀分布取 20 页，再分层采样（用于评分和标签生成）
-     */
-    private String extractPdfContent(Book book, Path filePath) throws Exception {
-        try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
-            PDFTextStripper stripper = new PDFTextStripper();
-            int totalPages = document.getNumberOfPages();
-            if (totalPages <= 20) {
-                // 小文档直接全读
-                String text = stripper.getText(document);
-                return buildContentForTags(book, text);
-            }
-            // 均匀分布取 20 页：页 1, 1+step, 1+2*step, ...
-            int step = Math.max(1, totalPages / 20);
-            StringBuilder sb = new StringBuilder(MAX_CONTENT_FOR_AI * 2);
-            for (int i = 0; i < 20 && i * step < totalPages; i++) {
-                int page = i * step + 1;
-                stripper.setStartPage(page);
-                stripper.setEndPage(Math.min(page + 1, totalPages));
-                String pageText = stripper.getText(document).trim();
-                if (!pageText.isBlank()) {
-                    sb.append(pageText).append("\n");
-                }
-            }
-            // 再用分层采样压到预算
-            return buildContentForTags(book, stratifiedSample(sb.toString()));
-        }
-    }
-
-    /**
-     * 提取 TXT 内容 — 分层采样全文（用于评分和标签生成）
-     */
-    private String extractTxtContent(Book book, Path filePath) throws Exception {
-        String content = Files.readString(filePath);
-        return buildContentForTags(book, stratifiedSample(content));
-    }
 
     // ======================== 合并 AI 请求（标签 + 评分 + 相关度，一次调用） ========================
 
-    /**
-     * 为图书一次性生成所有 AI 数据（标签 + 评分 + 8维度相关度得分 + 简介）
-     * 合并为一次 LLM 调用，提高效率和降低成本
-     * 仅填充 book 实体字段，不做任何数据库操作
-     *
-     * @param book 图书实体对象
-     */
-    @LogAction("生成全部AI数据")
-    public void generateAllAiData(Book book) {
-        Long bookId = book.getId(); // 获取图书ID
-        try {
-            // 获取图书内容：DB fullText > 同请求缓存 parsedContent > 文件提取
-            String content = book.getFullText();
-            if (content == null || content.isBlank()) {
-                content = book.getParsedContent();
-            }
-            if (content == null || content.isBlank()) {
-                content = extractContentForTags(book); // 从文件中提取内容
-            }
-            if (content == null || content.isBlank()) {
-                log.debug("图书无内容可供生成AI数据: bookId={}", bookId);
-                return;
-            }
 
-            // 合并调用 AI，一次性生成标签、评分、相关度和简介
-            CombinedAiResult result = callAiCombined(content);
 
-            // 记录AI调用结果日志
-            log.info("========== AI合并调用结果 start ==========");
-            log.info("AI合并调用结果: bookId={}", bookId);
-            log.info("AI合并调用结果: tags: {}", result != null ? result.tags : "null");
-            log.info("AI合并调用结果: concept: {}", result != null ? result.concept : "null");
-            log.info("AI合并调用结果: readerNeed: {}", result != null ? result.readerNeed : "null");
-            log.info("AI合并调用结果: targetReader: {}", result != null ? result.targetReader : "null");
-            log.info("AI合并调用结果: rating: {}", result != null ? result.rating : "null");
-            log.info("AI合并调用结果: relevanceScoresJson: {}", result != null ? result.relevanceScoresJson : "null");
-            log.info("AI合并调用结果: description: {}", result != null ? result.description : "null");
-            log.info("AI合并调用结果: description长度: {}", result != null && result.description != null ? result.description.length() : 0);
-            log.info("========== AI合并调用结果 end ==========");
 
-            if (result == null) {
-                log.warn("合并AI调用返回空结果: bookId={}", bookId);
-                return;
-            }
 
-            // 填充标签（将标签列表转换为JSON数组字符串）
-            if (result.tags != null && !result.tags.isEmpty()) {
-                String tagsJson = result.tags.stream()
-                        .map(t -> "\"" + t + "\"") // 为每个标签添加引号
-                        .collect(Collectors.joining(",", "[", "]")); // 拼接为JSON数组
-                book.setFormatTags(tagsJson); // 设置标签
-            }
 
-            // 填充核心概念标签
-            if (result.concept != null && !result.concept.isEmpty()) {
-                String conceptJson = result.concept.stream()
-                        .map(t -> "\"" + t + "\"")
-                        .collect(Collectors.joining(",", "[", "]"));
-                book.setConceptTags(conceptJson);
-            }
 
-            // 填充读者需求标签
-            if (result.readerNeed != null && !result.readerNeed.isEmpty()) {
-                String readerNeedJson = result.readerNeed.stream()
-                        .map(t -> "\"" + t + "\"")
-                        .collect(Collectors.joining(",", "[", "]"));
-                book.setReaderNeedTags(readerNeedJson);
-            }
 
-            // 填充目标读者标签
-            if (result.targetReader != null && !result.targetReader.isEmpty()) {
-                String targetReaderJson = result.targetReader.stream()
-                        .map(t -> "\"" + t + "\"")
-                        .collect(Collectors.joining(",", "[", "]"));
-                book.setTargetReaderTags(targetReaderJson);
-            }
 
-            // 填充评分
-            if (result.rating != null) {
-                book.setRating(result.rating); // 设置评分
-            }
 
-            // 填充8维度相关度得分（JSON字符串）
-            if (result.relevanceScoresJson != null && !result.relevanceScoresJson.isBlank()) {
-                book.setRelevanceScores(result.relevanceScoresJson);
-            }
 
-            // 填充AI生成的简介
-            if (result.description != null && !result.description.isBlank()) {
-                book.setDescription(result.description); // 设置简介
-            }
 
-        } catch (Exception e) {
-            log.warn("合并AI数据生成失败: bookId={} - {}", bookId, e.getMessage());
-        }
-    }
 
-    /**
-     * 为图书生成 RAG 内容向量（书籍内容分块 → Qdrant）
-     * 在图书入库后调用，将书籍全文分块生成 embedding 存入 Qdrant content 集合
-     *
-     * @param bookId 图书ID
-     */
-    @LogAction("生成RAG内容向量")
-    public void generateContentEmbedding(Long bookId) {
-        try {
-            Book book = bookService.getBookById(bookId);
-            // 优先从 DB 的 fullText 读取，避免重新解析文件
-            String content = book.getFullText();
-            if (content == null || content.isBlank()) {
-                content = extractContentForRAG(book);
-            }
-            generateContentEmbedding(bookId, content);
-        } catch (Exception e) {
-            log.warn("触发RAG内容向量生成失败: bookId={} - {}", bookId, e.getMessage());
-        }
-    }
-
-    /**
-     * 为图书生成 RAG 内容向量（带预提取内容，避免重复解析文件）
-     * 扫描流程中可传入已提取的全书内容，省去二次文件读取和解析
-     *
-     * @param bookId  图书ID
-     * @param content 已提取的全文内容（可为null，将自动提取）
-     */
-    @LogAction("生成RAG内容向量(预提内容)")
-    public void generateContentEmbedding(Long bookId, String content) {
-        try {
-            if (content == null || content.isBlank()) {
-                Book book = bookService.getBookById(bookId);
-                // 优先从 DB fullText 读取，避免重新解析文件
-                if (book.getFullText() != null && !book.getFullText().isBlank()) {
-                    content = book.getFullText();
-                    log.debug("使用DB全书内容: bookId={}, contentLen={}", bookId, content.length());
-                } else if (book.getRagContent() != null && !book.getRagContent().isBlank()) {
-                    content = book.getRagContent();
-                    log.debug("使用缓存的RAG内容: bookId={}, contentLen={}", bookId, content.length());
-                } else {
-                    content = extractContentForRAG(book);
-                }
-            }
-            if (content == null || content.isBlank()) {
-                log.debug("图书无内容可供生成RAG向量: bookId={}", bookId);
-                return;
-            }
-            embeddingService.generateContentEmbeddingWithCount(bookId, content);
-            log.info("触发RAG内容向量生成: bookId={}, contentLen={}", bookId, content.length());
-        } catch (Exception e) {
-            log.warn("触发RAG内容向量生成失败: bookId={} - {}", bookId, e.getMessage());
-        }
-    }
-
-    /**
-     * 确保图书内容向量已生成（分布式锁）
-     * <p>
-     * 多个线程同时请求同一本无向量的书时，只有一个线程执行向量化，
-     * 其他线程获取锁失败，通过 {@code null} 返回值告知调用方等待重试。
-     *
-     * @param bookId 图书ID
-     * @return {@link Boolean#TRUE} 成功，{@link Boolean#FALSE} 失败，{@code null} 锁被占用
-     */
-    @RedisLock(key = "'book:content:embed:' + #bookId", leaseTime = 60, timeUnit = TimeUnit.MINUTES)
-    @LogAction("确保内容向量已生成")
-    public Boolean ensureContentEmbedded(Long bookId) {
-        Book book = bookService.getBookById(bookId);
-        if (Boolean.TRUE.equals(book.getContentEmbedded())) {
-            return true;
-        }
-        int count = generateContentEmbeddingWithCount(bookId);
-        return count > 0;
-    }
-
-    /**
-     * 强制重建内容向量（当 contentEmbedded 标志为 true 但 Qdrant 实际向量缺失/损坏时使用）
-     * <p>
-     * 与 {@link #ensureContentEmbedded} 的区别：本方法不信任 contentEmbedded 标志，
-     * 直接检测 Qdrant 中的实际向量状态。如果向量缺失或全零，强制重建。
-     * 同样使用 @RedisLock 防止并发重建。
-     *
-     * @param bookId 图书ID
-     * @return {@link Boolean#TRUE} 重建成功，{@link Boolean#FALSE} 重建失败，{@code null} 锁被占用
-     */
-    @RedisLock(key = "'book:content:embed:' + #bookId", leaseTime = 60, timeUnit = TimeUnit.MINUTES)
-    @LogAction("检测并重建内容向量")
-    public Boolean forceReEmbedIfMissing(Long bookId) {
-        if (!embeddingService.detectZeroContentVectors(bookId)) {
-            return true;
-        }
-        log.info("检测到内容向量缺失/损坏，强制重建: bookId={}", bookId);
-        int count = generateContentEmbeddingWithCount(bookId);
-        return count > 0;
-    }
-
-    /**
-     * 为图书全文重新向量化（返回 chunk 数量）
-     * 用于管理员手动修复或自动风控触发
-     */
-    @LogAction("重新内容向量化")
-    public int generateContentEmbeddingWithCount(Long bookId) {
-        try {
-            Book book = bookService.getBookById(bookId);
-            // 优先从 DB 的 fullText 读取，避免重新解析文件
-            String content = book.getFullText();
-            if (content == null || content.isBlank()) {
-                content = extractContentForRAG(book);
-            }
-            if (content == null || content.isBlank()) {
-                log.debug("图书无内容可供生成RAG向量: bookId={}", bookId);
-                return 0;
-            }
-            int chunkCount = embeddingService.generateContentEmbeddingWithCount(bookId, content);
-            book = bookService.getBookById(bookId);
-            book.setContentEmbedded(chunkCount > 0);
-            // 记录向量层一致性指纹（模型标识 + 维度），用于后续启动校验和重建风控
-            if (chunkCount > 0) {
-                book.setContentEmbeddingModel(embeddingService.getCurrentEmbeddingModelName());
-                book.setContentEmbeddingDim(embeddingService.getCurrentEmbeddingDim());
-            } else {
-                book.setContentEmbeddingModel(null);
-                book.setContentEmbeddingDim(null);
-            }
-            bookService.updateBook(bookId, book);
-            // 内容向量重建后，失效该书的 RAG 答案缓存（基于旧内容的缓存不再有效）
-            if (chunkCount > 0) {
-                ragAnswerCache.invalidateBook(bookId);
-            }
-            log.info("图书全文重新向量化完成: bookId={}, chunks={}, model={}",
-                    bookId, chunkCount,
-                    chunkCount > 0 ? embeddingService.getCurrentEmbeddingModelName() : "N/A");
-            return chunkCount;
-        } catch (Exception e) {
-            log.warn("图书全文重新向量化失败: bookId={} - {}", bookId, e.getMessage());
-            return 0;
-        }
-    }
-
-    /**
-     * 为图书生成元数据向量（标题+作者+标签+简介 → 1个 embedding，用于推荐召回）
-     *
-     * @param book 图书
-     */
-    @LogAction("生成元数据向量")
-    public void generateBookEmbedding(Book book) {
-        try {
-            embeddingService.generateBookEmbedding(book);
-        } catch (Exception e) {
-            log.warn("触发元数据向量生成失败: bookId={} - {}", book.getId(), e.getMessage());
-        }
-    }
-
-    /**
-     * 提取图书内容用于 RAG 向量化
-     */
-    private String extractContentForRAG(Book book) {
-        if (book.getFileUrl() == null) return null;
-        Path filePath = storageProps.resolveBookPath(book.getFileUrl(), book.getFormat());
-        if (!Files.exists(filePath)) return null;
-
-        try {
-            return switch (book.getFormat()) {
-                case "TXT" -> Files.readString(filePath);
-                case "EPUB" -> extractEpubFullText(book, filePath);
-                case "PDF" -> extractPdfFullText(book, filePath);
-                default -> null;
-            };
-        } catch (Exception e) {
-            log.warn("提取RAG内容失败: {} - {}", book.getTitle(), e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 提取 EPUB 全文（用于 RAG）
-     * 优化版本：使用预分配 StringBuilder + 预编译正则
-     * 增强：捕获 XML 解析异常，降级为直接解压 ZIP 提取文本，防止不规范 EPUB 导致向量化跳过
-     */
-    private String extractEpubFullText(Book book, Path filePath) {
-        try (InputStream is = Files.newInputStream(filePath)) {
-            EpubReader epubReader = new EpubReader();
-            nl.siegmann.epublib.domain.Book epubBook = epubReader.readEpub(is);
-            String text = extractEpubFullTextFromEpubBook(epubBook);
-            if (text != null && !text.isBlank()) return text;
-        } catch (Exception e) {
-            log.warn("epublib 解析 EPUB 失败，尝试 ZIP 降级提取: {} - {}", book.getTitle(), e.getMessage());
-        }
-        return extractEpubTextViaZip(filePath);
-    }
-
-    /**
-     * 降级方案：将 EPUB 视为 ZIP 文件，直接提取所有 HTML/XHTML 文本
-     */
-    private String extractEpubTextViaZip(Path filePath) {
-        StringBuilder text = new StringBuilder(200000);
-        try (var zip = new java.util.zip.ZipFile(filePath.toFile())) {
-            var entries = zip.entries();
-            while (entries.hasMoreElements()) {
-                var entry = entries.nextElement();
-                String name = entry.getName().toLowerCase();
-                if (name.endsWith(".html") || name.endsWith(".xhtml") || name.endsWith(".htm")) {
-                    try (var is = zip.getInputStream(entry)) {
-                        String html = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                        String plain = HTML_TAG_PATTERN.matcher(html).replaceAll("").trim();
-                        if (!plain.isBlank()) {
-                            text.append(plain).append("\n");
-                        }
-                    } catch (Exception ignored) {
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("ZIP 降级提取也失败: {}", e.getMessage());
-        }
-        return !text.isEmpty() ? text.toString() : null;
-    }
-
-    /**
-     * 从已解析的 EPUB 对象中提取全文（用于 RAG）
-     * 在 parseEpub 时调用，避免后续二次读取文件
-     */
-    private String extractEpubFullTextFromEpubBook(nl.siegmann.epublib.domain.Book epubBook) {
-        try {
-            StringBuilder text = new StringBuilder(200000);
-            for (var spineRef : epubBook.getSpine().getSpineReferences()) {
-                try {
-                    var resource = spineRef.getResource();
-                    if (resource == null || resource.getData() == null) continue;
-                    String html = new String(resource.getData(), StandardCharsets.UTF_8);
-                    String plainText = HTML_TAG_PATTERN.matcher(html).replaceAll("").trim();
-                    if (!plainText.isBlank()) {
-                        text.append(plainText).append("\n");
-                    }
-                } catch (Exception ignored) {
-                }
-            }
-            return !text.isEmpty() ? text.toString() : null;
-        } catch (Exception e) {
-            log.debug("从EPUB对象提取全文失败: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 提取 PDF 全文（用于 RAG）
-     * <p>
-     * 优先尝试 PDFTextStripper 提取文本；
-     * 如果提取的文本过少（可能是扫描版 PDF），则使用大模型 OCR 逐页识别图片内容。
-     */
-    private String extractPdfFullText(Book book, Path filePath) throws Exception {
-        try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
-            int totalPages = document.getNumberOfPages();
-            PDFTextStripper stripper = new PDFTextStripper();
-            stripper.setStartPage(1);
-            stripper.setEndPage(totalPages);
-            String textContent = stripper.getText(document);
-            String cleanedText = WHITESPACE_PATTERN.matcher(textContent).replaceAll("").trim();
-            boolean isScanned = cleanedText.length() < (long) totalPages * 50;
-            return extractPdfFullTextFromDocument(book, document, isScanned);
-        }
-    }
-
-    /**
-     * 从已打开的 PDDocument 中提取全文（用于 RAG）
-     * 在 parsePdf 时调用，避免后续二次加载 PDF 文件
-     *
-     * @param book      图书对象
-     * @param document  已打开的 PDDocument
-     * @param isScanned 是否为扫描版（由 parsePdf 中判断）
-     */
-    private String extractPdfFullTextFromDocument(Book book, PDDocument document, boolean isScanned) throws Exception {
-        int totalPages = document.getNumberOfPages();
-
-        if (!isScanned) {
-            // 文字型 PDF：直接提取全部文本
-            PDFTextStripper stripper = new PDFTextStripper();
-            stripper.setStartPage(1);
-            stripper.setEndPage(totalPages);
-            String textContent = stripper.getText(document);
-            log.info("PDF 全文提取（文字型）: bookId={}, pages={}, chars={}",
-                    book.getId(), totalPages, WHITESPACE_PATTERN.matcher(textContent).replaceAll("").trim().length());
-            return textContent;
-        }
-
-        // 扫描版 PDF：使用大模型 OCR 逐页识别
-        log.info("PDF 全文提取（扫描版，使用OCR）: bookId={}, pages={}", book.getId(), totalPages);
-        return ocrPdfWithVisionModel(book, storageProps.resolveBookPath(book.getFileUrl(), book.getFormat()), totalPages);
-    }
 
     /**
      * OCR 每批次处理的页数（减少批次大小以降低内存峰值）
      */
     private static final int OCR_BATCH_SIZE = 1;
 
-    /**
-     * 使用大模型视觉能力 OCR 识别 PDF 全部页面
-     * <p>
-     * 流程：
-     * 1. 将 PDF 每页渲染为图片（PNG）
-     * 2. 每 OCR_BATCH_SIZE 页为一批，将图片转为 Base64 发送给大模型
-     * 3. 大模型识别图片中的文字并返回
-     * 4. 拼接所有批次的识别结果
-     * <p>
-     * 走 {@link AiScene#PDF_OCR} 场景路由：用户可在后台显式绑定视觉模型，
-     * 未绑定时优先用 YML {@code kbook.ai.vision} 配置，再回退到 QA 配置。
-     */
-    private String ocrPdfWithVisionModel(Book book, Path filePath, int totalPages) {
-        StringBuilder fullText = new StringBuilder();
 
-        try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
-            PDFRenderer renderer = new PDFRenderer(document);
 
-            for (int batchStart = 0; batchStart < totalPages; batchStart += OCR_BATCH_SIZE) {
-                int batchEnd = Math.min(batchStart + OCR_BATCH_SIZE, totalPages);
-                log.info("PDF OCR 批次: bookId={}, pages={}-{}/{}", book.getId(), batchStart + 1, batchEnd, totalPages);
 
-                try {
-                    // 渲染本批次页面为图片，构建 data URI 列表
-                    // 使用 JPEG 格式 + 较低DPI，大幅减少内存占用（JPEG比PNG小5-10倍）
-                    List<String> imageDataUris = new ArrayList<>();
-                    for (int page = batchStart; page < batchEnd; page++) {
-                        BufferedImage image = null;
-                        try {
-                            image = renderer.renderImageWithDPI(page, 100);
-                            String base64 = imageToJpegBase64(image);
-                            imageDataUris.add("data:image/jpeg;base64," + base64);
-                        } finally {
-                            // 及时释放 BufferedImage 内存
-                            if (image != null) image.flush();
-                        }
-                    }
 
-                    // 构建多模态消息发送给大模型
-                    String batchDesc = String.format("第%d-%d页（共%d页）", batchStart + 1, batchEnd, totalPages);
-                    String ocrResult = callVisionOcr(imageDataUris, batchDesc);
 
-                    if (ocrResult != null && !ocrResult.isBlank()) {
-                        fullText.append(ocrResult).append("\n\n");
-                        log.debug("PDF OCR 批次完成: bookId={}, pages={}-{}, resultLen={}",
-                                book.getId(), batchStart + 1, batchEnd, ocrResult.length());
-                    }
 
-                    // 释放本批次 data URI 内存
-                    imageDataUris.clear();
-                } catch (Exception e) {
-                    log.warn("PDF OCR 批次失败: bookId={}, pages={}-{} - {}",
-                            book.getId(), batchStart + 1, batchEnd, e.getMessage());
-                }
-            }
-        } catch (Exception e) {
-            log.error("PDF OCR 解析异常: bookId={} - {}", book.getId(), e.getMessage());
-        }
 
-        String result = fullText.toString().trim();
-        log.info("PDF OCR 解析完成: bookId={}, totalPages={}, resultChars={}", book.getId(), totalPages, result.length());
-        return result;
-    }
 
-    /**
-     * 将 BufferedImage 编码为 JPEG Base64 字符串
-     * JPEG 格式比 PNG 小 5-10 倍，大幅降低内存和传输开销
-     */
-    private String imageToJpegBase64(BufferedImage image) throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
-        ImageWriteParam param = writer.getDefaultWriteParam();
-        param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-        param.setCompressionQuality((float) 0.85);
-        try (ImageOutputStream ios = ImageIO.createImageOutputStream(baos)) {
-            writer.setOutput(ios);
-            writer.write(null, new IIOImage(image, null, null), param);
-        } finally {
-            writer.dispose();
-        }
-        return Base64.getEncoder().encodeToString(baos.toByteArray());
-    }
 
-    /**
-     * 将 data URI 或纯 base64 字符串转换为 ImageContent。
-     * <p>
-     * langchain4j 的 Ollama 客户端不支持 data URI（会报 "Unsupported url scheme: data"），
-     * 需要提取纯 base64 数据后用 {@code ImageContent.from(base64, mimeType)} 构建，
-     * 这样 Image 对象的 base64Data 字段被设置，Ollama 会直接用 base64 数据而非 URL 加载。
-     * OpenAI 兼容客户端同样支持这种方式。
-     *
-     * @param dataUri data URI（"data:image/jpeg;base64,xxxx"）或纯 base64 字符串
-     * @return ImageContent 实例
-     */
-    private static ImageContent toImageContent(String dataUri) {
-        String base64 = dataUri;
-        String mimeType = "image/jpeg";
-        if (dataUri.startsWith("data:")) {
-            int commaIdx = dataUri.indexOf(',');
-            if (commaIdx > 0) {
-                // 解析 data:image/jpeg;base64,xxxx 格式
-                String header = dataUri.substring(5, commaIdx); // image/jpeg;base64
-                int semiIdx = header.indexOf(';');
-                if (semiIdx > 0) {
-                    mimeType = header.substring(0, semiIdx);
-                }
-                base64 = dataUri.substring(commaIdx + 1);
-            }
-        }
-        return ImageContent.from(base64, mimeType);
-    }
 
-    /**
-     * 调用大模型视觉能力进行 OCR 识别
-     * <p>
-     * 将多张图片 + OCR 提示词发送给支持视觉的 ChatModel，
-     * 要求模型识别图片中的所有文字内容并原样输出。
-     * <p>
-     * 走 {@link AiScene#PDF_OCR} 场景路由，日志由 {@code callAiForScene} 统一记录
-     * （含模型名/场景/思考配置/请求消息/响应/token 统计）。
-     * <p>
-     * 使用 OpenAI 兼容 API 的多模态消息格式（image_url 方式），
-     * 兼容 Ollama / OpenAI / DeepSeek 等支持视觉的模型。
-     */
-    private String callVisionOcr(List<String> imageDataUris, String batchDesc) {
-        try {
-            // 构建用户消息文本
-            String ocrPrompt = String.format(
-                    "请仔细识别以下PDF页面图片中的所有文字内容，原样输出，不要遗漏任何文字。" +
-                            "保持原文的段落结构，如果图片中有表格，用文本形式还原表格内容。" +
-                            "不要添加任何解释、总结或评论，只输出识别到的原文。" +
-                            "（当前处理的是%s）", batchDesc);
-
-            // 构建多模态消息内容列表
-            List<Content> contents = new ArrayList<>();
-            contents.add(TextContent.from(ocrPrompt));
-            for (String dataUri : imageDataUris) {
-                contents.add(toImageContent(dataUri));
-            }
-
-            UserMessage userMessage =
-                    UserMessage.from(contents);
-
-            SystemMessage systemMessage =
-                    SystemMessage.from(
-                            "你是一个专业的 OCR 文字识别助手。你的唯一任务是准确识别图片中的文字内容并原样输出。" +
-                                    "不要添加任何额外的解释、总结或评论。只输出图片中出现的文字。");
-            // /no_think 由 callAiForScene 自动追加（PDF_OCR thinking=false）
-
-            return chatModelManager.callAiForScene(AiScene.PDF_OCR, "PDF OCR", batchDesc,
-                    List.of(systemMessage, userMessage));
-        } catch (Exception e) {
-            log.warn("大模型 OCR 调用失败: {} - {}", batchDesc, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 合并AI调用结果
-     */
-    public record CombinedAiResult(List<String> tags, List<String> concept, List<String> readerNeed, List<String> targetReader, Double rating, String relevanceScoresJson, String description) {
-    }
-
-    /**
-     * 一次 LLM 调用同时生成标签、评分、8维度相关度得分
-     */
-    private CombinedAiResult callAiCombined(String content) {
-        String rawResult = chatModelManager.callAiForScene(AiScene.BOOK_PARSE_COMBINED, AI_OP_COMBINED,
-                String.format("输入: %s", content.replaceAll("\\n", " ").substring(0, Math.min(100, content.length()))),
-                Lists.newArrayList(
-                        SystemMessage.from(BookMetaPrompts.COMBINED_PROMPT_SYSTEM_PROMPT),
-                        UserMessage.from(content)
-                )
-        );
-        if (rawResult == null) return null;
-
-        rawResult = CommonUtils.stripCodeFence(rawResult).trim();
-
-        // 优先 Markdown 解析（行式 KV + ## 区段，比 JSON 更稳定，description 含中文引号/换行不易破坏结构）
-        try {
-            CombinedAiResult md = parseCombinedFromMarkdown(rawResult);
-            if (md != null) return md;
-        } catch (Exception e) {
-            log.warn("Markdown 解析失败,尝试 JSON 兜底: {}", e.getMessage());
-        }
-
-        // JSON 兜底（LLM 偶发仍输出 JSON 时容错）
-        return parseCombinedFromJson(rawResult);
-    }
-
-    /**
-     * 从 Markdown 输出解析综合结果。
-     * 期望格式：
-     * ## TAGS / ## CONCEPT / ## READER_NEED / ## TARGET_READER / ## STYLE  → 「、」或「,」分隔的标签
-     * ## DESCRIPTION  → 多行简介
-     * ## RATING  → 单行数字
-     * ## RELEVANCE  → 每行「KEY: SCORE」
-     */
-    private CombinedAiResult parseCombinedFromMarkdown(String text) {
-        if (text == null || text.isBlank()) return null;
-
-        List<String> tags = parseTagSection(text, "TAGS");
-        List<String> concept = parseTagSection(text, "CONCEPT");
-        List<String> readerNeed = parseTagSection(text, "READER_NEED");
-        List<String> targetReader = parseTagSection(text, "TARGET_READER");
-        // 注：prompt 含 ## STYLE 字段,但 CombinedAiResult 不存储,不解析
-
-        String description = CommonUtils.extractMarkdownSection(text, "DESCRIPTION");
-        if (description != null && ("无".equals(description) || "null".equalsIgnoreCase(description))) {
-            description = null;
-        }
-
-        Double rating = null;
-        String ratingSection = CommonUtils.extractMarkdownSection(text, "RATING");
-        if (ratingSection != null && !ratingSection.isBlank()) {
-            // 提取第一个数字（兼容「3.5」「评分：3.5」「3.5分」「rating: 3.5」）
-            Pattern rp = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)");
-            Matcher rm = rp.matcher(ratingSection);
-            if (rm.find()) {
-                try {
-                    double r = Double.parseDouble(rm.group(1));
-                    rating = Math.max(1.0, Math.min(5.0, Math.round(r * 10.0) / 10.0));
-                } catch (NumberFormatException ignored) {
-                }
-            }
-        }
-
-        // RELEVANCE：行式 KV → Map → 序列化为 JSON 字符串（保持下游兼容）
-        String relevanceScoresJson = null;
-        String relSection = CommonUtils.extractMarkdownSection(text, "RELEVANCE");
-        if (relSection != null && !relSection.isBlank()) {
-            Map<String, Double> relMap = new LinkedHashMap<>();
-            Pattern kvPat = Pattern.compile("^\\s*([A-Za-z0-9_+-]+)\\s*[:：]\\s*([0-9]+(?:\\.[0-9]+)?)\\s*$");
-            for (String line : relSection.split("\\r?\\n")) {
-                Matcher m = kvPat.matcher(line);
-                if (m.find()) {
-                    try {
-                        relMap.put(m.group(1), Double.parseDouble(m.group(2)));
-                    } catch (NumberFormatException ignored) {
-                    }
-                }
-            }
-            if (!relMap.isEmpty()) {
-                try {
-                    relevanceScoresJson = objectMapper.writeValueAsString(relMap);
-                } catch (Exception e) {
-                    log.warn("relevance 序列化失败: {}", e.getMessage());
-                }
-            }
-        }
-
-        // 至少有一项结果才算成功
-        if (tags == null && concept == null && readerNeed == null && targetReader == null
-                && rating == null && relevanceScoresJson == null && description == null) {
-            return null;
-        }
-
-        return new CombinedAiResult(tags, concept, readerNeed, targetReader, rating, relevanceScoresJson, description);
-    }
-
-    /**
-     * 解析标签区段：## HEADER 下的内容按「、」「,」「，」或换行分隔成列表。
-     */
-    private List<String> parseTagSection(String text, String header) {
-        String section = CommonUtils.extractMarkdownSection(text, header);
-        if (section == null || section.isBlank()) return null;
-        List<String> result = Stream.of(section.split("[\\n,，、]"))
-                .map(String::trim)
-                .filter(s -> !s.isBlank())
-                .filter(s -> !"无".equals(s) && !"null".equalsIgnoreCase(s))
-                .collect(Collectors.toList());
-        return result.isEmpty() ? null : result;
-    }
-
-    /**
-     * JSON 兜底解析：LLM 偶发仍输出 JSON 时容错。保留原解析逻辑。
-     */
-    private CombinedAiResult parseCombinedFromJson(String rawResult) {
-        if (rawResult == null) return null;
-        try {
-            int jsonStart = rawResult.indexOf('{');
-            int jsonEnd = rawResult.lastIndexOf('}');
-            if (jsonStart < 0 || jsonEnd <= jsonStart) {
-                log.warn("AI 合并调用返回内容无有效JSON: {}", rawResult);
-                return null;
-            }
-            String jsonStr = rawResult.substring(jsonStart, jsonEnd + 1);
-            JsonNode root = objectMapper.readTree(jsonStr);
-
-            List<String> tags = parseJsonStringArray(root, "tags");
-            List<String> concept = parseJsonStringArray(root, "concept");
-            List<String> readerNeed = parseJsonStringArray(root, "reader_need");
-            List<String> targetReader = parseJsonStringArray(root, "target_reader");
-
-            Double rating = null;
-            if (root.has("rating") && !root.get("rating").isNull()) {
-                try {
-                    double r = root.get("rating").asDouble();
-                    rating = Math.max(1.0, Math.min(5.0, Math.round(r * 10.0) / 10.0));
-                } catch (Exception e) {
-                    log.warn("评分解析失败: {}", e.getMessage());
-                }
-            }
-
-            String relevanceScoresJson = null;
-            if (root.has("relevance") && !root.get("relevance").isNull()) {
-                JsonNode relevanceNode = root.get("relevance");
-                if (relevanceNode.isObject()) {
-                    relevanceScoresJson = objectMapper.writeValueAsString(relevanceNode);
-                }
-            }
-
-            String description = null;
-            if (root.has("description") && !root.get("description").isNull()) {
-                String desc = root.get("description").asText().trim();
-                if (!desc.isBlank() && !"null".equalsIgnoreCase(desc)) {
-                    description = desc;
-                }
-            }
-
-            if (tags == null && concept == null && readerNeed == null && targetReader == null
-                    && rating == null && relevanceScoresJson == null && description == null) {
-                return null;
-            }
-            return new CombinedAiResult(tags, concept, readerNeed, targetReader, rating, relevanceScoresJson, description);
-        } catch (Exception e) {
-            log.warn("AI 合并调用结果 JSON 解析失败: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /** 从 JsonNode 提取字段，兼容数组和逗号分隔字符串 */
-    private List<String> parseJsonStringArray(JsonNode root, String field) {
-        if (!root.has(field) || root.get(field).isNull()) return null;
-        JsonNode node = root.get(field);
-        if (node.isArray()) {
-            List<String> list = StreamSupport.stream(node.spliterator(), false)
-                    .map(JsonNode::asText)
-                    .map(String::trim)
-                    .filter(t -> !t.isBlank())
-                    .toList();
-            return list.isEmpty() ? null : list;
-        }
-        String s = node.asText();
-        if (s == null || s.isBlank()) return null;
-        List<String> list = Stream.of(s.split("[,，、]"))
-                .map(String::trim)
-                .filter(t -> !t.isBlank())
-                .toList();
-        return list.isEmpty() ? null : list;
-    }
-
-    /**
-     * 为新入库的图书重命名封面文件（使用正式的 bookId）
-     */
-    @LogAction("最终处理封面")
-    public void finalizeCover(Book book) {
-        if (book.getCoverUrl() == null || book.getId() == null) {
-            return;
-        }
-
-        String url = book.getCoverUrl();
-        String oldFileName = url.substring(url.lastIndexOf('/') + 1);
-
-        if (!oldFileName.startsWith("book_new_")) {
-            return;
-        }
-
-        try {
-            Path coverDir = Paths.get(storageProps.getCoverPath());
-            Path oldFile = coverDir.resolve(oldFileName);
-
-            if (!Files.exists(oldFile)) {
-                return;
-            }
-
-            String ext = oldFileName.substring(oldFileName.lastIndexOf('.'));
-            String newFileName = "book_" + book.getId() + "_cover" + ext;
-            Path newFile = coverDir.resolve(newFileName);
-            if (Files.exists(newFile)) {
-                Files.delete(newFile);
-            }
-            Files.move(oldFile, newFile);
-            book.setCoverUrl("/api/books/cover/" + newFileName);
-            log.info("封面重命名: {} -> {}", oldFileName, newFileName);
-
-        } catch (Exception e) {
-            log.warn("封面重命名失败: {}", e.getMessage());
-        }
-    }
 
 
     /**
@@ -2172,4 +1221,36 @@ public class BookParserService {
     private static boolean isCacheableSpeedRead(String text) {
         return text != null && text.length() >= 100 && text.contains("### ");
     }
+    // ==================== 委托（公开 API 保持原签名，调用方零改动） ====================
+
+    @LogAction("生成全部AI数据")
+    public void generateAllAiData(Book book) {
+        aiDataService.generateAllAiData(book);
+    }
+
+    @LogAction("生成RAG内容向量")
+    public void generateContentEmbedding(Long bookId) {
+        aiDataService.generateContentEmbedding(bookId);
+    }
+
+    public Boolean ensureContentEmbedded(Long bookId) {
+        return aiDataService.ensureContentEmbedded(bookId);
+    }
+
+    public Boolean forceReEmbedIfMissing(Long bookId) {
+        return aiDataService.forceReEmbedIfMissing(bookId);
+    }
+
+    public void generateBookEmbedding(Book book) {
+        aiDataService.generateBookEmbedding(book);
+    }
+
+    public int generateContentEmbeddingWithCount(Long bookId) {
+        return aiDataService.generateContentEmbeddingWithCount(bookId);
+    }
+
+    public void finalizeCover(Book book) {
+        aiDataService.finalizeCover(book);
+    }
+
 }
