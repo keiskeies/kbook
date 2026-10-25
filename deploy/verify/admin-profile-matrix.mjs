@@ -255,15 +255,41 @@ const finish = code => {
     .filter(([k]) => k !== '未填写' && k !== '脏值' && !['MALE', 'FEMALE', 'OTHER'].includes(k))
     .map(([k]) => k)
   const genderTotal = Object.values(genderL).reduce((s, n) => s + n, 0)
-  const dbMale = args['db-male']
+  // 真值来源：优先 --db-male（只读 SQL），否则从 /admin/users 分页统计。
+  // 后者走的是用户管理的 JPA 路径，与画像的聚合 SQL 不同源，足以交叉验证；分页上限 10 页 × 500。
+  let dbMale = args['db-male']
+  let dbMaleSource = '--db-male'
+  if (!dbMale) {
+    let page = 1
+    let approved = 0
+    let male = 0
+    while (page <= 10) {
+      const res = await fetch(BASE.replace(/\/admin\/dashboard$/, `/admin/users?page=${page}&size=500`),
+        { headers: { Authorization: 'Bearer ' + ADMIN } }).then(r => r.json()).catch(() => null)
+      const rows = (res && res.data && (res.data.records || res.data.list || res.data.content)) || []
+      if (!rows.length) break
+      for (const u of rows) {
+        if (u.status !== 'APPROVED') continue
+        approved++
+        if (String(u.gender ?? '').trim().toUpperCase() === 'MALE') male++
+      }
+      if (rows.length < 500) break
+      page++
+    }
+    if (approved > 0) {
+      dbMale = String(male)
+      dbMaleSource = `/admin/users 分页（APPROVED=${approved}）`
+    }
+  }
   const detailL = `genderDistribution=${JSON.stringify(genderL)} siteReaders=${siteReaders} 求和=${genderTotal}`
   if (!dbMale) {
-    row('L 看板画像同口径（SKIP：缺 --db-male 真值）', null, detailL
+    row('L 看板画像同口径（SKIP：缺真值）', null, detailL
       + "；取真值：SELECT COUNT(*) FROM users WHERE status='APPROVED' AND TRIM(IFNULL(gender,''))='MALE'")
   } else {
     row('L 看板画像与读者画像同口径',
       Number(genderL.MALE) === Number(dbMale) && genderTotal === siteReaders && oddKeys.length === 0,
-      detailL + ' 库内 APPROVED 男=' + dbMale + ' 非白名单键=' + JSON.stringify(oddKeys))
+      detailL + ' 库内 APPROVED 男=' + dbMale + '（来源：' + dbMaleSource + '）'
+      + ' 非白名单键=' + JSON.stringify(oddKeys))
   }
 
   const sel = await call(BASE, '/profile-dimensions', ADMIN)
