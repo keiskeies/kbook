@@ -2,7 +2,6 @@ package com.kbook.service.ai.core;
 
 import com.kbook.config.AiConfigCacheInvalidator;
 import com.kbook.config.ChatModelFactory;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.entity.AiScene;
 import com.kbook.service.ai.AiAssistant;
@@ -16,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.ConcurrentHashMap;
+import com.kbook.constants.ai.AiAssistantPrompts;
 
 /**
  * 对话 Assistant 提供者 — 构建/缓存 AI 助理的 {@link AiAssistant} 实例。
@@ -95,7 +95,7 @@ public class AiAssistantProvider {
                 .streamingChatModel(streamingModel)
                 .chatMemoryProvider(sessionId -> dev.langchain4j.memory.chat.MessageWindowChatMemory.builder()
                         .id(sessionId)
-                        .maxMessages(AiPromptConstants.ADMIN_MAX_MESSAGES)
+                        .maxMessages(AiAssistantPrompts.ADMIN_MAX_MESSAGES)
                         .chatMemoryStore(chatMemoryStore)
                         .build());
 

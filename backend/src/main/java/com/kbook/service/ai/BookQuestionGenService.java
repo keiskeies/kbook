@@ -4,7 +4,6 @@ import com.kbook.service.book.BookService;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.BookSuggestedQuestion;
@@ -23,6 +22,7 @@ import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiUsageContext;
+import com.kbook.constants.ai.BookDigestPrompts;
 
 /**
  * 图书预设问题生成服务
@@ -82,7 +82,7 @@ public class BookQuestionGenService {
                     summary != null ? summary : "暂无摘要");
 
             List<ChatMessage> messages = List.of(
-                    SystemMessage.from(AiPromptConstants.BOOK_QUESTION_GEN_SYSTEM_PROMPT),
+                    SystemMessage.from(BookDigestPrompts.BOOK_QUESTION_GEN_SYSTEM_PROMPT),
                     UserMessage.from(userPrompt));
 
             // 使用 Future 实现超时控制，防止 AI 调用阻塞线程

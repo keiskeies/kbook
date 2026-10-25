@@ -2,7 +2,6 @@ package com.kbook.service.roundtable;
 
 import com.kbook.common.exception.BusinessException;
 import com.kbook.config.annotation.RedisLock;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.entity.Book;
@@ -34,6 +33,7 @@ import static com.kbook.common.util.QueryBuilder.eq;
 import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiProviderConfigService;
 import com.kbook.service.ai.core.AiSceneConfigService;
+import com.kbook.constants.ai.RoundTablePrompts;
 
 /**
  * 圆桌派解读报告服务
@@ -317,7 +317,7 @@ public class RoundTableReportService {
             userMsg.append("【本段讨论】\n").append(segment);
 
             List<ChatMessage> chatMessages = List.of(
-                    SystemMessage.from(AiPromptConstants.ROUND_TABLE_REPORT_SEGMENT_PROMPT),
+                    SystemMessage.from(RoundTablePrompts.ROUND_TABLE_REPORT_SEGMENT_PROMPT),
                     UserMessage.from(buildBookAndRoleContext(session, book) + "\n\n" + userMsg));
 
             String segmentReport = callAiWithRetry(chatMessages, "分段评估第" + (i + 1) + "段");
@@ -350,7 +350,7 @@ public class RoundTableReportService {
         }
 
         List<ChatMessage> mergeMessages = List.of(
-                SystemMessage.from(AiPromptConstants.ROUND_TABLE_REPORT_MERGE_PROMPT),
+                SystemMessage.from(RoundTablePrompts.ROUND_TABLE_REPORT_MERGE_PROMPT),
                 UserMessage.from(buildBookAndRoleContext(session, book)
                         + "\n\n【各段评估结果】\n" + mergedSegments));
 
@@ -577,7 +577,7 @@ public class RoundTableReportService {
                 %s""", bookInfo, roleInfo, fullDiscussion);
 
         List<ChatMessage> chatMessages = List.of(
-                SystemMessage.from(AiPromptConstants.ROUND_TABLE_REPORT_SYSTEM_PROMPT),
+                SystemMessage.from(RoundTablePrompts.ROUND_TABLE_REPORT_SYSTEM_PROMPT),
                 UserMessage.from(userMessage));
 
         return chatModelManager.callAiForScene(AiScene.ROUND_TABLE_REPORT, "圆桌派解读报告",

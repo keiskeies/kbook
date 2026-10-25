@@ -1,6 +1,5 @@
 package com.kbook.service.ai;
 
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.entity.AiScene;
@@ -25,6 +24,7 @@ import java.util.function.Function;
 
 import static com.kbook.common.util.QueryBuilder.*;
 import com.kbook.service.ai.core.AiSceneConfigService;
+import com.kbook.constants.ai.AiAssistantPrompts;
 
 /**
  * LangChain4j ChatMemory 存储实现
@@ -127,7 +127,7 @@ public class AiChatMemory implements ChatMemoryStore {
                 .findBySessionIdOrderByCreatedAtAsc(sessionId);
         messages = new ArrayList<>();
         // 添加系统提示词，替换用户 ID 占位符
-        messages.add(SystemMessage.from(AiPromptConstants.AI_CHAT_SYSTEM_PROMPT
+        messages.add(SystemMessage.from(AiAssistantPrompts.AI_CHAT_SYSTEM_PROMPT
                     .replace("{{userId}}", String.valueOf(userId))));
 
         // 遍历历史记录，转换为 ChatMessage 对象

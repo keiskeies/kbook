@@ -3,7 +3,6 @@ package com.kbook.service.debate;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.DebateScoreVO;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.debate.DebateScore;
@@ -27,6 +26,7 @@ import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
 import com.kbook.service.ai.core.ChatModelManager;
+import com.kbook.constants.ai.DebatePrompts;
 
 /**
  * 奇葩说辩论评分服务 — 对单次发言进行7维度评分
@@ -77,7 +77,7 @@ public class DebateScoringService {
 
         return chatModelManager.callAiForScene(AiScene.DEBATE_SCORING, "辩论评分",
                 String.format("sessionId=%s, roleKey=%s, round=%d", sessionId, roleKey, roundNumber), List.of(
-                        SystemMessage.from(AiPromptConstants.DEBATE_SCORING_SYSTEM_PROMPT),
+                        SystemMessage.from(DebatePrompts.DEBATE_SCORING_SYSTEM_PROMPT),
                         UserMessage.from(userPrompt)));
     }
 

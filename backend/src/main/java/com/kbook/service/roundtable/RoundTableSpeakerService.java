@@ -11,7 +11,6 @@ import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.roundtable.NextSpeakerResult;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
@@ -69,6 +68,7 @@ import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiProviderConfigService;
 import com.kbook.service.ai.core.AiSceneConfigService;
 import com.kbook.service.ai.core.AiUsageContext;
+import com.kbook.constants.ai.RoundTablePrompts;
 
 /**
  * 圆桌派发言人选择服务 — 纯 LLM 选人 / 机制兜底（轮数上限、跑题、停滞、垄断）/ 响应解析。
@@ -210,14 +210,14 @@ public class RoundTableSpeakerService {
         List<ChatMessage> messages = new ArrayList<>();
 
         // [消息1 - SystemMessage] 角色定义 + 选择规则（全局不变）
-        messages.add(SystemMessage.from(AiPromptConstants.ROUND_TABLE_NEXT_SPEAKER_SYSTEM));
+        messages.add(SystemMessage.from(RoundTablePrompts.ROUND_TABLE_NEXT_SPEAKER_SYSTEM));
 
         // [消息2 - UserMessage] 书籍背景 + 角色人设（会话内不变，缓存命中）
         String bookAndRoles = buildBookAndRolesMessage(session, book);
         messages.add(UserMessage.from(bookAndRoles));
 
         // 3. 加载历史消息并同步压缩
-        int currentOverhead = AiPromptConstants.ROUND_TABLE_NEXT_SPEAKER_SYSTEM.length()
+        int currentOverhead = RoundTablePrompts.ROUND_TABLE_NEXT_SPEAKER_SYSTEM.length()
                 + bookAndRoles.length()
                 + 2000; // 约束 + 历史 + 输出格式 + LLM 回复预留
         List<RoundTableMessage> allMessages;

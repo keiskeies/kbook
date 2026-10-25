@@ -3,7 +3,6 @@ package com.kbook.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.common.api.Result;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.roundtable.NextSpeakerResult;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
@@ -37,6 +36,7 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import com.kbook.constants.ai.RoundTablePrompts;
 
 /**
  * 圆桌派控制器 — 多角色 AI 讨论接口
@@ -370,7 +370,7 @@ public class RoundTableController extends BaseController {
         try {
             String hook = chatModelManager.callAiForScene(AiScene.ROUND_TABLE_EXPORT_HOOK, "导出钩子", "report→hook",
                     List.of(
-                            SystemMessage.from(AiPromptConstants.ROUND_TABLE_EXPORT_HOOK_PROMPT),
+                            SystemMessage.from(RoundTablePrompts.ROUND_TABLE_EXPORT_HOOK_PROMPT),
                             UserMessage.from(reportContent)));
             if (hook != null && hook.length() > 150) {
                 int lastPeriod = hook.lastIndexOf('。', 150);

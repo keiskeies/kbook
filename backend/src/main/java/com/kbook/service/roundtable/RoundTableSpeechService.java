@@ -11,7 +11,6 @@ import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.roundtable.NextSpeakerResult;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
@@ -69,6 +68,7 @@ import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiProviderConfigService;
 import com.kbook.service.ai.core.AiSceneConfigService;
 import com.kbook.service.ai.core.AiUsageContext;
+import com.kbook.constants.ai.RoundTablePrompts;
 
 /**
  * 圆桌派发言服务 — 单角色 SSE 发言 / 提示词构建 / 消息持久化与历史压缩 / 主持话题进度。
@@ -336,11 +336,11 @@ public class RoundTableSpeechService {
     private String buildCharacterSystemPrompt(AiConfig.RoundTableRole role, int domainRelevance, String topic, String languageStyle, boolean isOpening) {
         if ("HOST".equals(role.getKey())) {
             if (topic != null && topic.startsWith(CLOSING_TOPIC_PREFIX)) {
-                return AiPromptConstants.ROUND_TABLE_HOST_CLOSING_PROMPT;
+                return RoundTablePrompts.ROUND_TABLE_HOST_CLOSING_PROMPT;
             }
-            return AiPromptConstants.ROUND_TABLE_HOST_PROMPT;
+            return RoundTablePrompts.ROUND_TABLE_HOST_PROMPT;
         } else {
-            return AiPromptConstants.ROUND_TABLE_CHARACTER_PROMPT;
+            return RoundTablePrompts.ROUND_TABLE_CHARACTER_PROMPT;
         }
     }
 
@@ -351,7 +351,7 @@ public class RoundTableSpeechService {
     private String buildRoleSettingPrompt(AiConfig.RoundTableRole role, int domainRelevance, String languageStyle) {
         if ("HOST".equals(role.getKey())) {
             String hostStyle = (languageStyle != null && !languageStyle.isBlank()) ? languageStyle : "沉稳大方，善于引导和总结";
-            return String.format(AiPromptConstants.ROUND_TABLE_ROLE_SETTING_HOST,
+            return String.format(RoundTablePrompts.ROUND_TABLE_ROLE_SETTING_HOST,
                     hostStyle,
                     role.getParams().getChallenge(), describeChallenge(role.getParams().getChallenge()),
                     role.getParams().getEmpathy(), describeEmpathy(role.getParams().getEmpathy()),
@@ -363,7 +363,7 @@ public class RoundTableSpeechService {
             String rolePrompt = role.getPrompt();
             String catchphrase = role.getCatchphrase() != null ? role.getCatchphrase() : "用你自己的方式表达，保持自然";
 
-            return String.format(AiPromptConstants.ROUND_TABLE_ROLE_SETTING_GUEST,
+            return String.format(RoundTablePrompts.ROUND_TABLE_ROLE_SETTING_GUEST,
                     rolePrompt,
                     catchphrase,
                     charStyle,
@@ -608,16 +608,16 @@ public class RoundTableSpeechService {
                     .map(t -> "- 《" + t + "》")
                     .collect(Collectors.joining("\n"));
             if (!material.isBlank()) {
-                sb.append(String.format(AiPromptConstants.ROUND_TABLE_MATERIAL_BLOCK, material)).append("\n\n");
+                sb.append(String.format(RoundTablePrompts.ROUND_TABLE_MATERIAL_BLOCK, material)).append("\n\n");
             }
         }
 
         String own = recentOwnSpeeches(history, role.getKey(), 2);
         if (!own.isBlank()) {
-            sb.append(String.format(AiPromptConstants.ROUND_TABLE_ANTI_REPEAT_BLOCK, own)).append("\n\n");
+            sb.append(String.format(RoundTablePrompts.ROUND_TABLE_ANTI_REPEAT_BLOCK, own)).append("\n\n");
         }
 
-        sb.append(String.format(AiPromptConstants.ROUND_TABLE_SPEAK_TAIL, roleName));
+        sb.append(String.format(RoundTablePrompts.ROUND_TABLE_SPEAK_TAIL, roleName));
         return sb.toString();
     }
 

@@ -3,7 +3,6 @@ package com.kbook.service.ai.core;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.entity.AiScene;
-import com.kbook.constants.AiPromptConstants;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -14,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import com.kbook.constants.ai.RoundTablePrompts;
 
 /**
  * 外部知识生成器 — 为圆桌派角色和辩论辩手生成领域外部知识，丰富讨论内容。
@@ -40,7 +40,7 @@ public class ExternalKnowledgeGenerator {
                 return null;
             }
             List<ChatMessage> messages = appendNoThink(List.of(
-                    SystemMessage.from(AiPromptConstants.EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT),
+                    SystemMessage.from(RoundTablePrompts.EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT),
                     UserMessage.from("角色专业领域：" + roleDomain + "\n讨论话题：" + topic)));
             ChatResponse response = model.chat(messages);
             long elapsed = System.currentTimeMillis() - startTime;
@@ -71,7 +71,7 @@ public class ExternalKnowledgeGenerator {
                 return null;
             }
             List<ChatMessage> messages = appendNoThink(List.of(
-                    SystemMessage.from(AiPromptConstants.DEBATE_EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT),
+                    SystemMessage.from(RoundTablePrompts.DEBATE_EXTERNAL_KNOWLEDGE_SYSTEM_PROMPT),
                     UserMessage.from("辩题：" + topic + "\n立场：" + side + "\n辩手视角：" + stance)));
             ChatResponse response = model.chat(messages);
             long elapsed = System.currentTimeMillis() - startTime;

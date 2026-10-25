@@ -1,7 +1,7 @@
 package com.kbook.service.ai;
 
-import com.kbook.constants.AiPromptConstants;
 import dev.langchain4j.service.*;
+import com.kbook.constants.ai.AiAssistantPrompts;
 
 /**
  * LangChain4j AI 助理接口
@@ -13,7 +13,7 @@ import dev.langchain4j.service.*;
  * &#064;V("userProfile") 注入用户基础画像（L1，可能为空字符串）
  * &#064;V("behaviorProfile") 注入用户行为画像（L2，可能为空字符串）
  */
-@SystemMessage(AiPromptConstants.AI_CHAT_SYSTEM_PROMPT)
+@SystemMessage(AiAssistantPrompts.AI_CHAT_SYSTEM_PROMPT)
 public interface AiAssistant {
 
     /**

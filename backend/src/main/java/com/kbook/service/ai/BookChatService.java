@@ -25,7 +25,6 @@ import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.config.ai.AiConfigProvider;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiScene;
@@ -78,6 +77,8 @@ import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiAssistantProvider;
 import com.kbook.service.ai.core.AiSceneConfigService;
 import com.kbook.service.ai.core.AiUsageContext;
+import com.kbook.constants.ai.BookChatPrompts;
+import com.kbook.constants.ai.RagPrompts;
 
 /**
  * 图书问答服务
@@ -563,7 +564,7 @@ public class BookChatService {
 
         try {
             // 加载历史消息并同步压缩，确保 LLM 上下文不超限
-            int currentOverhead = AiPromptConstants.BOOK_CHAT_SYSTEM_PROMPT.length()
+            int currentOverhead = BookChatPrompts.BOOK_CHAT_SYSTEM_PROMPT.length()
                     + (bookInfoPrompt != null ? bookInfoPrompt.length() : 0)
                     + (ragMessage != null ? ragMessage.length() : 0)
                     + (questionMessage != null ? questionMessage.length() : 0)
@@ -910,13 +911,13 @@ public class BookChatService {
         // 回退到代码常量
         if (style != null) {
             return switch (style.toUpperCase()) {
-                case "CASUAL" -> AiPromptConstants.BOOK_CHAT_STYLE_CASUAL;
-                case "CONCISE" -> AiPromptConstants.BOOK_CHAT_STYLE_CONCISE;
-                case "WITTY" -> AiPromptConstants.BOOK_CHAT_STYLE_WITTY;
-                default -> AiPromptConstants.BOOK_CHAT_STYLE_DEEP;
+                case "CASUAL" -> BookChatPrompts.BOOK_CHAT_STYLE_CASUAL;
+                case "CONCISE" -> BookChatPrompts.BOOK_CHAT_STYLE_CONCISE;
+                case "WITTY" -> BookChatPrompts.BOOK_CHAT_STYLE_WITTY;
+                default -> BookChatPrompts.BOOK_CHAT_STYLE_DEEP;
             };
         }
-        return AiPromptConstants.BOOK_CHAT_STYLE_CASUAL;
+        return BookChatPrompts.BOOK_CHAT_STYLE_CASUAL;
     }
 
     /**
@@ -1511,7 +1512,7 @@ public class BookChatService {
         try {
             // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像) → UserMessage(上轮问答)
             List<ChatMessage> messages = new ArrayList<>();
-            messages.add(SystemMessage.from(AiPromptConstants.FOLLOW_UP_QUESTION_SYSTEM_PROMPT));
+            messages.add(SystemMessage.from(BookChatPrompts.FOLLOW_UP_QUESTION_SYSTEM_PROMPT));
             messages.add(UserMessage.from("【图书信息】\n" + bookInfo));
             if (!userProfileDesc.isBlank()) {
                 messages.add(UserMessage.from("【读者画像】\n" + userProfileDesc));
@@ -1556,7 +1557,7 @@ public class BookChatService {
             String bookContext = buildSpeedReadContent(book);
 
             // 固定指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
-            String systemPrompt = AiPromptConstants.EXPAND_QUERY_SYSTEM_PROMPT;
+            String systemPrompt = RagPrompts.EXPAND_QUERY_SYSTEM_PROMPT;
 
             // 消息顺序：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(上轮回答,可空) → UserMessage(用户问题)
             List<ChatMessage> messages = new ArrayList<>();

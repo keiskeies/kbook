@@ -5,7 +5,6 @@ import com.kbook.service.embedding.EmbeddingService;
 
 import com.kbook.common.api.PageResult;
 import com.kbook.common.util.CommonUtils;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.document.BookDocument;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.AiScene;
@@ -27,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import com.kbook.constants.ai.RagPrompts;
 
 /**
  * 图书搜索服务 — Qdrant 向量 + ES 全文检索 + JPA 降级，动态加权融合排序
@@ -100,7 +100,7 @@ public class BookSearchService {
     public List<String> expandVectorSearchQuery(String query) {
         try {
             // 系统提示词（固定，可复用 KV Cache）
-            String systemPrompt = AiPromptConstants.EXPAND_VECTOR_SEARCH_SYSTEM_PROMPT;
+            String systemPrompt = RagPrompts.EXPAND_VECTOR_SEARCH_SYSTEM_PROMPT;
 
             // 动态内容（用户查询）作为 UserMessage
             List<ChatMessage> chatMessages = List.of(

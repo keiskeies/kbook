@@ -3,7 +3,6 @@ package com.kbook.service.roundtable;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import com.kbook.entity.RoundTableCoverage;
@@ -29,6 +28,7 @@ import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
 import com.kbook.service.ai.core.ChatModelManager;
+import com.kbook.constants.ai.RoundTablePrompts;
 
 /**
  * 圆桌派覆盖度服务 — 从 RoundTableCoverageTest 提取的实时版
@@ -74,7 +74,7 @@ public class RoundTableCoverageService {
     // ================================================================
 
     public String callAiForLlmOutline(String contentInfo, int minBlocks, int maxBlocks) {
-        String systemPrompt = String.format(AiPromptConstants.LLM_OUTLINE_SYSTEM_PROMPT_TEMPLATE, minBlocks, maxBlocks);
+        String systemPrompt = String.format(RoundTablePrompts.LLM_OUTLINE_SYSTEM_PROMPT_TEMPLATE, minBlocks, maxBlocks);
 
         return chatModelManager.callAiForScene(AiScene.ROUND_TABLE_COVERAGE, "圆桌派覆盖度评估",
                 "LLM大纲生成", List.of(

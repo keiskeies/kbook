@@ -11,7 +11,6 @@ import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.roundtable.NextSpeakerResult;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;

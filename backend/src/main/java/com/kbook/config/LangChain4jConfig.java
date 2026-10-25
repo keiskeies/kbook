@@ -1,7 +1,6 @@
 package com.kbook.config;
 import com.kbook.service.ai.core.AiProviderConfigService;
 
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiScene;
 import com.kbook.service.ai.AiChatMemory;
 import com.kbook.service.ai.AiToolService;
@@ -14,6 +13,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
+import com.kbook.constants.ai.AiAssistantPrompts;
 
 /**
  * LangChain4j 配置 — 构建默认 AiAssistant 实例
@@ -69,7 +69,7 @@ public class LangChain4jConfig {
                 .chatModel(chatModelFactory.buildForScene(AiScene.AI_ASSISTANT))
                 .chatMemoryProvider(sessionId -> MessageWindowChatMemory.builder()
                         .id(sessionId)
-                        .maxMessages(AiPromptConstants.ADMIN_MAX_MESSAGES)
+                        .maxMessages(AiAssistantPrompts.ADMIN_MAX_MESSAGES)
                         .chatMemoryStore(chatMemoryStore)
                         .build())
                 .tools(realToolService)

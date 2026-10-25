@@ -17,7 +17,6 @@ import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.config.properties.BookStorageProperties;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.book.BookSpeedReadVO;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
@@ -71,6 +70,8 @@ import java.util.stream.StreamSupport;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+import com.kbook.constants.ai.BookDigestPrompts;
+import com.kbook.constants.ai.BookMetaPrompts;
 
 /**
  * 图书解析服务类
@@ -888,7 +889,7 @@ public class BookParserService {
             if (imageDataUris.isEmpty()) return;
 
             // 构建多模态消息：要求模型识别书名/作者/简介/目录
-            String ocrPrompt = AiPromptConstants.OCR_METADATA_USER_PROMPT;
+            String ocrPrompt = BookMetaPrompts.OCR_METADATA_USER_PROMPT;
 
             List<Content> contents = new ArrayList<>();
             contents.add(TextContent.from(ocrPrompt));
@@ -899,7 +900,7 @@ public class BookParserService {
             UserMessage userMessage =
                     UserMessage.from(contents);
             SystemMessage systemMessage =
-                    SystemMessage.from(AiPromptConstants.OCR_METADATA_SYSTEM_PROMPT);
+                    SystemMessage.from(BookMetaPrompts.OCR_METADATA_SYSTEM_PROMPT);
             // /no_think 由 callAiForScene 自动追加（PDF_OCR thinking=false）
 
             String result = chatModelManager.callAiForScene(AiScene.PDF_OCR, "PDF元数据OCR",
@@ -1810,7 +1811,7 @@ public class BookParserService {
         String rawResult = chatModelManager.callAiForScene(AiScene.BOOK_PARSE_COMBINED, AI_OP_COMBINED,
                 String.format("输入: %s", content.replaceAll("\\n", " ").substring(0, Math.min(100, content.length()))),
                 Lists.newArrayList(
-                        SystemMessage.from(AiPromptConstants.COMBINED_PROMPT_SYSTEM_PROMPT),
+                        SystemMessage.from(BookMetaPrompts.COMBINED_PROMPT_SYSTEM_PROMPT),
                         UserMessage.from(content)
                 )
         );
@@ -2120,7 +2121,7 @@ public class BookParserService {
             String userProfileDesc = userProfileBuilder.build(user);
 
             // 固定角色 + 格式指令作为 SystemMessage（与动态内容分离，复用 KV Cache 前缀）
-            String systemPrompt = AiPromptConstants.SPEED_READ_SYSTEM_PROMPT;
+            String systemPrompt = BookDigestPrompts.SPEED_READ_SYSTEM_PROMPT;
 
             // 消息顺序优化 KV Cache：SystemMessage(固定指令) → UserMessage(图书信息) → UserMessage(用户画像)
             List<ChatMessage> messages = new ArrayList<>();

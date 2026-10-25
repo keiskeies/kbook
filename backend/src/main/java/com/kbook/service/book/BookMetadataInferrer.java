@@ -2,7 +2,6 @@ package com.kbook.service.book;
 
 import com.kbook.common.util.CommonUtils;
 import com.kbook.config.ChatModelFactory;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
 import dev.langchain4j.data.message.SystemMessage;
@@ -12,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import com.kbook.constants.ai.BookMetaPrompts;
 
 /**
  * 书籍元数据推断器 — 从纯文本内容中通过 AI 推断作者和简介。
@@ -42,7 +42,7 @@ public class BookMetadataInferrer {
                 return;
             }
             var response = model.chat(List.of(
-                    SystemMessage.from(AiPromptConstants.BOOK_INFO_EXTRACT_SYSTEM_PROMPT),
+                    SystemMessage.from(BookMetaPrompts.BOOK_INFO_EXTRACT_SYSTEM_PROMPT),
                     UserMessage.from(prompt)));
 
             long elapsed = System.currentTimeMillis() - startTime;

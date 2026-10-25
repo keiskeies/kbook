@@ -11,7 +11,6 @@ import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.roundtable.NextSpeakerResult;
 import com.kbook.dto.roundtable.RoleVO;
 import com.kbook.dto.roundtable.RoundTableSessionFeedVO;
@@ -69,6 +68,7 @@ import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiProviderConfigService;
 import com.kbook.service.ai.core.AiSceneConfigService;
 import com.kbook.service.ai.core.AiUsageContext;
+import com.kbook.constants.ai.RoundTablePrompts;
 
 /**
  * 圆桌派角色推荐服务 — LLM 选角 / ZSet 使用次数缓存 / 角色名册 / 标签回退。
@@ -111,7 +111,7 @@ public class RoundTableRoleService {
         String excludeClause = (excludeKeys != null && !excludeKeys.isEmpty())
                 ? "4. 【刷新】以下角色已选过，这次必须换一批不同的人：" + String.join(", ", excludeKeys)
                 : "";
-        String systemPrompt = String.format(AiPromptConstants.ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT_TEMPLATE, excludeClause, roleList);
+        String systemPrompt = String.format(RoundTablePrompts.ROUND_TABLE_ROLE_SELECTION_SYSTEM_PROMPT_TEMPLATE, excludeClause, roleList);
         return chatModelManager.callAiForScene(AiScene.ROUND_TABLE_ROLE_RECOMMEND, "圆桌派角色推荐",
                 String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
                         SystemMessage.from(systemPrompt),
@@ -126,7 +126,7 @@ public class RoundTableRoleService {
     public String callAiForRoleSelectionFallback(long bookId, String bookTitle, String bookInfo, String roleList) {
         return chatModelManager.callAiForScene(AiScene.ROUND_TABLE_ROLE_RECOMMEND, "圆桌派角色推荐(回退)",
                 String.format("bookId=%d, title=%s", bookId, bookTitle), List.of(
-                        SystemMessage.from(AiPromptConstants.ROLE_SELECTION_FALLBACK_SYSTEM_PROMPT),
+                        SystemMessage.from(RoundTablePrompts.ROLE_SELECTION_FALLBACK_SYSTEM_PROMPT),
                         UserMessage.from("角色列表：" + roleList + "\n\n书籍信息：\n" + bookInfo)));
     }
 
@@ -135,7 +135,7 @@ public class RoundTableRoleService {
      */
     public String callAiForRoleSearchQuery(String roleKey, String bookTitle, String roleName,
                                            String roleTitle, String roleKeywords, String recentDiscussion) {
-        String systemPrompt = AiPromptConstants.ROLE_SEARCH_QUERY_SYSTEM_PROMPT;
+        String systemPrompt = RoundTablePrompts.ROLE_SEARCH_QUERY_SYSTEM_PROMPT;
 
         String userPrompt = String.format("""
                 【图书】%s
@@ -160,7 +160,7 @@ public class RoundTableRoleService {
         String perspective = (perspectiveHint == null || perspectiveHint.isBlank())
                 ? "从该角色的专业视角出发" : perspectiveHint;
         String systemPrompt = String.format(
-                AiPromptConstants.ROLE_SEARCH_QUERIES_SYSTEM_PROMPT_TEMPLATE,
+                RoundTablePrompts.ROLE_SEARCH_QUERIES_SYSTEM_PROMPT_TEMPLATE,
                 subQueryCount, perspective);
 
         String userPrompt = String.format("""

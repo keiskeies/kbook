@@ -1,7 +1,6 @@
 package com.kbook.service.debate;
 
 import com.kbook.common.exception.BusinessException;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.DebateReportVO;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
@@ -27,6 +26,7 @@ import java.util.stream.Collectors;
 
 import static com.kbook.common.util.QueryBuilder.eq;
 import com.kbook.service.ai.core.ChatModelManager;
+import com.kbook.constants.ai.DebatePrompts;
 
 /**
  * 奇葩说辩论报告服务 — 异步生成完整辩论报告
@@ -137,7 +137,7 @@ public class DebateReportService {
             String reportUserMessage = buildReportUserMessage(session, book, allMessages);
 
             List<ChatMessage> chatMessages = List.of(
-                    SystemMessage.from(AiPromptConstants.DEBATE_REPORT_SYSTEM_PROMPT),
+                    SystemMessage.from(DebatePrompts.DEBATE_REPORT_SYSTEM_PROMPT),
                     UserMessage.from(reportUserMessage));
 
             String result = chatModelManager.callAiForScene(AiScene.DEBATE_REPORT,

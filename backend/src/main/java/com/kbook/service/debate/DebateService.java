@@ -7,7 +7,6 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ai.AiConfig;
 import com.kbook.config.ai.AiConfigProvider;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.dto.debate.*;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
@@ -54,6 +53,7 @@ import static com.kbook.common.util.QueryBuilder.eq;
 import static com.kbook.common.util.QueryBuilder.ne;
 import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiUsageContext;
+import com.kbook.constants.ai.DebatePrompts;
 
 /**
  * 奇葩说辩论服务 — AI 辩论功能核心
@@ -135,7 +135,7 @@ public class DebateService {
      */
     public String callAiForDebateTopics(String bookInfo) {
         return chatModelManager.callAiForScene(AiScene.DEBATE_TOPIC_GENERATE, "辩论辩题生成", "bookInfo", List.of(
-                SystemMessage.from(AiPromptConstants.DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT),
+                SystemMessage.from(DebatePrompts.DEBATE_TOPIC_GENERATION_SYSTEM_PROMPT),
                 UserMessage.from("书籍信息：" + bookInfo)));
     }
 
@@ -154,7 +154,7 @@ public class DebateService {
 
         return chatModelManager.callAiForScene(AiScene.DEBATE_TOPIC_OPTIMIZE, "辩论辩题优化",
                 String.format("bookId=%d, topic=%s", bookId, topic), List.of(
-                        SystemMessage.from(AiPromptConstants.DEBATE_OPTIMIZE_TOPIC_SYSTEM_PROMPT),
+                        SystemMessage.from(DebatePrompts.DEBATE_OPTIMIZE_TOPIC_SYSTEM_PROMPT),
                         UserMessage.from(userPrompt)));
     }
 
@@ -176,7 +176,7 @@ public class DebateService {
 
         return chatModelManager.callAiForScene(AiScene.DEBATE_SPEAKER_SELECT, "辩论自由辩论发言人选择",
                 "sessionId=" + sessionId, List.of(
-                        SystemMessage.from(AiPromptConstants.DEBATE_NEXT_SPEAKER_FREE_SYSTEM_PROMPT),
+                        SystemMessage.from(DebatePrompts.DEBATE_NEXT_SPEAKER_FREE_SYSTEM_PROMPT),
                         UserMessage.from(userPrompt)));
     }
 
@@ -683,7 +683,7 @@ public class DebateService {
         AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
                 String systemPrompt = String.format(
-                        AiPromptConstants.DEBATE_OPENING_PROMPT);
+                        DebatePrompts.DEBATE_OPENING_PROMPT);
 
                 List<ChatMessage> messages = buildSpeechMessages(
                         systemPrompt, session, request, personality,
@@ -735,7 +735,7 @@ public class DebateService {
         AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
                 String systemPrompt = String.format(
-                        AiPromptConstants.DEBATE_ATTACK_PROMPT);
+                        DebatePrompts.DEBATE_ATTACK_PROMPT);
 
                 List<ChatMessage> messages = buildSpeechMessages(
                         systemPrompt, session, request, personality,
@@ -797,8 +797,8 @@ public class DebateService {
                 // 根据质询角色选择不同的系统提示词
                 boolean isQuestioner = "QUESTIONER".equals(examRole);
                 String systemPrompt = isQuestioner
-                        ? AiPromptConstants.DEBATE_CROSS_EXAM_QUESTIONER_PROMPT
-                        : AiPromptConstants.DEBATE_CROSS_EXAM_ANSWERER_PROMPT;
+                        ? DebatePrompts.DEBATE_CROSS_EXAM_QUESTIONER_PROMPT
+                        : DebatePrompts.DEBATE_CROSS_EXAM_ANSWERER_PROMPT;
 
                 // 构建上下文
                 String extraContent;
@@ -816,8 +816,8 @@ public class DebateService {
                 // 交叉质询不需要对话记录中的角色设定冲突 — 用专门的 output prompt
                 // 替换最后一条消息 (outputPrompt + speakInstruction) 为专门的质询指令
                 String examOutput = isQuestioner
-                        ? AiPromptConstants.DEBATE_CROSS_EXAM_QUESTIONER_OUTPUT
-                        : AiPromptConstants.DEBATE_CROSS_EXAM_ANSWERER_OUTPUT;
+                        ? DebatePrompts.DEBATE_CROSS_EXAM_QUESTIONER_OUTPUT
+                        : DebatePrompts.DEBATE_CROSS_EXAM_ANSWERER_OUTPUT;
                 String examInstruction = isQuestioner
                         ? "你是质询方，请向对方一辩提出一个尖锐的问题。只能提问，不能陈述观点。"
                         : "你正在被对方二辩质询。请正面回答对方的问题。只能回答，绝不能反问或反击。坚守你在一辩立论中的立场。";
@@ -874,7 +874,7 @@ public class DebateService {
 
         AiUsageContext.submit(sseExecutor, session.getBookId(), session.getSessionId(), () -> {
             try {
-                String systemPrompt = AiPromptConstants.DEBATE_REBUTTAL_PROMPT;
+                String systemPrompt = DebatePrompts.DEBATE_REBUTTAL_PROMPT;
 
                 String extraContent = "【对方一辩立论 — 请集中火力反驳以下论证】\n" + opponentOpening
                         + "\n\n【质询环节摘要】\n" + crossExamContext;
@@ -928,7 +928,7 @@ public class DebateService {
             try {
 
                 String systemPrompt = String.format(
-                        AiPromptConstants.DEBATE_FREE_PROMPT);
+                        DebatePrompts.DEBATE_FREE_PROMPT);
 
                 List<ChatMessage> messages = buildSpeechMessages(
                         systemPrompt, session, request, personality,
@@ -981,7 +981,7 @@ public class DebateService {
                 String debateSummary = buildDebateSummary(session);
 
                 String systemPrompt = String.format(
-                        AiPromptConstants.DEBATE_CLOSING_PROMPT);
+                        DebatePrompts.DEBATE_CLOSING_PROMPT);
 
                 List<ChatMessage> messages = buildSpeechMessages(
                         systemPrompt, session, request, personality,
@@ -1036,7 +1036,7 @@ public class DebateService {
             try {
                 // 按缓存命中率排序：静态规则 → 静态人设 → 动态上下文
                 List<ChatMessage> messages = new ArrayList<>();
-                messages.add(SystemMessage.from(AiPromptConstants.DEBATE_HOST_COMMENTARY_SYSTEM_PROMPT));
+                messages.add(SystemMessage.from(DebatePrompts.DEBATE_HOST_COMMENTARY_SYSTEM_PROMPT));
                 messages.add(SystemMessage.from(DebateRole.HOST.getPrompt()));
 
                 StringBuilder userCtx = new StringBuilder();
@@ -1169,7 +1169,7 @@ public class DebateService {
         String personalityPrompt = configPersonality != null ? configPersonality.getPrompt() : personality.getPrompt();
 
         String roleSetting = String.format(
-                AiPromptConstants.DEBATE_ROLE_SETTING,
+                DebatePrompts.DEBATE_ROLE_SETTING,
                 isHost ? "" : sideName,
                 isHost ? "主持人" : positionLabel,
                 personalityTitle,
@@ -1191,12 +1191,12 @@ public class DebateService {
 
     private String getOutputPrompt(String roundType) {
         return switch (roundType) {
-            case "CROSS_EXAM" -> AiPromptConstants.DEBATE_CROSS_EXAM_QUESTIONER_OUTPUT; // fallback
-            case "REBUTTAL" -> AiPromptConstants.DEBATE_REBUTTAL_OUTPUT;
-            case "FREE" -> AiPromptConstants.DEBATE_FREE_OUTPUT;
-            case "CLOSING" -> AiPromptConstants.DEBATE_CLOSING_OUTPUT;
+            case "CROSS_EXAM" -> DebatePrompts.DEBATE_CROSS_EXAM_QUESTIONER_OUTPUT; // fallback
+            case "REBUTTAL" -> DebatePrompts.DEBATE_REBUTTAL_OUTPUT;
+            case "FREE" -> DebatePrompts.DEBATE_FREE_OUTPUT;
+            case "CLOSING" -> DebatePrompts.DEBATE_CLOSING_OUTPUT;
             // ATTACK 已废弃，被 CROSS_EXAM + REBUTTAL 取代
-            default -> AiPromptConstants.DEBATE_OPENING_OUTPUT;
+            default -> DebatePrompts.DEBATE_OPENING_OUTPUT;
         };
     }
 

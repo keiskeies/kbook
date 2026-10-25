@@ -10,7 +10,6 @@ import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.annotation.RedisLock;
 import com.kbook.config.properties.BookStorageProperties;
-import com.kbook.constants.AiPromptConstants;
 import com.kbook.document.BookDocument;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.dto.stats.TagStat;
@@ -44,6 +43,7 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import com.kbook.constants.ai.BookDigestPrompts;
 
 /**
  * 图书服务
@@ -851,7 +851,7 @@ public class BookService {
                 input.append("\n【章节原文摘录】\n").append(book.getChapterSummary()).append("\n");
             }
 
-            String systemPrompt = AiPromptConstants.COMPRESSED_SUMMARY_SYSTEM_PROMPT;
+            String systemPrompt = BookDigestPrompts.COMPRESSED_SUMMARY_SYSTEM_PROMPT;
 
             // 动态内容（图书信息）作为 UserMessage
             List<ChatMessage> chatMessages = List.of(
