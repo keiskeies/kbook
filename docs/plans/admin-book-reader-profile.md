@@ -3099,3 +3099,12 @@ AC 当时的 EXPLAIN 是在临时程序里手敲的。现在 `deploy/sql/profile
 **收口方式**（二选一）：
 1. 提供只读连接 → 我执行 `run-audit.bat` 两次（审计 + EXPLAIN），写回四阈值与 `KBOOK_ADMIN_BOOK_PROFILE_SNAPSHOT_*`，复跑矩阵；
 2. 你在生产执行并把 1d/1e/1f 与 EXPLAIN 输出贴回 → 我做同样的写回与复核。
+
+### BM.1 启动器在干净检出里也验过
+
+`git archive HEAD` 导出到临时目录后，直接用里面的 `deploy/sql/run-audit.sh` 跑（不借用工作区的任何临时文件）：
+
+- `profile-threshold-audit.sql` → 20 条语句、exit 0，1f 建议段正常输出；
+- `profile-index-explain.sql` → 三条 EXPLAIN 均出现目标索引名（`idx_progress_book_updated` / `idx_note_book_created` / `idx_shelf_book_added` + `idx_history_book_created`）。
+
+也就是说，这套 A.3 执行工具不依赖我的本机残留：**任何拿到仓库与只读连接的人都能复现**。
