@@ -9,6 +9,7 @@
 // （service/admin/BookProfileService.java 写在 backend/src/main/java/com/kbook/ 下面）——
 // 后者按"全仓存在某个以它结尾的文件"来判，否则会得到一片假红。
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -71,14 +72,43 @@ if (candidates.size < 5) {
 }
 
 const missing = []
+const existing = []
 for (const p of candidates) {
-  if (PREFIX.test(p) ? existsSync(resolve(repo, p)) : allFiles.some(f => f === p || f.endsWith('/' + p))) continue
-  missing.push({ p, allowed: ALLOW.get(p) ?? null })
+  if (PREFIX.test(p)) {
+    if (existsSync(resolve(repo, p))) existing.push(p)
+    else missing.push({ p, allowed: ALLOW.get(p) ?? null })
+    continue
+  }
+  const hit = allFiles.find(f => f === p || f.endsWith('/' + p))
+  if (hit) existing.push(hit)
+  else missing.push({ p, allowed: ALLOW.get(p) ?? null })
 }
 const real = missing.filter(m => !m.allowed)
+
+// 文件"在磁盘上"不等于"在版本控制里"：干净检出（git archive/clone）只含已跟踪文件。
+// 这里把"本机存在但未入库"单独列出来，否则工作区全绿、发布时缺文件，是最难查的一类。
+let untrackedRefs = []
+try {
+  execFileSync('git', ['-C', repo, 'rev-parse', '--is-inside-work-tree'], { stdio: 'ignore' })
+  const isTracked = rel => {
+    try {
+      execFileSync('git', ['-C', repo, 'ls-files', '--error-unmatch', '--', rel], { stdio: 'ignore' })
+      return true
+    } catch {
+      return false
+    }
+  }
+  untrackedRefs = [...new Set(existing)].filter(rel => !ALLOW.has(rel) && !isTracked(rel))
+} catch {
+  // 不在 git 工作树里（例如从 archive 解出的目录）——没有版本信息可查，跳过
+}
 
 console.log(`文档：${docs.join(' + ')}`)
 console.log(`解析路径：${candidates.size} 个｜缺失：${missing.length}（其中已在文档记过的偏差 ${missing.length - real.length}）`)
 for (const m of missing) console.log(`  ${m.allowed ? '~' : '×'} ${m.p}${m.allowed ? '  ← ' + m.allowed : ''}`)
+if (untrackedRefs.length) {
+  console.log('未入库（本机有、干净检出会缺；不计入判定，但发布前必须处理）：')
+  for (const p of untrackedRefs) console.log(`  ! ${p}`)
+}
 console.log(real.length === 0 ? '判定：PASS（没有未登记的失效引用）' : `判定：FAIL（${real.length} 条未登记的失效引用）`)
 process.exit(real.length === 0 ? 0 : 1)
