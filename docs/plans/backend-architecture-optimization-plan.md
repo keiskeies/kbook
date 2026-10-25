@@ -16,7 +16,7 @@
 | 1 | `service/ai` 31 个文件混 5 种职责 | 高 | 按职责分子包（roundtable/debate/rag/admin/core） | **✅ 已实施，待提交**（见 §2） |
 | 2 | 测试缺口：推荐/AI/RAG 领域零覆盖（src/test 现有 263 例集中在 profile/审计域） | **最高** | 先给纯函数类补单测（零 mock），再给 LLM 依赖类补 Mockito 单测 | **第 1 批 ✅ 已实施**（55 例，§3），第 2 批待做 |
 | 3 | 巨型 Service（RoundTableService 3308 行 / 88 个方法等 6 个 1200+ 行类） | 高 | 按职责拆分，RoundTableService 优先 | **RoundTableService ✅ 已拆**（五服务+门面，见 §4.1），其余待做 |
-| 4 | 19 处 `@Lazy` 循环依赖，核心结在「AI 配置服务反向持有聊天 Bean」 | 中高 | 配置变更通知事件化（复用已有 AiConfigCacheInvalidator 机制） | 待做（§5） |
+| 4 | 19 处 `@Lazy` 循环依赖，核心结在「AI 配置服务反向持有聊天 Bean」 | 中高 | 配置变更通知事件化（复用已有 AiConfigCacheInvalidator 机制） | **✅ 已实施**（@Lazy 19→5，见 §5） |
 | 5 | 包位置不一致小项（枚举三处、util 两处、config 过载、dto 残留） | 低 | 逐项机械清理 | 待做（§6） |
 
 **执行顺序强制为 1 → 2 → 3 → 4 → 5**：没有测试安全网（§3）之前不动 §4 的拆分；循环依赖解耦（§5）放在拆分之后，避免边拆边解结。
@@ -199,9 +199,14 @@ LangChain4jConfig 默认 AiAssistant Bean（:63-66，@Lazy+@Primary）
 
 ---
 
-## 5. 阶段 4（P2）：解循环依赖
+## 5. 阶段 4（P2）：解循环依赖 ✅ 已实施（2026-10-25，commit de765cf）
 
-> 目标：`@Lazy` 从 19 处降到 **≤ 6 处**（保留 Debate/RoundTable 挂在 Repository 上的 4 处懒加载与 UserService 邮件通知 1 处，另留 1 处余量）。
+> 目标：`@Lazy` 从 19 处降到 **≤ 6 处**。**实际结果：5 处**（LangChain4jConfig 的 @Bean 惰性初始化 1 处 + Debate×2 / RoundTableSession×2 的 Repository 懒加载）。
+>
+> 实施记录：
+> - **主刀**：Assistant 工厂从 `AiProviderConfigService` 抽到新 `AiAssistantProvider`（构建/缓存/失效自注册），配置服务瘦身为纯数据职责（查询+写入+版本失效触发）；BookAdminChatService 改为自注册失效回调。连锁摘除 ChatModelFactory 的 @Lazy。
+> - **次刀**：`BookTrashedEvent`/`BookRestoredEvent`（同步监听，事务内语义不变）解 Recommend↔BookTrash 互指；`UserPreferenceChangedEvent`（@Async 监听）解 UserService→Recommend 回调；RecommendService 对 Coefficient/DimensionStats 的两颗无环 @Lazy 一并摘除；UserService 邮件 @Lazy 为历史遗留（EmailNotificationService 无回边），直接摘除。
+> - 验证：mvn test 379 全绿；三次启动冒烟（health UP、圆桌/推荐接口 401 正常、无 BeanCurrentlyInCreation/Circular 告警）。detect_changes 报 critical 为 14 文件广度告警，符号级 diff 全为构造器/注入调整与等价事件化。
 
 ### 5.1 主刀：配置变更通知事件化（断开环的闭合边）
 
@@ -284,4 +289,6 @@ LangChain4jConfig 默认 AiAssistant Bean（:63-66，@Lazy+@Primary）
 
 **v2.1 补记（2026-10-25）**：评估时"`src/test` 为空"的前提已过时——其间其他迭代补入了 263 例（profile/审计域，见 AdminRangeRulesTest、BookProfileCalculatorTest 等）。§0/§3 的测试现状描述已按实际修正；缺口重定位为"推荐/AI/RAG 域零覆盖"，由第 1 批 55 例开始填补。
 
-**v2.2 补记（2026-10-25）**：阶段 2 第 2 批（61 例 Mockito）与阶段 4.1（RoundTableService 拆分）完成。执行调整一处：§4.1 由"三服务"扩为"五服务+门面"，原因是 Speech 簇实测约 2050 行、超出 ≤1200 行验收线；拆分全程零签名变更（15 个公开方法经门面原样保留）。
+**v2.3 补记（2026-10-25）**：阶段 4（§5 解循环依赖）完成，@Lazy 19→5（低于 ≤6 目标）。§5.2 中「RecommendService:79,:80 待核对」的结论：两服务（RecommendCoefficientService/DimensionStatsService）依赖闭包均为仓储+Redis+Jackson，无环，属历史遗留 @Lazy，已直接摘除。
+
+**v2.2 补记（2026-10-25）**：：阶段 2 第 2 批（61 例 Mockito）与阶段 4.1（RoundTableService 拆分）完成。执行调整一处：§4.1 由"三服务"扩为"五服务+门面"，原因是 Speech 簇实测约 2050 行、超出 ≤1200 行验收线；拆分全程零签名变更（15 个公开方法经门面原样保留）。
