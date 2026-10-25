@@ -24,6 +24,9 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "reading_progress", uniqueConstraints = {
         @UniqueConstraint(name = "uk_user_book", columnNames = {"user_id", "book_id"})
+}, indexes = {
+        /* 单书读者池按 book_id + 时间窗扫描，uk_user_book 的前导列是 user_id，走不了 */
+        @Index(name = "idx_progress_book_updated", columnList = "book_id,updated_at")
 })
 public class ReadingProgress extends BaseEntity {
 

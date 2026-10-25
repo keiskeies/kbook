@@ -18,6 +18,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "bookshelf", uniqueConstraints = {
         @UniqueConstraint(name = "uk_user_book_shelf", columnNames = {"user_id", "book_id"})
+}, indexes = {
+        @Index(name = "idx_shelf_book_added", columnList = "book_id,added_at")
 })
 public class Bookshelf extends BaseEntity {
 

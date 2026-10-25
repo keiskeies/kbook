@@ -1,7 +1,8 @@
 package com.kbook.service.auth;
 import com.kbook.service.notification.EmailNotificationService;
 import com.kbook.service.notification.NotificationService;
-
+import com.kbook.service.admin.BookProfileDimension;
+import com.kbook.service.user.ProfileValues;
 import com.kbook.common.exception.BusinessException;
 import com.kbook.config.JwtUtil;
 import com.kbook.config.annotation.LogAction;
@@ -291,10 +292,10 @@ public class AuthService {
                 .role("USER")
                 .emailBound(true)
                 .birthday(birthday)
-                .gender(gender)
+                .gender(ProfileValues.require(BookProfileDimension.GENDER, gender))
                 .married(married)
                 .hasChildren(hasChildren)
-                .mbti(mbti != null ? mbti.toUpperCase() : null)
+                .mbti(ProfileValues.require(BookProfileDimension.MBTI_TYPE, mbti))
                 .build();
 
         userRepository.save(user);

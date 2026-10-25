@@ -1,12 +1,12 @@
 package com.kbook.service.admin;
 
-import com.kbook.common.exception.BusinessException;
 import com.kbook.dto.admin.DashboardResponse;
 import com.kbook.dto.admin.DashboardResponse.*;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.User;
 import com.kbook.repository.*;
 import com.kbook.repository.debate.DebateSessionRepository;
+import com.kbook.service.ai.BookChatScope;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
@@ -32,9 +32,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AdminDashboardService {
 
-    /** 历史会话的 type 曾使用 BOOK，当前写入值为 book_chat，聚合时两者都算 */
-    private static final String CHAT_TYPE_FILTER = "type IN ('book_chat', 'BOOK')";
-    private static final int MAX_CUSTOM_RANGE_DAYS = 366;
+    /** 历史会话的 type 曾使用 BOOK，当前写入值为 book_chat，聚合时两者都算（定义见 {@link BookChatScope}） */
+    private static final String CHAT_TYPE_FILTER = BookChatScope.sqlFilter("");
+    public static final int MAX_CUSTOM_RANGE_DAYS = 366;
 
     private final EntityManager em;
     private final UserRepository userRepository;
@@ -76,34 +76,8 @@ public class AdminDashboardService {
     }
 
     private DateRange resolveRange(int days, LocalDate start, LocalDate end) {
-        if (start != null || end != null) {
-            if (start == null || end == null) {
-                throw new BusinessException("自定义区间需要同时提供开始和结束日期");
-            }
-            if (start.isAfter(end)) {
-                throw new BusinessException("开始日期不能晚于结束日期");
-            }
-            long span = ChronoUnit.DAYS.between(start, end) + 1;
-            if (span > MAX_CUSTOM_RANGE_DAYS) {
-                throw new BusinessException("自定义区间最长支持 " + MAX_CUSTOM_RANGE_DAYS + " 天，全部数据请使用「全部」");
-            }
-            return new DateRange(start, end);
-        }
-        int normalized = normalizeDays(days);
-        if (normalized == 0) {
-            return new DateRange(null, null);
-        }
-        LocalDate endDate = LocalDate.now();
-        return new DateRange(endDate.minusDays(normalized - 1L), endDate);
-    }
-
-    private int normalizeDays(int days) {
-        return switch (days) {
-            case 30 -> 30;
-            case 90 -> 90;
-            case 0 -> 0;
-            default -> 7;
-        };
+        AdminRangeRules.Range range = AdminRangeRules.resolve(start, end, days, LocalDate.now());
+        return new DateRange(range.startDate(), range.endDate());
     }
 
     /**
@@ -652,22 +626,20 @@ public class AdminDashboardService {
 
     private UserProfile getUserProfile() {
         return UserProfile.builder()
-                .mbtiDistribution(getGroupCount("mbti"))
-                .genderDistribution(getGroupCount("gender"))
+                .mbtiDistribution(siteDistribution(BookProfileDimension.MBTI_TYPE))
+                .genderDistribution(siteDistribution(BookProfileDimension.GENDER))
                 .statusDistribution(getStatusCount())
                 .build();
     }
 
-    private Map<String, Long> getGroupCount(String column) {
-        String sql = "SELECT " + column + ", COUNT(*) FROM users WHERE " + column +
-                " IS NOT NULL GROUP BY " + column;
-        Query q = em.createNativeQuery(sql);
-        Map<String, Long> result = new LinkedHashMap<>();
-        for (Object[] row : (List<Object[]>) q.getResultList()) {
-            String key = row[0] != null ? row[0].toString() : "unknown";
-            result.put(key, ((Number) row[1]).longValue());
-        }
-        return result;
+    /**
+     * 全站画像分布：与读者画像共用「谁算读者」（APPROVED）与白名单归一化，判定只有一处。
+     * statusDistribution 保留全账号口径，它回答的是账号审核状态，不是画像。
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Long> siteDistribution(BookProfileDimension dim) {
+        List<Object[]> rows = em.createNativeQuery(ProfileReaderSql.siteBucket(dim.getValueSql())).getResultList();
+        return BookProfileCalculator.dashboardDistribution(dim, rows);
     }
 
     private Map<String, Long> getStatusCount() {

@@ -22,6 +22,9 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "user_read_history", uniqueConstraints = {
         @UniqueConstraint(name = "uk_user_book_action", columnNames = {"user_id", "book_id", "action"})
+}, indexes = {
+        /* TOUCH 口径按 book_id + 时间窗取读者，唯一键前导列是 user_id */
+        @Index(name = "idx_history_book_created", columnList = "book_id,created_at")
 })
 public class UserReadHistory extends BaseEntity {
 

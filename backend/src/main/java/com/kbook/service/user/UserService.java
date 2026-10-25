@@ -1,5 +1,6 @@
 package com.kbook.service.user;
 import com.kbook.service.auth.AuthService;
+import com.kbook.service.admin.BookProfileDimension;
 import com.kbook.service.notification.EmailNotificationService;
 
 import com.kbook.service.recommend.RecommendService;
@@ -294,20 +295,12 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    /** 合法的 MBTI 类型白名单 */
-    private static final java.util.Set<String> VALID_MBTI = java.util.Set.of(
-            "INTJ", "INTP", "ENTJ", "ENTP",
-            "INFJ", "INFP", "ENFJ", "ENFP",
-            "ISTJ", "ISFJ", "ESTJ", "ESFJ",
-            "ISTP", "ISFP", "ESTP", "ESFP"
-    );
-
     /**
      * 更新用户画像（出生日期/性别/婚否/孩子年龄区间/MBTI/职业/期望学历/创业意向/期望年收入）
      * <p>
-     * 安全措施：
-     * - mbti 字段强制白名单校验（仅接受 16 种标准 MBTI 类型）
-     * - 其余文本字段进行 HTML 实体编码（防止存储型 XSS）
+     * 安全措施：每个枚举列都按 {@link BookProfileDimension} 的白名单校验后入库（折叠大小写与别名，
+     * 非法值直接拒绝）。校验和看板分桶共用同一份白名单，所以「前端能选」与「看板能算」不会各说各话。
+     * 校验通过后值是白名单里的 token，不可能带标签，因此不再走 HTML 编码。
      */
     @Transactional
     @LogAction("更新用户画像")
@@ -317,25 +310,30 @@ public class UserService {
                              String aspirationEducation, String entrepreneurship, String aspirationIncome) {
         User user = getUserById(userId);
         if (birthday != null) user.setBirthday(birthday);
-        if (gender != null) user.setGender(CommonUtils.sanitizeHtml(gender));
+        if (gender != null) {
+            user.setGender(ProfileValues.require(BookProfileDimension.GENDER, gender));
+        }
         if (married != null) user.setMarried(married);
         if (hasChildren != null) user.setHasChildren(hasChildren);
-        if (childrenAgeRanges != null)
-            user.setChildrenAgeRanges(CommonUtils.sanitizeHtml(childrenAgeRanges));
-        if (mbti != null) {
-            String normalizedMbti = mbti.trim().toUpperCase();
-            if (!VALID_MBTI.contains(normalizedMbti)) {
-                throw new BusinessException("无效的 MBTI 类型");
-            }
-            user.setMbti(normalizedMbti);
+        if (childrenAgeRanges != null) {
+            user.setChildrenAgeRanges(ProfileValues.require(BookProfileDimension.CHILD_AGE, childrenAgeRanges));
         }
-        if (occupation != null) user.setOccupation(CommonUtils.sanitizeHtml(occupation));
-        if (aspirationEducation != null)
-            user.setAspirationEducation(CommonUtils.sanitizeHtml(aspirationEducation));
-        if (entrepreneurship != null)
-            user.setEntrepreneurship(CommonUtils.sanitizeHtml(entrepreneurship));
-        if (aspirationIncome != null)
-            user.setAspirationIncome(CommonUtils.sanitizeHtml(aspirationIncome));
+        if (mbti != null) {
+            user.setMbti(ProfileValues.require(BookProfileDimension.MBTI_TYPE, mbti));
+        }
+        if (occupation != null) {
+            user.setOccupation(ProfileValues.require(BookProfileDimension.OCCUPATION, occupation));
+        }
+        if (aspirationEducation != null) {
+            user.setAspirationEducation(ProfileValues.require(BookProfileDimension.EDUCATION, aspirationEducation));
+        }
+        if (entrepreneurship != null) {
+            user.setEntrepreneurship(
+                    ProfileValues.require(BookProfileDimension.ENTREPRENEURSHIP, entrepreneurship));
+        }
+        if (aspirationIncome != null) {
+            user.setAspirationIncome(ProfileValues.require(BookProfileDimension.INCOME, aspirationIncome));
+        }
         user = userRepository.save(user);
         recommendService.asyncRecompute(userId);
         // 稳定画像变更：事务提交后清空该用户全部速读缓存（一次 DEL）
@@ -344,16 +342,17 @@ public class UserService {
     }
 
     /**
-     * 更新用户的图书对话风格偏好
+     * 更新用户的图书对话风格
      * @param userId 用户ID
-     * @param style 对话风格（如DEEP等，不区分大小写）
+     * @param style 对话风格，只接受 CHAT_STYLE 白名单里的取值（不区分大小写）；留空回落默认 DEEP
      * @return 更新后的用户实体
      */
     @Transactional
     @LogAction("更新图书对话风格")
     public User updateBookChatStyle(Long userId, String style) {
         User user = getUserById(userId);
-        user.setBookChatStyle(style != null && !style.isBlank() ? style.toUpperCase() : "DEEP");
+        String canonical = ProfileValues.require(BookProfileDimension.CHAT_STYLE, style);
+        user.setBookChatStyle(canonical != null ? canonical : "DEEP");
         return userRepository.save(user);
     }
 

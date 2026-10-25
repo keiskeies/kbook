@@ -28,7 +28,9 @@ import java.time.LocalDateTime;
 @Table(name = "notes", indexes = {
         @Index(name = "idx_note_user_occurred", columnList = "user_id,occurred_at"),
         @Index(name = "idx_note_user_book", columnList = "user_id,book_id"),
-        @Index(name = "idx_note_user_source", columnList = "user_id,source_type,source_id")
+        @Index(name = "idx_note_user_source", columnList = "user_id,source_type,source_id"),
+        /* DEEP 口径按 book_id 取写过笔记的读者 */
+        @Index(name = "idx_note_book_created", columnList = "book_id,created_at")
 })
 public class Note extends BaseEntity {
 

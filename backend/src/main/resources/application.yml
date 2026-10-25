@@ -191,6 +191,15 @@ kbook:
   admin:
     email: ${KBOOK_ADMIN_EMAIL:admin@kbook.com}
     password: ${KBOOK_ADMIN_PASSWORD:admin123456}
+    # 单书读者画像的隐私与显著性阈值（设计文档 4.1：上线前需按生产库分布校准）
+    book-profile:
+      min-cohort-size: ${KBOOK_PROFILE_MIN_COHORT_SIZE:10}
+      min-bucket-size: ${KBOOK_PROFILE_MIN_BUCKET_SIZE:5}
+      significant-min-count: ${KBOOK_PROFILE_SIGNIFICANT_MIN_COUNT:10}
+      highlight-min-count: ${KBOOK_PROFILE_HIGHLIGHT_MIN_COUNT:20}
+      # 两份缓存的寿命，默认与 §7.4 一致；调小只用于本地复现附录 Q 的分子分母龄期差
+      profile-cache-minutes: ${KBOOK_PROFILE_CACHE_MINUTES:5}
+      baseline-cache-minutes: ${KBOOK_PROFILE_BASELINE_CACHE_MINUTES:10}
   # AI 外部配置文件路径
   # - 本地开发默认读取项目根目录 deploy/ai-config.json（单文件维护）
   # - Docker 通过 AI_CONFIG_PATH 环境变量覆盖

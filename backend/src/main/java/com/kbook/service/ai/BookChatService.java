@@ -93,9 +93,10 @@ import com.kbook.service.ai.core.AiUsageContext;
 public class BookChatService {
 
     /**
-     * 会话类型标识：图书问答
+     * 会话类型标识：图书问答。与读侧（看板聚合、画像 DEEP 口径）共用 {@link BookChatScope}，
+     * 否则新增一种带 book_id 的会话时，画像的"深度互动读者"会静默换人群。
      */
-    private static final String TYPE = "book_chat";
+    private static final String TYPE = BookChatScope.TYPE;
     private static final int SPEED_READ_CONTENT_LIMIT = 15000;
 
     private final EmbeddingService embeddingService;
