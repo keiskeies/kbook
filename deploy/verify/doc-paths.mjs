@@ -27,6 +27,7 @@ const ALLOW = new Map([
   ['pages/admin/book-profiles.tsx', 'B.2 已记：实际文件是 profile-books.tsx'],
   ['frontend/vite.verify.config.ts', 'C.4 / G.5 自述为临时文件、验证后删除；不是失效引用'],
   ['frontend/dist', '构建产物，gitignore 不追踪；文档只把它当输出目录'],
+  ['frontend/node_modules', '依赖目录，gitignore；文档只在验证说明里提到'],
   ['package/package.sh', '本机打包工具，package/ 已 gitignore（指南改为 download.sh）'],
   ['package/package.bat', '同上'],
   ['backend/.verify-token.txt', '本机自签 token 文件，已 gitignore；文档描述的是它被忽略这件事'],
