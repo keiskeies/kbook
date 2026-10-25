@@ -15,7 +15,7 @@
 |---|------|--------|------|------|
 | 1 | `service/ai` 31 个文件混 5 种职责 | 高 | 按职责分子包（roundtable/debate/rag/admin/core） | **✅ 已实施，待提交**（见 §2） |
 | 2 | 测试缺口：推荐/AI/RAG 领域零覆盖（src/test 现有 263 例集中在 profile/审计域） | **最高** | 先给纯函数类补单测（零 mock），再给 LLM 依赖类补 Mockito 单测 | **第 1 批 ✅ 已实施**（55 例，§3），第 2 批待做 |
-| 3 | 巨型 Service（RoundTableService 3308 行 / 88 个方法等 6 个 1200+ 行类） | 高 | 按职责拆分，RoundTableService 优先 | 待做（§4） |
+| 3 | 巨型 Service（RoundTableService 3308 行 / 88 个方法等 6 个 1200+ 行类） | 高 | 按职责拆分，RoundTableService 优先 | **RoundTableService ✅ 已拆**（五服务+门面，见 §4.1），其余待做 |
 | 4 | 19 处 `@Lazy` 循环依赖，核心结在「AI 配置服务反向持有聊天 Bean」 | 中高 | 配置变更通知事件化（复用已有 AiConfigCacheInvalidator 机制） | 待做（§5） |
 | 5 | 包位置不一致小项（枚举三处、util 两处、config 过载、dto 残留） | 低 | 逐项机械清理 | 待做（§6） |
 
@@ -162,16 +162,20 @@ LangChain4jConfig 默认 AiAssistant Bean（:63-66，@Lazy+@Primary）
 
 > 原则：**只拆职责边界、不改公开签名**。原类保留为门面（Facade）委托新类，Controller 与调用方零改动；拆完跑阶段 2 的测试，全绿才算完成。每拆一个类一个独立 commit。
 
-### 4.1 RoundTableService（3308 行 / 88 个方法，最痛的一根刺，先行）
+### 4.1 RoundTableService（3308 行 / 88 个方法，最痛的一根刺，先行）✅ 已实施
 
-按已有 public 方法的天然边界拆成四块（行号为当前实测值）：
+> 2026-10-25 完成（commit 78bda25）：实测拆分为**五个子服务 + 门面**（原方案三个；Speech 簇实测约 2050 行，超出门面验收的 1200 行上限，按"发言/选人/RAG 检索"再切两刀）。`mvn test` 379 例全绿，Controller 零改动，`gitnexus_detect_changes` 风险 LOW / 零受影响流程。顺带清除死代码：`aiProviderConfigService` 字段与 `CHAR_LENGTH_ESTIMATE` 常量（均零引用）。
 
-| 新类（均在 `service/roundtable/`） | 吸收的职责 | 现方法定位参考 |
+| 新类（均在 `service/roundtable/`） | 行数 | 职责 |
 |------|------|------|
-| `RoundTableRoleService` | 角色推荐/选择/搜索 | `callAiForRoleSelection(:155)`、`callAiForRoleSearchQuery(:182)`、`getRecommendedRoles(:288)` |
-| `RoundTableSessionService` | 会话 CRUD + 全局 Feed | `createSession(:787)`、`getSessions(:940)`、`verifySessionOwnership(:969)`、`getGlobalSessions(:1034)` |
-| `RoundTableSpeechService` | 发言编排 + SSE 流式 | `getNextSpeakerOnlyLLM(:1218)`、`streamCharacterSpeak(:2025)` |
-| `RoundTableService`（保留为门面） | 对 Controller 暴露的原签名全部保留，内部委托上面三个 | — |
+| `RoundTableRoleService` | 755 | LLM 选角 / ZSet 使用次数缓存 / 角色名册 / 标签回退（callAiForRole* 四个入口） |
+| `RoundTableSessionService` | 477 | 会话 CRUD / 归属校验 / 全局 Feed 热度分 |
+| `RoundTableSpeechService` | 1041 | 单角色 SSE 发言 / 提示词构建 / 消息持久化与历史压缩 / 主持话题进度 |
+| `RoundTableSpeakerService` | 1073 | 纯 LLM 选人 / 机制兜底（轮数上限、跑题、停滞、垄断）/ 响应解析 |
+| `RoundTableRagService` | 341 | 角色视角 RAG 检索 / 子查询生成 / 向量就绪等待 |
+| `RoundTableService`（门面） | 110 | 15 个公开签名原样委托 |
+
+依赖方向（单向无环）：`Speech → {Session, Rag}`、`Speaker → {Speech, Role}`、`Session/Rag → Role`。跨服务复用的原私有方法收窄为包私有（readRoleRoster、parseTags、loadAndCompressHistory、loadUncoveredTitles、retrieveRagContextForRole、waitForContentEmbedding）。
 
 **拆分纪律：**
 - 门面方法逐个迁移，每迁一批（10~15 个方法）编译 + 测试一次，不搞一把梭
@@ -279,3 +283,5 @@ LangChain4jConfig 默认 AiAssistant Bean（:63-66，@Lazy+@Primary）
 > 复核方法：`@Lazy` 与依赖边用构造器/字段逐处 grep；纯函数判定用"类注解 + 字段声明 + static 方法数"三查；行号用当前文件 `grep -n` 重测；pom 依赖读 `backend/pom.xml` 原文。
 
 **v2.1 补记（2026-10-25）**：评估时"`src/test` 为空"的前提已过时——其间其他迭代补入了 263 例（profile/审计域，见 AdminRangeRulesTest、BookProfileCalculatorTest 等）。§0/§3 的测试现状描述已按实际修正；缺口重定位为"推荐/AI/RAG 域零覆盖"，由第 1 批 55 例开始填补。
+
+**v2.2 补记（2026-10-25）**：阶段 2 第 2 批（61 例 Mockito）与阶段 4.1（RoundTableService 拆分）完成。执行调整一处：§4.1 由"三服务"扩为"五服务+门面"，原因是 Speech 簇实测约 2050 行、超出 ≤1200 行验收线；拆分全程零签名变更（15 个公开方法经门面原样保留）。
