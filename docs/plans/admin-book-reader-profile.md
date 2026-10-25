@@ -3155,3 +3155,22 @@ POST /book-profile-snapshot?date=2026-10-30
 两点意义：一是**事务边界是实的**，不是只有注解；二是**配置写错时不会留下半批数据**——运维把口径名拼错，表现为一次明确报错 + 零副作用，而不是"表和趋势里莫名多了半天数据"。
 
 这次查询用的是仓库内的 `deploy/sql/RunSqlFile.java`（只读守卫），没有再临时写程序。
+
+## 附录 BS：落盘 payload 与实时画像内容一致（不只是"都过了闸门"）
+
+AI 证明了 payload 也受 `min-bucket` 约束，但没证明**内容本身**与接口一致。这轮做逐字段比较：
+
+- 取 `book_profile_daily`（24715 / 2026-10-25 / DEEP）里的 `payload`，抽出 GENDER 维度；
+- 起默认阈值实例，调 `/book-profile?bookId=24715&basis=DEEP&days=0`，抽出同一维度；
+- 比较 `coverage / unknownCount / dirtyCount` 与每个桶的 `value/count/ratio/siteRatio/lift/significant`。
+
+结果完全相同：
+
+```json
+{"coverage":0.5,"unknown":5,"dirty":0,
+ "buckets":[{"value":null,"count":5,"ratio":1,"siteRatio":null,"lift":null,"significant":false}]}
+```
+
+说明快照存的就是当次 VO 的序列化形态，没有另起一套口径；`siteRatio/lift` 为 null 也与当前查询结果一致（全站小格不给基线，AH）。
+
+边界要写清楚：两次读取之间 dev 没有任何写操作，因此这条证明的是**序列化与归一化同源**，不是"跨时间恒等"——数据一变，payload 当然会与实时值不同（这正是快照的意义）。比较脚本与取数都走仓库内的只读执行器，没有临时程序。
