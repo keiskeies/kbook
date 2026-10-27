@@ -162,15 +162,70 @@ public class BookChatSessionService {
         try {
             List<AiConversation> history = conversationRepository
                     .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
-            for (int i = history.size() - 1; i >= 0; i--) {
-                if ("assistant".equals(history.get(i).getRole())) {
-                    return history.get(i).getCompressedContent();
-                }
-            }
+            return pickLastAnswerText(history);
         } catch (Exception e) {
             log.debug("获取上次AI回答失败: {}", e.getMessage());
         }
         return null;
+    }
+
+    /** 上轮回答注入工具模型的最大字符数（列表检测/查询扩展/展开上一条共用）。 */
+    private static final int MAX_LAST_ANSWER_CHARS = 6000;
+
+    /**
+     * 取最后一条 assistant 的文本：优先原始 content，缺失才回退 compressed_content。
+     * <p>压缩版可能丢列表结构，而列表检测/查询扩展/"展开上一条"都依赖原始清单。
+     * 原文截到 6000 字，避免把超长回答整段塞进工具模型。
+     */
+    static String pickLastAnswerText(List<AiConversation> history) {
+        if (history == null || history.isEmpty()) {
+            return null;
+        }
+        for (int i = history.size() - 1; i >= 0; i--) {
+            AiConversation conversation = history.get(i);
+            if (!"assistant".equals(conversation.getRole())) {
+                continue;
+            }
+            String original = conversation.getContent();
+            if (original != null && !original.isBlank()) {
+                return original.length() > MAX_LAST_ANSWER_CHARS
+                        ? original.substring(0, MAX_LAST_ANSWER_CHARS) : original;
+            }
+            return conversation.getCompressedContent();
+        }
+        return null;
+    }
+
+    /**
+     * 选出本轮可压缩的 assistant 消息：跳过最近一轮（下一轮可能要展开它），
+     * 只压未压缩过的。仅有一条 assistant 时不跳过，避免单一长回答顶爆上下文。
+     */
+    static List<AiConversation> selectCompressible(List<AiConversation> conversations) {
+        if (conversations == null || conversations.isEmpty()) {
+            return List.of();
+        }
+        long assistantCount = conversations.stream()
+                .filter(c -> "assistant".equals(c.getRole()))
+                .count();
+        Long protectedId = null;
+        if (assistantCount > 1) {
+            for (int i = conversations.size() - 1; i >= 0; i--) {
+                if ("assistant".equals(conversations.get(i).getRole())) {
+                    protectedId = conversations.get(i).getId();
+                    break;
+                }
+            }
+        }
+        final Long lastAssistantId = protectedId;
+        return conversations.stream()
+                .filter(c -> "assistant".equals(c.getRole()))
+                .filter(c -> lastAssistantId == null || !lastAssistantId.equals(c.getId()))
+                .filter(c -> {
+                    String compressed = c.getCompressedContent();
+                    String original = c.getContent();
+                    return compressed == null || original == null || compressed.equals(original);
+                })
+                .collect(Collectors.toList());
     }
 
     /**
@@ -203,6 +258,80 @@ public class BookChatSessionService {
                     session.setUpdatedAt(java.time.LocalDateTime.now());
                     sessionRepository.save(session);
                 });
+    }
+
+    /** 按归属校验查询单条对话；不属于该用户/该书返回 null。 */
+    AiConversation findConversationForUser(Long userId, Long bookId, Long conversationId) {
+        if (userId == null || bookId == null || conversationId == null) {
+            return null;
+        }
+        try {
+            return conversationRepository.findById(conversationId)
+                    .filter(c -> userId.equals(c.getUserId()))
+                    .filter(c -> bookId.equals(c.getBookId()))
+                    .orElse(null);
+        } catch (Exception e) {
+            log.debug("查询对话归属失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 写入引用校验结果。失败只记日志，不影响回答。
+     */
+    void updateCitationById(Long conversationId, String citationJson) {
+        if (conversationId == null || citationJson == null) {
+            return;
+        }
+        try {
+            conversationRepository.findById(conversationId).ifPresent(row -> {
+                row.setCitationJson(citationJson);
+                conversationRepository.save(row);
+            });
+        } catch (Exception e) {
+            log.warn("写入引用校验结果失败（不影响回答）: conversationId={}, error={}",
+                    conversationId, e.getMessage());
+        }
+    }
+
+    /**
+     * 最后一条 user 消息是否就是当前问题。重新生成时用它避免重复写 user 行。
+     */
+    boolean isLastUserMessage(Long userId, String sessionId, String question) {
+        try {
+            return isLastUserQuestion(
+                    conversationRepository.findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId),
+                    question);
+        } catch (Exception e) {
+            log.debug("判断最后一条用户消息失败: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    static boolean isLastUserQuestion(List<AiConversation> history, String question) {
+        if (history == null || history.isEmpty() || question == null) {
+            return false;
+        }
+        for (int i = history.size() - 1; i >= 0; i--) {
+            AiConversation conversation = history.get(i);
+            if ("user".equals(conversation.getRole())) {
+                return question.equals(conversation.getContent());
+            }
+        }
+        return false;
+    }
+
+    /** 删除一条消息（重新生成时移除旧回答）。失败只记日志，不阻断新生成。 */
+    void deleteMessageById(Long conversationId) {
+        if (conversationId == null) {
+            return;
+        }
+        try {
+            conversationRepository.deleteById(conversationId);
+        } catch (Exception e) {
+            log.warn("删除旧回答失败（继续生成新回答）: conversationId={}, error={}",
+                    conversationId, e.getMessage());
+        }
     }
 
     /**
@@ -292,18 +421,20 @@ public class BookChatSessionService {
         // 优先从外部配置加载
         String configPrompt = aiConfigProvider.getChatStylePrompt(style);
         if (!configPrompt.isEmpty()) {
-            return configPrompt;
+            // 外部风格词只负责语气/结构；事实边界必须由组装层强制注入，
+            // 否则改配置就能绕过「以参考内容为准」的约束。
+            return BookChatPrompts.withConstraints(configPrompt);
         }
-        // 回退到代码常量
+        // 回退到代码常量（已含事实边界，withConstraints 幂等）
         if (style != null) {
-            return switch (style.toUpperCase()) {
+            return BookChatPrompts.withConstraints(switch (style.toUpperCase()) {
                 case "CASUAL" -> BookChatPrompts.BOOK_CHAT_STYLE_CASUAL;
                 case "CONCISE" -> BookChatPrompts.BOOK_CHAT_STYLE_CONCISE;
                 case "WITTY" -> BookChatPrompts.BOOK_CHAT_STYLE_WITTY;
                 default -> BookChatPrompts.BOOK_CHAT_STYLE_DEEP;
-            };
+            });
         }
-        return BookChatPrompts.BOOK_CHAT_STYLE_CASUAL;
+        return BookChatPrompts.withConstraints(BookChatPrompts.BOOK_CHAT_STYLE_CASUAL);
     }
 
     /**
@@ -366,15 +497,8 @@ public class BookChatSessionService {
             return conversations;
         }
 
-        // 5. 收集所有未压缩的 assistant 消息，一次性批量压缩
-        List<AiConversation> toCompress = conversations.stream()
-                .filter(c -> "assistant".equals(c.getRole()))
-                .filter(c -> {
-                    String compressed = c.getCompressedContent();
-                    String original = c.getContent();
-                    return compressed == null || original == null || compressed.equals(original);
-                })
-                .collect(Collectors.toList());
+        // 5. 收集可压缩的 assistant 消息（跳过最近一轮，保护"展开上一条"），一次性批量压缩
+        List<AiConversation> toCompress = selectCompressible(conversations);
 
         if (toCompress.isEmpty()) {
             return conversations;

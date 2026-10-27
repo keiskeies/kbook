@@ -262,6 +262,15 @@ kbook:
     # 例：16K上下文 → 5×512×1.5≈3840 tokens，加上系统提示+书籍信息+输出，约 7~9K，安全
     #     32K上下文 → 可用 8~10
     rag-top-k: ${QDRANT_RAG_TOP_K:100}
+    # RAG 上下文注入的字符上限（0 = 不额外限制，按模型上下文窗口推导）。
+    # 模型能吃下 512K tokens ≠ 该把整本书塞进提示词；不设上限时整本书（约 12 万字、84K tokens）会进上下文。
+    # 该值必须用黄金集 A/B 验证后再定默认值，不要直接拍。
+    rag-max-chars: ${QDRANT_RAG_MAX_CHARS:0}
+    # 绝对相似度阈值：常规检索 topScore 低于此值且问题为书内事实时拒答；0 = 关闭（需黄金集标定）
+    absolute-min-score: ${QDRANT_ABSOLUTE_MIN_SCORE:0.0}
+    # LLM rerank：默认关闭；开启后每轮增加多次 TOOL 调用，需先压测延迟与成本
+    rerank-enabled: ${QDRANT_RERANK_ENABLED:false}
+    rerank-top-n: ${QDRANT_RERANK_TOP_N:30}
     # 原始向量是否存磁盘（默认 true，大幅节省内存；关闭则常驻 RAM 加速搜索但内存占用极大）
     vectors-on-disk: ${QDRANT_VECTORS_ON_DISK:true}
     # 标量量化配置：float32 → int8，内存占用降约 75%，精度损失 <1%

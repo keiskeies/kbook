@@ -138,6 +138,11 @@ public class ChatModelFactory {
      * @param tc      思考参数
      */
     private static String modelKey(String variant, AiProviderConfig config, ThinkingConfig tc) {
+        return modelKey(variant, config, tc, config != null ? config.getMaxOutputTokens() : null);
+    }
+
+    private static String modelKey(String variant, AiProviderConfig config, ThinkingConfig tc,
+                                   Integer maxOutputTokens) {
         StringBuilder sb = new StringBuilder(160);
         sb.append(variant).append('|');
         if (config != null) {
@@ -148,7 +153,7 @@ public class ChatModelFactory {
                     .append(apiKeyFingerprint(config.getApiKey())).append('|')
                     .append(config.getTemperature()).append('|')
                     .append(config.getTimeout()).append('|')
-                    .append(config.getMaxOutputTokens()).append('|')
+                    .append(maxOutputTokens).append('|')
                     .append(config.getThinkingMode()).append('|');
         }
         sb.append(tc.thinkingMode()).append('|')
@@ -156,6 +161,43 @@ public class ChatModelFactory {
                 .append(tc.reasoningEffort()).append('|')
                 .append(tc.thinkingBudget());
         return sb.toString();
+    }
+
+    /**
+     * 图书问答两个核心场景的输出上限兜底。
+     * <p>
+     * H1 的根因是"从未显式设置输出上限，吃 provider 默认（常见 4096）"，
+     * 而 BOOK_QA 开着思考，推理 token 会挤占可见回答。这里只在未显式配置时兜底，
+     * 管理员配置了 maxOutputTokens 就完全以配置为准。
+     * <p>
+     * BOOK_QA 兜底 4096 仍然偏小：2026-10-26 实测「25 条心理倾向」清单题在
+     * finishReason=LENGTH 处被腰斩（outputTokens=4096），只输出前 12 条。
+     * 单次流式路径要写完 25 条需要约 6.5k 可见 token + 1.3k 思考 token，
+     * 故兜底提到 16384；网关实测接受 65536（2026-10-26 探针），不会 400。
+     * <p>
+     * 其他场景保持 null（行为不变），避免全局改变输出长度。
+     */
+    static Integer effectiveMaxOutputTokens(com.kbook.entity.AiScene scene,
+                                            AiProviderConfig config) {
+        if (config == null) {
+            return null;
+        }
+        Integer configured = config.getMaxOutputTokens();
+        if (configured != null && configured > 0) {
+            return configured;
+        }
+        int desired;
+        if (scene == com.kbook.entity.AiScene.BOOK_QA) {
+            desired = 16384;
+        } else if (scene == com.kbook.entity.AiScene.BOOK_QA_SEGMENT) {
+            desired = 2048;
+        } else {
+            return null;
+        }
+        int contextTokens = config.getMaxTokens() != null && config.getMaxTokens() > 0
+                ? config.getMaxTokens() : 32768;
+        // 至少留一半上下文给输入与历史；小上下文模型不能把输出顶满。
+        return Math.max(512, Math.min(desired, contextTokens / 2));
     }
 
     /** apiKey 指纹 — 不让明文密钥进入缓存键，同时能感知密钥变更 */
@@ -274,12 +316,14 @@ public class ChatModelFactory {
 
         final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
         final ThinkingConfig tc = ThinkingConfig.from(resolved);
-        ChatModel model = chatModelCache.get(modelKey("chat", config, tc), k -> {
+        final Integer maxOutputTokens = effectiveMaxOutputTokens(scene, config);
+        ChatModel model = chatModelCache.get(modelKey("chat", config, tc, maxOutputTokens), k -> {
             // 场景构建日志降级为 DEBUG，避免与统一摘要日志（logAiSummary）重复打印模型信息
-            log.debug("构建场景 ChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
+            log.debug("构建场景 ChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}, maxOutputTokens={}",
                     scene, config.getName(), config.getModelName(),
-                    config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
-            return wrap(buildChat(config, tc), config);
+                    config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget(),
+                    maxOutputTokens);
+            return wrap(buildChat(config, tc, maxOutputTokens), config);
         });
         return new UsageRecordingChatModel(model, usageLogService,
                 scene.name(), config.getModelName(), config.getName(),
@@ -294,11 +338,13 @@ public class ChatModelFactory {
                 sceneConfigService.resolveSceneConfig(scene);
         final com.kbook.entity.AiProviderConfig config = resolved.providerConfig();
         final ThinkingConfig tc = ThinkingConfig.from(resolved);
-        StreamingChatModel model = streamingModelCache.get(modelKey("streaming", config, tc), k -> {
-            log.debug("构建场景 StreamingChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}",
+        final Integer maxOutputTokens = effectiveMaxOutputTokens(scene, config);
+        StreamingChatModel model = streamingModelCache.get(modelKey("streaming", config, tc, maxOutputTokens), k -> {
+            log.debug("构建场景 StreamingChatModel: scene={}, config={}, model={}, thinkingMode={}, thinkingEnabled={}, reasoningEffort={}, thinkingBudget={}, maxOutputTokens={}",
                     scene, config.getName(), config.getModelName(),
-                    config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget());
-            return wrapStreaming(buildStreaming(config, tc), config);
+                    config.getThinkingMode(), tc.thinkingEnabled(), tc.reasoningEffort(), tc.thinkingBudget(),
+                    maxOutputTokens);
+            return wrapStreaming(buildStreaming(config, tc, maxOutputTokens), config);
         });
         return new UsageRecordingStreamingChatModel(model, usageLogService,
                 scene.name(), config.getModelName(), config.getName(),
@@ -529,27 +575,32 @@ public class ChatModelFactory {
     // ---- DB config 组合器 ----
 
     private ChatModel buildChat(AiProviderConfig config, ThinkingConfig tc) {
-        Duration t = timeout(config.getTimeout());
-        log.debug("构建 ChatModel (from DB): provider={}, model={}, baseUrl={}, thinkingMode={}, thinkingEnabled={}",
-                config.getProvider(), config.getModelName(), config.getBaseUrl(),
-                config.getThinkingMode(), tc.thinkingEnabled());
-        return config.getProvider() == AiProviderConfig.Provider.OPENAI
-                ? buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, config.getApiKey(), tc, config.getMaxOutputTokens())
-                : buildOllamaChat(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, tc, config.getMaxOutputTokens());
+        return buildChat(config, tc, config.getMaxOutputTokens());
     }
 
-    private StreamingChatModel buildStreaming(AiProviderConfig config, ThinkingConfig tc) {
+    private ChatModel buildChat(AiProviderConfig config, ThinkingConfig tc, Integer maxOutputTokens) {
         Duration t = timeout(config.getTimeout());
-        log.debug("构建 StreamingChatModel (from DB): provider={}, model={}, baseUrl={}, thinkingMode={}, thinkingEnabled={}",
+        log.debug("构建 ChatModel (from DB): provider={}, model={}, baseUrl={}, thinkingMode={}, thinkingEnabled={}, maxOutputTokens={}",
                 config.getProvider(), config.getModelName(), config.getBaseUrl(),
-                config.getThinkingMode(), tc.thinkingEnabled());
+                config.getThinkingMode(), tc.thinkingEnabled(), maxOutputTokens);
+        return config.getProvider() == AiProviderConfig.Provider.OPENAI
+                ? buildOpenAiChat(config.getBaseUrl(), config.getModelName(),
+                config.getTemperature(), t, config.getApiKey(), tc, maxOutputTokens)
+                : buildOllamaChat(config.getBaseUrl(), config.getModelName(),
+                config.getTemperature(), t, tc, maxOutputTokens);
+    }
+
+    private StreamingChatModel buildStreaming(AiProviderConfig config, ThinkingConfig tc,
+                                              Integer maxOutputTokens) {
+        Duration t = timeout(config.getTimeout());
+        log.debug("构建 StreamingChatModel (from DB): provider={}, model={}, baseUrl={}, thinkingMode={}, thinkingEnabled={}, maxOutputTokens={}",
+                config.getProvider(), config.getModelName(), config.getBaseUrl(),
+                config.getThinkingMode(), tc.thinkingEnabled(), maxOutputTokens);
         return config.getProvider() == AiProviderConfig.Provider.OPENAI
                 ? buildOpenAiStreaming(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, config.getApiKey(), tc, config.getMaxOutputTokens())
+                config.getTemperature(), t, config.getApiKey(), tc, maxOutputTokens)
                 : buildOllamaStreaming(config.getBaseUrl(), config.getModelName(),
-                config.getTemperature(), t, tc, config.getMaxOutputTokens());
+                config.getTemperature(), t, tc, maxOutputTokens);
     }
 
     // ======================== 底层构建器 ========================

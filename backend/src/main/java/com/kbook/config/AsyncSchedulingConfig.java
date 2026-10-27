@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit;
  * | sseExecutor        | SSE 流式响应           | 4    | 32  | 100   | kbook-sse-        | MdcAwareThreadPoolExecutor |
  * | behaviorExecutor   | 行为画像抽取            | 2    | 4   | 50    | kbook-behavior-   | MdcAwareThreadPoolExecutor |
  * | qaPrefetchExecutor | 列表流水线逐条预取       | 8    | 8   | 64    | kbook-qa-prefetch-| MdcAwareThreadPoolExecutor |
+ * | listRefineExecutor | 列表型 LLM 精筛（分批）  | 8    | 8   | 64    | kbook-list-refine-| MdcAwareThreadPoolExecutor |
  * | taskScheduler      | @Scheduled 定时调度    | 4    | -   | -     | kbook-sched-      | N/A（无请求上下文）    |
  * </pre>
  */
@@ -105,6 +106,29 @@ public class AsyncSchedulingConfig implements AsyncConfigurer, SchedulingConfigu
                 r -> {
                     Thread t = new Thread(r);
                     t.setName("kbook-qa-prefetch-" + seq.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.AbortPolicy()
+        );
+    }
+
+    /**
+     * 列表型问题 LLM 精筛线程池。
+     * <p>独立于 {@code qaPrefetchExecutor}：精筛是批量 LLM 调用（每批 15 chunks），
+     * 与流水线逐条预取同时发生会互相饿死；2026-10-26 运行时实测串行精筛 15 批耗时 97.5s，
+     * 并行后单轮即可完成。
+     * <br>核心 8 / 最大 8 / 队列 64；AbortPolicy——提交点捕获拒绝异常并按「保守保留该批」兜底。
+     */
+    @Bean(name = "listRefineExecutor", destroyMethod = "shutdown")
+    public ThreadPoolExecutor listRefineExecutor() {
+        java.util.concurrent.atomic.AtomicLong seq = new java.util.concurrent.atomic.AtomicLong(0);
+        return new MdcAwareThreadPoolExecutor(
+                8, 8, 60,
+                new ArrayBlockingQueue<>(64),
+                r -> {
+                    Thread t = new Thread(r);
+                    t.setName("kbook-list-refine-" + seq.incrementAndGet());
                     t.setDaemon(true);
                     return t;
                 },

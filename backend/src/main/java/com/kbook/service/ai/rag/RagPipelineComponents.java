@@ -36,8 +36,14 @@ public final class RagPipelineComponents {
     public static final double NEIGHBOR_MIN_SCORE = 0.15;
     /** 合并后片段的最大字符数（>2000 时按 chunkIndex 切分会引入过长 context） */
     public static final int MAX_MERGED_CHUNK_CHARS = 2000;
+    /** 相邻 chunk 去重时允许检查的最大重叠长度（默认 overlap 200 + 边界前探 100，留余量） */
+    public static final int MAX_OVERLAP_CHARS = 400;
     /** focusKeywords 加权：每个命中词的 score 加成（避免过度扭曲原始相似度） */
     public static final double FOCUS_KEYWORD_BONUS = 0.05;
+    /** 合并片段覆盖的起始 chunkIndex（元数据键） */
+    public static final String META_CHUNK_START_INDEX = "chunkStartIndex";
+    /** 合并片段覆盖的结束 chunkIndex（元数据键） */
+    public static final String META_CHUNK_END_INDEX = "chunkEndIndex";
 
     /**
      * 邻域 chunk 拉取器接口（解耦 EmbeddingService 依赖）
@@ -221,6 +227,8 @@ public final class RagPipelineComponents {
         StringBuilder mergedText = new StringBuilder(
                 current.embedded() != null ? current.embedded().text() : "");
         double bestScore = current.score();
+        int spanStart = getChunkIndex(current);
+        int spanEnd = spanStart;
 
         for (int i = 1; i < sortedByIndex.size(); i++) {
             EmbeddingMatch<TextSegment> next = sortedByIndex.get(i);
@@ -228,24 +236,50 @@ public final class RagPipelineComponents {
             int nextIndex = getChunkIndex(next);
 
             String nextText = next.embedded() != null ? next.embedded().text() : "";
+            // chunk 之间有 overlap（默认 200 字），直接拼接会让同一段文本在上下文里出现两次。
+            // 合并时只追加 nextText 中不与前文尾部重叠的部分。
+            String appendText = stripOverlap(mergedText.toString(), nextText);
             boolean isConsecutive = currentIndex >= 0 && nextIndex == currentIndex + 1;
-            boolean withinLength = mergedText.length() + nextText.length() + 2 <= MAX_MERGED_CHUNK_CHARS;
+            boolean withinLength = mergedText.length() + appendText.length() + 2 <= MAX_MERGED_CHUNK_CHARS;
 
             if (isConsecutive && withinLength) {
-                mergedText.append("\n\n").append(nextText);
+                if (!appendText.isBlank()) {
+                    mergedText.append("\n\n").append(appendText);
+                }
                 if (next.score() > bestScore) bestScore = next.score();
+                spanEnd = nextIndex;
                 current = next;
                 continue;
             }
 
-            merged.add(createMergedMatch(mergedText.toString(), current, bestScore));
+            merged.add(createMergedMatch(mergedText.toString(), current, bestScore, spanStart, spanEnd));
             mergedText = new StringBuilder(nextText);
             bestScore = next.score();
+            spanStart = nextIndex;
+            spanEnd = nextIndex;
             current = next;
         }
-        merged.add(createMergedMatch(mergedText.toString(), current, bestScore));
+        merged.add(createMergedMatch(mergedText.toString(), current, bestScore, spanStart, spanEnd));
 
         return merged;
+    }
+
+    /**
+     * 去掉 next 开头与 prev 结尾重叠的部分。
+     * <p>chunk 切分带 overlap，合并时若直接拼接会让同一段文本重复出现。
+     * 只检查最长 {@link #MAX_OVERLAP_CHARS}；找不到重叠时原样返回。
+     */
+    static String stripOverlap(String prev, String next) {
+        if (prev == null || prev.isEmpty() || next == null || next.isEmpty()) {
+            return next == null ? "" : next;
+        }
+        int max = Math.min(MAX_OVERLAP_CHARS, Math.min(prev.length(), next.length()));
+        for (int k = max; k >= 1; k--) {
+            if (prev.regionMatches(prev.length() - k, next, 0, k)) {
+                return next.substring(k).trim();
+            }
+        }
+        return next;
     }
 
     /**
@@ -253,9 +287,53 @@ public final class RagPipelineComponents {
      */
     public static EmbeddingMatch<TextSegment> createMergedMatch(
             String text, EmbeddingMatch<TextSegment> template, double score) {
-        TextSegment segment = TextSegment.from(text,
-                template.embedded() != null ? template.embedded().metadata() : new Metadata());
+        return createMergedMatch(text, template, score, getChunkIndex(template), getChunkIndex(template));
+    }
+
+    /**
+     * 创建带跨度信息的合并片段。
+     * <p>
+     * 元数据里额外记下 {@code chunkStartIndex}/{@code chunkEndIndex}：
+     * 合并后片段的 {@code chunkIndex} 仍是组内最后一块（保持既有语义），
+     * 但快照需要知道这一块实际覆盖了哪几段原始 chunk，否则 12+13 的合并
+     * 在依据里只表现为 13，召回统计会漏掉 12。
+     * <p>
+     * 复制模板元数据而不是直接改它：模板元数据来自向量库里的 chunk 对象，
+     * 就地修改会污染缓存里的原始 chunk。
+     */
+    public static EmbeddingMatch<TextSegment> createMergedMatch(
+            String text, EmbeddingMatch<TextSegment> template, double score,
+            int spanStart, int spanEnd) {
+        Metadata metadata = template.embedded() != null && template.embedded().metadata() != null
+                ? template.embedded().metadata().copy()
+                : new Metadata();
+        metadata.put(META_CHUNK_START_INDEX, spanStart);
+        metadata.put(META_CHUNK_END_INDEX, spanEnd);
+        TextSegment segment = TextSegment.from(text, metadata);
         return new EmbeddingMatch<>(score, template.embeddingId(), template.embedding(), segment);
+    }
+
+    /**
+     * 取片段覆盖的 chunk 跨度。
+     *
+     * @return 长度为 2 的数组：{起始 chunkIndex, 结束 chunkIndex}；无有效索引时返回 {-1, -1}
+     */
+    public static int[] getChunkSpan(EmbeddingMatch<TextSegment> match) {
+        int fallback = getChunkIndex(match);
+        if (match == null || match.embedded() == null || match.embedded().metadata() == null) {
+            return new int[] {fallback, fallback};
+        }
+        Metadata metadata = match.embedded().metadata();
+        Integer start = metadata.getInteger(META_CHUNK_START_INDEX);
+        Integer end = metadata.getInteger(META_CHUNK_END_INDEX);
+        if (start == null && end == null) {
+            return new int[] {fallback, fallback};
+        }
+        int s = start != null ? start : fallback;
+        int e = end != null ? end : s;
+        if (s < 0) s = e;
+        if (e < s) e = s;
+        return new int[] {s, e};
     }
 
     // ================================================================
@@ -319,6 +397,55 @@ public final class RagPipelineComponents {
     // ================================================================
 
     /**
+     * 按 maxChars 预算选取片段，返回"拼接文本 + 实际入选的 matches"。
+     * <p>
+     * 截断只发生在片段边界：放不下就停（不切 chunk 内部），与旧 {@link #truncateToChars} 行为一致。
+     * 返回入选列表是为了落检索快照——只有真正进入上下文的片段才算"依据"。
+     */
+    public record Selection(String text, List<EmbeddingMatch<TextSegment>> matches) {
+    }
+
+    public static Selection selectWithinBudget(List<EmbeddingMatch<TextSegment>> mergedChunks, int maxChars) {
+        return selectWithinBudget(mergedChunks, maxChars, false);
+    }
+
+    /**
+     * 片段标签：有真实章节元数据时带上章节，供模型引用与用户核对。
+     */
+    public static String fragmentLabel(EmbeddingMatch<TextSegment> match, int number) {
+        String chapter = null;
+        if (match != null && match.embedded() != null && match.embedded().metadata() != null) {
+            chapter = match.embedded().metadata().getString("chapterTitle");
+        }
+        if (chapter == null || chapter.isBlank()) {
+            return "【片段 " + number + "】";
+        }
+        String shortChapter = chapter.length() > 40 ? chapter.substring(0, 40) : chapter;
+        return "【片段 " + number + "｜" + shortChapter + "】";
+    }
+
+    /**
+     * 按预算选取片段；{@code labelChunks=true} 时给每个入选片段加「【片段 N】」编号。
+     * <p>编号只覆盖真正进入上下文的片段，与检索快照顺序一致，供模型用 [[N]] 标注来源。
+     */
+    public static Selection selectWithinBudget(List<EmbeddingMatch<TextSegment>> mergedChunks,
+                                               int maxChars, boolean labelChunks) {
+        StringBuilder sb = new StringBuilder();
+        List<EmbeddingMatch<TextSegment>> included = new ArrayList<>();
+        int totalLen = 0;
+        for (EmbeddingMatch<TextSegment> match : mergedChunks) {
+            String chunkText = match.embedded() != null ? match.embedded().text() : "";
+            if (chunkText.isBlank()) continue;
+            String label = labelChunks ? fragmentLabel(match, included.size() + 1) + "\n" : "";
+            if (totalLen + label.length() + chunkText.length() > maxChars) break;
+            sb.append(label).append(chunkText).append("\n\n");
+            totalLen += label.length() + chunkText.length();
+            included.add(match);
+        }
+        return new Selection(sb.toString(), included);
+    }
+
+    /**
      * 截断到 maxChars（按合并后顺序填充，超长即停）
      *
      * @param mergedChunks 已合并、已排序的 chunks
@@ -326,16 +453,7 @@ public final class RagPipelineComponents {
      * @return 拼接后的上下文字符串
      */
     public static String truncateToChars(List<EmbeddingMatch<TextSegment>> mergedChunks, int maxChars) {
-        StringBuilder sb = new StringBuilder();
-        int totalLen = 0;
-        for (EmbeddingMatch<TextSegment> match : mergedChunks) {
-            String chunkText = match.embedded() != null ? match.embedded().text() : "";
-            if (chunkText.isBlank()) continue;
-            if (totalLen + chunkText.length() > maxChars) break;
-            sb.append(chunkText).append("\n\n");
-            totalLen += chunkText.length();
-        }
-        return sb.toString();
+        return selectWithinBudget(mergedChunks, maxChars).text();
     }
 
     /**
@@ -349,8 +467,9 @@ public final class RagPipelineComponents {
      * @param maxChars     最大字符数（本条独立配额）
      * @return 拼接后的上下文字符串
      */
-    public static String truncateByQuota(List<EmbeddingMatch<TextSegment>> mergedChunks, int maxChars) {
+    public static Selection selectByQuota(List<EmbeddingMatch<TextSegment>> mergedChunks, int maxChars) {
         StringBuilder sb = new StringBuilder();
+        List<EmbeddingMatch<TextSegment>> included = new ArrayList<>();
         int totalLen = 0;
         for (EmbeddingMatch<TextSegment> match : mergedChunks) {
             String chunkText = match.embedded() != null ? match.embedded().text() : "";
@@ -358,7 +477,12 @@ public final class RagPipelineComponents {
             if (totalLen + chunkText.length() > maxChars) continue;
             sb.append(chunkText).append("\n\n");
             totalLen += chunkText.length();
+            included.add(match);
         }
-        return sb.toString();
+        return new Selection(sb.toString(), included);
+    }
+
+    public static String truncateByQuota(List<EmbeddingMatch<TextSegment>> mergedChunks, int maxChars) {
+        return selectByQuota(mergedChunks, maxChars).text();
     }
 }

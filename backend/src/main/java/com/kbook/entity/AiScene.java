@@ -86,6 +86,8 @@ public enum AiScene {
     LIST_QUERY_REFINE("列表查询精筛", Category.TOOL, false, false),
     /** 列表查询章节范围推断（从目录推断） */
     LIST_QUERY_CHAPTER_RANGE("列表章节范围推断", Category.TOOL, false, false),
+    /** RAG 检索结果 LLM 重排（默认关闭，压测后开启） */
+    RAG_RERANK("RAG重排", Category.TOOL, false, false),
     /** 回答条目化：把概述/列表型回答转为结构化 outline（流水线任务骨架，服务端内部状态） */
     ANSWER_OUTLINE("回答条目化", Category.TOOL, false, false),
 

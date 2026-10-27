@@ -3,6 +3,7 @@ package com.kbook.controller;
 import com.kbook.common.api.Result;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiRetrievalSnapshot;
 import com.kbook.entity.AiSession;
 import com.kbook.service.ai.BookChatService;
 import com.kbook.service.progress.ReadingProgressService;
@@ -53,7 +54,8 @@ public class BookChatController extends BaseController {
         String sessionId = (String) body.get("sessionId");
         // manual=true 表示用户在输入框敲字发送（强信号）；未传或 false 表示点击追问（弱信号）
         boolean manual = Boolean.parseBoolean(String.valueOf(body.getOrDefault("manual", "true")));
-//        boolean regenerate = Boolean.parseBoolean(body.get("regenerate"));
+        // regenerate=true 表示对最后一条回答重新生成：删除旧回答、复用原用户消息
+        boolean regenerate = Boolean.parseBoolean(String.valueOf(body.getOrDefault("regenerate", "false")));
 
         if (message == null || message.isBlank()) {
             SseEmitter emitter = new SseEmitter();
@@ -78,7 +80,8 @@ public class BookChatController extends BaseController {
         // 将图书加入最近阅读（已有记录则更新时间，无记录则设进度为 0%）
         readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
-        return withSseLimit(userId, () -> bookChatService.streamBookChat(userId, bookId, safeMessage, sessionId, manual));
+        return withSseLimit(userId, () -> bookChatService.streamBookChat(
+                userId, bookId, safeMessage, sessionId, manual, regenerate));
     }
 
     /**
@@ -143,6 +146,19 @@ public class BookChatController extends BaseController {
             bookChatService.saveFollowUpQuestions(userId, sessionId, bookId, followUps);
         }
         return Result.ok(followUps);
+    }
+
+    /**
+     * 查询某条回答实际使用的检索依据（归属校验）。
+     */
+    @Operation(summary = "查询回答依据")
+    @GetMapping("/{bookId}/chat/{conversationId}/evidence")
+    public Result<List<AiRetrievalSnapshot>> getRetrievalEvidence(
+            @PathVariable Long bookId,
+            @PathVariable Long conversationId
+    ) {
+        Long userId = extractUserId();
+        return Result.ok(bookChatService.getRetrievalEvidence(userId, bookId, conversationId));
     }
 
     /**

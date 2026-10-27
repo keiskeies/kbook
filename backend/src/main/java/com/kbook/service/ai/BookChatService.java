@@ -24,6 +24,7 @@ import com.kbook.config.properties.QdrantProperties;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.AiConversation;
+import com.kbook.entity.AiRetrievalSnapshot;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.entity.Book;
@@ -67,6 +68,9 @@ import com.kbook.service.ai.rag.ListQueryRetriever;
 import com.kbook.service.ai.rag.ListQueryStrategySelector;
 import com.kbook.service.ai.rag.ItemListRetriever;
 import com.kbook.service.ai.rag.RagPipelineComponents;
+import com.kbook.service.ai.rag.BookAnswerGuard;
+import com.kbook.service.ai.rag.AiRetrievalSnapshotService;
+import com.kbook.service.ai.rag.CitationValidator;
 import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiAssistantProvider;
 import com.kbook.service.ai.core.AiSceneConfigService;
@@ -97,6 +101,7 @@ public class BookChatService {
     private final BookChatRagService ragService;
     private final BookChatPipelineService pipelineService;
     private final BookChatFollowUpService followUpService;
+    private final AiRetrievalSnapshotService retrievalSnapshotService;
     private final @Qualifier("sseExecutor") ExecutorService sseExecutor;
 
     public BookChatService(
@@ -113,6 +118,7 @@ public class BookChatService {
             BookChatRagService ragService,
             BookChatPipelineService pipelineService,
             BookChatFollowUpService followUpService,
+            AiRetrievalSnapshotService retrievalSnapshotService,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -127,6 +133,7 @@ public class BookChatService {
         this.ragService = ragService;
         this.pipelineService = pipelineService;
         this.followUpService = followUpService;
+        this.retrievalSnapshotService = retrievalSnapshotService;
         this.sseExecutor = sseExecutor;
     }
 
@@ -142,7 +149,8 @@ public class BookChatService {
      * @return SseEmitter 流式发射器
      */
     @LogAction("SSE图书问答")
-    public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId, boolean manual) {
+    public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId,
+                                     boolean manual, boolean regenerate) {
         log.info("========== 图书问答请求 ==========");
         log.info("userId={}, bookId={}, question={}", userId, bookId, question);
 
@@ -179,6 +187,17 @@ public class BookChatService {
 
         Future<?> aiFuture = AiUsageContext.submit(sseExecutor, bookId, effectiveSessionId, () -> {
             try {
+                // 重新生成：先删掉最后一条旧回答，后续历史/上轮回答自然回到上一轮
+                if (regenerate) {
+                    AiConversation lastAssistant = sessionService.findLastAssistantRow(userId, effectiveSessionId);
+                    if (lastAssistant != null) {
+                        retrievalSnapshotService.deleteByConversationId(lastAssistant.getId());
+                        sessionService.deleteMessageById(lastAssistant.getId());
+                        log.info("[Regenerate] 删除旧回答: conversationId={}, sessionId={}",
+                                lastAssistant.getId(), effectiveSessionId);
+                    }
+                }
+
                 // 上一轮 AI 回答（用于追问场景的 RAG 查询扩展，不缓存答案——不同用户画像应得到不同回答）
                 String lastAiAnswer = sessionService.getLastAiAnswer(userId, effectiveSessionId);
 
@@ -206,8 +225,11 @@ public class BookChatService {
                 String ragContext = null;
                 String listTopic = null;
                 List<EmbeddingMatch<TextSegment>> ragMatches = null;
+                List<EmbeddingMatch<TextSegment>> ragIncludedMatches = null;
                 ListQueryDetector.DetectionResult detection = ListQueryDetector.DetectionResult.notList();
+                boolean retrievalAttempted = false;
                 if (embeddingService.isAvailable() && waitForContentEmbedding(book.getId())) {
+                    retrievalAttempted = true;
                     // 检测提前到检索之前（§3.4 流水线触发第一步）：一次 LLM 调用，
                     // 列表型分支内部复用传入的 detection 结果，不再重复检测。
                     detection = listQueryDetector.detect(question, lastAiAnswer);
@@ -218,10 +240,11 @@ public class BookChatService {
                         ragContext = ragResult.ragContext();
                         listTopic = ragResult.listTopic();
                         ragMatches = ragResult.matches();
+                        ragIncludedMatches = ragResult.includedMatches();
                     } catch (Exception e) {
                         log.warn("RAG 检索异常: bookId={} - {}", book.getId(), e.getMessage());
                         try {
-                            emitter.send(SseEmitter.event().name("thinking_content").data("没找到直接相关的内容，凭印象回答你…\n"));
+                            emitter.send(SseEmitter.event().name("thinking_content").data("检索出了点问题，我确认一下…\n"));
                         } catch (Exception ignored) {
                         }
                     }
@@ -233,23 +256,68 @@ public class BookChatService {
                 // 构建图书基本信息（静态，跨会话共享 KV Cache）
                 String bookInfoPrompt = buildBookInfoPrompt(book);
 
+                // 快照：记录"实际进入上下文"的片段与该轮提示词版本
+                final List<EmbeddingMatch<TextSegment>> includedMatchesForSnapshot = ragIncludedMatches;
+                final String promptVersion = BookChatPrompts.versionOf(
+                        sessionService.getSystemPromptForStyle(sessionService.getChatStyleForUser(userId)));
+
                 // ===== 列表展开流水线触发判定（§3.4）=====
                 // 条件：检测为列表型 && outline 可得（DB 优先，缺失现场条目化）且 items≥2 && ≤ MAX_PIPELINE_ITEMS
                 // 任何一条不满足 → 完全退回现有单次流式路径（行为不比现状差，Q4）
                 com.kbook.service.ai.outline.AnswerOutline pipelineOutline =
-                        pipelineService.resolvePipelineOutline(detection, userId, effectiveSessionId, emitter,
-                                lastAiAnswer, ragMatches);
+                        pipelineService.resolvePipelineOutline(detection, question, userId, effectiveSessionId,
+                                emitter, lastAiAnswer, ragMatches, book.getToc());
 
                 if (pipelineOutline != null) {
                     pipelineService.streamItemListPipeline(book, question, pipelineOutline,
-                            bookInfoPrompt, model, userId, effectiveSessionId, emitter, manual);
+                            bookInfoPrompt, model, userId, effectiveSessionId, emitter, manual,
+                            includedMatchesForSnapshot, promptVersion, regenerate);
+                    return;
+                }
+
+                // ===== 空检索/低分拒答（P0-B）=====
+                // 只在"确实尝试过检索"且无上下文或常规检索低于绝对阈值时触发；
+                // 元问题/闲聊仍允许用图书信息回答；列表型不使用余弦阈值（其分值是 rank 序数分）。
+                boolean noContext = ragContext == null || ragContext.isBlank();
+                boolean lowScore = !noContext && BookAnswerGuard.isLowScore(
+                        includedMatchesForSnapshot, qdrantProperties.getAbsoluteMinScore(),
+                        detection.isListQuery());
+                if (qdrantProperties.getAbsoluteMinScore() > 0) {
+                    log.info("[AnswerGuard] topScore={}, threshold={}, list={}, noContext={}",
+                            BookAnswerGuard.topScore(includedMatchesForSnapshot),
+                            qdrantProperties.getAbsoluteMinScore(), detection.isListQuery(), noContext);
+                }
+                if (retrievalAttempted
+                        && (noContext || lowScore)
+                        && BookAnswerGuard.shouldRefuse(question)) {
+                    String refusal = BookAnswerGuard.refusalMessage(question);
+                    log.info("[AnswerGuard] 检索为空，拒答: bookId={}, question={}", bookId, question);
+                    try {
+                        sessionService.ensureSession(userId, effectiveSessionId, question, bookId);
+                        if (!regenerate || !sessionService.isLastUserMessage(userId, effectiveSessionId, question)) {
+                            sessionService.saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
+                        }
+                        sessionService.saveMessage(userId, effectiveSessionId, "assistant", refusal, bookId, null, "NO_CONTEXT");
+                        sessionService.updateSessionTimestamp(effectiveSessionId);
+                        sessionService.publishUserSignal(userId, effectiveSessionId, bookId, question, manual);
+                    } catch (Exception e) {
+                        log.warn("[AnswerGuard] 拒答落库失败（不影响回复）: {}", e.getMessage());
+                    }
+                    SseHelper.safeSendEvent(emitter, "message", refusal);
+                    try {
+                        emitter.send(SseEmitter.event().name("done").data("[DONE]"));
+                        emitter.complete();
+                    } catch (Exception e) {
+                        log.debug("[AnswerGuard] done/complete 发送失败: {}", e.getMessage());
+                    }
                     return;
                 }
 
                 // ===== 回退路径：现有单次流式（ListQueryRetriever 三档检索保留为回退，§8）=====
                 // RAG 参考内容 + 用户问题分别构造为独立消息（结构清晰，避免问题被 RAG 淹没）
+                int includedCount = includedMatchesForSnapshot == null ? 0 : includedMatchesForSnapshot.size();
                 String ragMessage = buildRagMessage(ragContext);
-                String questionMessage = buildQuestionMessage(question, listTopic);
+                String questionMessage = buildQuestionMessage(question, listTopic, includedCount);
 
                 log.debug("图书问答: bookId={}, question={}, bookInfoLen={}, ragContextLen={}, questionMsgLen={}",
                         bookId, question, bookInfoPrompt.length(),
@@ -287,20 +355,43 @@ public class BookChatService {
                         log.debug("图书问答流式完成: bookId={}", bookId);
 
                         sessionService.ensureSession(userId, effectiveSessionId, question, bookId);
-                        sessionService.saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
+                        if (!regenerate || !sessionService.isLastUserMessage(userId, effectiveSessionId, question)) {
+                            sessionService.saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
+                        }
                         String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
                         // 输出审查 P1 #17：过滤可能的系统提示泄露后再持久化和缓存
                         String safeAnswer = CommonUtils.sanitizeAiOutput(answer);
-                        // 检测到泄露时发送 replace 事件覆盖前端已显示的流式内容
-                        if (!safeAnswer.equals(answer)) {
+                        // 引用校验：只保留真实存在的片段编号，非法编号剔除
+                        int citationIncludedCount = includedMatchesForSnapshot == null
+                                ? 0 : includedMatchesForSnapshot.size();
+                        CitationValidator.Result citationResult =
+                                CitationValidator.validate(safeAnswer, citationIncludedCount);
+                        String finalAnswer = citationResult.answer();
+                        // 检测到泄露或非法引用时发送 replace 事件覆盖前端已显示的流式内容
+                        if (!finalAnswer.equals(answer)) {
                             try {
-                                emitter.send(SseEmitter.event().name("replace").data(safeAnswer));
-                                log.warn("已发送 replace 事件覆盖泄露内容: bookId={}, sessionId={}", bookId, effectiveSessionId);
+                                emitter.send(SseEmitter.event().name("replace").data(finalAnswer));
                             } catch (Exception ignored) {
+                            }
+                            // 引用编号 [[N]] → [N] 是正常改写，几乎每次都会触发；
+                            // 只有真出现非法编号（或 sanitize 命中）才是需要盯的问题。
+                            if (citationResult.invalidCount() > 0) {
+                                log.warn("回答含非法引用编号，已剔除并覆盖: bookId={}, sessionId={}, invalid={}, included={}",
+                                        bookId, effectiveSessionId, citationResult.invalidCount(), citationIncludedCount);
+                            } else {
+                                log.debug("引用编号已规范化([[N]]→[N])并覆盖前端内容: bookId={}, sessionId={}, valid={}, included={}",
+                                        bookId, effectiveSessionId, citationResult.validCount(), citationIncludedCount);
                             }
                         }
                         AiConversation assistantRow = sessionService.saveMessage(userId, effectiveSessionId, "assistant",
-                                safeAnswer, bookId, thinkingText, mainFinishReason.get());
+                                finalAnswer, bookId, thinkingText, mainFinishReason.get());
+                        if (assistantRow != null) {
+                            if (citationResult.citationJson() != null) {
+                                sessionService.updateCitationById(assistantRow.getId(), citationResult.citationJson());
+                            }
+                            retrievalSnapshotService.save(assistantRow.getId(), bookId,
+                                    includedMatchesForSnapshot, promptVersion);
+                        }
                         sessionService.updateSessionTimestamp(effectiveSessionId);
                         // 发布用户提问信号（异步由 BehaviorProfileService 消费）
                         sessionService.publishUserSignal(userId, effectiveSessionId, bookId, question, manual);
@@ -312,7 +403,9 @@ public class BookChatService {
                     public void onConnectionClosed(String partialContent) {
                         // 连接断开时仍然保存已输出的部分内容（与原行为一致）
                         sessionService.ensureSession(userId, effectiveSessionId, question, bookId);
-                        sessionService.saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
+                        if (!regenerate || !sessionService.isLastUserMessage(userId, effectiveSessionId, question)) {
+                            sessionService.saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
+                        }
                         String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
                         sessionService.saveMessage(userId, effectiveSessionId, "assistant",
                                 CommonUtils.sanitizeAiOutput(partialContent), bookId, thinkingText);
@@ -380,7 +473,7 @@ public class BookChatService {
 
         try {
             // 加载历史消息并同步压缩，确保 LLM 上下文不超限
-            int currentOverhead = BookChatPrompts.BOOK_CHAT_SYSTEM_PROMPT.length()
+            int currentOverhead = systemPrompt.length()
                     + (bookInfoPrompt != null ? bookInfoPrompt.length() : 0)
                     + (ragMessage != null ? ragMessage.length() : 0)
                     + (questionMessage != null ? questionMessage.length() : 0)
@@ -608,18 +701,40 @@ public class BookChatService {
      * @param listTopic 列表主题（来自列表型检测；非列表型问题为 null）
      * @return 问题消息字符串
      */
-    private String buildQuestionMessage(String question, String listTopic) {
-        String base = "【读者的问题】\n" + question + "\n\n请根据上述内容，用中文回答。【回答铁律】已在上方告知，请严格遵守。";
-        if (listTopic == null || listTopic.isBlank()) {
-            return base;
+    static String buildQuestionMessage(String question, String listTopic, int citationCount) {
+        StringBuilder sb = new StringBuilder(
+                "【读者的问题】\n" + question + "\n\n请根据上述内容，用中文回答。【回答铁律】已在上方告知，请严格遵守。");
+
+        if (citationCount > 0) {
+            sb.append("\n\n【引用契约】参考内容以「【片段 N】」分隔。")
+              .append("每个来自书里的关键事实后面用 [[N]] 标注来源（如 [[1]] 或 [[1,2]]）；")
+              .append("N 只能是参考内容中出现过的片段编号，不要编造；没有依据的判断不要标注。");
         }
-        return base + "\n\n【覆盖度契约】本轮问题要求展开列表「" + listTopic + "」："
-                + "参考内容中该列表的每一项都必须单独成节输出，一项不落，"
-                + "禁止合并条目、禁止只展开前几项后省略其余；某一项在参考内容中确实缺失时，"
-                + "也要为该单项一小节并说明这部分材料不足，不许静默跳过。";
+
+        if (listTopic == null || listTopic.isBlank()) {
+            return sb.toString();
+        }
+        sb.append("\n\n【覆盖度契约】本轮问题要求展开列表「").append(listTopic).append("」：")
+          .append("参考内容中该列表的每一项都必须单独成节输出，一项不落，")
+          .append("禁止合并条目、禁止只展开前几项后省略其余；某一项在参考内容中确实缺失时，")
+          .append("也要为该单项一小节并说明这部分材料不足，不许静默跳过。");
+        return sb.toString();
     }
 
     // ==================== 委托（公开 API 保持原签名，Controller 零改动） ====================
+
+    /**
+     * 查询某条回答实际使用的检索依据（归属校验：必须属于该用户与该书）。
+     * 评测脚本与前端引用区共用；无权限/非 assistant 行返回空列表。
+     */
+    @LogAction("查询回答依据")
+    public List<AiRetrievalSnapshot> getRetrievalEvidence(Long userId, Long bookId, Long conversationId) {
+        AiConversation conversation = sessionService.findConversationForUser(userId, bookId, conversationId);
+        if (conversation == null || !"assistant".equals(conversation.getRole())) {
+            return List.of();
+        }
+        return retrievalSnapshotService.findByConversationId(conversationId);
+    }
 
     @LogAction("获取推荐问题")
     public List<String> getSuggestedQuestions(Long bookId) {

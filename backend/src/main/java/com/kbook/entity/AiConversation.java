@@ -93,6 +93,13 @@ public class AiConversation extends BaseEntity {
     private String finishReason;
 
     /**
+     * 引用校验结果（JSON）：{"valid":[1,2],"invalid":0,"included":3}。
+     * 服务端内部状态，前端可按需读取。
+     */
+    @Column(name = "citation_json", columnDefinition = "TEXT")
+    private String citationJson;
+
+    /**
      * 工具调用 ID（当 role=tool 时记录）
      */
     @Column(name = "tool_call_id", length = 100)

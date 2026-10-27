@@ -5,6 +5,7 @@ import com.kbook.service.ai.outline.AnswerOutline;
 import com.kbook.service.embedding.EmbeddingIndexService;
 import com.kbook.service.embedding.EmbeddingIndexService.ChunkInfo;
 import com.kbook.service.embedding.EmbeddingService;
+import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +47,19 @@ public class ItemListRetriever {
     /** 关键词向量检索每条取回数（放宽阈值由 searchContent 的 minScore=0.2 承担）。 */
     private static final int KEYWORD_TOP_N = 4;
 
+    /**
+     * 单条材料检索超时。外层流水线整体等待 15s，这里必须更短：
+     * 一条慢查询只应让该条走"材料不足"占位，不能拖垮整篇。
+     */
+    private static final long PER_ITEM_TIMEOUT_MS = 8_000L;
+
+    /** 单条材料：文本 + 实际入选的 chunk（供检索快照与后续引用使用）。 */
+    public record Material(String text, List<EmbeddingMatch<TextSegment>> matches) {
+        public static Material empty() {
+            return new Material("", List.of());
+        }
+    }
+
     private final EmbeddingService embeddingService;
     private final Executor prefetchExecutor;
 
@@ -57,57 +71,56 @@ public class ItemListRetriever {
     }
 
     /**
-     * 并行预取所有条目的检索材料。
+     * 提交所有条目的检索任务，立即返回逐条 future。
+     * <p>调用方在生成第 i 节前只等第 i 条——第一节不必等全部条目检索完；
+     * 单条超时/异常只影响该条（返回 ""），不影响其他条目。
      *
-     * @return itemId → 该条材料文本；空列表或异常时为 ""（调用方据此走"资料不足"话术）
+     * @return itemId → 该条材料 future（永不异常完成，超时/失败为 {@link Material#empty()}）
      */
-    public Map<Integer, String> prefetchAll(Book book, List<AnswerOutline.Item> items) {
-        Map<Integer, String> result = new LinkedHashMap<>();
+    public Map<Integer, CompletableFuture<Material>> prefetchAllAsync(Book book, List<AnswerOutline.Item> items) {
+        Map<Integer, CompletableFuture<Material>> result = new LinkedHashMap<>();
         if (items == null || items.isEmpty()) {
             return result;
         }
 
-        List<CompletableFuture<String[]>> futures = new ArrayList<>(items.size());
         for (int i = 0; i < items.size(); i++) {
             final int idx = i;
-            futures.add(CompletableFuture.supplyAsync(() -> {
-                try {
-                    String material = retrieveOne(book, items.get(idx));
-                    return new String[]{material};
-                } catch (Exception e) {
-                    log.warn("[Pipeline] 条目 {} 预取失败（该条走缺材料话术）: {}", idx + 1, e.getMessage());
-                    return new String[]{""};
-                }
-            }, prefetchExecutor));
-        }
-
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
-        for (int i = 0; i < futures.size(); i++) {
-            AnswerOutline.Item item = items.get(i);
+            final AnswerOutline.Item item = items.get(i);
             int id = item.id() != null ? item.id() : (i + 1);
-            String material = "";
+            CompletableFuture<Material> future;
             try {
-                material = futures.get(i).join()[0];
+                future = CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return retrieveOne(book, item);
+                    } catch (Exception e) {
+                        log.warn("[Pipeline] 条目 {} 预取失败（该条走缺材料话术）: {}", idx + 1, e.getMessage());
+                        return Material.empty();
+                    }
+                }, prefetchExecutor)
+                        .orTimeout(PER_ITEM_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        .exceptionally(e -> {
+                            log.warn("[Pipeline] 条目 {} 预取超时/异常（该条走缺材料话术）: {}", idx + 1, e.getMessage());
+                            return Material.empty();
+                        });
             } catch (Exception e) {
-                log.warn("[Pipeline] 条目 {} 预取 join 异常: {}", id, e.getMessage());
+                log.warn("[Pipeline] 条目 {} 预取任务提交失败（该条走缺材料话术）: {}", idx + 1, e.getMessage());
+                future = CompletableFuture.completedFuture(Material.empty());
             }
-            result.put(id, material != null ? material : "");
+            result.put(id, future);
         }
 
-        long hit = result.values().stream().filter(s -> !s.isBlank()).count();
-        log.info("[Pipeline] 逐条预取完成: bookId={}, items={}, 有材料={}/{}",
-                book.getId(), items.size(), hit, items.size());
+        log.info("[Pipeline] 逐条预取已提交: bookId={}, items={}", book.getId(), items.size());
         return result;
     }
 
     /**
      * 单条检索：锚点范围优先，缺失退化关键词向量检索 + 邻域扩展 + 合并相邻，最后按独立配额截断。
      */
-    String retrieveOne(Book book, AnswerOutline.Item item) {
+    Material retrieveOne(Book book, AnswerOutline.Item item) {
         // 1. 锚点优先（位置确定性最强，直接来自上一轮 RAG 材料的 chunkIndex 对齐）
-        String anchored = retrieveByAnchors(book, item);
-        if (!anchored.isBlank()) {
-            return cap(anchored);
+        Material anchored = retrieveByAnchors(book, item);
+        if (!anchored.text().isBlank()) {
+            return anchored;
         }
 
         // 2. 关键词向量检索
@@ -133,7 +146,7 @@ public class ItemListRetriever {
             }
         }
         if (dedup.isEmpty()) {
-            return "";
+            return Material.empty();
         }
 
         List<EmbeddingMatch<TextSegment>> sorted = new ArrayList<>(dedup.values());
@@ -142,38 +155,42 @@ public class ItemListRetriever {
                 sorted, book.getId(), 1, 2, embeddingService::searchContentByChunkIndex);
         List<EmbeddingMatch<TextSegment>> merged = RagPipelineComponents.mergeAdjacentChunks(expanded);
 
-        // 3. 独立配额（truncateByQuota 而非全局 truncateToChars 的 break 语义，§4.6）
-        return cap(RagPipelineComponents.truncateByQuota(merged, PER_ITEM_MAX_CHARS));
+        // 3. 独立配额：整块放不下就跳过，不切 chunk；同时回传真正入选的 matches
+        RagPipelineComponents.Selection selection =
+                RagPipelineComponents.selectByQuota(merged, PER_ITEM_MAX_CHARS);
+        return new Material(selection.text(), selection.matches());
     }
 
     /**
      * 锚点范围检索：[min-1, max+2] scroll，命中即用。
      */
-    private String retrieveByAnchors(Book book, AnswerOutline.Item item) {
+    private Material retrieveByAnchors(Book book, AnswerOutline.Item item) {
         List<Integer> anchors = item.chunkAnchors();
         if (anchors == null || anchors.isEmpty()) {
-            return "";
+            return Material.empty();
         }
         int min = anchors.stream().mapToInt(Integer::intValue).min().orElse(-1);
         int max = anchors.stream().mapToInt(Integer::intValue).max().orElse(-1);
-        if (min < 0) return "";
+        if (min < 0) return Material.empty();
 
         List<EmbeddingIndexService.ChunkInfo> chunks =
                 embeddingService.scrollChunksByIndexRange(book.getId(), Math.max(0, min - 1), max + 2);
         if (chunks.isEmpty()) {
-            return "";
+            return Material.empty();
         }
-        StringBuilder sb = new StringBuilder();
+
+        List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>(chunks.size());
         for (EmbeddingIndexService.ChunkInfo c : chunks) {
             if (c.text() == null || c.text().isBlank()) continue;
-            if (sb.length() + c.text().length() > PER_ITEM_MAX_CHARS) break;
-            sb.append(c.text()).append("\n\n");
+            Metadata metadata = new Metadata()
+                    .put("bookId", book.getId())
+                    .put("chunkIndex", c.chunkIndex());
+            matches.add(new EmbeddingMatch<>(1.0, String.valueOf(c.pointId()), null,
+                    TextSegment.from(c.text(), metadata)));
         }
-        return sb.toString();
-    }
-
-    private String cap(String s) {
-        return s.length() > PER_ITEM_MAX_CHARS ? s.substring(0, PER_ITEM_MAX_CHARS) : s;
+        RagPipelineComponents.Selection selection =
+                RagPipelineComponents.selectByQuota(matches, PER_ITEM_MAX_CHARS);
+        return new Material(selection.text(), selection.matches());
     }
 
     private static String textOf(EmbeddingMatch<TextSegment> m) {

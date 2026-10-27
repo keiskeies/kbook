@@ -9,6 +9,7 @@ import com.kbook.service.book.BookParserService;
 import com.kbook.service.book.BookService;
 import com.kbook.service.embedding.RagHitStatisticsService;
 import com.kbook.service.embedding.EmbeddingService;
+import com.kbook.service.embedding.ContentQualityGate;
 import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ChatModelFactory;
@@ -57,6 +58,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +69,7 @@ import com.kbook.service.ai.rag.ListQueryRetriever;
 import com.kbook.service.ai.rag.ListQueryStrategySelector;
 import com.kbook.service.ai.rag.ItemListRetriever;
 import com.kbook.service.ai.rag.RagPipelineComponents;
+import com.kbook.service.ai.rag.RagRerankService;
 import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiAssistantProvider;
 import com.kbook.service.ai.core.AiSceneConfigService;
@@ -89,6 +92,9 @@ public class BookChatRagService {
     private final ListQueryRetriever listQueryRetriever;
     private final RagHitStatisticsService ragHitStatisticsService;
     private final AiSceneConfigService aiSceneConfigService;
+    private final RagRerankService ragRerankService;
+    private final QdrantProperties qdrantProperties;
+    private final Executor qaPrefetchExecutor;
 
     public BookChatRagService(
             EmbeddingService embeddingService,
@@ -97,7 +103,10 @@ public class BookChatRagService {
             ListQueryStrategySelector listQueryStrategySelector,
             ListQueryRetriever listQueryRetriever,
             RagHitStatisticsService ragHitStatisticsService,
-            AiSceneConfigService aiSceneConfigService) {
+            AiSceneConfigService aiSceneConfigService,
+            RagRerankService ragRerankService,
+            QdrantProperties qdrantProperties,
+            @Qualifier("qaPrefetchExecutor") Executor qaPrefetchExecutor) {
         this.embeddingService = embeddingService;
         this.bookParserService = bookParserService;
         this.chatModelManager = chatModelManager;
@@ -105,7 +114,15 @@ public class BookChatRagService {
         this.listQueryRetriever = listQueryRetriever;
         this.ragHitStatisticsService = ragHitStatisticsService;
         this.aiSceneConfigService = aiSceneConfigService;
+        this.ragRerankService = ragRerankService;
+        this.qdrantProperties = qdrantProperties;
+        this.qaPrefetchExecutor = qaPrefetchExecutor;
     }
+
+    /** 查询扩展子查询上限：过多子查询会放大噪声与检索耗时。 */
+    private static final int MAX_SUB_QUERIES = 6;
+    /** 单个子查询检索超时：失败只损失一路召回，不拖垮整轮。 */
+    private static final long PER_QUERY_TIMEOUT_MS = 10_000L;
 
 
     /** 默认上下文长度（32K tokens，场景配置缺失时兜底） */
@@ -131,18 +148,21 @@ public class BookChatRagService {
         int max = Integer.MIN_VALUE;
         int valid = 0;
         for (EmbeddingMatch<TextSegment> m : chunks) {
-            int idx = RagPipelineComponents.getChunkIndex(m);
-            if (idx < 0) continue;
+            int[] span = RagPipelineComponents.getChunkSpan(m);
+            if (span[0] < 0) continue;
             valid++;
-            min = Math.min(min, idx);
-            max = Math.max(max, idx);
+            min = Math.min(min, span[0]);
+            max = Math.max(max, span[1]);
         }
         if (valid == 0) return "idx[none]";
         return "idx[n=" + valid + ",min=" + min + ",max=" + max + ",span=" + (max - min + 1) + "]";
     }
 
     /**
-     * RAG 上下文最大字符数：maxTokens × 1.5 × 0.6（留 40% 给系统和对话）
+     * RAG 上下文最大字符数：maxTokens × 1.5 × 0.6（留 40% 给系统和对话）。
+     * <p>
+     * 这是「模型能吃下多少」的预算，不是「该注入多少材料」——后者由
+     * {@code qdrant.rag-max-chars} 在常规管线里单独封顶。
      */
     int getRagMaxChars() {
         // 从 BOOK_QA 场景绑定配置读 maxTokens（跟随场景路由）
@@ -160,6 +180,24 @@ public class BookChatRagService {
     }
 
     /**
+     * 常规管线的上下文注入上限：模型窗口推导预算与 {@code qdrant.rag-max-chars} 取小者。
+     * <p>
+     * 列表型路径不适用这个上限——它的材料是逐条定向检索出来的，本来就不是「整本塞进去」，
+     * 用全局上限反而会把长列表的条目截掉。
+     */
+    int getRegularRagMaxChars(int modelDerived) {
+        return resolveRagMaxChars(modelDerived, qdrantProperties.getRagMaxChars());
+    }
+
+    /**
+     * 取「模型窗口推导预算」与「配置上限」的较小值；配置上限 ≤ 0 表示不额外限制。
+     */
+    static int resolveRagMaxChars(int modelDerived, int configuredCap) {
+        if (configuredCap <= 0) return modelDerived;
+        return Math.min(modelDerived, configuredCap);
+    }
+
+    /**
      * RAG 检索结果：上下文字符串 + 列表型主题。
      * <p>
      * listTopic 非空 = 本轮问题被判定为列表展开型（无论列表专项检索成功还是退化为常规 RAG）。
@@ -167,8 +205,15 @@ public class BookChatRagService {
      * （阶段1 止血项：主干路径下"5 点只展开 3 点"的直接对策之一）。
      */
     record RagRetrievalResult(String ragContext, String listTopic,
-                                      List<EmbeddingMatch<TextSegment>> matches) {
-        static final RagRetrievalResult EMPTY = new RagRetrievalResult(null, null, null);
+                                      List<EmbeddingMatch<TextSegment>> matches,
+                                      List<EmbeddingMatch<TextSegment>> includedMatches) {
+        /** 未区分"候选 matches"与"实际入选"时的兼容构造：默认两者相同。 */
+        RagRetrievalResult(String ragContext, String listTopic,
+                           List<EmbeddingMatch<TextSegment>> matches) {
+            this(ragContext, listTopic, matches, matches);
+        }
+
+        static final RagRetrievalResult EMPTY = new RagRetrievalResult(null, null, null, null);
     }
 
     /**
@@ -215,12 +260,21 @@ public class BookChatRagService {
         try {
             result = switch (strategy) {
                 case FULL_SCAN -> listQueryRetriever.fullScanAndRefine(book, listTopic, ragMaxChars);
-                case TOC_RANGE -> listQueryRetriever.tocRangeRetrieve(book, listTopic, ragMaxChars);
+                case TOC_RANGE -> listQueryRetriever.tocRangeRetrieve(book, listTopic, question, ragMaxChars);
                 case CLUSTER_EXPAND -> listQueryRetriever.clusterExpandRetrieve(book, listTopic, question, ragMaxChars);
             };
         } catch (Exception e) {
             log.warn("[ListQuery] 策略 {} 执行异常，退化为常规 RAG: {}", strategy, e.getMessage());
             return new RagRetrievalResult(null, listTopic, null);
+        }
+
+        // 3.5 档 2 的前提是「主题落在目录的某一行」。目录不完整、或 LLM 挑错行时，
+        // 窗口会落到别的章节（实测「如何获得幸福和成功」不在目录里 → 窗口落到「第三讲」）。
+        // 这时改用档 3（向量召回 + 簇扩展），而不是拿错误章节硬答。
+        if (strategy == ListQueryStrategySelector.Strategy.TOC_RANGE && result.matches().isEmpty()) {
+            log.warn("[ListQuery] 档2 未产出可用材料，改用档3: bookId={}, topic={}, log={}",
+                    book.getId(), listTopic, result.strategyLog());
+            result = listQueryRetriever.clusterExpandRetrieve(book, listTopic, question, ragMaxChars);
         }
 
         // 4. 检查结果
@@ -233,13 +287,20 @@ public class BookChatRagService {
         StringBuilder sb = new StringBuilder();
         int totalLen = 0;
         int charsIn = 0;
+        List<EmbeddingMatch<TextSegment>> included = new ArrayList<>();
         for (EmbeddingMatch<TextSegment> match : result.matches()) {
             String chunkText = match.embedded() != null ? match.embedded().text() : "";
             if (chunkText.isBlank()) continue;
+            // 与常规路径同一条闸门：乱码块不进上下文
+            if (ContentQualityGate.isGarbled(chunkText)) {
+                continue;
+            }
             charsIn += chunkText.length();
-            if (totalLen + chunkText.length() > ragMaxChars) break;
-            sb.append(chunkText).append("\n\n");
-            totalLen += chunkText.length();
+            String label = RagPipelineComponents.fragmentLabel(match, included.size() + 1) + "\n";
+            if (totalLen + label.length() + chunkText.length() > ragMaxChars) break;
+            sb.append(label).append(chunkText).append("\n\n");
+            totalLen += label.length() + chunkText.length();
+            included.add(match);
         }
 
         String ragContext = sb.toString();
@@ -263,7 +324,7 @@ public class BookChatRagService {
         } catch (Exception ignored) {
         }
 
-        return new RagRetrievalResult(ragContext, listTopic, result.matches());
+        return new RagRetrievalResult(ragContext, listTopic, result.matches(), included);
     }
 
     /**
@@ -304,30 +365,14 @@ public class BookChatRagService {
         // 5. 自适应邻域扩展（前 1 后 2 候选，按 score 决定保留）
         // 6. 合并相邻 + 按 bestScore 重排
         // 7. ragMaxChars 截断填充
-        int rawCount = 0, rawChars = 0;
-        Map<Integer, EmbeddingMatch<TextSegment>> dedupedByIndex = new LinkedHashMap<>();
         // 每个子查询统一取 ragTopK × 2，不再用固定公式
         int perQueryLimit = Math.max(ragTopK, ragTopK * 2);
 
-        // 1. 首轮向量查询
-        for (String subQuery : subQueries) {
-            try {
-                List<EmbeddingMatch<TextSegment>> matches =
-                        embeddingService.searchContent(subQuery, perQueryLimit, book);
-                for (EmbeddingMatch<TextSegment> match : matches) {
-                    String chunkText = match.embedded() != null ? match.embedded().text() : "";
-                    if (chunkText.isBlank()) continue;
-                    rawCount++;
-                    rawChars += chunkText.length();
-                    int idx = RagPipelineComponents.getChunkIndex(match);
-                    // 按 chunkIndex 去重，保留 score 更高的
-                    dedupedByIndex.merge(idx, match,
-                            (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
-                }
-            } catch (Exception e) {
-                log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
-            }
-        }
+        // 1. 并行向量查询：第一条保留书籍领域上下文，其余子查询已语义化，不再重复拼简介
+        SubQueryHits hits = searchSubQueries(book, subQueries, perQueryLimit);
+        int rawCount = hits.rawCount();
+        int rawChars = hits.rawChars();
+        Map<Integer, EmbeddingMatch<TextSegment>> dedupedByIndex = dedupeByIndex(hits.matches());
 
         // 2. 无结果时触发向量重建（保留原兜底逻辑）
         if (dedupedByIndex.isEmpty()) {
@@ -336,26 +381,10 @@ public class BookChatRagService {
             Boolean reEmbedResult = bookParserService.forceReEmbedIfMissing(book.getId());
             if (reEmbedResult != null && reEmbedResult) {
                 log.info("内容向量重建成功，重新执行 RAG 检索: bookId={}", book.getId());
-                // 重建后重置计数器，确保日志反映最终检索数据
-                rawCount = 0;
-                rawChars = 0;
-                for (String subQuery : subQueries) {
-                    try {
-                        List<EmbeddingMatch<TextSegment>> matches =
-                                embeddingService.searchContent(subQuery, perQueryLimit, book);
-                        for (EmbeddingMatch<TextSegment> match : matches) {
-                            String chunkText = match.embedded() != null ? match.embedded().text() : "";
-                            if (chunkText.isBlank()) continue;
-                            rawCount++;
-                            rawChars += chunkText.length();
-                            int idx = RagPipelineComponents.getChunkIndex(match);
-                            dedupedByIndex.merge(idx, match,
-                                    (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
-                        }
-                    } catch (Exception e) {
-                        log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
-                    }
-                }
+                hits = searchSubQueries(book, subQueries, perQueryLimit);
+                rawCount = hits.rawCount();
+                rawChars = hits.rawChars();
+                dedupedByIndex = dedupeByIndex(hits.matches());
             }
         }
 
@@ -394,39 +423,126 @@ public class BookChatRagService {
         List<EmbeddingMatch<TextSegment>> merged = RagPipelineComponents.mergeAdjacentChunks(expanded);
         // 关键改造：合并后按 bestScore 降序（高相关片段优先填满 ragMaxChars）
         merged.sort((a, b) -> Double.compare(b.score(), a.score()));
+        // 可选 LLM rerank（默认关闭）：只改顺序，不改向量分；rerankScore 写入 metadata 供快照记录
+        merged = ragRerankService.rerank(question, merged);
+        // 乱码块过滤：乱码 chunk 进了上下文就会被模型当作"书中原文"引用，比丢材料更糟。
+        // 用与入库闸门同一套判定，保证"进了索引的脏块"在检索侧还有第二道拦截。
+        int beforeGarbledFilter = merged.size();
+        merged = merged.stream()
+                .filter(m -> {
+                    String t = m.embedded() != null ? m.embedded().text() : "";
+                    return !ContentQualityGate.isGarbled(t);
+                })
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (merged.size() < beforeGarbledFilter) {
+            log.warn("[编码诊断] 过滤乱码 chunk: bookId={}, 丢弃={}/{}",
+                    book.getId(), beforeGarbledFilter - merged.size(), beforeGarbledFilter);
+            ragHitStatisticsService.recordMiss(book.getId());
+        }
         int mergeChars = merged.stream()
                 .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
 
-        // 7. ragMaxChars 截断填充
-        String ragContext = RagPipelineComponents.truncateToChars(merged, ragMaxChars);
+        // 7. ragMaxChars 截断填充（同时拿到真正进入上下文的 matches，供检索快照使用）
+        // 常规管线额外受 qdrant.rag-max-chars 封顶：模型窗口大不等于该把整本书塞进提示词
+        int regularBudget = getRegularRagMaxChars(ragMaxChars);
+        RagPipelineComponents.Selection selection =
+                RagPipelineComponents.selectWithinBudget(merged, regularBudget, true);
+        String ragContext = selection.text();
         log.info("RAG检索 bookId={} | 原始{}条{}字 → 去重{}条{}字 → topN={} → 邻域扩展={} → 合并{}条{}字 → 最终{}字",
                 book.getId(), rawCount, rawChars,
                 dedupCount, dedupChars,
                 Math.min(ragTopK, dedupCount), expanded.size(),
                 merged.size(), mergeChars, ragContext.length());
-        // 阶段0诊断：填充率 + chunkIndex 跨度。span 远小于全书 chunk 数 = 材料集中在某一区域（H4 证据）；
-        // fillRate 低 = merged 总量本就不足或首条即超配额（H5 咬人信号）。
-        log.info("[RAG诊断/常规] bookId={} | chunksIn={} charsIn={} maxChars={} fillRate={} {} | question={}",
-                book.getId(), merged.size(), mergeChars, ragMaxChars,
-                ragMaxChars > 0 ? String.format("%.1f%%", ragContext.length() * 100.0 / ragMaxChars) : "n/a",
+        // 阶段0诊断：填充率 + chunkIndex 跨度 + topScore。span 远小于全书 chunk 数 = 材料集中在某一区域（H4 证据）；
+        // fillRate 低 = merged 总量本就不足或首条即超配额（H5 咬人信号）；topScore 用于绝对阈值标定。
+        double topScore = merged.stream().mapToDouble(EmbeddingMatch::score).max().orElse(0.0);
+        log.info("[RAG诊断/常规] bookId={} | chunksIn={} charsIn={} maxChars={} fillRate={} topScore={} {} | question={}",
+                book.getId(), merged.size(), mergeChars, regularBudget,
+                regularBudget > 0 ? String.format("%.1f%%", ragContext.length() * 100.0 / regularBudget) : "n/a",
+                String.format("%.4f", topScore),
                 describeChunkIndexSpan(merged),
                 question.length() > 40 ? question.substring(0, 40) : question);
 
         long questionMarkCount = ragContext.chars().filter(c -> c == '?').count();
         if (questionMarkCount > ragContext.length() * 0.1) {
-            log.warn("[编码诊断] RAG 上下文疑似乱码! bookId={}, 问号占比={}/{}, 丢弃乱码上下文",
+            log.warn("[编码诊断] 截断后上下文仍疑似乱码（单块未超阈值但拼接占比高）: bookId={}, 问号占比={}/{}, 建议重新解析该书",
                     book.getId(), questionMarkCount, ragContext.length());
             ragHitStatisticsService.recordMiss(book.getId());
         }
 
         String thinkingText = (!merged.isEmpty())
                 ? "找到 " + merged.size() + " 条相关内容, 我整理一下思路…\n"
-                : "没找到直接相关的内容，凭印象回答你…\n";
+                : "没找到直接相关的内容，我确认一下…\n";
         try {
             emitter.send(SseEmitter.event().name("thinking_content").data(thinkingText));
         } catch (Exception ignored) {
         }
-        return new RagRetrievalResult(ragContext, listResult.listTopic(), merged);
+        return new RagRetrievalResult(ragContext, listResult.listTopic(), merged, selection.matches());
+    }
+
+    private record SubQueryHits(List<EmbeddingMatch<TextSegment>> matches, int rawCount, int rawChars) {
+    }
+
+    /**
+     * 并行执行子查询检索；单条超时/失败只损失该路召回。
+     * 第一条保留书籍领域上下文，其余子查询不再重复拼简介。
+     */
+    private SubQueryHits searchSubQueries(Book book, List<String> subQueries, int perQueryLimit) {
+        List<CompletableFuture<List<EmbeddingMatch<TextSegment>>>> futures =
+                new ArrayList<>(subQueries.size());
+        for (int i = 0; i < subQueries.size(); i++) {
+            final String subQuery = subQueries.get(i);
+            final boolean addDomainContext = i == 0;
+            try {
+                futures.add(CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return embeddingService.searchContent(subQuery, perQueryLimit, book, addDomainContext);
+                    } catch (Exception e) {
+                        log.debug("子查询检索失败: subQuery={} - {}", subQuery, e.getMessage());
+                        return List.<EmbeddingMatch<TextSegment>>of();
+                    }
+                }, qaPrefetchExecutor)
+                        .orTimeout(PER_QUERY_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                        .exceptionally(e -> {
+                            log.debug("子查询检索超时: subQuery={}", subQuery);
+                            return List.<EmbeddingMatch<TextSegment>>of();
+                        }));
+            } catch (Exception e) {
+                log.debug("子查询任务提交失败: subQuery={} - {}", subQuery, e.getMessage());
+                futures.add(CompletableFuture.completedFuture(List.of()));
+            }
+        }
+
+        List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>();
+        int rawCount = 0;
+        int rawChars = 0;
+        for (CompletableFuture<List<EmbeddingMatch<TextSegment>>> future : futures) {
+            List<EmbeddingMatch<TextSegment>> hits;
+            try {
+                hits = future.join();
+            } catch (Exception e) {
+                continue;
+            }
+            for (EmbeddingMatch<TextSegment> match : hits) {
+                String text = match.embedded() != null ? match.embedded().text() : "";
+                if (text.isBlank()) continue;
+                rawCount++;
+                rawChars += text.length();
+                matches.add(match);
+            }
+        }
+        return new SubQueryHits(matches, rawCount, rawChars);
+    }
+
+    private static Map<Integer, EmbeddingMatch<TextSegment>> dedupeByIndex(
+            List<EmbeddingMatch<TextSegment>> matches) {
+        Map<Integer, EmbeddingMatch<TextSegment>> deduped = new LinkedHashMap<>();
+        for (EmbeddingMatch<TextSegment> match : matches) {
+            int idx = RagPipelineComponents.getChunkIndex(match);
+            deduped.merge(idx, match,
+                    (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
+        }
+        return deduped;
     }
 
     /**
@@ -480,7 +596,19 @@ public class BookChatRagService {
             log.warn("[RAG查询扩展] 失败，使用原始查询: {}", e.getMessage());
         }
 
-        return queries;
+        return limitQueries(queries);
+    }
+
+    /** 限制子查询数量，保留原始查询在首位；过多子查询会放大噪声与检索耗时。 */
+    static List<String> limitQueries(List<String> queries) {
+        if (queries == null) {
+            return List.of();
+        }
+        if (queries.size() <= MAX_SUB_QUERIES) {
+            return queries;
+        }
+        log.info("[RAG查询扩展] 子查询 {} 条超上限 {}，截断", queries.size(), MAX_SUB_QUERIES);
+        return new ArrayList<>(queries.subList(0, MAX_SUB_QUERIES));
     }
 
     /**
