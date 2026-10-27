@@ -561,6 +561,26 @@ public class EmbeddingStoreManager {
                 if (chunkIndex != null) {
                     metadata.put("chunkIndex", chunkIndex);
                 }
+                Long startChar = extractPayloadLong(payload, "startChar");
+                if (startChar != null) {
+                    metadata.put("startChar", startChar);
+                }
+                Long endChar = extractPayloadLong(payload, "endChar");
+                if (endChar != null) {
+                    metadata.put("endChar", endChar);
+                }
+                String cutReason = extractPayloadString(payload, "cutReason");
+                if (cutReason != null) {
+                    metadata.put("cutReason", cutReason);
+                }
+                String chapterTitle = extractPayloadString(payload, "chapterTitle");
+                if (chapterTitle != null) {
+                    metadata.put("chapterTitle", chapterTitle);
+                }
+                Long chapterIndex = extractPayloadLong(payload, "chapterIndex");
+                if (chapterIndex != null) {
+                    metadata.put("chapterIndex", chapterIndex);
+                }
                 String embeddingModel = extractPayloadString(payload, "embeddingModel");
                 if (embeddingModel != null) {
                     metadata.put("embeddingModel", embeddingModel);

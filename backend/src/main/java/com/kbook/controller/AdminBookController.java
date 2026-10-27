@@ -221,6 +221,18 @@ public class AdminBookController extends BaseController {
         ));
     }
 
+    @Operation(summary = "查询单本书的解析/入库质量报告", description = "内容向量化时写入 books.parse_quality；无报告说明该书还未走过内容向量化")
+    @GetMapping("/parse-quality/{bookId}")
+    public Result<Map<String, Object>> parseQuality(@PathVariable Long bookId) {
+        Book book = bookService.getBookById(bookId);
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("bookId", bookId);
+        data.put("title", book.getTitle());
+        data.put("contentEmbedded", book.getContentEmbedded());
+        data.put("parseQuality", book.getParseQuality());
+        return Result.ok(data);
+    }
+
     @Operation(summary = "清空内容向量库")
     @PostMapping("/vector/clear-content")
     public Result<Map<String, Object>> clearContentVectors() {

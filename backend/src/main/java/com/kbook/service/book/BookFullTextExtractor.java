@@ -80,7 +80,6 @@ public class BookFullTextExtractor {
 
     /** AI 内容预算字符上限 */
     private static final int MAX_CONTENT_FOR_AI = 15000;
-    private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]+>");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\s+");
 
     /** PDF OCR 每批页数 */
@@ -352,7 +351,7 @@ public class BookFullTextExtractor {
                 if (name.endsWith(".html") || name.endsWith(".xhtml") || name.endsWith(".htm")) {
                     try (var is = zip.getInputStream(entry)) {
                         String html = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                        String plain = HTML_TAG_PATTERN.matcher(html).replaceAll("").trim();
+                        String plain = TextNormalizer.htmlToText(html);
                         if (!plain.isBlank()) {
                             text.append(plain).append("\n");
                         }
@@ -378,7 +377,7 @@ public class BookFullTextExtractor {
                     var resource = spineRef.getResource();
                     if (resource == null || resource.getData() == null) continue;
                     String html = new String(resource.getData(), StandardCharsets.UTF_8);
-                    String plainText = HTML_TAG_PATTERN.matcher(html).replaceAll("").trim();
+                    String plainText = TextNormalizer.htmlToText(html);
                     if (!plainText.isBlank()) {
                         text.append(plainText).append("\n");
                     }
@@ -423,19 +422,29 @@ public class BookFullTextExtractor {
         int totalPages = document.getNumberOfPages();
 
         if (!isScanned) {
-            // 文字型 PDF：直接提取全部文本
-            PDFTextStripper stripper = new PDFTextStripper();
-            stripper.setStartPage(1);
-            stripper.setEndPage(totalPages);
-            String textContent = stripper.getText(document);
+            // 逐页提取，才能识别跨页重复的页眉/页脚
+            List<String> pages = new ArrayList<>(totalPages);
+            for (int page = 1; page <= totalPages; page++) {
+                PDFTextStripper stripper = new PDFTextStripper();
+                stripper.setStartPage(page);
+                stripper.setEndPage(page);
+                pages.add(stripper.getText(document));
+            }
+            String textContent = TextNormalizer.cleanPagedText(pages);
             log.info("PDF 全文提取（文字型）: bookId={}, pages={}, chars={}",
-                    book.getId(), totalPages, WHITESPACE_PATTERN.matcher(textContent).replaceAll("").trim().length());
+                    book.getId(), totalPages, textContent.length());
             return textContent;
         }
 
         // 扫描版 PDF：使用大模型 OCR 逐页识别
         log.info("PDF 全文提取（扫描版，使用OCR）: bookId={}, pages={}", book.getId(), totalPages);
-        return ocrPdfWithVisionModel(book, storageProps.resolveBookPath(book.getFileUrl(), book.getFormat()), totalPages);
+        List<String> ocrPages = ocrPdfWithVisionModel(book,
+                storageProps.resolveBookPath(book.getFileUrl(), book.getFormat()), totalPages);
+        // OCR 同样逐页产出，可复用按页去重页眉/页脚（书名、章节名、站点名会被识别进正文）
+        String ocrText = ocrPages.size() > 1
+                ? TextNormalizer.cleanPagedText(ocrPages)
+                : TextNormalizer.normalizeExtractedText(String.join("\n\n", ocrPages));
+        return ocrText;
     }
 
     /**
@@ -450,8 +459,12 @@ public class BookFullTextExtractor {
      * 走 {@link AiScene#PDF_OCR} 场景路由：用户可在后台显式绑定视觉模型，
      * 未绑定时优先用 YML {@code kbook.ai.vision} 配置，再回退到 QA 配置。
      */
-    private String ocrPdfWithVisionModel(Book book, Path filePath, int totalPages) {
-        StringBuilder fullText = new StringBuilder();
+    private List<String> ocrPdfWithVisionModel(Book book, Path filePath, int totalPages) {
+        List<String> pages = new ArrayList<>(totalPages);
+        // 批次结果按页落位：即便某批失败，其余页仍能按原页序参与页眉页脚清理
+        for (int page = 0; page < totalPages; page++) {
+            pages.add("");
+        }
 
         try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
             PDFRenderer renderer = new PDFRenderer(document);
@@ -481,7 +494,10 @@ public class BookFullTextExtractor {
                     String ocrResult = callVisionOcr(imageDataUris, batchDesc);
 
                     if (ocrResult != null && !ocrResult.isBlank()) {
-                        fullText.append(ocrResult).append("\n\n");
+                        // OCR_BATCH_SIZE 目前为 1，批次即单页；若将来调大，整批归到批首页
+                        pages.set(batchStart, pages.get(batchStart).isEmpty()
+                                ? ocrResult
+                                : pages.get(batchStart) + "\n\n" + ocrResult);
                         log.debug("PDF OCR 批次完成: bookId={}, pages={}-{}, resultLen={}",
                                 book.getId(), batchStart + 1, batchEnd, ocrResult.length());
                     }
@@ -497,9 +513,9 @@ public class BookFullTextExtractor {
             log.error("PDF OCR 解析异常: bookId={} - {}", book.getId(), e.getMessage());
         }
 
-        String result = fullText.toString().trim();
+        String result = String.join("\n\n", pages).trim();
         log.info("PDF OCR 解析完成: bookId={}, totalPages={}, resultChars={}", book.getId(), totalPages, result.length());
-        return result;
+        return pages;
     }
 
     /**

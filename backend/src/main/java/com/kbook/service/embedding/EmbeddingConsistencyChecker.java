@@ -95,7 +95,8 @@ public class EmbeddingConsistencyChecker implements ApplicationRunner {
             }
 
             log.warn("[向量一致性] 校验完成。可通过管理后台 GET /api/admin/books/embeddings/consistency 查看完整列表，"
-                    + "并调用 POST /api/admin/books/vector/rebuild-content 触发重建");
+                    + "单本书的解析质量看 GET /api/admin/books/parse-quality/{bookId}；"
+                    + "内容向量重建没有独立端点，由问答路径自动触发（ensureContentEmbedded / forceReEmbedIfMissing）");
         } catch (Exception e) {
             log.warn("[向量一致性] 启动校验失败: {}", e.getMessage(), e);
         }

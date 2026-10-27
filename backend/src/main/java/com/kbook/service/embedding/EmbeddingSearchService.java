@@ -125,6 +125,16 @@ public class EmbeddingSearchService {
      * @return 匹配的内容片段
      */
     public List<EmbeddingMatch<TextSegment>> searchContent(String query, int maxResults, Book book) {
+        return searchContent(query, maxResults, book, true);
+    }
+
+    /**
+     * RAG 语义检索（可控领域上下文拼接）。
+     * <p>第一条查询可拼书籍标签/简介锚定主题；LLM 扩展出的子查询已语义化，
+     * 不应每条都重复拼简介，否则会稀释查询并放大量噪声。
+     */
+    public List<EmbeddingMatch<TextSegment>> searchContent(String query, int maxResults, Book book,
+                                                           boolean appendDomainContext) {
         storeManager.ensureEmbeddingModelInitialized();
         if (storeManager.getEmbeddingModel() == null) {
             return List.of();
@@ -132,7 +142,7 @@ public class EmbeddingSearchService {
 
         List<EmbeddingMatch<TextSegment>> results = List.of();
         try {
-            String expandedQuery = expandQueryWithContext(query, book);
+            String expandedQuery = appendDomainContext ? expandQueryWithContext(query, book) : query;
             Embedding queryEmbedding = storeManager.getEmbeddingModel().embed(expandedQuery).content();
 
             if (book != null && qdrantClient != null) {
@@ -211,6 +221,16 @@ public class EmbeddingSearchService {
             Metadata metadata = new Metadata();
             metadata.put("bookId", bookId);
             metadata.put("chunkIndex", chunkIndex);
+            Long startChar = storeManager.extractPayloadLong(payloadMap, "startChar");
+            if (startChar != null) metadata.put("startChar", startChar);
+            Long endChar = storeManager.extractPayloadLong(payloadMap, "endChar");
+            if (endChar != null) metadata.put("endChar", endChar);
+            String cutReason = storeManager.extractPayloadString(payloadMap, "cutReason");
+            if (cutReason != null) metadata.put("cutReason", cutReason);
+            String chapterTitle = storeManager.extractPayloadString(payloadMap, "chapterTitle");
+            if (chapterTitle != null) metadata.put("chapterTitle", chapterTitle);
+            Long chapterIndex = storeManager.extractPayloadLong(payloadMap, "chapterIndex");
+            if (chapterIndex != null) metadata.put("chapterIndex", chapterIndex);
             if (payloadMap.containsKey("chapterIdx")) {
                 Long chapterIdx = storeManager.extractPayloadLong(payloadMap, "chapterIdx");
                 if (chapterIdx != null) metadata.put("chapterIdx", chapterIdx);

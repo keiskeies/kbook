@@ -972,7 +972,7 @@ public class BookParserService {
      */
     private void parseTxt(Book book, Path filePath) {
         try {
-            String content = Files.readString(filePath); // 读取TXT文件全部内容
+            String content = TextNormalizer.readText(filePath); // 读取TXT并按BOM/UTF-8/GB18030探测编码
             book.setTotalUnits((long) content.length()); // 设置总字符数
 
             // 缓存全文用于RAG（避免后续 generateContentEmbedding 二次读取文件）

@@ -85,5 +85,9 @@ public class EmbeddingService {
 
     public List<EmbeddingMatch<TextSegment>> searchSimilarBooks(String queryText, int maxResults, double minScore, List<Long> excludeBookIds) { return searchService.searchSimilarBooks(queryText, maxResults, minScore, excludeBookIds); }
     public List<EmbeddingMatch<TextSegment>> searchContent(String query, int maxResults, Book book) { return searchService.searchContent(query, maxResults, book); }
+    public List<EmbeddingMatch<TextSegment>> searchContent(String query, int maxResults, Book book,
+                                                           boolean appendDomainContext) {
+        return searchService.searchContent(query, maxResults, book, appendDomainContext);
+    }
     public EmbeddingMatch<TextSegment> searchContentByChunkIndex(Long bookId, int chunkIndex) { return searchService.searchContentByChunkIndex(bookId, chunkIndex); }
 }

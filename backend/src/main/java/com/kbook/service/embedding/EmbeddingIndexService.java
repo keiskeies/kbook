@@ -4,6 +4,7 @@ import com.kbook.config.ChatModelFactory;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.entity.Book;
 import com.kbook.repository.BookRepository;
+import com.kbook.service.book.TextStructureExtractor;
 import com.kbook.service.embedding.event.RagHitEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import dev.langchain4j.data.document.Metadata;
@@ -47,14 +48,17 @@ public class EmbeddingIndexService {
     private final BookRepository bookRepository;
     private final QdrantProperties qdrantProps;
     private final io.qdrant.client.QdrantClient qdrantClient;
+    private final ParseQualityReportService parseQualityReportService;
 
     public EmbeddingIndexService(EmbeddingStoreManager storeManager, BookRepository bookRepository,
                                 QdrantProperties qdrantProps,
-                                io.qdrant.client.QdrantClient qdrantClient) {
+                                io.qdrant.client.QdrantClient qdrantClient,
+                                ParseQualityReportService parseQualityReportService) {
         this.storeManager = storeManager;
         this.bookRepository = bookRepository;
         this.qdrantProps = qdrantProps;
         this.qdrantClient = qdrantClient;
+        this.parseQualityReportService = parseQualityReportService;
     }
 
     /**
@@ -98,7 +102,7 @@ public class EmbeddingIndexService {
         TextSegment segment = TextSegment.from(metadataText,
                 new Metadata()
                         .put("bookId", bookId)
-                        .put("storeManager.getEmbeddingModel()", storeManager.getCurrentEmbeddingModelName()));
+                        .put("embeddingModel", storeManager.getCurrentEmbeddingModelName()));
 
         removeBookEmbedding(bookId);
 
@@ -130,8 +134,14 @@ public class EmbeddingIndexService {
 
             long startTime = System.currentTimeMillis();
 
-            List<String> chunks = splitContent(content);
-            log.info("书籍内容分块: bookId={}, totalChars={}, chunks={}", bookId, content.length(), chunks.size());
+            List<TextChunker.Chunk> rawChunks = TextChunker.split(
+                    content, qdrantProps.getChunkSize(), qdrantProps.getChunkOverlap());
+            ContentQualityGate.Result gate = ContentQualityGate.filter(rawChunks);
+            List<TextChunker.Chunk> chunks = gate.accepted();
+            List<TextStructureExtractor.Chapter> chapters = TextStructureExtractor.extract(content);
+            logSplitDiagnostics(content, rawChunks, gate);
+            log.info("书籍内容分块: bookId={}, totalChars={}, chunks={}, chapters={}",
+                    bookId, content.length(), chunks.size(), chapters.size());
 
             removeContentEmbedding(bookId);
 
@@ -141,8 +151,8 @@ public class EmbeddingIndexService {
             int totalProcessed = 0;
             for (int batchStart = 0; batchStart < totalChunks; batchStart += EMBED_BATCH_SIZE) {
                 int batchEnd = Math.min(batchStart + EMBED_BATCH_SIZE, totalChunks);
-                List<String> batchChunks = chunks.subList(batchStart, batchEnd);
-                totalProcessed += processContentBatch(bookId, batchChunks, batchStart, totalChunks);
+                List<TextChunker.Chunk> batchChunks = chunks.subList(batchStart, batchEnd);
+                totalProcessed += processContentBatch(bookId, batchChunks, batchStart, totalChunks, chapters);
                 if (totalProcessed % 100 == 0 || totalProcessed >= totalChunks) {
                     log.info("内容向量生成进度: bookId={}, {}/{}", bookId, totalProcessed, totalChunks);
                 }
@@ -151,6 +161,8 @@ public class EmbeddingIndexService {
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("书籍内容向量生成完成: bookId={}, chunks={}, elapsed={}ms",
                     bookId, totalProcessed, elapsed);
+
+            saveParseQualityReport(bookId, content, rawChunks, gate, chapters, totalProcessed);
 
             return totalProcessed;
         } catch (Exception e) {
@@ -162,17 +174,16 @@ public class EmbeddingIndexService {
     /**
      * 处理单个 batch 的 embedding 生成与入库（含失败回退）
      */
-    private int processContentBatch(Long bookId, List<String> batchChunks, int batchStart, int totalChunks) {
+    private int processContentBatch(Long bookId, List<TextChunker.Chunk> batchChunks, int batchStart,
+                                    int totalChunks, List<TextStructureExtractor.Chapter> chapters) {
         try {
             // 构建 TextSegment
             List<TextSegment> segments = new ArrayList<>(batchChunks.size());
             for (int i = 0; i < batchChunks.size(); i++) {
                 int globalIndex = batchStart + i;
-                segments.add(TextSegment.from(batchChunks.get(i),
-                        new Metadata().put("bookId", bookId)
-                                .put("chunkIndex", globalIndex)
-                                .put("totalChunks", totalChunks)
-                                .put("storeManager.getEmbeddingModel()", storeManager.getCurrentEmbeddingModelName())));
+                TextChunker.Chunk chunk = batchChunks.get(i);
+                segments.add(TextSegment.from(chunk.text(),
+                        buildChunkMetadata(bookId, chunk, globalIndex, totalChunks, chapters)));
             }
 
             // 批量 embed
@@ -208,11 +219,9 @@ public class EmbeddingIndexService {
             for (int i = 0; i < batchChunks.size(); i++) {
                 try {
                     int globalIndex = batchStart + i;
-                    TextSegment segment = TextSegment.from(batchChunks.get(i),
-                            new Metadata().put("bookId", bookId)
-                                    .put("chunkIndex", globalIndex)
-                                    .put("totalChunks", totalChunks)
-                                    .put("storeManager.getEmbeddingModel()", storeManager.getCurrentEmbeddingModelName()));
+                    TextChunker.Chunk chunk = batchChunks.get(i);
+                    TextSegment segment = TextSegment.from(chunk.text(),
+                            buildChunkMetadata(bookId, chunk, globalIndex, totalChunks, chapters));
                     Embedding embedding = storeManager.getEmbeddingModel().embed(segment).content();
 
                     float[] vec = embedding.vector();
@@ -458,7 +467,11 @@ public class EmbeddingIndexService {
         if (matches != null && !matches.isEmpty()) {
             var first = matches.get(0);
             if (first.embedded() != null && first.embedded().metadata() != null) {
-                String model = first.embedded().metadata().getString("storeManager.getEmbeddingModel()");
+                String model = first.embedded().metadata().getString("embeddingModel");
+                if (model == null) {
+                    // 兼容旧数据：键名历史遗留
+                    model = first.embedded().metadata().getString("storeManager.getEmbeddingModel()");
+                }
                 if (model != null) return model;
             }
         }
@@ -480,7 +493,11 @@ public class EmbeddingIndexService {
             var results = qdrantClient.searchAsync(searchPoints).get(15, java.util.concurrent.TimeUnit.SECONDS);
             if (!results.isEmpty()) {
                 var payload = results.get(0).getPayloadMap();
-                return storeManager.extractPayloadString(payload, "storeManager.getEmbeddingModel()");
+                String model = storeManager.extractPayloadString(payload, "embeddingModel");
+                if (model == null) {
+                    model = storeManager.extractPayloadString(payload, "storeManager.getEmbeddingModel()");
+                }
+                return model;
             }
         } catch (Exception e) {
             log.debug("获取存储向量模型标识失败: bookId={} - {}", bookId, e.getMessage());
@@ -793,98 +810,60 @@ public class EmbeddingIndexService {
     }
 
     /**
-     * 将书籍内容按固定大小分块（带重叠，段落感知）
-     * <p>
-     * 以 chunkSize 字符为目标长度，切点优先选段落边界（\n\n），其次行边界（\n），
-     * 再次句末标点（。！？），最后才硬切。搜索窗口允许略超 chunkSize（+100），
-     * 用小幅长度波动换取完整段落，避免语义单元被腰斩。
+     * 分块诊断日志（闸门细节 + 硬切计数）。
+     * <p>闸门本身见 {@link ContentQualityGate}：空块/极短/乱码/纯符号/重复块不嵌入——
+     * 这类块一旦入索引就会被检索命中并当成书中原文喂给模型。
+     * 同样的数字还会落成 {@code books.parse_quality}，见 {@link #saveParseQualityReport}。
      */
-    private List<String> splitContent(String content) {
-        ArrayList<String> chunks = new ArrayList<>();
-        int contentLen = content.length();
-        if (contentLen == 0) return chunks;
-
-        int chunkSize = qdrantProps.getChunkSize();
-        int chunkOverlap = qdrantProps.getChunkOverlap();
-        int estimatedChunks = contentLen / (chunkSize - chunkOverlap) + 1;
-        chunks.ensureCapacity(estimatedChunks);
-
-        char[] chars = content.toCharArray();
-        // 略超 chunkSize 寻找段落边界，换语义完整性
-        int lookahead = Math.min(100, chunkOverlap / 2);
-
-        int pos = 0;
-        while (pos < contentLen) {
-            int chunkEnd = Math.min(pos + chunkSize, contentLen);
-
-            if (chunkEnd < contentLen) {
-                // 向前回退窗口：先尝试段落/行边界，再退到句末标点
-                int backStart = Math.max(pos, chunkEnd - chunkOverlap);
-                // 向后延伸窗口：若超出 chunkEnd 不多，可接受以落在段落边界
-                int fwdEnd = Math.min(contentLen, chunkEnd + lookahead);
-
-                int cut = findChunkBoundary(chars, backStart, chunkEnd, fwdEnd);
-                if (cut > 0) {
-                    chunkEnd = cut;
-                }
-                // cut==0 表示未找到任何边界，保持硬切在 chunkSize
-            }
-
-            String chunk = new String(chars, pos, chunkEnd - pos).trim();
-            if (!chunk.isEmpty()) {
-                chunks.add(chunk);
-            }
-
-            int nextPos = chunkEnd - chunkOverlap;
-            if (nextPos <= pos) {
-                pos = chunkEnd;
-            } else {
-                pos = nextPos;
-            }
+    private void logSplitDiagnostics(String content, List<TextChunker.Chunk> rawChunks,
+                                     ContentQualityGate.Result gate) {
+        long hardCuts = gate.accepted().stream().filter(TextChunker.Chunk::hardCut).count();
+        log.debug("分块完成: totalChars={}, chunks={}, accepted={}, rejected={}, hardCuts={}, detail={}",
+                content.length(), rawChunks.size(), gate.accepted().size(), gate.rejected(), hardCuts,
+                gate.rejectedCounts());
+        if (gate.garbledHeavy()) {
+            log.warn("分块乱码率过高（>10% 块被拒），建议重新解析该书: totalChars={}, rejected={}, detail={}",
+                    content.length(), gate.rejected(), gate.rejectedCounts());
         }
-
-        log.debug("分块完成: totalChars={}, chunks={}", contentLen, chunks.size());
-        return chunks;
     }
 
     /**
-     * 在 [backStart, fwdEnd) 范围内寻找最佳切点（chunkEnd 的调整值）。
-     * <p>
-     * 优先级（高 → 低）：
-     * 1. 向后延伸 [chunkEnd, fwdEnd) 内的 \n\n（段落边界，允许 chunk 略长）
-     * 2. 回退 [backStart, chunkEnd) 内的 \n\n
-     * 3. 回退 [backStart, chunkEnd) 内的 \n（行边界）
-     * 4. 回退 [backStart, chunkEnd) 内的 句末标点（。！？）
-     * <p>
-     * 返回切点之后的索引（即新 chunkEnd），未找到返回 0。
+     * 把解析/入库质量落成 `books.parse_quality`（入库计划 §4.1）。
+     * <p>这些数字此前只在日志里出现一次就丢了：换一本书、日志滚掉了就没法回答
+     * 「这本的乱码率是多少 / 章节提取吃下了多少」。落库后阶段 A 的验收项「解析报告可查」才成立。
      */
-    private int findChunkBoundary(char[] chars, int backStart, int chunkEnd, int fwdEnd) {
-        // 1. 向后延伸找段落边界（\n\n），允许略超 chunkSize 换取完整段落
-        for (int i = chunkEnd; i < fwdEnd - 1; i++) {
-            if (chars[i] == '\n' && chars[i + 1] == '\n') {
-                return i + 2;
-            }
+    private void saveParseQualityReport(Long bookId, String content, List<TextChunker.Chunk> rawChunks,
+                                        ContentQualityGate.Result gate,
+                                        List<TextStructureExtractor.Chapter> chapters, int indexedChunks) {
+        try {
+            ParseQualityReport.Stats stats = ParseQualityReport.of(content, rawChunks, gate, chapters,
+                    indexedChunks, storeManager.getCurrentEmbeddingModelName());
+            parseQualityReportService.save(bookId, stats);
+        } catch (Exception e) {
+            log.warn("解析质量报告统计失败（不影响向量化结果）: {}", e.getMessage());
         }
-        // 2. 回退找段落边界（\n\n）
-        for (int i = chunkEnd - 2; i >= backStart; i--) {
-            if (chars[i] == '\n' && chars[i + 1] == '\n') {
-                return i + 2;
-            }
+    }
+
+    /** chunk 元数据：保留偏移、切分原因与章节，供章节映射、引用与合并去重使用。 */
+    private Metadata buildChunkMetadata(Long bookId, TextChunker.Chunk chunk,
+                                        int globalIndex, int totalChunks,
+                                        List<TextStructureExtractor.Chapter> chapters) {
+        Metadata metadata = new Metadata()
+                .put("bookId", bookId)
+                .put("chunkIndex", globalIndex)
+                .put("totalChunks", totalChunks)
+                .put("startChar", chunk.startChar())
+                .put("endChar", chunk.endChar())
+                .put("cutReason", chunk.reason().name())
+                .put("embeddingModel", storeManager.getCurrentEmbeddingModelName());
+
+        TextStructureExtractor.Chapter chapter = TextStructureExtractor.findChapter(chapters, chunk.startChar());
+        if (chapter != null && chapter.title() != null
+                && chapter.endChar() - chapter.startChar() >= TextStructureExtractor.MIN_CHAPTER_CHARS) {
+            metadata.put("chapterTitle", chapter.title());
+            metadata.put("chapterIndex", chapter.index());
         }
-        // 3. 回退找行边界（\n）
-        for (int i = chunkEnd - 1; i >= backStart; i--) {
-            if (chars[i] == '\n') {
-                return i + 1;
-            }
-        }
-        // 4. 回退找句末标点（。！？）
-        for (int i = chunkEnd - 1; i >= backStart; i--) {
-            char c = chars[i];
-            if (c == '。' || c == '！' || c == '？') {
-                return i + 1;
-            }
-        }
-        return 0;
+        return metadata;
     }
 
     /**
@@ -969,48 +948,67 @@ public class EmbeddingIndexService {
      * @return 内容分块列表（text + pointId）
      */
     public List<ChunkInfo> scrollAllContentChunks(Long bookId) {
-        List<ChunkInfo> chunks = new ArrayList<>();
         if (qdrantClient == null) {
             log.warn("QdrantClient 未初始化，跳过 scrollContentChunks: bookId={}", bookId);
-            return chunks;
+            return new ArrayList<>();
         }
-
         try {
-            var filter = storeManager.buildBookIdFilter(bookId);
-            Common.PointId offset = null;
-
-            do {
-                var builder = io.qdrant.client.grpc.Points.ScrollPoints.newBuilder()
-                        .setCollectionName(qdrantProps.getContentCollection())
-                        .setFilter(filter)
-                        .setLimit(200)
-                        .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(true).build());
-
-                var response = qdrantClient.scrollAsync(builder.build())
-                        .get(30, java.util.concurrent.TimeUnit.SECONDS);
-                var points = response.getResultList();
-
-                for (var point : points) {
-                    var payloadMap = point.getPayloadMap();
-                    String text = null;
-                    if (payloadMap.containsKey(PAYLOAD_TEXT_KEY)) {
-                        text = storeManager.extractPayloadString(payloadMap, PAYLOAD_TEXT_KEY);
-                    } else if (payloadMap.containsKey("text")) {
-                        text = storeManager.extractPayloadString(payloadMap, "text");
-                    }
-                    if (text != null && !text.isBlank()) {
-                        Long idxLong = storeManager.extractPayloadLong(payloadMap, "chunkIndex");
-                        int chunkIndex = idxLong != null ? idxLong.intValue() : -1;
-                        chunks.add(new ChunkInfo(text, point.getId().getNum(), chunkIndex));
-                    }
-                }
-
-                offset = response.hasNextPageOffset() ? response.getNextPageOffset() : null;
-            } while (offset != null);
+            return scrollAll(storeManager.buildBookIdFilter(bookId));
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.warn("从 Qdrant scroll 获取内容分块被中断: bookId={}", bookId);
+            return new ArrayList<>();
         } catch (Exception e) {
             log.warn("从 Qdrant scroll 获取内容分块失败: bookId={} - {}", bookId, e.getMessage());
+            return new ArrayList<>();
         }
+    }
 
+    /**
+     * 分页 scroll 内容分块。
+     * <p>
+     * 分页关键：Qdrant scroll 是「游标」语义——必须把上一页返回的 next_page_offset
+     * 写回下一次请求（{@code setOffset}），否则每轮都取第一页，循环永不退出（表现为请求挂死）。
+     *
+     * @param filter Qdrant 过滤条件
+     * @return 全部命中的内容分块
+     */
+    private List<ChunkInfo> scrollAll(io.qdrant.client.grpc.Common.Filter filter)
+            throws InterruptedException, ExecutionException, java.util.concurrent.TimeoutException {
+        List<ChunkInfo> chunks = new ArrayList<>();
+        Common.PointId offset = null;
+        do {
+            var builder = io.qdrant.client.grpc.Points.ScrollPoints.newBuilder()
+                    .setCollectionName(qdrantProps.getContentCollection())
+                    .setFilter(filter)
+                    .setLimit(200)
+                    .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(true).build());
+            if (offset != null) {
+                builder.setOffset(offset);
+            }
+
+            var response = qdrantClient.scrollAsync(builder.build())
+                    .get(30, java.util.concurrent.TimeUnit.SECONDS);
+            var points = response.getResultList();
+
+            for (var point : points) {
+                var payloadMap = point.getPayloadMap();
+                String text = null;
+                if (payloadMap.containsKey(PAYLOAD_TEXT_KEY)) {
+                    text = storeManager.extractPayloadString(payloadMap, PAYLOAD_TEXT_KEY);
+                } else if (payloadMap.containsKey("text")) {
+                    text = storeManager.extractPayloadString(payloadMap, "text");
+                }
+                if (text == null || text.isBlank()) continue;
+                Long idxLong = storeManager.extractPayloadLong(payloadMap, "chunkIndex");
+                int chunkIndex = idxLong != null ? idxLong.intValue() : -1;
+                chunks.add(new ChunkInfo(text, point.getId().getNum(), chunkIndex));
+            }
+
+            offset = response.hasNextPageOffset() ? response.getNextPageOffset() : null;
+            // 空页即无后续内容，兜底退出避免异常场景下无限循环
+            if (points.isEmpty()) break;
+        } while (offset != null);
         return chunks;
     }
 
@@ -1050,12 +1048,11 @@ public class EmbeddingIndexService {
      * @return 范围内的内容分块（按 chunkIndex 升序）
      */
     public List<ChunkInfo> scrollChunksByIndexRange(Long bookId, int minIdx, int maxIdx) {
-        List<ChunkInfo> chunks = new ArrayList<>();
         if (qdrantClient == null) {
             log.warn("QdrantClient 未初始化，跳过 scrollChunksByIndexRange: bookId={}", bookId);
-            return chunks;
+            return new ArrayList<>();
         }
-        if (minIdx > maxIdx) return chunks;
+        if (minIdx > maxIdx) return new ArrayList<>();
 
         try {
             // 复合 filter：bookId 精确匹配 + chunkIndex 范围
@@ -1069,42 +1066,19 @@ public class EmbeddingIndexService {
                                     .build()))
                     .build();
 
-            Common.PointId offset = null;
-            do {
-                var builder = io.qdrant.client.grpc.Points.ScrollPoints.newBuilder()
-                        .setCollectionName(qdrantProps.getContentCollection())
-                        .setFilter(filter)
-                        .setLimit(200)
-                        .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder().setEnable(true).build());
-
-                var response = qdrantClient.scrollAsync(builder.build())
-                        .get(30, java.util.concurrent.TimeUnit.SECONDS);
-                var points = response.getResultList();
-
-                for (var point : points) {
-                    var payloadMap = point.getPayloadMap();
-                    String text = null;
-                    if (payloadMap.containsKey(PAYLOAD_TEXT_KEY)) {
-                        text = storeManager.extractPayloadString(payloadMap, PAYLOAD_TEXT_KEY);
-                    } else if (payloadMap.containsKey("text")) {
-                        text = storeManager.extractPayloadString(payloadMap, "text");
-                    }
-                    if (text == null || text.isBlank()) continue;
-                    Long idxLong = storeManager.extractPayloadLong(payloadMap, "chunkIndex");
-                    int chunkIndex = idxLong != null ? idxLong.intValue() : -1;
-                    chunks.add(new ChunkInfo(text, point.getId().getNum(), chunkIndex));
-                }
-
-                offset = response.hasNextPageOffset() ? response.getNextPageOffset() : null;
-            } while (offset != null);
+            List<ChunkInfo> chunks = scrollAll(filter);
 
             // 按 chunkIndex 升序排序，保证阅读顺序
             chunks.sort(java.util.Comparator.comparingInt(ChunkInfo::chunkIndex));
+            return chunks;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.warn("按 chunkIndex 范围 scroll 被中断: bookId={}, range=[{}-{}]", bookId, minIdx, maxIdx);
         } catch (Exception e) {
             log.warn("按 chunkIndex 范围 scroll 失败: bookId={}, range=[{}-{}] - {}",
                     bookId, minIdx, maxIdx, e.getMessage());
         }
 
-        return chunks;
+        return new ArrayList<>();
     }
 }

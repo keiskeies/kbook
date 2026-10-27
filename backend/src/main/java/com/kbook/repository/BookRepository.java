@@ -27,6 +27,16 @@ public interface BookRepository extends BaseRepository<Book, Long> {
     @Query("UPDATE Book b SET b.tocQualityScore = :score WHERE b.id = :id")
     void updateTocQualityScore(@Param("id") Long id, @Param("score") Float score);
 
+    /**
+     * 只更新 parse_quality 字段（同 updateTocQualityScore：全字段 save 会重写 full_text 这类大字段）
+     *
+     * @param id     书籍 ID
+     * @param report 质量报告 JSON，null 表示清除
+     */
+    @Modifying
+    @Query("UPDATE Book b SET b.parseQuality = :report WHERE b.id = :id")
+    void updateParseQuality(@Param("id") Long id, @Param("report") String report);
+
 
     /**
      * 按格式查询图书列表

@@ -176,6 +176,13 @@ public class Book extends BaseEntity {
     @Column(name = "content_embedding_dim")
     private Integer contentEmbeddingDim;
 
+    /**
+     * 解析/分块/入库的质量报告 JSON：字符数、乱码率、章节覆盖率、被拒 chunk 数与原因分布。
+     * 由内容向量化流程写入（见 ParseQualityReport），用于回答"这本书要不要重新解析"。
+     */
+    @Column(name = "parse_quality", columnDefinition = "TEXT")
+    private String parseQuality;
+
     @Override
     public Long getId() {
         return id;
