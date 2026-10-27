@@ -1,0 +1,497 @@
+{
+  "summary": {
+    "generatedAt": "2026-10-26T10:19:49.120Z",
+    "dataset": "docs/eval/golden-set.real.jsonl",
+    "bookId": 24689,
+    "window": {
+      "since": "2026-10-26T18:03:00",
+      "until": "2026-10-26T18:16:30"
+    },
+    "runs": 15,
+    "ctxRecallMean": 0.611111111111111,
+    "rankRecallMean": 0.47777777777777775,
+    "goldCitedRuns": 10,
+    "goldCitedEligible": 13,
+    "cases": [
+      {
+        "caseId": "b24689-factual-逆向思考",
+        "type": "factual",
+        "runs": 1,
+        "evidenceCountMin": 25,
+        "evidenceCountMax": 25,
+        "ctxRecallMean": 1,
+        "rankRecallMean": 1,
+        "goldCitedRuns": 1,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-factual-两分钟效应",
+        "type": "factual",
+        "runs": 1,
+        "evidenceCountMin": 25,
+        "evidenceCountMax": 25,
+        "ctxRecallMean": 1,
+        "rankRecallMean": 1,
+        "goldCitedRuns": 1,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-factual-伯克希尔股价",
+        "type": "factual",
+        "runs": 1,
+        "evidenceCountMin": 25,
+        "evidenceCountMax": 25,
+        "ctxRecallMean": 1,
+        "rankRecallMean": 1,
+        "goldCitedRuns": 1,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-factual-多元思维模型",
+        "type": "factual",
+        "runs": 1,
+        "evidenceCountMin": 26,
+        "evidenceCountMax": 26,
+        "ctxRecallMean": 0.6666666666666666,
+        "rankRecallMean": 0.6666666666666666,
+        "goldCitedRuns": 1,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-factual-能力圈",
+        "type": "factual",
+        "runs": 1,
+        "evidenceCountMin": 25,
+        "evidenceCountMax": 25,
+        "ctxRecallMean": 1,
+        "rankRecallMean": 1,
+        "goldCitedRuns": 1,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-factual-坐失良机",
+        "type": "factual",
+        "runs": 1,
+        "evidenceCountMin": 26,
+        "evidenceCountMax": 26,
+        "ctxRecallMean": 1,
+        "rankRecallMean": 1,
+        "goldCitedRuns": 1,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-factual-达尔文铁律",
+        "type": "factual",
+        "runs": 1,
+        "evidenceCountMin": 26,
+        "evidenceCountMax": 26,
+        "ctxRecallMean": 1,
+        "rankRecallMean": 0,
+        "goldCitedRuns": 1,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-factual-如果诗",
+        "type": "factual",
+        "runs": 1,
+        "evidenceCountMin": 25,
+        "evidenceCountMax": 25,
+        "ctxRecallMean": 1,
+        "rankRecallMean": 0,
+        "goldCitedRuns": 1,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-list-心理倾向25条",
+        "type": "list",
+        "runs": 2,
+        "evidenceCountMin": 40,
+        "evidenceCountMax": 51,
+        "ctxRecallMean": 0.75,
+        "rankRecallMean": 0.75,
+        "goldCitedRuns": 2,
+        "goldCitedEligible": 2
+      },
+      {
+        "caseId": "b24689-list-幸福与成功避免清单",
+        "type": "list",
+        "runs": 1,
+        "evidenceCountMin": 30,
+        "evidenceCountMax": 30,
+        "ctxRecallMean": 0,
+        "rankRecallMean": 0,
+        "goldCitedRuns": 0,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-list-私人书单六辑",
+        "type": "list",
+        "runs": 1,
+        "evidenceCountMin": 5,
+        "evidenceCountMax": 5,
+        "ctxRecallMean": 0,
+        "rankRecallMean": 0,
+        "goldCitedRuns": 0,
+        "goldCitedEligible": 1
+      },
+      {
+        "caseId": "b24689-unanswerable-量子计算",
+        "type": "unanswerable",
+        "runs": 1,
+        "evidenceCountMin": 26,
+        "evidenceCountMax": 26,
+        "ctxRecallMean": 0,
+        "rankRecallMean": 0,
+        "goldCitedRuns": 0,
+        "goldCitedEligible": 0
+      },
+      {
+        "caseId": "b24689-unanswerable-郑和下西洋",
+        "type": "unanswerable",
+        "runs": 1,
+        "evidenceCountMin": 26,
+        "evidenceCountMax": 26,
+        "ctxRecallMean": 0,
+        "rankRecallMean": 0,
+        "goldCitedRuns": 0,
+        "goldCitedEligible": 0
+      },
+      {
+        "caseId": "b24689-multiturn-展开第14条",
+        "type": "multiturn",
+        "runs": 1,
+        "evidenceCountMin": 25,
+        "evidenceCountMax": 25,
+        "ctxRecallMean": 0,
+        "rankRecallMean": 0,
+        "goldCitedRuns": 0,
+        "goldCitedEligible": 1
+      }
+    ]
+  },
+  "results": [
+    {
+      "conversationId": 4484,
+      "createdAt": "2026-10-26 18:05:20.651473\r",
+      "caseId": "b24689-factual-逆向思考",
+      "type": "factual",
+      "evidenceCount": 25,
+      "ctxRecall": 1,
+      "rankRecall": 1,
+      "goldCited": true,
+      "citations": [
+        10,
+        12
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4486,
+      "createdAt": "2026-10-26 18:06:03.307550\r",
+      "caseId": "b24689-factual-两分钟效应",
+      "type": "factual",
+      "evidenceCount": 25,
+      "ctxRecall": 1,
+      "rankRecall": 1,
+      "goldCited": true,
+      "citations": [
+        1
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4488,
+      "createdAt": "2026-10-26 18:06:19.001478\r",
+      "caseId": "b24689-factual-伯克希尔股价",
+      "type": "factual",
+      "evidenceCount": 25,
+      "ctxRecall": 1,
+      "rankRecall": 1,
+      "goldCited": true,
+      "citations": [
+        6,
+        8
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4490,
+      "createdAt": "2026-10-26 18:07:15.372116\r",
+      "caseId": "b24689-factual-多元思维模型",
+      "type": "factual",
+      "evidenceCount": 26,
+      "ctxRecall": 0.6666666666666666,
+      "rankRecall": 0.6666666666666666,
+      "goldCited": true,
+      "citations": [
+        1,
+        4,
+        5,
+        6,
+        10,
+        15,
+        22,
+        23,
+        25
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4492,
+      "createdAt": "2026-10-26 18:07:31.267702\r",
+      "caseId": "b24689-factual-能力圈",
+      "type": "factual",
+      "evidenceCount": 25,
+      "ctxRecall": 1,
+      "rankRecall": 1,
+      "goldCited": true,
+      "citations": [
+        7,
+        20
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4494,
+      "createdAt": "2026-10-26 18:07:54.093920\r",
+      "caseId": "b24689-factual-坐失良机",
+      "type": "factual",
+      "evidenceCount": 26,
+      "ctxRecall": 1,
+      "rankRecall": 1,
+      "goldCited": true,
+      "citations": [
+        1
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4496,
+      "createdAt": "2026-10-26 18:08:12.210290\r",
+      "caseId": "b24689-factual-达尔文铁律",
+      "type": "factual",
+      "evidenceCount": 26,
+      "ctxRecall": 1,
+      "rankRecall": 0,
+      "goldCited": true,
+      "citations": [
+        22
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4498,
+      "createdAt": "2026-10-26 18:08:57.917199\r",
+      "caseId": "b24689-factual-如果诗",
+      "type": "factual",
+      "evidenceCount": 25,
+      "ctxRecall": 1,
+      "rankRecall": 0,
+      "goldCited": true,
+      "citations": [
+        12
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4500,
+      "createdAt": "2026-10-26 18:10:51.826998\r",
+      "caseId": "b24689-list-心理倾向25条",
+      "type": "list",
+      "evidenceCount": 51,
+      "ctxRecall": 1,
+      "rankRecall": 1,
+      "goldCited": true,
+      "citations": [
+        2,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4502,
+      "createdAt": "2026-10-26 18:11:28.867511\r",
+      "caseId": "b24689-list-幸福与成功避免清单",
+      "type": "list",
+      "evidenceCount": 30,
+      "ctxRecall": 0,
+      "rankRecall": 0,
+      "goldCited": false,
+      "citations": [
+        1,
+        2,
+        4,
+        9,
+        12,
+        18,
+        22,
+        30
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4504,
+      "createdAt": "2026-10-26 18:12:04.385624\r",
+      "caseId": "b24689-list-私人书单六辑",
+      "type": "list",
+      "evidenceCount": 5,
+      "ctxRecall": 0,
+      "rankRecall": 0,
+      "goldCited": false,
+      "citations": [
+        2,
+        3,
+        4
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4506,
+      "createdAt": "2026-10-26 18:13:28.607846\r",
+      "caseId": "b24689-unanswerable-量子计算",
+      "type": "unanswerable",
+      "evidenceCount": 26,
+      "ctxRecall": null,
+      "rankRecall": null,
+      "goldCited": null,
+      "citations": [
+        2,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        14,
+        22,
+        24
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4508,
+      "createdAt": "2026-10-26 18:13:49.522701\r",
+      "caseId": "b24689-unanswerable-郑和下西洋",
+      "type": "unanswerable",
+      "evidenceCount": 26,
+      "ctxRecall": null,
+      "rankRecall": null,
+      "goldCited": null,
+      "citations": [
+        3,
+        5,
+        7,
+        15,
+        17,
+        20
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4510,
+      "createdAt": "2026-10-26 18:15:39.342081\r",
+      "caseId": "b24689-list-心理倾向25条",
+      "type": "list",
+      "evidenceCount": 40,
+      "ctxRecall": 0.5,
+      "rankRecall": 0.5,
+      "goldCited": true,
+      "citations": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        23,
+        24,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    },
+    {
+      "conversationId": 4512,
+      "createdAt": "2026-10-26 18:15:59.166935\r",
+      "caseId": "b24689-multiturn-展开第14条",
+      "type": "multiturn",
+      "evidenceCount": 25,
+      "ctxRecall": 0,
+      "rankRecall": 0,
+      "goldCited": false,
+      "citations": [
+        13,
+        15
+      ],
+      "citationSource": "citation_json",
+      "citationInvalid": 0
+    }
+  ]
+}

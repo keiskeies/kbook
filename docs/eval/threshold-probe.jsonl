@@ -1,0 +1,19 @@
+# 绝对阈值标定探针（book_id=24689）
+#
+# 用途：回答「qdrant.absolute-min-score 该设多少」—— §3.2 的阈值与 §4.3 的阈值标定开放项。
+# 做法：同一本书上跑「切题」与「离题」两组问题，比较各自 topScore（检索依据里的最高相似度分）。
+# 只有当离题组的 topScore 明显低于切题组时，绝对阈值才有意义；否则阈值只会误伤切题问题。
+#
+# 注意：本探针刻意不含列表型问题——列表路径的 score 是 rank 序数分（1/(rank+1)），与余弦分不可比。
+#
+# 运行：KBOOK_EVAL_TOKEN=<jwt> node scripts/eval-bookqa.mjs \
+#         --dataset docs/eval/threshold-probe.jsonl --runs 1 --timeout-ms 300000 \
+#         --out docs/eval/threshold-probe-report.json
+{"id":"probe-on-逆向思考","book_id":24689,"type":"factual","question":"查理·芒格是如何理解逆向思考的？","gold_chunks":[7],"gold_items":[],"must_refuse":false,"must_not_claim":[],"min_recall":0.5,"rubric":"切题组：应从书中原文作答"}
+{"id":"probe-on-两分钟效应","book_id":24689,"type":"factual","question":"巴菲特所说的“两分钟效应”具体指什么？","gold_chunks":[9],"gold_items":[],"must_refuse":false,"must_not_claim":[],"min_recall":0.5,"rubric":"切题组：应从书中原文作答"}
+{"id":"probe-on-自视过高","book_id":24689,"type":"factual","question":"书中是怎么解释“自视过高倾向”的？","gold_chunks":[243],"gold_items":[],"must_refuse":false,"must_not_claim":[],"min_recall":0.5,"rubric":"切题组：应从书中原文作答"}
+{"id":"probe-on-能力圈","book_id":24689,"type":"factual","question":"芒格谈投资时的“能力圈及其边界”给出了哪三个选项？","gold_chunks":[69],"gold_items":[],"must_refuse":false,"must_not_claim":[],"min_recall":0.5,"rubric":"切题组：应从书中原文作答"}
+{"id":"probe-off-量子计算","book_id":24689,"type":"unanswerable","question":"这本书对量子计算和量子纠缠有什么看法？","gold_chunks":[],"gold_items":[],"must_refuse":true,"refusal_topics":["量子计算","量子纠缠"],"must_not_claim":["量子叠加","量子比特","量子门","量子算法"],"rubric":"离题组：应明确说明书中未涉及，不得编造"}
+{"id":"probe-off-郑和下西洋","book_id":24689,"type":"unanswerable","question":"书中如何评价明朝郑和下西洋的历史意义？","gold_chunks":[],"gold_items":[],"must_refuse":true,"refusal_topics":["郑和","下西洋","明朝"],"must_not_claim":["宝船","郑和七下西洋","朝贡"],"rubric":"离题组：应明确说明书中未涉及，不得编造"}
+{"id":"probe-off-足球规则","book_id":24689,"type":"unanswerable","question":"这本书里有没有介绍足球比赛规则和越位判罚？","gold_chunks":[],"gold_items":[],"must_refuse":true,"refusal_topics":["足球","越位","比赛规则"],"must_not_claim":["进球","点球","越位判罚"],"rubric":"离题组：应明确说明书中未涉及，不得编造"}
+{"id":"probe-off-唐朝诗歌","book_id":24689,"type":"unanswerable","question":"作者在书里如何评论唐朝的诗歌成就？","gold_chunks":[],"gold_items":[],"must_refuse":true,"refusal_topics":["唐朝","唐诗","诗歌"],"must_not_claim":["李白","杜甫","绝句"],"rubric":"离题组：应明确说明书中未涉及，不得编造"}

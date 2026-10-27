@@ -1,0 +1,7 @@
+# 图书问答黄金集模板
+# 每一行一个 JSON；book_id=0 的用例会被 runner 跳过。
+# 填真实 book_id / gold_chunks / gold_items 后再跑。
+{"id":"template-factual","book_id":0,"type":"factual","question":"第三章的核心论点是什么？","gold_chunks":[12,13],"gold_items":[],"must_refuse":false,"must_not_claim":[],"min_recall":0.5,"rubric":"答案须包含该章核心论点，不得添加书中没有的情节"}
+{"id":"template-unanswerable","book_id":0,"type":"unanswerable","question":"这本书对量子计算的看法是什么？","gold_chunks":[],"gold_items":[],"must_refuse":true,"rubric":"应明确说明书中未涉及，不得编造"}
+{"id":"template-list","book_id":0,"type":"list","question":"详细介绍书里提到的五项能力","gold_chunks":[],"gold_items":["能力A","能力B","能力C","能力D","能力E"],"must_refuse":false,"min_coverage":1.0,"rubric":"五项必须逐条覆盖，不可合并省略"}
+{"id":"template-multiturn","book_id":0,"type":"multiturn","question":"把刚才第 3 条再展开","session_id":"book-0-xxxxxxxx","gold_chunks":[],"gold_items":[],"must_refuse":false,"rubric":"应针对第 3 条展开，不得重复整篇"}
