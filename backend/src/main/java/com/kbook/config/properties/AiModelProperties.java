@@ -21,6 +21,14 @@ public class AiModelProperties {
     /** AI 视觉模型配置（PDF OCR 专用） */
     private VisionConfig vision = new VisionConfig();
 
+    /**
+     * 缓存破坏开关：在每个 LLM 请求最前面注入随机 nonce，
+     * 使 provider 侧提示词缓存 / KV cache / 网关响应缓存必然 miss。
+     * <p>
+     * 代价是长上下文输入按全价计费、TTFT 变长；排查完可用环境变量关掉，无需改代码。
+     */
+    private boolean cacheBustEnabled = true;
+
     @Data
     public static class VisionConfig {
         /** PDF OCR 视觉模型 provider（OLLAMA / OPENAI），默认 OLLAMA */

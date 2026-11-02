@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import com.kbook.service.ai.core.model.CacheBustingChatModel;
+import com.kbook.service.ai.core.model.CacheBustingStreamingChatModel;
 import com.kbook.service.ai.core.model.CircuitBreakerChatModel;
 import com.kbook.service.ai.core.model.CircuitBreakerStreamingChatModel;
 import com.kbook.service.ai.core.model.RetryableChatModel;
@@ -544,10 +546,11 @@ public class ChatModelFactory {
     }
 
     /**
-     * 包装 ChatModel：熔断器 → 重试 → 实际模型
+     * 包装 ChatModel：熔断器 → 重试 → 缓存破坏 → 实际模型
      * <p>
      * 熔断器在外层：provider 故障时直接拒绝请求，不进入重试排队。
      * providerKey 按 provider+model 维度隔离，一个 provider 挂了不影响另一个。
+     * 缓存破坏在重试内侧：429 重试每次重新调用都会拿到新 nonce。
      */
     private ChatModel wrap(ChatModel model, AiProviderConfig config) {
         return wrap(model, config.getProvider() + ":" + config.getModelName());
@@ -558,18 +561,30 @@ public class ChatModelFactory {
      */
     private ChatModel wrap(ChatModel model, String providerKey) {
         CircuitBreaker cb = cbRegistry.getOrCreate(providerKey);
-        return new CircuitBreakerChatModel(new RetryableChatModel(model), cb);
+        return new CircuitBreakerChatModel(new RetryableChatModel(cacheBust(model)), cb);
     }
 
     /**
-     * 包装 StreamingChatModel：熔断器 → 实际流式模型
+     * 包装 StreamingChatModel：熔断器 → 缓存破坏 → 实际流式模型
      * <p>
      * 流式模型不套重试（StreamingSseHandler 已有重试逻辑），只套熔断器。
      */
     private StreamingChatModel wrapStreaming(StreamingChatModel model, AiProviderConfig config) {
         String providerKey = config.getProvider() + ":" + config.getModelName();
         CircuitBreaker cb = cbRegistry.getOrCreate(providerKey);
-        return new CircuitBreakerStreamingChatModel(model, cb);
+        return new CircuitBreakerStreamingChatModel(cacheBustStreaming(model), cb);
+    }
+
+    /**
+     * 缓存破坏层开关 — {@code kbook.ai.cache-bust-enabled=false} 时整层不存在，
+     * 链恢复为 熔断器 → 重试 → 实际模型，provider 侧前缀缓存收益回来。
+     */
+    private ChatModel cacheBust(ChatModel model) {
+        return aiModelProperties.isCacheBustEnabled() ? new CacheBustingChatModel(model) : model;
+    }
+
+    private StreamingChatModel cacheBustStreaming(StreamingChatModel model) {
+        return aiModelProperties.isCacheBustEnabled() ? new CacheBustingStreamingChatModel(model) : model;
     }
 
     // ---- DB config 组合器 ----

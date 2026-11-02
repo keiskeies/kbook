@@ -287,6 +287,8 @@ kbook:
   ai:
     # AI 用量明细保留天数；<=0 表示永久保留（每天凌晨清理）
     usage-retention-days: ${AI_USAGE_RETENTION_DAYS:365}
+    # 每个 LLM 请求首部注入随机 nonce，彻底关闭 provider 端提示词/响应缓存；embedding/TTS 不受影响
+    cache-bust-enabled: ${KBOOK_AI_CACHE_BUST_ENABLED:true}
     vision:
       provider: ${AI_VISION_PROVIDER:OLLAMA}
       base-url: ${AI_VISION_BASE_URL:http://192.168.1.10:11434}
