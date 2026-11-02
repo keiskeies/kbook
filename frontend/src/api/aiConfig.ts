@@ -23,6 +23,8 @@ export interface AiProviderConfig {
   baseUrl: string
   modelName: string
   apiKey?: string
+  /** 掩码提示（只读）：后端不再回传明文密钥，留空表示未配置 */
+  apiKeyMasked?: string | null
   temperature?: number
   timeout?: number
   toolsEnabled?: boolean | null
@@ -84,6 +86,40 @@ export function setConfigRole(id: number, role: string) {
 
 export function testAiConfig(id: number) {
   return request.post<string>(`/admin/ai-config/${id}/test`)
+}
+
+export interface AiModelSummary {
+  /** 填进 modelName 的值 */
+  id: string
+  /** 人类可读名，多数网关不提供 */
+  label?: string | null
+  /** 上下文长度，OpenAI 兼容接口一般不返回 */
+  contextWindow?: number | null
+  createdAt?: string | null
+}
+
+/** source: PROVIDER=拿到列表 / EMPTY=连通但为空 / UPSTREAM_ERROR=没拿到 */
+export interface AiModelListResult {
+  models: AiModelSummary[]
+  source: 'PROVIDER' | 'EMPTY' | 'UPSTREAM_ERROR'
+  /** 实际尝试的地址（不含密钥） */
+  endpoint?: string | null
+  total: number
+  hint?: string | null
+}
+
+export interface AiModelListRequest {
+  /** 与 baseUrl 一起留空时，后端按 configId 用库存值（配置行上的「刷新模型」） */
+  provider?: string
+  baseUrl?: string
+  /** 留空且给了 configId 时，后端用库里存的 key */
+  apiKey?: string
+  configId?: number
+}
+
+/** 向服务商查询模型列表；失败也走成功分支（data.source=UPSTREAM_ERROR + hint） */
+export function listProviderModels(body: AiModelListRequest) {
+  return request.post<AiModelListResult>('/admin/ai-config/models', body)
 }
 
 /** 热加载 ai-config.json 配置文件（管理员在编辑 deploy/ai-config.json 后调用） */

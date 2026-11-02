@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, type ReactNode } from 'react'
 import {
   ArrowLeft, Save, Trash2, RefreshCw, Eye, EyeOff,
   ExternalLink, ChevronDown, ChevronUp, Globe, MapPin,
-  Plus, Pencil, MessageSquare, Layers, Users, Star, Sliders,
+  Plus, Pencil, MessageSquare, Layers, Users, Star, Sliders, List,
 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -16,16 +16,37 @@ import {
   updateAiConfig,
   deleteAiConfig,
   testAiConfig,
+  listProviderModels,
   fetchProviderPresets,
   reloadAiConfig,
   activateAiConfig,
   type AiProviderConfig,
   type AiProviderPreset,
+  type AiModelListResult,
 } from '@/api/aiConfig'
 
 const CHAT = 'CHAT'
 const EMBEDDING = 'EMBEDDING'
 type ActiveTab = 'CHAT' | 'EMBEDDING' | 'ROLES'
+
+/** 预设模型与实时拉取的模型统一成这个形状 */
+interface ModelOption {
+  id: string
+  label?: string | null
+  contextWindow?: number | null
+}
+
+/** 一次拉取的结果；key 记下它属于哪个 provider+baseUrl，改地址后自动作废 */
+interface FetchedModels {
+  key: string
+  source: AiModelListResult['source']
+  endpoint: string
+  hint: string
+  models: ModelOption[]
+}
+
+/** 下拉里最多渲染这么多条，剩下的靠输入过滤（OpenRouter 一类会返回 400+） */
+const MAX_VISIBLE_MODELS = 80
 
 /** 提取配置列表的渲染逻辑，按用途区分 */
 function renderConfigRow(
@@ -35,14 +56,16 @@ function renderConfigRow(
     activeEmbeddingId: number | null
     testing: number | null
     expandedId: number | 'new' | null
+    listing: number | null
     onActivateEmbedding: (id: number) => void
     onTest: (id: number) => void
+    onListModels: (id: number) => void
     onEdit: (c: AiProviderConfig) => void
     onDelete: (id: number) => void
     renderForm: () => React.ReactNode
   }
 ) {
-  const { activeEmbeddingId, testing, expandedId, onActivateEmbedding, onTest, onEdit, onDelete, renderForm } = opts
+  const { activeEmbeddingId, testing, listing, expandedId, onActivateEmbedding, onTest, onListModels, onEdit, onDelete, renderForm } = opts
 
   if (purpose === EMBEDDING) {
     const isActive = c.id === activeEmbeddingId
@@ -78,6 +101,7 @@ function renderConfigRow(
           </div>
           <div className="flex shrink-0 gap-0.5">
             <button onClick={() => onTest(c.id!)} disabled={testing === c.id} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50" title="测试连接"><RefreshCw className={`h-4 w-4 ${testing === c.id ? 'animate-spin' : ''}`} /></button>
+            <button onClick={() => onListModels(c.id!)} disabled={listing === c.id} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50" title="刷新模型列表"><List className={`h-4 w-4 ${listing === c.id ? 'animate-pulse' : ''}`} /></button>
             <button onClick={() => onEdit(c)} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="编辑"><Pencil className="h-4 w-4" /></button>
             <button onClick={() => onDelete(c.id!)} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="删除"><Trash2 className="h-4 w-4" /></button>
           </div>
@@ -111,6 +135,7 @@ function renderConfigRow(
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <button onClick={() => onTest(c.id!)} disabled={testing === c.id} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50" title="测试连接"><RefreshCw className={`h-4 w-4 ${testing === c.id ? 'animate-spin' : ''}`} /></button>
+          <button onClick={() => onListModels(c.id!)} disabled={listing === c.id} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50" title="刷新模型列表"><List className={`h-4 w-4 ${listing === c.id ? 'animate-pulse' : ''}`} /></button>
           <button onClick={() => onEdit(c)} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="编辑"><Pencil className="h-4 w-4" /></button>
           <button onClick={() => onDelete(c.id!)} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="删除"><Trash2 className="h-4 w-4" /></button>
         </div>
@@ -154,6 +179,7 @@ export default function AiConfigPage() {
   const [showPresets, setShowPresets] = useState(false)
   const [regionFilter, setRegionFilter] = useState<'ALL' | 'CN' | 'GLOBAL'>('ALL')
   const [testing, setTesting] = useState<number | null>(null)
+  const [listing, setListing] = useState<number | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { handleScroll } = useScrollRestore(scrollRef)
 
@@ -172,7 +198,11 @@ export default function AiConfigPage() {
 
   const [expandedId, setExpandedId] = useState<number | 'new' | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
-  const [isCustomModel, setIsCustomModel] = useState(false)
+  /** 编辑已存配置时后端只给掩码（明文密钥不再回传浏览器） */
+  const [maskedKey, setMaskedKey] = useState<string | null>(null)
+  const [fetchedModels, setFetchedModels] = useState<FetchedModels | null>(null)
+  const [modelsBusy, setModelsBusy] = useState(false)
+  const [modelsOpen, setModelsOpen] = useState(false)
   const [form, setForm] = useState<AiProviderConfig>({
     name: '', purpose: CHAT, provider: 'OLLAMA', baseUrl: 'http://localhost:11434',
     modelName: '', apiKey: '', temperature: 0.7, timeout: 120,
@@ -206,7 +236,7 @@ export default function AiConfigPage() {
       toolsEnabled: null, enabled: true, ragTopK: 5, roles: '', embeddingDimension: 1024,
       thinkingMode: 'SWITCH',
     })
-    setExpandedId(null); setShowApiKey(false); setIsCustomModel(false)
+    setExpandedId(null); setShowApiKey(false); setMaskedKey(null); setFetchedModels(null); setModelsOpen(false)
   }
 
   const openCreateForm = (purpose: string) => {
@@ -218,16 +248,15 @@ export default function AiConfigPage() {
   const openEditForm = (config: AiProviderConfig) => {
     setForm({ ...config })
     setExpandedId(config.id ?? null)
-    if (config.purpose !== EMBEDDING) {
-      const preset = presets.find(p => p.baseUrl === config.baseUrl)
-      setIsCustomModel(preset ? !preset.models.some(m => m.name === config.modelName) : !!config.modelName)
-    }
+    setMaskedKey(config.apiKeyMasked ?? null)
+    setFetchedModels(null)
+    setModelsOpen(false)
   }
 
   const handleSelectPreset = (preset: AiProviderPreset) => {
     const firstModel = preset.models[0]
     setForm(f => ({ ...f, name: preset.name, provider: preset.provider, baseUrl: preset.baseUrl, modelName: firstModel?.name || '', apiKey: f.provider !== preset.provider ? '' : f.apiKey, maxTokens: firstModel?.maxTokens }))
-    setShowPresets(false); setIsCustomModel(false)
+    setShowPresets(false)
     toast.success(`已选择 ${preset.name}`, { description: '请填写名称和 API Key 后保存' })
   }
 
@@ -275,7 +304,107 @@ export default function AiConfigPage() {
     } catch (err: any) { toast.error('连接测试失败', { description: err.message || '未知错误' }) } finally { setTesting(null) }
   }
 
+  /** 行上的「刷新模型」：只传 configId，类型/地址/密钥全取服务端库存值，顺带预热 10 分钟缓存 */
+  const handleListModels = async (id: number) => {
+    try {
+      setListing(id)
+      const res = await listProviderModels({ configId: id })
+      if (res.source === 'PROVIDER') {
+        toast.success(`该网关有 ${res.total} 个模型`, { description: '点「编辑」即可从下拉里选' })
+      } else {
+        toast.error('获取模型失败', { description: res.hint || '该地址没有模型列表接口' })
+      }
+    } catch (err: any) { toast.error('获取模型失败', { description: err.message || '未知错误' }) } finally { setListing(null) }
+  }
+
   const currentPreset = useMemo(() => presets.find(p => p.baseUrl === form.baseUrl), [form.baseUrl, presets])
+
+  // ==================== 模型列表（预设 / 实时拉取） ====================
+
+  /** 拉取结果与地址绑定：改了 provider 或 baseUrl，旧列表立即作废，不会选出不存在的模型 */
+  const modelSourceKey = `${form.provider}|${form.baseUrl.trim()}`
+  const liveModels = fetchedModels?.key === modelSourceKey ? fetchedModels.models : null
+
+  const presetOptions = useMemo<ModelOption[]>(
+    () => (isChatForm && currentPreset
+      ? currentPreset.models.map(m => ({ id: m.name, label: m.label, contextWindow: m.maxTokens }))
+      : []),
+    [currentPreset, isChatForm],
+  )
+
+  const modelOptions = liveModels ?? presetOptions
+
+  const filteredModelOptions = useMemo(() => {
+    const q = form.modelName.trim().toLowerCase()
+    if (!q) return modelOptions
+    return modelOptions.filter(m => m.id.toLowerCase().includes(q) || (m.label || '').toLowerCase().includes(q))
+  }, [modelOptions, form.modelName])
+
+  /**
+   * 输入框里的名字在新列表里不存在时（换地址、换密钥后重拉最常见），
+   * 退回展示完整列表。否则状态行写着「已获取 N 个」而下拉是空的，
+   * 看起来像什么都没拉到，而手填的值又不能替用户改掉。
+   */
+  const displayModelOptions = filteredModelOptions.length > 0 || form.modelName.trim() === ''
+    ? filteredModelOptions
+    : modelOptions
+  const noMatchFallback = displayModelOptions !== filteredModelOptions
+  const visibleModelOptions = displayModelOptions.slice(0, MAX_VISIBLE_MODELS)
+
+  const modelStatus: { tone: 'muted' | 'warn' | 'error'; text: string } = (() => {
+    if (fetchedModels && fetchedModels.key === modelSourceKey) {
+      if (fetchedModels.source === 'PROVIDER') {
+        return { tone: 'muted', text: `已从服务商获取 ${fetchedModels.models.length} 个模型 · ${fetchedModels.endpoint}` }
+      }
+      return {
+        tone: fetchedModels.source === 'EMPTY' ? 'warn' : 'error',
+        text: fetchedModels.hint || (fetchedModels.source === 'EMPTY' ? '该服务商返回了空列表，请手动填写模型名' : '获取失败，可手动填写模型名'),
+      }
+    }
+    if (presetOptions.length > 0) {
+      return { tone: 'muted', text: `预设列表 ${presetOptions.length} 个 · 点「获取模型」查实时列表` }
+    }
+    return { tone: 'muted', text: '该地址没有预设 · 点「获取模型」或直接手填' }
+  })()
+
+  const handleFetchModels = async () => {
+    const baseUrl = form.baseUrl.trim()
+    if (!baseUrl) { toast.error('请先填写 API 地址'); return }
+    if (form.provider === 'OPENAI' && !(form.apiKey || '').trim() && typeof expandedId !== 'number') {
+      toast.error('请先填写 API Key')
+      return
+    }
+    setModelsBusy(true)
+    try {
+      const res = await listProviderModels({
+        provider: form.provider,
+        baseUrl,
+        apiKey: form.apiKey?.trim() || undefined,
+        configId: typeof expandedId === 'number' ? expandedId : undefined,
+      })
+      setFetchedModels({
+        key: modelSourceKey,
+        source: res.source,
+        endpoint: res.endpoint || '',
+        hint: res.hint || '',
+        models: (res.models || []).map(m => ({ id: m.id, label: m.label, contextWindow: m.contextWindow })),
+      })
+      if (res.source === 'PROVIDER') {
+        setModelsOpen(true)
+        toast.success(`获取到 ${res.total} 个模型`)
+      }
+    } catch (err: any) {
+      // 失败走内联提示，不弹 toast 打断编辑
+      setFetchedModels({ key: modelSourceKey, source: 'UPSTREAM_ERROR', endpoint: '', hint: err.message || '获取失败，可手动填写模型名', models: [] })
+    } finally {
+      setModelsBusy(false)
+    }
+  }
+
+  const chooseModel = (m: ModelOption) => {
+    setForm(f => ({ ...f, modelName: m.id, maxTokens: m.contextWindow ? m.contextWindow : f.maxTokens }))
+    setModelsOpen(false)
+  }
 
   // ==================== 表单渲染 ====================
 
@@ -349,31 +478,61 @@ export default function AiConfigPage() {
         </div>
 
         <div>
-          <label className="mb-1.5 block text-sm font-medium">模型名称</label>
-          {isChatForm && currentPreset && currentPreset.models.length > 0 ? (
-            <div className="space-y-2">
-              <select value={isCustomModel ? '__custom__' : (currentPreset.models.some(m => m.name === form.modelName) ? form.modelName : '__custom__')}
-                onChange={e => {
-                  if (e.target.value === '__custom__') { setIsCustomModel(true); setForm(f => ({ ...f, modelName: '' })) }
-                  else { setIsCustomModel(false); const selected = currentPreset.models.find(m => m.name === e.target.value); setForm(f => ({ ...f, modelName: e.target.value, maxTokens: selected?.maxTokens })) }
-                }} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
-                {currentPreset.models.map(m => (<option key={m.name} value={m.name}>{m.label} ({m.name})</option>))}
-                <option value="__custom__">{isCustomModel && form.modelName ? `自定义: ${form.modelName}` : '自定义模型名...'}</option>
-              </select>
-              {isCustomModel && <input type="text" value={form.modelName} onChange={e => setForm(f => ({ ...f, modelName: e.target.value }))} placeholder="输入自定义模型名" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />}
-            </div>
-          ) : (
-            <input type="text" value={form.modelName} onChange={e => setForm(f => ({ ...f, modelName: e.target.value }))} placeholder={form.provider === 'OLLAMA' ? 'qwen3:8b' : 'deepseek-v4-flash'} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />
-          )}
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="text-sm font-medium">模型名称</label>
+            <button type="button" onClick={handleFetchModels} disabled={modelsBusy || !form.baseUrl.trim()}
+              className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              title="向该地址查询模型列表，免去手敲模型 id">
+              <RefreshCw className={`h-3.5 w-3.5 ${modelsBusy ? 'animate-spin' : ''}`} />
+              {modelsBusy ? '获取中...' : '获取模型'}
+            </button>
+          </div>
+          <div className="relative">
+            <input type="text" value={form.modelName}
+              onChange={e => { setForm(f => ({ ...f, modelName: e.target.value })); setModelsOpen(true) }}
+              onFocus={() => setModelsOpen(true)}
+              onBlur={() => setModelsOpen(false)}
+              placeholder={form.provider === 'OLLAMA' ? 'qwen3:8b' : 'deepseek-v4-flash'}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />
+            {modelsOpen && visibleModelOptions.length > 0 && (
+              <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto overscroll-y-contain rounded-lg border border-border bg-background shadow-lg">
+                {visibleModelOptions.map(m => (
+                  <button key={m.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => chooseModel(m)}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted ${m.id === form.modelName ? 'bg-primary/5 text-primary' : ''}`}>
+                    <span className="min-w-0 flex-1 truncate">{m.label || m.id}</span>
+                    {m.label && m.label !== m.id && <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">{m.id}</span>}
+                    {m.contextWindow ? <span className="shrink-0 text-xs text-muted-foreground">{(m.contextWindow / 1024).toFixed(0)}K</span> : null}
+                  </button>
+                ))}
+                {noMatchFallback && (
+                  <div className="border-t border-border px-3 py-1.5 text-xs text-warning">
+                    「{form.modelName.trim()}」不在本次结果里 · 下方为全部 {displayModelOptions.length} 个，可直接选或保留手填值
+                  </div>
+                )}
+                {displayModelOptions.length > visibleModelOptions.length && (
+                  <div className="border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
+                    另有 {displayModelOptions.length - visibleModelOptions.length} 项，继续输入缩小范围
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <p title={modelStatus.text}
+            className={`mt-1 truncate text-xs ${modelStatus.tone === 'error' ? 'text-danger' : modelStatus.tone === 'warn' ? 'text-warning' : 'text-muted-foreground'}`}>
+            {modelStatus.text}
+          </p>
         </div>
 
         {form.provider === 'OPENAI' && (
           <div>
             <label className="mb-1.5 block text-sm font-medium">API Key</label>
             <div className="relative">
-              <input type={showApiKey ? 'text' : 'password'} value={form.apiKey || ''} onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))} placeholder="sk-xxx" className="w-full rounded-lg border border-border bg-background px-3 py-2 pr-10 text-sm outline-none focus:border-primary" />
+              <input type={showApiKey ? 'text' : 'password'} value={form.apiKey || ''} onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))} placeholder={maskedKey ? `已保存 ${maskedKey} · 留空则不修改` : 'sk-xxx'} className="w-full rounded-lg border border-border bg-background px-3 py-2 pr-10 text-sm outline-none focus:border-primary" />
               <button type="button" onClick={() => setShowApiKey(!showApiKey)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground">{showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
             </div>
+            {maskedKey && !form.apiKey?.trim() && (
+              <p className="mt-1 text-xs text-muted-foreground">明文密钥不再下发到浏览器；要换 key 就填新的，留空则沿用已存的 {maskedKey}</p>
+            )}
           </div>
         )}
 
@@ -512,7 +671,7 @@ export default function AiConfigPage() {
 
   // ==================== 面板渲染 ====================
 
-  const rowOpts = { activeEmbeddingId, testing, expandedId, onActivateEmbedding: handleActivateEmbedding, onTest: handleTest, onEdit: openEditForm, onDelete: handleDelete, renderForm: renderFormContent }
+  const rowOpts = { activeEmbeddingId, testing, listing, expandedId, onActivateEmbedding: handleActivateEmbedding, onTest: handleTest, onListModels: handleListModels, onEdit: openEditForm, onDelete: handleDelete, renderForm: renderFormContent }
 
   // ==================== 页面 ====================
 

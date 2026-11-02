@@ -1,6 +1,7 @@
 package com.kbook.entity;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.kbook.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -64,7 +65,15 @@ public class AiProviderConfig extends BaseEntity {
     @Column(nullable = false, length = 100)
     private String modelName;
 
-    /** API Key（OpenAI 兼容接口需要，Ollama 可为空） */
+    /**
+     * API Key（OpenAI 兼容接口需要，Ollama 可为空）。
+     * <p>
+     * 只进不出：{@code WRITE_ONLY} 让管理端列表/保存响应不再把明文密钥回传浏览器，
+     * 编辑表单留空即保持库存值（{@code AdminAiConfigController#update} 跳过 null 字段）。
+     * 服务端读取的一律是实体对象本身（ChatModelFactory / AiModelListService），不受影响。
+     */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @ToString.Exclude
     @Column(length = 500)
     private String apiKey;
 
@@ -176,5 +185,18 @@ public class AiProviderConfig extends BaseEntity {
     @Override
     public Long getId() {
         return id;
+    }
+
+    /**
+     * 掩码后的密钥提示 — 让管理员知道「这里已经存了一把 key」，但不把明文送回浏览器。
+     * <p>
+     * 只读派生值（无 setter，入参反序列化时会忽略）；短密钥不露尾巴。
+     */
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public String getApiKeyMasked() {
+        if (apiKey == null || apiKey.isBlank()) {
+            return null;
+        }
+        return apiKey.length() <= 8 ? "••••••••" : "••••" + apiKey.substring(apiKey.length() - 4);
     }
 }

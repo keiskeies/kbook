@@ -5,7 +5,9 @@ import com.kbook.config.ChatModelFactory;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.entity.AiProviderConfig;
 import com.kbook.repository.AiProviderConfigRepository;
+import com.kbook.service.ai.core.AiModelListService;
 import com.kbook.service.ai.core.AiProviderConfigService;
+import com.kbook.service.ai.core.model.ModelListResult;
 import dev.langchain4j.model.chat.ChatModel;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +31,7 @@ public class AdminAiConfigController {
     private final AiProviderConfigRepository configRepository;
     private final AiProviderConfigService providerConfigService;
     private final ChatModelFactory chatModelFactory;
+    private final AiModelListService modelListService;
     private final AiConfigProvider configProvider;
 
     // ==================== AI 供应商配置 CRUD ====================
@@ -155,6 +158,26 @@ public class AdminAiConfigController {
     }
 
     // ==================== AI 系统配置文件管理 ====================
+
+    /**
+     * 向服务商查询模型列表，让管理员不必手敲模型 id。
+     * <p>
+     * 收表单当前值而不是 {@code /{id}}：主场景是「配置还没保存就想选模型」。
+     * 全程不抛错给前端，失败也在 {@code data.source=UPSTREAM_ERROR} 里带上尝试过的地址。
+     */
+    @PostMapping("/models")
+    public Result<ModelListResult> listModels(@RequestBody ProviderModelsRequest request) {
+        ModelListResult result = modelListService.list(
+                request.provider(), request.baseUrl(), request.apiKey(), request.configId());
+        return Result.ok(result);
+    }
+
+    /** 获取模型列表的入参；apiKey 留空且给了 configId 时由服务端从库里取 */
+    public record ProviderModelsRequest(AiProviderConfig.Provider provider,
+                                        String baseUrl,
+                                        String apiKey,
+                                        Long configId) {
+    }
 
     @PostMapping("/file/reload")
     public Result<Void> reload() {
