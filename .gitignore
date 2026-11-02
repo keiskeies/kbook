@@ -45,3 +45,14 @@ reasonix.toml
 # 本地验证产物：自签 token 一律不入库
 .verify-token.txt
 .verify-*.token
+
+# 本地一次性产物与 agent 工具生成物（不入库）
+CLAUDE.md
+bug.md
+nul
+backend/tokens.txt
+generate-android-app.kt
+generate-android-views.py
+setup-android.py
+run-android-build.py
+run-build.py
