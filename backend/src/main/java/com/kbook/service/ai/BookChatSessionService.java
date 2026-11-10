@@ -21,6 +21,7 @@ import com.kbook.entity.UserBehaviorProfile;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.QdrantProperties;
+import com.kbook.config.properties.BookQaProperties;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.AiConversation;
@@ -92,6 +93,7 @@ public class BookChatSessionService {
     private final UserBehaviorProfileRepository behaviorProfileRepository;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final BookQaProperties bookQaProperties;
 
     public BookChatSessionService(
             AiConversationRepository conversationRepository,
@@ -103,7 +105,8 @@ public class BookChatSessionService {
             AiSceneConfigService aiSceneConfigService,
             UserBehaviorProfileRepository behaviorProfileRepository,
             ObjectMapper objectMapper,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            BookQaProperties bookQaProperties) {
         this.conversationRepository = conversationRepository;
         this.sessionRepository = sessionRepository;
         this.bookService = bookService;
@@ -114,6 +117,7 @@ public class BookChatSessionService {
         this.behaviorProfileRepository = behaviorProfileRepository;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
+        this.bookQaProperties = bookQaProperties;
     }
 
     /**
@@ -419,22 +423,25 @@ public class BookChatSessionService {
      */
     String getSystemPromptForStyle(String style) {
         // 优先从外部配置加载
-        String configPrompt = aiConfigProvider.getChatStylePrompt(style);
-        if (!configPrompt.isEmpty()) {
-            // 外部风格词只负责语气/结构；事实边界必须由组装层强制注入，
-            // 否则改配置就能绕过「以参考内容为准」的约束。
-            return BookChatPrompts.withConstraints(configPrompt);
+        String stylePrompt = aiConfigProvider.getChatStylePrompt(style);
+        if (stylePrompt.isEmpty()) {
+            // 回退到代码常量（已含事实边界，withConstraints 幂等）
+            if (style != null) {
+                stylePrompt = switch (style.toUpperCase()) {
+                    case "CASUAL" -> BookChatPrompts.BOOK_CHAT_STYLE_CASUAL;
+                    case "CONCISE" -> BookChatPrompts.BOOK_CHAT_STYLE_CONCISE;
+                    case "WITTY" -> BookChatPrompts.BOOK_CHAT_STYLE_WITTY;
+                    default -> BookChatPrompts.BOOK_CHAT_STYLE_DEEP;
+                };
+            } else {
+                stylePrompt = BookChatPrompts.BOOK_CHAT_STYLE_CASUAL;
+            }
         }
-        // 回退到代码常量（已含事实边界，withConstraints 幂等）
-        if (style != null) {
-            return BookChatPrompts.withConstraints(switch (style.toUpperCase()) {
-                case "CASUAL" -> BookChatPrompts.BOOK_CHAT_STYLE_CASUAL;
-                case "CONCISE" -> BookChatPrompts.BOOK_CHAT_STYLE_CONCISE;
-                case "WITTY" -> BookChatPrompts.BOOK_CHAT_STYLE_WITTY;
-                default -> BookChatPrompts.BOOK_CHAT_STYLE_DEEP;
-            });
-        }
-        return BookChatPrompts.withConstraints(BookChatPrompts.BOOK_CHAT_STYLE_CASUAL);
+        // 外部风格词只负责语气/结构；事实边界必须由组装层强制注入，
+        // 否则改配置就能绕过「以参考内容为准」的约束。
+        // 说话方式层放在所有风格锚点之后，显式覆盖三段式议论文腔（开关可逐字节回滚）。
+        boolean linearSpeech = bookQaProperties != null && bookQaProperties.isLinearSpeechEnabled();
+        return BookChatPrompts.withConstraints(stylePrompt, linearSpeech);
     }
 
     /**
@@ -458,6 +465,29 @@ public class BookChatSessionService {
      * @param currentOverheadChars 当前请求的系统开销字符数（系统提示词、RAG 上下文等固定部分）
      * @return 压缩后的对话记录列表，可直接用于构建 ChatMessage
      */
+    /**
+     * 分档路由用：只读估算当前会话历史字符数，不触发压缩、不写库。
+     * 与 {@link #loadAndCompressHistory} 使用同一口径（优先 compressedContent），
+     * 供「可用空间 = 上下文 − 历史 − 输出」的判定使用。
+     */
+    int estimateHistoryChars(Long userId, String sessionId) {
+        try {
+            List<AiConversation> conversations = conversationRepository
+                    .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+            long total = conversations.stream()
+                    .mapToLong(c -> {
+                        String compressed = c.getCompressedContent();
+                        return compressed != null ? compressed.length()
+                                : (c.getContent() != null ? c.getContent().length() : 0);
+                    })
+                    .sum();
+            return (int) Math.min(total, Integer.MAX_VALUE);
+        } catch (Exception e) {
+            log.warn("估算历史字符数失败（按 0 处理）: sessionId={}, error={}", sessionId, e.getMessage());
+            return 0;
+        }
+    }
+
     List<AiConversation> loadAndCompressHistory(Long userId, String sessionId, int currentOverheadChars) {
         // 1. 一次查询加载所有消息
         List<AiConversation> conversations = conversationRepository

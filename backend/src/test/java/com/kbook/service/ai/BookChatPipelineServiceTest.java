@@ -114,7 +114,8 @@ class BookChatPipelineServiceTest {
                     mock(ChatModelManager.class),
                     mock(BehaviorProfileBuilder.class),
                     mock(BookChatSessionService.class),
-                    mock(AiRetrievalSnapshotService.class));
+                    mock(AiRetrievalSnapshotService.class),
+                    new com.kbook.config.properties.BookQaProperties());
 
             AnswerOutline result = service.resolvePipelineOutline(
                     ListQueryDetector.DetectionResult.of("三项能力"),
@@ -150,7 +151,8 @@ class BookChatPipelineServiceTest {
                     mock(ChatModelManager.class),
                     mock(BehaviorProfileBuilder.class),
                     mock(BookChatSessionService.class),
-                    mock(AiRetrievalSnapshotService.class));
+                    mock(AiRetrievalSnapshotService.class),
+                    new com.kbook.config.properties.BookQaProperties());
 
             AnswerOutline result = service.resolvePipelineOutline(
                     ListQueryDetector.DetectionResult.of("芒格避免的不幸事"),
@@ -183,7 +185,8 @@ class BookChatPipelineServiceTest {
                     mock(ChatModelManager.class),
                     mock(BehaviorProfileBuilder.class),
                     mock(BookChatSessionService.class),
-                    mock(AiRetrievalSnapshotService.class));
+                    mock(AiRetrievalSnapshotService.class),
+                    new com.kbook.config.properties.BookQaProperties());
 
             AnswerOutline result = service.resolvePipelineOutline(
                     ListQueryDetector.DetectionResult.of("芒格避免的不幸事"),
@@ -391,7 +394,8 @@ class BookChatPipelineServiceTest {
                     mock(ChatModelManager.class),
                     mock(BehaviorProfileBuilder.class),
                     mock(BookChatSessionService.class),
-                    mock(AiRetrievalSnapshotService.class));
+                    mock(AiRetrievalSnapshotService.class),
+                    new com.kbook.config.properties.BookQaProperties());
         }
     }
 
@@ -420,7 +424,8 @@ class BookChatPipelineServiceTest {
                     mock(ChatModelManager.class),
                     mock(BehaviorProfileBuilder.class),
                     mock(BookChatSessionService.class),
-                    mock(AiRetrievalSnapshotService.class));
+                    mock(AiRetrievalSnapshotService.class),
+                    new com.kbook.config.properties.BookQaProperties());
 
             AnswerOutline result = service.resolvePipelineOutline(
                     ListQueryDetector.DetectionResult.of("二十五条"),

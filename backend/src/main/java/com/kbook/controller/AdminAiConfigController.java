@@ -1,6 +1,7 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.config.AiModelContextLengthResolver;
 import com.kbook.config.ChatModelFactory;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.entity.AiProviderConfig;
@@ -33,6 +34,7 @@ public class AdminAiConfigController {
     private final ChatModelFactory chatModelFactory;
     private final AiModelListService modelListService;
     private final AiConfigProvider configProvider;
+    private final AiModelContextLengthResolver contextLengthResolver;
 
     // ==================== AI 供应商配置 CRUD ====================
 
@@ -56,6 +58,8 @@ public class AdminAiConfigController {
             return Result.fail("缺少必要参数：purpose, provider, baseUrl, modelName");
         }
 
+        // 上下文长度缺失时按模型预设补全（已有显式值不覆盖）
+        contextLengthResolver.fillMissingContextWindow(config);
         AiProviderConfig saved = providerConfigService.saveConfig(config);
         log.info("AI 配置已创建: id={}, name={}, purpose={}, roles={}, provider={}, model={}",
                 saved.getId(), saved.getName(), saved.getPurpose(), saved.getRoles(),
@@ -71,6 +75,8 @@ public class AdminAiConfigController {
             return Result.fail("配置不存在");
         }
 
+        boolean modelChanged = config.getModelName() != null
+                && !config.getModelName().equals(existing.getModelName());
         if (config.getName() != null) existing.setName(config.getName());
         if (config.getProvider() != null) existing.setProvider(config.getProvider());
         if (config.getBaseUrl() != null) existing.setBaseUrl(config.getBaseUrl());
@@ -81,6 +87,8 @@ public class AdminAiConfigController {
         if (config.getToolsEnabled() != null) existing.setToolsEnabled(config.getToolsEnabled());
         if (config.getRagTopK() != null) existing.setRagTopK(config.getRagTopK());
         if (config.getMaxTokens() != null) existing.setMaxTokens(config.getMaxTokens());
+        else if (modelChanged) existing.setMaxTokens(null); // 换模型但没带新窗口 → 交给预设补全
+        contextLengthResolver.fillMissingContextWindow(existing);
         if (config.getMaxOutputTokens() != null) existing.setMaxOutputTokens(config.getMaxOutputTokens());
         // 计价字段允许显式清空（null 表示未配置），因此直接覆盖
         existing.setInputPrice(config.getInputPrice());

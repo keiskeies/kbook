@@ -43,6 +43,7 @@ public class EmbeddingStoreManager {
     private final QdrantClient qdrantClient;
     private final ChatModelFactory chatModelFactory;
     private final QdrantProperties qdrantProps;
+    private final PayloadTextCodec payloadTextCodec;
 
     private EmbeddingModel embeddingModel;
     private EmbeddingStore<TextSegment> bookEmbeddingStore;
@@ -51,10 +52,11 @@ public class EmbeddingStoreManager {
     private Integer currentEmbeddingDim;
 
     public EmbeddingStoreManager(QdrantClient qdrantClient, ChatModelFactory chatModelFactory,
-                                QdrantProperties qdrantProps) {
+                                QdrantProperties qdrantProps, PayloadTextCodec payloadTextCodec) {
         this.qdrantClient = qdrantClient;
         this.chatModelFactory = chatModelFactory;
         this.qdrantProps = qdrantProps;
+        this.payloadTextCodec = payloadTextCodec;
     }
 
     EmbeddingModel getEmbeddingModel() { return embeddingModel; }
@@ -347,14 +349,36 @@ public class EmbeddingStoreManager {
                 .build();
     }
 
+    /** P2-3：重建向量前清空该书的本地全文缓存，避免新偏移配旧全文。 */
+    void invalidatePayloadTextCache(Long bookId) {
+        payloadTextCodec.invalidate(bookId);
+    }
+
     /**
      * 构建 Qdrant payload Map（从 TextSegment 的文本和 metadata）
      * 使用 Qdrant 官方 ValueFactory 构建 Value
      */
     Map<String, io.qdrant.client.grpc.JsonWithInt.Value> buildQdrantPayload(TextSegment segment) {
+        return buildQdrantPayload(segment, false);
+    }
+
+    /**
+     * @param desensitize true = 内容 chunk，把 text_segment 换成不含原文的检索定位串（P2-3）；
+     *                    false = 书籍元数据向量等，保持原样。
+     *                    注意 embedding 仍由调用方对「原文 TextSegment」计算，向量语义不变。
+     */
+    Map<String, io.qdrant.client.grpc.JsonWithInt.Value> buildQdrantPayload(TextSegment segment,
+                                                                             boolean desensitize) {
         Map<String, io.qdrant.client.grpc.JsonWithInt.Value> payload = new java.util.HashMap<>();
         // 文本内容（与 QdrantEmbeddingStore 使用相同的 key "text_segment"）
-        payload.put(PAYLOAD_TEXT_KEY, value(segment.text()));
+        if (desensitize && payloadTextCodec.isEnabled()) {
+            String stored = payloadTextCodec.forIndex(segment);
+            boolean redacted = !stored.equals(segment.text());
+            payload.put(PAYLOAD_TEXT_KEY, value(stored));
+            if (redacted) payload.put(PayloadTextCodec.REDACTED_FLAG_KEY, value(1L));
+        } else {
+            payload.put(PAYLOAD_TEXT_KEY, value(segment.text()));
+        }
 
         if (segment.metadata() != null) {
             for (var entry : segment.metadata().toMap().entrySet()) {
@@ -551,6 +575,8 @@ public class EmbeddingStoreManager {
 
                 String text = extractPayloadString(payload, PAYLOAD_TEXT_KEY);
                 if (text == null || text.isBlank()) continue;
+                // P2-3：定位串 → 本地 books.full_text 按偏移还原原文，下游拿到的文本与改造前一致
+                text = payloadTextCodec.restore(text, payload, this);
 
                 Metadata metadata = new Metadata();
                 Long bookIdLong = extractPayloadLong(payload, "bookId");

@@ -19,6 +19,7 @@ const AdminProfileBooksPage = lazy(() => import('@/pages/admin/profile-books'))
 const AdminAiConfigPage = lazy(() => import('@/pages/admin/ai-config'))
 const AdminAiScenePage = lazy(() => import('@/pages/admin/ai-scene-config'))
 const AdminTtsConfigPage = lazy(() => import('@/pages/admin/tts-config'))
+const AdminBookQaFeedbackPage = lazy(() => import('@/pages/admin/book-qa-feedback'))
 
 const BookDetailPage = lazy(() => import('@/pages/book/detail'))
 const ReviewEditorPage = lazy(() => import('@/pages/book/review-editor'))
@@ -81,6 +82,7 @@ export const router = createBrowserRouter([
       { path: ROUTES.ADMIN_AI_CONFIG, element: <AdminGuard><LazyLoad><AdminAiConfigPage /></LazyLoad></AdminGuard> },
       { path: ROUTES.ADMIN_AI_SCENE, element: <AdminGuard><LazyLoad><AdminAiScenePage /></LazyLoad></AdminGuard> },
       { path: ROUTES.ADMIN_TTS_CONFIG, element: <AdminGuard><LazyLoad><AdminTtsConfigPage /></LazyLoad></AdminGuard> },
+      { path: ROUTES.ADMIN_BOOK_QA_FEEDBACK, element: <AdminGuard><LazyLoad><AdminBookQaFeedbackPage /></LazyLoad></AdminGuard> },
     ],
   },
   {

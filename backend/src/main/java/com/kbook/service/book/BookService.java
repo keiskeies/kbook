@@ -309,6 +309,7 @@ public class BookService {
         if (updates.getChapterSummary() != null) book.setChapterSummary(updates.getChapterSummary());
         if (updates.getContentEmbedded() != null) book.setContentEmbedded(updates.getContentEmbedded());
         if (updates.getCompressedSummary() != null) book.setCompressedSummary(updates.getCompressedSummary());
+        if (updates.getStructureJson() != null) book.setStructureJson(updates.getStructureJson());
     }
 
     /**
@@ -873,6 +874,36 @@ public class BookService {
             log.warn("图书摘要精炼失败: bookId={}, title={} - {}", book.getId(), book.getTitle(), e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * 导入 / 重新解析后刷新精炼摘要：先清空旧值，再按当前 toc + chapterSummary 重新生成。
+     * <p>
+     * 旧流程重扫时只清 description，{@code compressedSummary} 会残留上一版内容
+     * （目录和章节摘要都已变）。它同时是图书问答静态前缀的一部分，陈旧值会污染回答，
+     * 首轮懒生成还会让前缀在第 1、2 轮之间发生变化，直接破坏 provider 端缓存复用。
+     * <p>
+     * 生成失败时保留 {@code null}，问答侧 {@code BookChatService.ensureCompressedSummary}
+     * 仍会兜底懒生成，不影响可用性。
+     */
+    public void refreshCompressedSummary(Long bookId) {
+        Book book = bookRepository.findById(bookId).orElse(null);
+        if (book == null) return;
+        // 先落库清空：即使随后 LLM 失败，也不会继续用旧摘要
+        book.setCompressedSummary(null);
+        bookRepository.save(book);
+        if (book.getChapterSummary() == null || book.getChapterSummary().isBlank()) return;
+        try {
+            String compressed = generateCompressedSummary(book);
+            if (compressed != null && !compressed.isBlank()) {
+                book.setCompressedSummary(compressed);
+                bookRepository.save(book);
+                log.info("导入阶段预生成精炼摘要: bookId={}, len={}", bookId, compressed.length());
+            }
+        } catch (Exception e) {
+            log.warn("导入阶段预生成精炼摘要失败（问答侧会懒生成兜底）: bookId={}, error={}",
+                    bookId, e.getMessage());
+        }
     }
 
     /**

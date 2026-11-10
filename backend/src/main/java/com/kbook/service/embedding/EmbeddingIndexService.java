@@ -134,6 +134,9 @@ public class EmbeddingIndexService {
 
             long startTime = System.currentTimeMillis();
 
+            // P2-3：重建向量前让本地全文缓存失效，避免新偏移配旧全文还原出错误片段
+            storeManager.invalidatePayloadTextCache(bookId);
+
             List<TextChunker.Chunk> rawChunks = TextChunker.split(
                     content, qdrantProps.getChunkSize(), qdrantProps.getChunkOverlap());
             ContentQualityGate.Result gate = ContentQualityGate.filter(rawChunks);
@@ -200,7 +203,8 @@ public class EmbeddingIndexService {
                     continue;
                 }
                 vectors.add(vec);
-                payloads.add(storeManager.buildQdrantPayload(segments.get(i)));
+                // P2-3：embedding 用的是原文 segment，payload 只写定位串
+                payloads.add(storeManager.buildQdrantPayload(segments.get(i), true));
             }
 
             if (!vectors.isEmpty()) {
@@ -230,7 +234,7 @@ public class EmbeddingIndexService {
                         log.warn("chunkIndex={} 零向量，跳过: bookId={}", globalIndex, bookId);
                         continue;
                     }
-                    fallbackPayloads.add(storeManager.buildQdrantPayload(segment));
+                    fallbackPayloads.add(storeManager.buildQdrantPayload(segment, true));
                     fallbackVectors.add(vec);
 
                     if (fallbackVectors.size() >= EMBED_BATCH_SIZE || i == batchChunks.size() - 1) {

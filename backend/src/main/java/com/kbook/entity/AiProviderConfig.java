@@ -111,6 +111,14 @@ public class AiProviderConfig extends BaseEntity {
      *  注意：与 maxTokens（上下文长度）语义不同，不可互相替代。 */
     private Integer maxOutputTokens;
 
+    /**
+     * 上下文长度是否已按 ai-providers.yml 预设同步过（一次性标记）。
+     * 旧版本种子固定写 32768，与真实模型 128K/1M 不符；启动时只对
+     * {@code synced != true} 且仍为旧默认值的行回填一次，之后管理员手工改的值不再被覆盖。
+     */
+    @Column(name = "context_window_synced")
+    private Boolean contextWindowSynced;
+
     /** 输入单价（元 / 百万 token），用于成本看板折算；为空表示未配置 */
     @Column(name = "input_price")
     private Double inputPrice;

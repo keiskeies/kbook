@@ -31,6 +31,7 @@ public class BookScanService {
     private final BookService bookService;
     private final BookParserService bookParserService;
     private final ObjectMapper objectMapper;
+    private final BookStructureService bookStructureService;
     private final BookStorageProperties storageProps;
 
 
@@ -289,10 +290,16 @@ public class BookScanService {
         // 迁移旧绝对路径为纯文件名
         book.setFileUrl(filePath.getFileName().toString());
         bookParserService.parseAndFill(book, filePath);
+        // 章节结构随全文重建（MEDIUM 档按章取回原文依赖它）
+        book.setStructureJson(bookStructureService.build(book.getFullText()));
+        // 目录/章节摘要已重解析，旧的 LLM 精炼摘要必须失效
+        book.setCompressedSummary(null);
         bookParserService.finalizeCover(book);
         bookParserService.generateAllAiData(book);
         bookService.setAiRating(book.getId(), book.getRating());
         bookService.updateBook(book.getId(), book);
+        // 同步重建摘要：导入本就是重操作，且能让首轮问答的静态前缀即刻稳定
+        bookService.refreshCompressedSummary(book.getId());
         CompletableFuture.runAsync(() -> bookParserService.generateBookEmbedding(book));
         return book;
     }
@@ -308,11 +315,14 @@ public class BookScanService {
                 .fileSize(Files.size(filePath))
                 .build();
         bookParserService.parseAndFill(newBook, filePath);
+        newBook.setStructureJson(bookStructureService.build(newBook.getFullText()));
         Book saved = bookService.createBook(newBook);
         bookParserService.finalizeCover(saved);
         bookParserService.generateAllAiData(saved);
         bookService.setAiRating(saved.getId(), saved.getRating());
         bookService.updateBookAll(saved.getId(), saved);
+        // 预生成精炼摘要，避免首次问答时懒生成导致静态前缀在第 1/2 轮之间变化
+        bookService.refreshCompressedSummary(saved.getId());
         CompletableFuture.runAsync(() -> bookParserService.generateBookEmbedding(saved));
         return saved;
     }

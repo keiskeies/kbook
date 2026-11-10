@@ -98,7 +98,10 @@ public class DataInitializer implements CommandLineRunner {
                 .timeout(600)
                 .enabled(true)
                 .ragTopK(5)
-                .maxTokens(32768)
+                // 与 ai-providers.yml 中 Ollama 预设的 131072(128K) 对齐。
+                // 历史值 32768 会让 RagMaxChars / contextCharLimit / 分档预算整体偏小；
+                // 老库由 AiModelContextLengthResolver 在启动后按模型预设校准一次。
+                .maxTokens(131072)
                 .build();
         aiConfigRepository.save(qaConfig);
         log.info("已创建默认 CHAT-QA 配置: model={}", qaConfig.getModelName());

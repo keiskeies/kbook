@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Settings, ChevronRight, LogOut, Sparkles, Camera, Book, Users, Bot, Volume2, Mail, BarChart3 } from 'lucide-react'
+import { Settings, ChevronRight, LogOut, Sparkles, Camera, Book, Users, Bot, Volume2, Mail, BarChart3, ThumbsDown } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 import { useUiStore } from '@/store/ui'
 import { useNavigate } from 'react-router-dom'
@@ -114,6 +114,7 @@ export default function ProfilePage() {
     { label: '用户审核', icon: Users, path: ROUTES.ADMIN_REVIEW },
     { label: 'AI 配置', icon: Bot, path: ROUTES.ADMIN_AI_CONFIG },
     { label: 'TTS 配置', icon: Volume2, path: ROUTES.ADMIN_TTS_CONFIG },
+    { label: '问答反馈标注', icon: ThumbsDown, path: ROUTES.ADMIN_BOOK_QA_FEEDBACK },
     ...(needBindEmail
       ? [{ label: '绑定邮箱', icon: Mail, path: ROUTES.ADMIN_BIND_EMAIL }]
       : []),

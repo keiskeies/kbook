@@ -10,6 +10,9 @@ export interface AiMessage {
   userQuestion?: string
   followUpQuestions?: string[]
   loadingFollowUps?: boolean
+  /** 后端 ai_conversations 行 id；流式回答由 conversation_id SSE 事件补全，历史回答直接取 r.id。
+   *  反馈（P2-5）与引用依据（P2-7）都依赖它。 */
+  conversationId?: number
 }
 
 /** AI 会话（后端 AiSession 实体） */

@@ -26,6 +26,7 @@ export const ROUTES = {
   ADMIN_AI_CONFIG: '/admin/ai-config',
   ADMIN_AI_SCENE: '/admin/ai-scene',
   ADMIN_TTS_CONFIG: '/admin/tts-config',
+  ADMIN_BOOK_QA_FEEDBACK: '/admin/book-qa-feedback',
   ROUND_TABLE: '/book/:bookId/round-table',
   ROUND_TABLE_SESSION: '/book/:bookId/round-table/sessions/:sessionId',
   DEBATE: '/book/:bookId/debate',

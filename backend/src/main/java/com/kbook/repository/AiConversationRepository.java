@@ -47,6 +47,16 @@ public interface AiConversationRepository extends BaseRepository<AiConversation,
     void deleteByUserIdAndSessionId(Long userId, String sessionId);
 
     /**
+     * 反馈标注队列用：取同一会话中该 assistant 回答之前最近的一条用户提问。
+     * 按 id 而非 created_at 排序，避免同一毫秒内写入时顺序不稳。
+     */
+    @Query(value = "SELECT * FROM ai_conversations " +
+            "WHERE session_id = :sessionId AND role = 'user' AND id < :conversationId " +
+            "ORDER BY id DESC LIMIT 1", nativeQuery = true)
+    Optional<AiConversation> findPreviousUserMessage(@Param("sessionId") String sessionId,
+                                                     @Param("conversationId") Long conversationId);
+
+    /**
      * 查找缓存回答：根据图书ID和用户问题，查找最近一条助手回复
      */
     @Query(value = "SELECT a.* FROM ai_conversations a " +

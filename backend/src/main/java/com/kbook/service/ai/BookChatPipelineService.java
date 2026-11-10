@@ -91,6 +91,7 @@ public class BookChatPipelineService {
     private final BehaviorProfileBuilder behaviorProfileBuilder;
     private final BookChatSessionService sessionService;
     private final com.kbook.service.ai.rag.AiRetrievalSnapshotService retrievalSnapshotService;
+    private final com.kbook.config.properties.BookQaProperties bookQaProperties;
 
     public BookChatPipelineService(
             com.kbook.service.ai.outline.AnswerOutlineService answerOutlineService,
@@ -99,7 +100,8 @@ public class BookChatPipelineService {
             ChatModelManager chatModelManager,
             BehaviorProfileBuilder behaviorProfileBuilder,
             BookChatSessionService sessionService,
-            com.kbook.service.ai.rag.AiRetrievalSnapshotService retrievalSnapshotService) {
+            com.kbook.service.ai.rag.AiRetrievalSnapshotService retrievalSnapshotService,
+            com.kbook.config.properties.BookQaProperties bookQaProperties) {
         this.answerOutlineService = answerOutlineService;
         this.qaOutlineExecutor = qaOutlineExecutor;
         this.itemListRetriever = itemListRetriever;
@@ -107,6 +109,7 @@ public class BookChatPipelineService {
         this.behaviorProfileBuilder = behaviorProfileBuilder;
         this.sessionService = sessionService;
         this.retrievalSnapshotService = retrievalSnapshotService;
+        this.bookQaProperties = bookQaProperties;
     }
 
     // ====================================================================
@@ -443,7 +446,8 @@ public class BookChatPipelineService {
             com.kbook.service.ai.outline.AnswerOutline outline,
             String bookInfoPrompt, StreamingChatModel fallbackModel,
             Long userId, String sessionId, SseEmitter emitter, boolean manual,
-            List<EmbeddingMatch<TextSegment>> initialMatches, String promptVersion, boolean regenerate) {
+            List<EmbeddingMatch<TextSegment>> initialMatches, String promptVersion, boolean regenerate,
+            boolean emitConversationId) {
 
         List<com.kbook.service.ai.outline.AnswerOutline.Item> allItems = outline.items();
         // 条目超过展开上限时只逐节展开前 MAX_PIPELINE_ITEMS 条，其余由末尾清单节确定性兜底——
@@ -624,16 +628,43 @@ public class BookChatPipelineService {
         // 否则 MySQL 数据截断导致整轮落库失败（§3.2 单行助手语义被破坏）
         if (joinedFr.length() > 20) joinedFr = joinedFr.substring(0, 20);
 
-        // 输出审查 + 引用校验在落库前完成，保证 DB 与前端显示一致
+        // 输出审查 + 合规重合检测 + 引用校验在落库前完成，保证 DB 与前端显示一致
         String safeAggregated = CommonUtils.sanitizeAiOutput(aggregated);
+        String answerForCitations = safeAggregated;
+        if (bookQaProperties.isAnswerOverlapGuardEnabled()) {
+            // 只比对本轮真正喂给模型的片段，不做整库比对
+            StringBuilder guardSource = new StringBuilder();
+            List<EmbeddingMatch<TextSegment>> guardMatches =
+                    fragments.all().isEmpty() ? initialMatches : fragments.all();
+            if (guardMatches != null) {
+                for (EmbeddingMatch<TextSegment> m : guardMatches) {
+                    if (m != null && m.embedded() != null) guardSource.append(m.embedded().text());
+                }
+            }
+            com.kbook.service.ai.rag.AnswerOverlapGuard.Result overlap =
+                    com.kbook.service.ai.rag.AnswerOverlapGuard.check(
+                            safeAggregated, guardSource.toString(),
+                            Math.max(com.kbook.service.ai.rag.AnswerOverlapGuard.DEFAULT_MIN_CHARS,
+                                    bookQaProperties.getAnswerOverlapMinChars()));
+            if (overlap.hasOverlap()) {
+                answerForCitations = overlap.redactedAnswer();
+                log.warn("[OverlapGuard/Pipeline] 列表流水线答案检出原文重合: hits={}, maxChars={}",
+                        overlap.hits(), overlap.maxOverlap());
+            }
+        }
         CitationValidator.Result citationResult =
-                CitationValidator.validate(safeAggregated, fragments.size());
+                CitationValidator.validate(answerForCitations, fragments.size());
         String finalAggregated = citationResult.answer();
 
         String outlineJson = answerOutlineService.toJson(outline);
         AiConversation pipelineRow = persistPipelineResult(userId, sessionId, book.getId(), question, finalAggregated,
                 thinking.isEmpty() ? null : thinking.toString(), joinedFr, outlineJson, manual, regenerate);
         if (pipelineRow != null) {
+            // P2-5 / P2-7：流水线路径同样要把落库行 id 交给前端。
+            // 只有声明了该能力的前端才下发，旧版前端会把它当正文显示成一串数字。
+            if (emitConversationId) {
+                SseHelper.safeSendEvent(emitter, "conversation_id", String.valueOf(pipelineRow.getId()));
+            }
             if (citationResult.citationJson() != null) {
                 sessionService.updateCitationById(pipelineRow.getId(), citationResult.citationJson());
             }

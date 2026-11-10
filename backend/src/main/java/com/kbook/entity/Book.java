@@ -134,6 +134,14 @@ public class Book extends BaseEntity {
     @Column(name = "full_text", columnDefinition = "MEDIUMTEXT")
     private String fullText;
 
+    /**
+     * 章节结构 JSON：[{index,title,startChar,endChar}]。
+     * 索引时由 TextStructureExtractor 从全文提取一次并持久化，供 MEDIUM 档按章取回原文；
+     * 避免每轮问答对百万字全文重跑一遍结构扫描。
+     */
+    @Column(name = "structure_json", columnDefinition = "TEXT")
+    private String structureJson;
+
     /** 总字符数（TXT/Epub）或总页数（PDF） */
     @Column(name = "total_units")
     private Long totalUnits;

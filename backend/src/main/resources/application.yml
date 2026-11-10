@@ -279,6 +279,37 @@ kbook:
       quantile: ${QDRANT_QUANTIZATION_QUANTILE:0.99}    # 分位数，裁剪异常值
       always-ram: ${QDRANT_QUANTIZATION_ALWAYS_RAM:false} # 量化向量常驻 RAM（关闭可大幅节省内存，搜索稍慢）
   # ========================
+  # 图书问答按书规模分档路由（见 docs/plans/book-qa-scale-aware-routing-plan.md §2 / P1-1）
+  # 灰度总开关默认关闭：关闭时全量走现有 RAG 链路，与改造前逐字节等价。
+  # 阈值均为起步值，必须用 docs/eval/golden-set.real.jsonl 做 A/B 标定后再改默认。
+  # ========================
+  book-qa:
+    scale-routing-enabled: ${BOOK_QA_SCALE_ROUTING_ENABLED:false}
+    small-book-ratio: ${BOOK_QA_SMALL_BOOK_RATIO:0.6}
+    safety-margin-ratio: ${BOOK_QA_SAFETY_MARGIN_RATIO:0.15}
+    full-text-max-chars: ${BOOK_QA_FULL_TEXT_MAX_CHARS:400000}
+    char-per-token: ${BOOK_QA_CHAR_PER_TOKEN:1.5}
+    session-lock-enabled: ${BOOK_QA_SESSION_LOCK_ENABLED:true}
+    medium-chapter-max-chars: ${BOOK_QA_MEDIUM_CHAPTER_MAX_CHARS:60000}
+    list-pipeline-enabled-for-full-text: ${BOOK_QA_LIST_PIPELINE_FOR_FULL_TEXT:false}
+    session-lock-max-size: ${BOOK_QA_SESSION_LOCK_MAX_SIZE:10000}
+    # P2-3：向量库不再存全书原文（改为章节/位置/主题定位 + 本地按偏移还原）。
+    # 开启后必须重建内容向量；默认关闭，保证与历史 A/B 报告口径一致。
+    payload-desensitization-enabled: ${BOOK_QA_PAYLOAD_DESENSITIZATION:false}
+    full-text-cache-max-size: ${BOOK_QA_FULL_TEXT_CACHE_MAX_SIZE:8}
+    # P2-6：候选池内 BM25 词法重排（桌面化 Lucene 倒排索引落地前的可用形态）
+    hybrid-retrieval-enabled: ${BOOK_QA_HYBRID_RETRIEVAL:false}
+    hybrid-lexical-weight: ${BOOK_QA_HYBRID_LEXICAL_WEIGHT:0.35}
+    hybrid-candidate-multiplier: ${BOOK_QA_HYBRID_CANDIDATE_MULTIPLIER:2}
+    # 合规第 3 道防线：答案里连续 30 字与原文重合时替换为「〔原文从略〕」
+    answer-overlap-guard-enabled: ${BOOK_QA_ANSWER_OVERLAP_GUARD:false}
+    answer-overlap-min-chars: ${BOOK_QA_ANSWER_OVERLAP_MIN_CHARS:30}
+    answer-overlap-source-max-chars: ${BOOK_QA_ANSWER_OVERLAP_SOURCE_MAX_CHARS:400000}
+    # 表达层：分块数量由内容决定，块内句子可推导，去掉「结论 + 论据排队」的 AI 议论文腔；
+    # 只写判定标准，不列连接词清单、不给过渡句式模板，避免模型照单抓药生成新模板腔。
+    # 纯 SystemMessage 文案改动，不碰检索/阈值/预算；设 false 可逐字节回到旧提示词做 A/B。
+    linear-speech-enabled: ${BOOK_QA_LINEAR_SPEECH_ENABLED:true}
+  # ========================
   # AI 视觉模型配置（PDF OCR 专用）
   # 默认使用本地 Ollama 的 Unlimited-OCR:Q4_K_M 模型，避免云端模型（如 Gemini）对 data URI 的兼容性问题。
   # 如果 base-url 和 model-name 都留空，则回退到 CHAT-QA 配置。
@@ -288,7 +319,10 @@ kbook:
     # AI 用量明细保留天数；<=0 表示永久保留（每天凌晨清理）
     usage-retention-days: ${AI_USAGE_RETENTION_DAYS:365}
     # 每个 LLM 请求首部注入随机 nonce，彻底关闭 provider 端提示词/响应缓存；embedding/TTS 不受影响
-    cache-bust-enabled: ${KBOOK_AI_CACHE_BUST_ENABLED:true}
+    # 默认关闭：该层是 2026-11-01 的临时排查手段（见 docs/plans/ai-cache-bust-plan.md §5
+    # 「排查结束后可直接关闭恢复原有缓存收益」）。图书问答的静态书籍前缀需要 provider 端缓存。
+    # 离线评测必须显式置 true：KBOOK_AI_CACHE_BUST_ENABLED=true，否则相同 prompt 命中缓存会污染 A/B 结论。
+    cache-bust-enabled: ${KBOOK_AI_CACHE_BUST_ENABLED:false}
     vision:
       provider: ${AI_VISION_PROVIDER:OLLAMA}
       base-url: ${AI_VISION_BASE_URL:http://192.168.1.10:11434}

@@ -85,7 +85,38 @@ public class AiRetrievalSnapshotService {
     }
 
     /**
-     * 预览严格不超过 {@link #PREVIEW_MAX_CHARS}：{@code CommonUtils.truncateText} 会额外追加 "..."，
+     * 三档路由的 SMALL / MEDIUM 档把原文直接放进提示词，没有 chunk 级检索结果。
+     * 仍写一条占位依据，让 {@code /evidence} 与离线评测能识别「本轮是全文/整章直塞」，
+     * 而不是把空依据读成 Recall = 0。{@code chunk_index} 是 NOT NULL，用 -1 占位；
+     * {@code score} 留空表示没有向量分，避免污染 absolute-min-score 的标定样本。
+     */
+    public void savePlaceholder(Long conversationId, Long bookId, ContextMode mode,
+                                String sourceText, String promptVersion) {
+        if (conversationId == null || bookId == null || mode == null) return;
+        try {
+            repository.save(AiRetrievalSnapshot.builder()
+                    .conversationId(conversationId)
+                    .bookId(bookId)
+                    .chunkIndex(-1)
+                    .chunkEndIndex(-1)
+                    .score(null)
+                    .source(mode.snapshotSource())
+                    .textHash(sourceText == null ? null : sha256(sourceText))
+                    .textPreview(preview("[" + mode.snapshotSource() + "] "
+                            + (sourceText == null ? "" : sourceText)))
+                    .promptVersion(promptVersion)
+                    .build());
+            log.debug("[Snapshot] 写入上下文模式占位: conversationId={}, mode={}",
+                    conversationId, mode);
+        } catch (Exception e) {
+            // 快照是诊断数据，写入失败不能影响回答
+            log.warn("[Snapshot] 写入上下文模式占位失败（不影响回答）: conversationId={}, error={}",
+                    conversationId, e.getMessage());
+        }
+    }
+
+    /**
+     * 预览严格不超过 {@link #PREVIEW_MAX_CHARS}：{@code CommonUtils.truncateText} 会额外追加 "...",
      * 传 200 实际得到 203 字符，超出列宽导致整批插入失败。
      */
     static String preview(String text) {

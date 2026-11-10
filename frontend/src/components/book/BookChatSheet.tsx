@@ -1,8 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, Volume2, Square, Plus, ChevronDown, ChevronUp, Download } from 'lucide-react'
+import { Send, Loader2, Bot, User, RefreshCw, Copy, Check, History, Volume2, Square, Plus, ChevronDown, ChevronUp, Download, ThumbsUp, ThumbsDown, FileSearch } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import MobileSheetHeader from '@/components/common/MobileSheetHeader'
-import { streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions, getBookChatHistory, exportBookChatHistory } from '@/api/bookChat'
+import {
+  streamBookChat, getBookSuggestedQuestions, getFollowUpQuestions, getBookChatSessions,
+  getBookChatHistory, exportBookChatHistory, getRetrievalEvidence, submitAnswerFeedback,
+  getAnswerFeedbackBatch,
+} from '@/api/bookChat'
+import type { RetrievalEvidence, FeedbackRating, FeedbackReason, ScaleMode } from '@/api/bookChat'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import ThinkingBlock from '@/components/ui/thinking-block'
 import { BlinkingBot } from '@/components/BlinkingBot'
@@ -33,6 +38,32 @@ const CHAT_STYLES = [
   { value: 'WITTY', label: '幽默', desc: '轻松调侃、玩梗' },
 ]
 
+/** 差评原因：与后端 VALID_REASONS 一一对应，选择后进待标注队列供人工复核 */
+const FEEDBACK_REASONS: { value: FeedbackReason; label: string }[] = [
+  { value: 'WRONG', label: '答错了' },
+  { value: 'NOT_GROUNDED', label: '没有依据' },
+  { value: 'OFF_TOPIC', label: '答非所问' },
+  { value: 'TOO_LONG', label: '太啰嗦' },
+  { value: 'OTHER', label: '其他' },
+]
+
+const SCALE_MODE_LABEL: Record<ScaleMode, string> = {
+  small: '全书精读',
+  medium: '章节精读',
+  large: '检索作答',
+}
+
+const MODE_LABEL: Record<string, string> = {
+  full_text: '全书原文',
+  chapter: '整章原文',
+  retrieval: '向量检索',
+  context: '检索片段',
+  neighbor: '邻域片段',
+  anchor: '目录锚点',
+  llm_refine: 'LLM 精排',
+  list: '列表检索',
+}
+
 export default function BookChatSheet({ book, open, onOpenChange, initialQuestion, side = 'bottom' }: BookChatSheetProps) {
   const [messages, setMessages] = useState<AiMessage[]>([])
   const [input, setInput] = useState('')
@@ -49,6 +80,13 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
   const [chatTitle, setChatTitle] = useState<string>('')
   const [showHistory, setShowHistory] = useState(false)
   const [historySessions, setHistorySessions] = useState<AiSessionItem[]>([])
+  // P2-5 / P2-7：反馈状态、差评原因面板、引用依据面板
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, FeedbackRating>>({})
+  const [reasonFor, setReasonFor] = useState<string | null>(null)
+  const [evidenceOpenFor, setEvidenceOpenFor] = useState<string | null>(null)
+  const [evidenceMap, setEvidenceMap] = useState<Record<string, RetrievalEvidence[]>>({})
+  const [evidenceLoading, setEvidenceLoading] = useState<string | null>(null)
+  const [scaleMode, setScaleMode] = useState<ScaleMode | ''>('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -179,10 +217,30 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
               timestamp: new Date(r.createdAt).getTime(),
               thinkingContent: r.thinkingContent || undefined,
               followUpQuestions: followUps,
+              conversationId: r.role === 'assistant' ? Number(r.id) : undefined,
             }
           })
         setMessages(history)
         setSessionId(targetSessionId)
+        setFeedbackMap({})
+        setEvidenceMap({})
+        setEvidenceOpenFor(null)
+        setReasonFor(null)
+        // 一次性取回这段历史里已有的反馈，避免每条回答各发一个请求
+        const ids = history.filter((m) => m.conversationId).map((m) => m.conversationId as number)
+        if (ids.length > 0) {
+          getAnswerFeedbackBatch(book.id, ids)
+            .then((res) => {
+              if (!res || typeof res !== 'object') return
+              const next: Record<string, FeedbackRating> = {}
+              for (const m of history) {
+                const vo = m.conversationId ? res[String(m.conversationId)] : undefined
+                if (vo?.rating === 'UP' || vo?.rating === 'DOWN') next[m.id] = vo.rating
+              }
+              if (Object.keys(next).length > 0) setFeedbackMap((prev) => ({ ...prev, ...next }))
+            })
+            .catch(() => {})
+        }
         if (title) setChatTitle(title)
         setShowHistory(false)
         setTimeout(() => {
@@ -191,6 +249,52 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
       }
     } catch { /* ignore */ }
   }
+
+  /** 流式回答用 SSE 补上的 id，历史回答直接用数字化的 msg.id */
+  const resolveConversationId = useCallback((msg: AiMessage): number | undefined => {
+    if (msg.conversationId && msg.conversationId > 0) return msg.conversationId
+    const n = Number(msg.id)
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }, [])
+
+  const handleFeedback = useCallback(async (msg: AiMessage, rating: FeedbackRating, reason?: FeedbackReason) => {
+    const cid = resolveConversationId(msg)
+    if (!cid) return
+    // 乐观更新：反馈不该打断阅读，失败时回滚即可
+    const before = feedbackMap[msg.id]
+    setFeedbackMap((prev) => ({ ...prev, [msg.id]: rating }))
+    setReasonFor(null)
+    try {
+      await submitAnswerFeedback(book.id, cid, { rating, reason })
+    } catch {
+      setFeedbackMap((prev) => {
+        const next = { ...prev }
+        if (before) next[msg.id] = before
+        else delete next[msg.id]
+        return next
+      })
+    }
+  }, [book.id, feedbackMap, resolveConversationId])
+
+  const handleToggleEvidence = useCallback(async (msg: AiMessage) => {
+    if (evidenceOpenFor === msg.id) {
+      setEvidenceOpenFor(null)
+      return
+    }
+    const cid = resolveConversationId(msg)
+    if (!cid) return
+    setEvidenceOpenFor(msg.id)
+    if (evidenceMap[msg.id] !== undefined) return
+    setEvidenceLoading(msg.id)
+    try {
+      const list = await getRetrievalEvidence(book.id, cid)
+      setEvidenceMap((prev) => ({ ...prev, [msg.id]: Array.isArray(list) ? list : [] }))
+    } catch {
+      setEvidenceMap((prev) => ({ ...prev, [msg.id]: [] }))
+    } finally {
+      setEvidenceLoading(null)
+    }
+  }, [book.id, evidenceMap, evidenceOpenFor, resolveConversationId])
 
   const handleClose = useCallback(() => {
     if (abortRef.current) {
@@ -207,6 +311,11 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     setSessionId('')
     setChatTitle('')
     setShowHistory(false)
+    setFeedbackMap({})
+    setEvidenceMap({})
+    setEvidenceOpenFor(null)
+    setReasonFor(null)
+    setScaleMode('')
     onOpenChange(false)
   }, [onOpenChange, speakingId])
 
@@ -224,6 +333,11 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
     setChatTitle('')
     setLoading(false)
     setShowHistory(false)
+    setFeedbackMap({})
+    setEvidenceMap({})
+    setEvidenceOpenFor(null)
+    setReasonFor(null)
+    setScaleMode('')
   }, [speakingId])
 
   const handleSend = useCallback(async (text?: string, isRegenerate?: boolean, manual: boolean = true) => {
@@ -385,6 +499,15 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
           prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: safeText } : m))
         )
       },
+      (conversationId) => {
+        // P2-5 / P2-7：回答落库后才知道真实行 id，反馈与依据都靠它
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantMsg.id ? { ...m, conversationId } : m))
+        )
+      },
+      (mode) => {
+        if (mode === 'small' || mode === 'medium' || mode === 'large') setScaleMode(mode)
+      },
     )
     abortRef.current = controller
   }, [input, loading, book.id, sessionId])
@@ -534,7 +657,7 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
         <MobileSheetHeader
           icon={<BlinkingBot className="h-5 w-5 text-primary" />}
           title={chatTitle || 'AI 书籍问答'}
-          description={`《${book.title}》`}
+          description={`《${book.title}》${scaleMode ? ` · ${SCALE_MODE_LABEL[scaleMode]}` : ''}`}
           actions={
             <>
               {hasMessages && sessionId && (
@@ -747,6 +870,128 @@ export default function BookChatSheet({ book, open, onOpenChange, initialQuestio
                               )}
                             </button>
                           )}
+                        </div>
+                      )}
+                      {/* P2-5 / P2-7：反馈与引用依据。只有拿到落库行 id 的回答才能操作 */}
+                      {msg.role === 'assistant' && !msg.streaming && msg.content && resolveConversationId(msg) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <button
+                            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors active:scale-95 ${
+                              feedbackMap[msg.id] === 'UP'
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                            onClick={() => handleFeedback(msg, 'UP')}
+                            title="这条回答有帮助"
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5" />
+                            <span>有用</span>
+                          </button>
+                          <button
+                            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors active:scale-95 ${
+                              feedbackMap[msg.id] === 'DOWN'
+                                ? 'bg-destructive/10 text-destructive'
+                                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                            onClick={() => {
+                              if (feedbackMap[msg.id] === 'DOWN') handleFeedback(msg, 'UP')
+                              else setReasonFor(reasonFor === msg.id ? null : msg.id)
+                            }}
+                            title="这条回答有问题"
+                          >
+                            <ThumbsDown className="h-3.5 w-3.5" />
+                            <span>没用</span>
+                          </button>
+                          <button
+                            className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs transition-colors active:scale-95 ${
+                              evidenceOpenFor === msg.id
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                            }`}
+                            onClick={() => handleToggleEvidence(msg)}
+                            title="查看这条回答实际用到的书中片段"
+                          >
+                            <FileSearch className="h-3.5 w-3.5" />
+                            <span>依据</span>
+                          </button>
+                          {feedbackMap[msg.id] && (
+                            <span className="text-xs text-muted-foreground">感谢反馈</span>
+                          )}
+                        </div>
+                      )}
+                      {/* 差评原因：选一个即提交，样本进入待标注队列 */}
+                      {reasonFor === msg.id && (
+                        <div className="mt-1.5 rounded-lg border border-border/60 bg-card p-2">
+                          <p className="mb-1.5 text-xs text-muted-foreground">哪里不对？我们会拿它改进回答</p>
+                          <div className="flex flex-wrap gap-1">
+                            {FEEDBACK_REASONS.map((r) => (
+                              <button
+                                key={r.value}
+                                className="rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary active:scale-95"
+                                onClick={() => handleFeedback(msg, 'DOWN', r.value)}
+                              >
+                                {r.label}
+                              </button>
+                            ))}
+                            <button
+                              className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                              onClick={() => setReasonFor(null)}
+                            >
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {/* 引用依据：展示真正进入上下文的片段与来源档位 */}
+                      {evidenceOpenFor === msg.id && (
+                        <div className="mt-1.5 rounded-lg border border-border/60 bg-card p-2.5">
+                          {evidenceLoading === msg.id ? (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <span>正在读取依据…</span>
+                            </div>
+                          ) : (() => {
+                            const list = evidenceMap[msg.id] || []
+                            const full = list.some((e) => e.chunkIndex === -1)
+                            if (full) {
+                              const mode = list[0]?.source
+                              return (
+                                <div className="text-xs text-muted-foreground">
+                                  <p className="mb-1 font-medium text-foreground">
+                                    本轮使用{MODE_LABEL[mode || ''] || mode || '全文'}，未经片段检索
+                                  </p>
+                                  <p>整本/整章原文已进入上下文，因此没有片段编号与排序分；这是设计使然，不是检索失败。</p>
+                                  {list[0]?.textPreview && (
+                                    <p className="mt-1 break-all font-mono text-[11px] opacity-70">{list[0].textPreview}</p>
+                                  )}
+                                </div>
+                              )
+                            }
+                            if (list.length === 0) {
+                              return <p className="text-xs text-muted-foreground">这条回答没有留下检索依据记录。</p>
+                            }
+                            return (
+                              <div className="space-y-1.5">
+                                <p className="text-xs font-medium text-foreground">
+                                  实际进入上下文的 {list.length} 个片段
+                                </p>
+                                {list.map((e, ei) => (
+                                  <div key={e.id ?? ei} className="rounded-md bg-muted/60 px-2 py-1.5 text-xs">
+                                    <div className="mb-0.5 flex flex-wrap items-center gap-1.5 text-muted-foreground">
+                                      <span className="font-medium text-foreground">
+                                        片段 {e.chunkIndex}{e.chunkEndIndex && e.chunkEndIndex !== e.chunkIndex ? `–${e.chunkEndIndex}` : ''}
+                                      </span>
+                                      {e.source && <span>· {MODE_LABEL[e.source] || e.source}</span>}
+                                      {typeof e.score === 'number' && <span>· 相似度 {e.score.toFixed(3)}</span>}
+                                    </div>
+                                    {e.textPreview && (
+                                      <p className="line-clamp-2 break-words text-muted-foreground">{e.textPreview}</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          })()}
                         </div>
                       )}
                       {msg.role === 'assistant' && !msg.streaming && msg.followUpQuestions && msg.followUpQuestions.length > 0 && (

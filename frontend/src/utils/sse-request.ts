@@ -1,4 +1,5 @@
 import { refreshAccessToken, getAccessToken } from './token-refresh'
+import { SseParser, isTextEvent } from './sse-parser'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -6,46 +7,6 @@ export interface SseHandlers<TProgress, TDone> {
   onProgress: (data: TProgress) => void
   onDone: (data: TDone) => void
   onError: (error: Error) => void
-}
-
-class SseParser {
-  private buffer = ''
-  private currentEvent = ''
-  private dataLines: string[] = []
-  private onEvent: (eventName: string, data: string) => boolean | void
-
-  constructor(onEvent: (eventName: string, data: string) => boolean | void) {
-    this.onEvent = onEvent
-  }
-
-  append(chunk: string): boolean {
-    this.buffer += chunk
-    const lines = this.buffer.split('\n')
-    this.buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (line.startsWith('event:')) {
-        this.currentEvent = line.slice(6).trim()
-      } else if (line.startsWith('data:')) {
-        this.dataLines.push(line.slice(5))
-      } else if (line === '') {
-        if (this.dataLines.length > 0) {
-          const data = this.dataLines.join('\n')
-          const stop = this.onEvent(this.currentEvent, data)
-          if (stop) return true
-        }
-        this.currentEvent = ''
-        this.dataLines = []
-      }
-    }
-    return false
-  }
-
-  flush() {
-    if (this.dataLines.length > 0) {
-      this.onEvent(this.currentEvent, this.dataLines.join('\n'))
-    }
-  }
 }
 
 function canUseFetchStream(): boolean {
@@ -309,10 +270,12 @@ export function createSsePostConnection(
     onSessionId?: (sessionId: string) => void
     onFollowUpQuestions?: (questionsJson: string) => void
     onReplace?: (safeText: string) => void
+    onConversationId?: (conversationId: number) => void
+    onScaleMode?: (mode: string) => void
   },
 ): AbortController {
   const controller = new AbortController()
-  const { onChunk, onDone, onError, onThinking, onThinkingContent, onBookMap, onSessionId, onFollowUpQuestions, onReplace } = handlers
+  const { onChunk, onDone, onError, onThinking, onThinkingContent, onBookMap, onSessionId, onFollowUpQuestions, onReplace, onConversationId, onScaleMode } = handlers
   const fullUrl = `${BASE_URL}${url}`
 
   let hasRetried = false
@@ -329,7 +292,16 @@ export function createSsePostConnection(
     if (eventName === 'session_id') { onSessionId?.(data); return false }
     if (eventName === 'follow_up_questions') { onFollowUpQuestions?.(data); return false }
     if (eventName === 'replace') { onReplace?.(data); return false }
+    if (eventName === 'conversation_id') {
+      const id = Number(data)
+      if (Number.isFinite(id) && id > 0) onConversationId?.(id)
+      return false
+    }
+    if (eventName === 'scale_mode') { onScaleMode?.(data.trim()); return false }
     if (data === '[DONE]') { onDone(); return true }
+    // 正文只走默认事件和 message。后端新增的任何元数据事件，
+    // 即使这一版前端没有对应 handler，也不会被当成回答内容显示出来。
+    if (!isTextEvent(eventName)) return false
     onChunk(data)
     return false
   }

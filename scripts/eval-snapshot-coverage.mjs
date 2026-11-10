@@ -193,8 +193,12 @@ function main() {
   const snapshotCache = new Map();
   function snapshotsFor(conversationId) {
     if (!snapshotCache.has(conversationId)) {
+      // chunk_index = -1 是三档路由 SMALL/MEDIUM 的占位行（source=full_text|chapter），
+      // 没有真实 chunk，必须排除，否则会被算成一次「召回了第 -1 块」。
       const rows = query(db, `SELECT chunk_index, COALESCE(chunk_end_index, chunk_index), COALESCE(score, 0)
-          FROM ai_retrieval_snapshots WHERE conversation_id = ${Number(conversationId)} ORDER BY id ASC`);
+          FROM ai_retrieval_snapshots
+          WHERE conversation_id = ${Number(conversationId)} AND chunk_index >= 0
+          ORDER BY id ASC`);
       snapshotCache.set(conversationId, rows.map(r => [Number(r[0]), Number(r[1]), Number(r[2])]));
     }
     return snapshotCache.get(conversationId);

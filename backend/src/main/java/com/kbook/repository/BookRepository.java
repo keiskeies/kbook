@@ -83,6 +83,15 @@ public interface BookRepository extends BaseRepository<Book, Long> {
     List<Book> findByFormatTag(@Param("tag") String tag);
 
     /**
+     * 三组可用于笔记标签候选的图书标签列（领域/概念/读者需求）。
+     * 只取标签列并按阅读量取前 N 本，避免全库解析；targetReaderTags 是读者画像，不参与笔记标签。
+     */
+    @Query("SELECT b.formatTags, b.conceptTags, b.readerNeedTags FROM Book b "
+            + "WHERE b.formatTags IS NOT NULL OR b.conceptTags IS NOT NULL OR b.readerNeedTags IS NOT NULL "
+            + "ORDER BY b.readCount DESC")
+    List<Object[]> findNoteTagColumns(Pageable pageable);
+
+    /**
      * 阅读排行
      */
     Page<Book> findAllByOrderByReadCountDesc(Pageable pageable);
@@ -247,6 +256,14 @@ public interface BookRepository extends BaseRepository<Book, Long> {
      */
     @Query("SELECT b.formatTags FROM Book b WHERE b.formatTags IS NOT NULL")
     List<String> findAllFormatTags();
+
+    /**
+     * 只取全书原文（P2-3 payload 脱敏后按偏移还原用）。
+     * <p>必须走投影：findById 会 EAGER 拉 MEDIUMTEXT，且这里只需要一个字段。
+     * 返回 {@code List<String>} 而非标量，Hibernate 对空结果返回空列表而不是抛异常。
+     */
+    @Query("SELECT b.fullText FROM Book b WHERE b.id = :id")
+    List<String> findFullTextById(@Param("id") Long id);
 
     @Query("SELECT b FROM Book b WHERE NOT EXISTS (SELECT 1 FROM BookSuggestedQuestion sq WHERE sq.bookId = b.id) ORDER BY b.rating DESC")
     List<Book> findBooksWithoutQuestions();

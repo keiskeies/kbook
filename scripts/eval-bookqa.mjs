@@ -3,8 +3,11 @@
  * 图书问答离线评测 runner。
  *
  * 用法：
- *   KBOOK_EVAL_TOKEN=<jwt> node scripts/eval-bookqa.mjs \
- *     --dataset docs/eval/golden-set.sample.jsonl --runs 3
+ *   KBOOK_EVAL_TOKEN=<jwt> KBOOK_AI_CACHE_BUST_ENABLED=true \
+ *     node scripts/eval-bookqa.mjs --dataset docs/eval/golden-set.sample.jsonl --runs 3
+ *
+ * 注意：后端必须以 KBOOK_AI_CACHE_BUST_ENABLED=true 启动。生产默认关闭缓存破坏以复用
+ * 静态书籍前缀；评测若沿用默认，相同 prompt 的多轮 run 会命中 provider 缓存，A/B 失效。
  *
  * 依赖：后端已启动（默认 http://localhost:8181）、Qdrant 与模型可用。
  * 取数：SSE 问答 → history 找到 assistant 行 → evidence 接口取检索依据。
@@ -194,24 +197,33 @@ async function runOnce(baseUrl, token, testCase, k, timeoutMs) {
     }
   }
 
+  // 三档路由：SMALL/MEDIUM 档把原文直接放进提示词，快照只有一条
+  // source=full_text|chapter 的占位行（chunk_index=-1，无向量分）。
+  // 此时没有 chunk 级检索结果，排序类指标必须标 n/a，否则「全文都在上下文里、
+  // 答案也正确」会被统计成 Recall=0 的失败（见 docs/eval/README.md §4 的 pass^k 陷阱）。
+  const fullContextMode = evidence.some(e => e.source === 'full_text' || e.source === 'chapter');
+  const contextMode = evidence.find(e => e.source === 'full_text') ? 'full_text'
+    : evidence.find(e => e.source === 'chapter') ? 'chapter' : 'retrieval';
+
   // 依据接口按 chunkIndex 升序返回，但进入提示词的顺序是按 score 降序（合并后重排 + 预算填充）。
   // 排序指标必须按提示词里的实际顺序算，否则 Recall@10 变成「gold 是不是全书最靠前的十块」。
-  const ranked = rankByScore(evidence);
+  const ranked = fullContextMode ? [] : rankByScore(evidence);
   // 依据行可能是相邻 chunk 合并出来的（chunk_index..chunk_end_index），
   // 保留跨度再算召回，否则被合并进去的前一块会被算成没召回。
-  const retrieved = ranked.flatMap(e => {
+  const retrieved = fullContextMode ? [] : ranked.flatMap(e => {
     if (!Number.isInteger(e.chunkIndex)) return [];
     const end = Number.isInteger(e.chunkEndIndex) && e.chunkEndIndex >= e.chunkIndex
       ? e.chunkEndIndex
       : e.chunkIndex;
     return [[e.chunkIndex, end]];
   });
-  const recall = recallAtK(testCase.gold_chunks, retrieved, k);
-  const ctxRecall = contextRecall(testCase.gold_chunks, retrieved);
-  const reciprocalRank = mrr(testCase.gold_chunks, retrieved, k);
-  const ndcg = ndcgAtK(testCase.gold_chunks, retrieved, k);
+  const recall = fullContextMode ? null : recallAtK(testCase.gold_chunks, retrieved, k);
+  const ctxRecall = fullContextMode ? null : contextRecall(testCase.gold_chunks, retrieved);
+  const reciprocalRank = fullContextMode ? null : mrr(testCase.gold_chunks, retrieved, k);
+  const ndcg = fullContextMode ? null : ndcgAtK(testCase.gold_chunks, retrieved, k);
   const coverage = itemCoverage(testCase.gold_items, sse.content);
-  const citations = citationStats(sse.content, evidence.length);
+  // 占位行不是片段，不能当作 1 个可引用编号
+  const citations = citationStats(sse.content, fullContextMode ? 0 : evidence.length);
   // 拒答判定分两条口径：
   //  - 拒答用例：主题邻域否定 + 关键词表，口径不变（放宽会把真拒答也漏掉）；
   //  - 切题用例：关键词表要贴着读者所问的东西（gold_items）才算拒答，
@@ -258,6 +270,7 @@ async function runOnce(baseUrl, token, testCase, k, timeoutMs) {
     citationValidity: citations.validity,
     mustNotClaimHits,
     evidenceCount: evidence.length,
+    contextMode,
     retrievedChunks: retrieved,
     conversationId,
     topScore,
@@ -305,6 +318,11 @@ function aggregate(results) {
     errorKinds,
     invalidCaseIds: invalidCases.map(r => r.case.id),
     cases: results.length,
+    contextModeCounts: allRuns.reduce((acc, r) => {
+      const key = r.contextMode ?? 'unknown';
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {}),
     passedCases: results.filter(r => r.passK).length,
     passKRate: results.length ? results.filter(r => r.passK).length / results.length : null,
     passedCasesContext: results.filter(r => r.passKContext).length,
@@ -352,6 +370,7 @@ function printMarkdown(report) {
   console.log(`- false refusal: ${a.falseRefusalRate === null ? 'n/a' : a.falseRefusalRate.toFixed(3)}`);
   console.log(`- citation validity: ${a.citationValidityMean === null ? 'n/a' : a.citationValidityMean.toFixed(3)}`);
   console.log(`- latency P50/P95: ${a.latencyP50 ?? 'n/a'}ms / ${a.latencyP95 ?? 'n/a'}ms`);
+  console.log(`- 上下文模式分布: ${JSON.stringify(a.contextModeCounts ?? {})}`);
   console.log(`- topScore (向量分用例) mean/min/max: ${fmt(a.topScoreMean)} / ${fmt(a.topScoreMin)} / ${fmt(a.topScoreMax)}`);
   console.log(`- topScore 切题均值 / 离题均值: ${fmt(a.topScoreOnTopicMean)} / ${fmt(a.topScoreOffTopicMean)}`);
   console.log('');

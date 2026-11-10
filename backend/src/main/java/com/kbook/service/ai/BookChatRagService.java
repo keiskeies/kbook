@@ -21,6 +21,7 @@ import com.kbook.service.ai.behavior.UserBehaviorSignalEvent;
 import com.kbook.entity.UserBehaviorProfile;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
+import com.kbook.config.properties.BookQaProperties;
 import com.kbook.config.properties.QdrantProperties;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.dto.book.BookProjection;
@@ -64,6 +65,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
+import com.kbook.service.ai.rag.HybridLexicalScorer;
 import com.kbook.service.ai.rag.ListQueryDetector;
 import com.kbook.service.ai.rag.ListQueryRetriever;
 import com.kbook.service.ai.rag.ListQueryStrategySelector;
@@ -94,6 +96,7 @@ public class BookChatRagService {
     private final AiSceneConfigService aiSceneConfigService;
     private final RagRerankService ragRerankService;
     private final QdrantProperties qdrantProperties;
+    private final BookQaProperties bookQaProperties;
     private final Executor qaPrefetchExecutor;
 
     public BookChatRagService(
@@ -106,6 +109,7 @@ public class BookChatRagService {
             AiSceneConfigService aiSceneConfigService,
             RagRerankService ragRerankService,
             QdrantProperties qdrantProperties,
+            BookQaProperties bookQaProperties,
             @Qualifier("qaPrefetchExecutor") Executor qaPrefetchExecutor) {
         this.embeddingService = embeddingService;
         this.bookParserService = bookParserService;
@@ -116,6 +120,7 @@ public class BookChatRagService {
         this.aiSceneConfigService = aiSceneConfigService;
         this.ragRerankService = ragRerankService;
         this.qdrantProperties = qdrantProperties;
+        this.bookQaProperties = bookQaProperties;
         this.qaPrefetchExecutor = qaPrefetchExecutor;
     }
 
@@ -123,6 +128,10 @@ public class BookChatRagService {
     private static final int MAX_SUB_QUERIES = 6;
     /** 单个子查询检索超时：失败只损失一路召回，不拖垮整轮。 */
     private static final long PER_QUERY_TIMEOUT_MS = 10_000L;
+    /** RRF 融合常数：越大越弱化头部名次差异，60 为检索融合的通用取值。 */
+    private static final int RRF_K = 60;
+    /** 路内相对分裁剪阈值（替代旧的全局 maxScore × 0.3）。 */
+    private static final double ROUTE_RELATIVE_THRESHOLD = 0.3;
 
 
     /** 默认上下文长度（32K tokens，场景配置缺失时兜底） */
@@ -365,17 +374,25 @@ public class BookChatRagService {
         // 5. 自适应邻域扩展（前 1 后 2 候选，按 score 决定保留）
         // 6. 合并相邻 + 按 bestScore 重排
         // 7. ragMaxChars 截断填充
-        // 每个子查询统一取 ragTopK × 2，不再用固定公式
+        // 每个子查询统一取 ragTopK × 2，不再用固定公式。
+        // P2-6 混合召回打开时再放大候选池：词法重排只有在「精确词命中块已进候选池」时才有意义。
         int perQueryLimit = Math.max(ragTopK, ragTopK * 2);
+        boolean hybrid = bookQaProperties.isHybridRetrievalEnabled();
+        if (hybrid) {
+            int multiplier = Math.max(1, bookQaProperties.getHybridCandidateMultiplier());
+            perQueryLimit = perQueryLimit * multiplier;
+            log.info("[HybridRetrieval] 已启用: perQueryLimit={}, lexicalWeight={}",
+                    perQueryLimit, bookQaProperties.getHybridLexicalWeight());
+        }
 
         // 1. 并行向量查询：第一条保留书籍领域上下文，其余子查询已语义化，不再重复拼简介
         SubQueryHits hits = searchSubQueries(book, subQueries, perQueryLimit);
         int rawCount = hits.rawCount();
         int rawChars = hits.rawChars();
-        Map<Integer, EmbeddingMatch<TextSegment>> dedupedByIndex = dedupeByIndex(hits.matches());
+        List<FusedHit> fusedHits = fuseSubQueryHits(hits.byQuery());
 
         // 2. 无结果时触发向量重建（保留原兜底逻辑）
-        if (dedupedByIndex.isEmpty()) {
+        if (fusedHits.isEmpty()) {
             log.debug("RAG 检索无结果: bookId={}, question={}",
                     book.getId(), question.substring(0, Math.min(30, question.length())));
             Boolean reEmbedResult = bookParserService.forceReEmbedIfMissing(book.getId());
@@ -384,35 +401,40 @@ public class BookChatRagService {
                 hits = searchSubQueries(book, subQueries, perQueryLimit);
                 rawCount = hits.rawCount();
                 rawChars = hits.rawChars();
-                dedupedByIndex = dedupeByIndex(hits.matches());
+                fusedHits = fuseSubQueryHits(hits.byQuery());
             }
         }
 
-        // 3. 全局按 score 降序排序 + topN 截断
-        List<EmbeddingMatch<TextSegment>> sortedByScore = new ArrayList<>(dedupedByIndex.values());
-        sortedByScore.sort((a, b) -> Double.compare(b.score(), a.score()));
-        int dedupCount = sortedByScore.size();
-        int dedupChars = sortedByScore.stream()
-                .mapToInt(m -> m.embedded() != null ? m.embedded().text().length() : 0).sum();
+        // 3. 分路融合后按 RRF 名次分降序 + topN 截断。
+        //    多路子查询的绝对 score 分布不可比（不同 query / 不同扩展策略），直接全局混排
+        //    会系统性偏向整体分高的那一路；RRF 只使用名次，天然免去跨路分数校准。
+        List<FusedHit> sortedByFusion = new ArrayList<>(fusedHits);
+        sortedByFusion.sort((a, b) -> Double.compare(b.rrfScore(), a.rrfScore()));
+        int dedupCount = sortedByFusion.size();
+        int dedupChars = sortedByFusion.stream()
+                .mapToInt(h -> h.match().embedded() != null ? h.match().embedded().text().length() : 0).sum();
 
-        List<EmbeddingMatch<TextSegment>> topN = sortedByScore.stream()
+        List<FusedHit> topFused = sortedByFusion.stream()
                 .limit(ragTopK)
                 .collect(Collectors.toCollection(ArrayList::new));
 
-        // 4. 软阈值过滤：只砍明显噪声（score < max_score × 0.3）
-        if (!topN.isEmpty()) {
-            double maxScore = topN.get(0).score();
-            double noiseThreshold = maxScore * 0.3;
-            int beforeFilter = topN.size();
-            topN = topN.stream()
-                    .filter(m -> m.score() >= noiseThreshold)
+        // 4. 软阈值过滤：按「所属路内相对分」裁剪，而非全局 maxScore × 0.3。
+        //    每一路用自己的头名做基准，另一路的有效块不会被全局分数分布误裁。
+        if (!topFused.isEmpty()) {
+            int beforeFilter = topFused.size();
+            topFused = topFused.stream()
+                    .filter(h -> h.routeRelativeScore() >= ROUTE_RELATIVE_THRESHOLD)
                     .collect(Collectors.toCollection(ArrayList::new));
-            if (topN.size() < beforeFilter) {
-                log.debug("软阈值过滤: maxScore={}, threshold={}, 砍掉 {} 条噪声",
-                        String.format("%.4f", maxScore), String.format("%.4f", noiseThreshold),
-                        beforeFilter - topN.size());
+            if (topFused.size() < beforeFilter) {
+                log.debug("路内相对分过滤: threshold={}, 砍掉 {} 条噪声",
+                        ROUTE_RELATIVE_THRESHOLD, beforeFilter - topFused.size());
             }
         }
+        // 交还下游的 match 一律保留原始 score：邻域扩展 / rerank / 检索快照 / topScore /
+        // BookAnswerGuard 全部沿用原有语义，不需要跟着改，历史 A/B 报告仍可比。
+        List<EmbeddingMatch<TextSegment>> topN = topFused.stream()
+                .map(FusedHit::match)
+                .collect(Collectors.toCollection(ArrayList::new));
 
         // 5. 自适应邻域扩展
         List<EmbeddingMatch<TextSegment>> expanded = RagPipelineComponents.adaptiveNeighborExpand(
@@ -480,7 +502,16 @@ public class BookChatRagService {
         return new RagRetrievalResult(ragContext, listResult.listTopic(), merged, selection.matches());
     }
 
-    private record SubQueryHits(List<EmbeddingMatch<TextSegment>> matches, int rawCount, int rawChars) {
+    /**
+     * 子查询检索结果。保留「每一路各自的命中列表」，融合阶段需要用路内名次和路内分数分布，
+     * 扁平化之后这些信息就永久丢失了。
+     */
+    private record SubQueryHits(int rawCount, int rawChars,
+                                List<List<EmbeddingMatch<TextSegment>>> byQuery) {
+    }
+
+    /** 融合后的单块：原始 match + RRF 名次分 + 该块在其所属路内的相对分。 */
+    record FusedHit(EmbeddingMatch<TextSegment> match, double rrfScore, double routeRelativeScore) {
     }
 
     /**
@@ -513,36 +544,74 @@ public class BookChatRagService {
             }
         }
 
-        List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>();
         int rawCount = 0;
         int rawChars = 0;
+        List<List<EmbeddingMatch<TextSegment>>> byQuery = new ArrayList<>(futures.size());
         for (CompletableFuture<List<EmbeddingMatch<TextSegment>>> future : futures) {
             List<EmbeddingMatch<TextSegment>> hits;
             try {
                 hits = future.join();
             } catch (Exception e) {
+                byQuery.add(List.of());
                 continue;
             }
+            List<EmbeddingMatch<TextSegment>> routeHits = new ArrayList<>();
             for (EmbeddingMatch<TextSegment> match : hits) {
                 String text = match.embedded() != null ? match.embedded().text() : "";
                 if (text.isBlank()) continue;
                 rawCount++;
                 rawChars += text.length();
-                matches.add(match);
+                routeHits.add(match);
             }
+            // P2-6：词法信号在「本路内部」按名次与 dense 融合；跨路仍由 RRF 汇总。
+            // 只改顺序，EmbeddingMatch.score 原样保留，下游与历史 A/B 口径不变。
+            if (bookQaProperties.isHybridRetrievalEnabled()) {
+                int routeIndex = byQuery.size();
+                String subQuery = routeIndex < subQueries.size() ? subQueries.get(routeIndex) : null;
+                routeHits = HybridLexicalScorer.rerankRoute(routeHits, subQuery,
+                        bookQaProperties.getHybridLexicalWeight());
+            }
+            byQuery.add(routeHits);
         }
-        return new SubQueryHits(matches, rawCount, rawChars);
+        return new SubQueryHits(rawCount, rawChars, byQuery);
     }
 
-    private static Map<Integer, EmbeddingMatch<TextSegment>> dedupeByIndex(
-            List<EmbeddingMatch<TextSegment>> matches) {
-        Map<Integer, EmbeddingMatch<TextSegment>> deduped = new LinkedHashMap<>();
-        for (EmbeddingMatch<TextSegment> match : matches) {
-            int idx = RagPipelineComponents.getChunkIndex(match);
-            deduped.merge(idx, match,
-                    (existing, incoming) -> incoming.score() > existing.score() ? incoming : existing);
+    /**
+     * 分路融合（Reciprocal Rank Fusion）。
+     * <p>
+     * 多路子查询的绝对相似度分布互不可比：不同 query 长度、不同扩展策略会让某整体体分数
+     * 系统性偏高，旧的「扁平化 → 全局按 score 排序 → 全局 maxScore×0.3 裁剪」会让其余各路的
+     * 有效块被误裁。这里改为：
+     * <ul>
+     *   <li>排序键用 RRF 名次分 {@code 1/(K+rank)}，只依赖名次，不需要跨路分数校准；</li>
+     *   <li>裁剪键用「本路相对分 = score / 本路最高分」，各路用自己的头名做基准；</li>
+     *   <li>同一 chunk 被多路命中时累加 RRF 分（跨路共识加权），保留原始分最高的那条 match。</li>
+     * </ul>
+     * 返回的 match 保留原始 score，下游语义与历史 A/B 数据完全不变。
+     */
+    static List<FusedHit> fuseSubQueryHits(List<List<EmbeddingMatch<TextSegment>>> byQuery) {
+        if (byQuery == null || byQuery.isEmpty()) return List.of();
+        Map<Integer, FusedHit> fused = new LinkedHashMap<>();
+        for (List<EmbeddingMatch<TextSegment>> route : byQuery) {
+            if (route == null || route.isEmpty()) continue;
+            double routeMax = route.stream().mapToDouble(EmbeddingMatch::score).max().orElse(0.0);
+            for (int rank = 0; rank < route.size(); rank++) {
+                EmbeddingMatch<TextSegment> match = route.get(rank);
+                int idx = RagPipelineComponents.getChunkIndex(match);
+                double rrf = 1.0 / (RRF_K + rank + 1.0);
+                // 分数整体非正的路不做相对裁剪（避免除零/负分把整路清空）
+                double relative = routeMax > 0
+                        ? Math.max(0.0, Math.min(1.0, match.score() / routeMax))
+                        : 1.0;
+                fused.merge(idx,
+                        new FusedHit(match, rrf, relative),
+                        (a, b) -> new FusedHit(
+                                a.match().score() >= b.match().score() ? a.match() : b.match(),
+                                a.rrfScore() + b.rrfScore(),
+                                Math.max(a.routeRelativeScore(), b.routeRelativeScore())));
+            }
         }
-        return deduped;
+        return new ArrayList<>(fused.values());
     }
 
     /**
@@ -551,15 +620,22 @@ public class BookChatRagService {
      * @param question     用户原始问题
      * @param lastAiAnswer 上一轮 AI 回答摘要（可为 null，用于追问场景）
      * @param book         书籍
-     * @return 扩展后的查询列表（最多 9 个），包含原始查询
+     * @return 扩展后的查询列表（最多 {@value #MAX_SUB_QUERIES} 个），原始查询恒定在首位
      */
     public List<String> expandQuery(String question, String lastAiAnswer, Book book) {
         // 初始化查询列表
         List<String> queries = new ArrayList<>();
 
-        // 原始查询：如果超过15字，提取关键词作为首个查询
-        String primaryQuery = question.length() > 15 ? extractKeywords(question) : question;
-        queries.add(primaryQuery);
+        // 原始问题始终作为第一条独立召回路。此前 >15 字的问题会被 extractKeywords
+        // 替换成 ≤15 字关键词短语，导致整句语义完全不进向量检索；多路扩展的实测结论是
+        // 「原 query 必须始终保留」。这里额外为长问题补一路关键词短语做词法精确匹配。
+        queries.add(question);
+        if (question.length() > 15) {
+            String keywords = extractKeywords(question);
+            if (!keywords.isBlank() && !keywords.equals(question)) {
+                queries.add(keywords);
+            }
+        }
 
         try {
             // 构建静态书籍信息（书名、作者、目录）— 同书复用 KV Cache

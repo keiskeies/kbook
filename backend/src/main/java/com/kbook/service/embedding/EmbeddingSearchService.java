@@ -43,18 +43,21 @@ public class EmbeddingSearchService {
     private final ApplicationEventPublisher eventPublisher;
     private final io.qdrant.client.QdrantClient qdrantClient;
     private final QdrantProperties qdrantProps;
+    private final PayloadTextCodec payloadTextCodec;
     private static final String PAYLOAD_TEXT_KEY = "text_segment";
 
     public EmbeddingSearchService(EmbeddingStoreManager storeManager,
                                  EmbeddingIndexService indexService,
                                  ApplicationEventPublisher eventPublisher,
                                  io.qdrant.client.QdrantClient qdrantClient,
-                                 QdrantProperties qdrantProps) {
+                                 QdrantProperties qdrantProps,
+                                 PayloadTextCodec payloadTextCodec) {
         this.storeManager = storeManager;
         this.indexService = indexService;
         this.eventPublisher = eventPublisher;
         this.qdrantClient = qdrantClient;
         this.qdrantProps = qdrantProps;
+        this.payloadTextCodec = payloadTextCodec;
     }
 
     /**
@@ -153,7 +156,7 @@ public class EmbeddingSearchService {
                         .maxResults(maxResults)
                         .minScore(0.2)
                         .build();
-                results = storeManager.getContentEmbeddingStore().search(request).matches();
+                results = restoreTexts(storeManager.getContentEmbeddingStore().search(request).matches());
             }
 
             // 记录命中统计（有结果 = 命中，无结果 = 未命中）
@@ -217,6 +220,8 @@ public class EmbeddingSearchService {
                 text = storeManager.extractPayloadString(payloadMap, "text");
             }
             if (text == null || text.isBlank()) return null;
+            // P2-3：邻域扩展按 chunkIndex 精确取块，同样要把定位串还原成原文
+            text = payloadTextCodec.restore(text, payloadMap, storeManager);
 
             Metadata metadata = new Metadata();
             metadata.put("bookId", bookId);
@@ -242,6 +247,24 @@ public class EmbeddingSearchService {
             log.warn("按 chunkIndex 查询失败: bookId={}, chunkIndex={} - {}", bookId, chunkIndex, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * P2-3：LangChain4j QdrantEmbeddingStore 的降级路径直接把 payload 反序列化成 TextSegment，
+     * 绕过 {@link EmbeddingStoreManager#doFilterSearch}。这里按 metadata 里的偏移补齐还原，
+     * 保证任何检索路径交给下游的都不是定位串。
+     */
+    private List<EmbeddingMatch<TextSegment>> restoreTexts(List<EmbeddingMatch<TextSegment>> matches) {
+        if (matches == null || matches.isEmpty()) return matches;
+        List<EmbeddingMatch<TextSegment>> out = new ArrayList<>(matches.size());
+        for (EmbeddingMatch<TextSegment> m : matches) {
+            if (m.embedded() == null) { out.add(m); continue; }
+            String restored = payloadTextCodec.restore(m.embedded());
+            if (restored == null || restored.equals(m.embedded().text())) { out.add(m); continue; }
+            TextSegment segment = TextSegment.from(restored, m.embedded().metadata());
+            out.add(new EmbeddingMatch<>(m.score(), m.embeddingId(), m.embedding(), segment));
+        }
+        return out;
     }
 
     /**
@@ -295,7 +318,7 @@ public class EmbeddingSearchService {
                         .maxResults(maxResults * 10)
                         .minScore(0.2)
                         .build();
-                return storeManager.getContentEmbeddingStore().search(request).matches().stream()
+                return restoreTexts(storeManager.getContentEmbeddingStore().search(request).matches()).stream()
                         .filter(m -> m.embedded() != null && m.embedded().metadata() != null
                                 && bookId.equals(m.embedded().metadata().getLong("bookId")))
                         .limit(maxResults)

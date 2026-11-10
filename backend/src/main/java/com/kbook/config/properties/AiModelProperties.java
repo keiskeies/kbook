@@ -25,9 +25,11 @@ public class AiModelProperties {
      * 缓存破坏开关：在每个 LLM 请求最前面注入随机 nonce，
      * 使 provider 侧提示词缓存 / KV cache / 网关响应缓存必然 miss。
      * <p>
-     * 代价是长上下文输入按全价计费、TTFT 变长；排查完可用环境变量关掉，无需改代码。
+     * 代价是长上下文输入按全价计费、TTFT 变长。该层是临时排查手段，
+     * 见 {@code docs/plans/ai-cache-bust-plan.md} §5；默认关闭以恢复静态前缀的缓存收益。
+     * 离线评测需要设 {@code KBOOK_AI_CACHE_BUST_ENABLED=true} 保持每次真实调用模型。
      */
-    private boolean cacheBustEnabled = true;
+    private boolean cacheBustEnabled = false;
 
     @Data
     public static class VisionConfig {

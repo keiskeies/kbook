@@ -161,7 +161,7 @@ A 30-year-old unmarried INTJ and a 35-year-old ESFJ with two kids shouldn't be r
 What truly defines KBook isn't the feature list — it's four contrarian decisions:
 
 1. **No reader app. Just a deliberation engine.** However you read, we only care whether you can think clearly after finishing.
-2. **The AI never outputs original text.** System prompt bans reproduction, RAG retrieval desensitization, n-gram post-processing interception — three lines of defense. Commentary and analysis only, never the original work, copyright risk near zero.
+2. **The AI never outputs original text.** This is the product goal: commentary and analysis only, never verbatim reproduction. All three defenses are implemented: (1) a qualitative system-prompt constraint; (2) vector-store payload desensitization (`text_segment` holds chapter/position/topic locators only, with the text restored locally from `books.full_text` by character offset); (3) answer-side verbatim overlap detection (contiguous runs of 30+ characters are replaced). Defenses 2 and 3 are feature-flagged and off by default; see `docs/plans/book-qa-scale-aware-routing-plan.md`.
 3. **Your data, one-command self-hosting.** Docker Compose brings up the full stack in one command; data lives on your server, AI calls use your own keys. "Who you're discussing what book with" is private information — we don't touch it.
 4. **Open source, not SaaS.** No memberships, no data selling, no engagement-chasing recommendation algorithms, no DAU targets. Code is public; your books, your discussions, your data — all yours.
 
@@ -301,7 +301,7 @@ kbook/
 2. **Query** — User question → Embedding vectorization → Qdrant cosine similarity search for Top-8 passages.
 3. **Deliberation** — Retrieved passages + book metadata + user profile + question → LLM generates grounded analysis and commentary, **never reproducing original text**.
 4. **Follow-ups** — AI auto-generates follow-up question suggestions, guiding users to explore book content from different angles.
-5. **Copyright defense** — System prompt bans reproduction + RAG retrieval desensitization + n-gram post-processing interception: three lines of defense, deliberation only.
+5. **Copyright defense** — The system prompt requires paraphrasing rather than verbatim quotation; the vector store no longer keeps a second full copy of the book (locators only, restored locally by offset); answers are checked for verbatim overlap before persistence. The latter two are off by default for A/B and can be enabled with `BOOK_QA_PAYLOAD_DESENSITIZATION=true` / `BOOK_QA_ANSWER_OVERLAP_GUARD=true` (the former requires a content-vector rebuild).
 
 ---
 

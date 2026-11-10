@@ -101,6 +101,27 @@ public class AiProviderProperties {
         private List<ModelPreset> models = new ArrayList<>();
     }
 
+    /**
+     * 按模型名精确匹配预设的上下文长度（token 数）。
+     * <p>
+     * 只做精确匹配：同一模型的不同 tag 可能有不同窗口，模糊匹配会把 32K 模型误标成 1M，
+     * 进而让「可用空间 = 上下文 − 历史 − 输出」的分档判定失真。未命中返回 {@code null}，
+     * 由调用方保留原值。
+     */
+    public Long resolveMaxTokens(String modelName) {
+        if (modelName == null || modelName.isBlank()) return null;
+        for (ProviderPreset provider : providers) {
+            if (provider.getModels() == null) continue;
+            for (ModelPreset model : provider.getModels()) {
+                if (modelName.equals(model.getName())
+                        && model.getMaxTokens() != null && model.getMaxTokens() > 0) {
+                    return model.getMaxTokens();
+                }
+            }
+        }
+        return null;
+    }
+
     /** 模型预设信息 */
     @Data
     public static class ModelPreset {

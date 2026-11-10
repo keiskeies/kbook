@@ -5,6 +5,12 @@
 ## 1. 准备
 
 1. 后端已启动（默认 `http://localhost:8181`），Qdrant 与模型可用。
+   **评测必须显式开启缓存破坏**，否则生产侧为复用静态书籍前缀而关闭的 provider 缓存会让
+   同一 prompt 的多次 run 命中缓存、把 A/B 结论污染成假阳性：
+   ```bash
+   export KBOOK_AI_CACHE_BUST_ENABLED=true
+   ```
+   （`kbook.ai.cache-bust-enabled` 生产默认 `false`，见 `docs/plans/ai-cache-bust-plan.md` §5。）
 2. 准备一个可登录用户的 JWT，设置：
    ```bash
    export KBOOK_EVAL_TOKEN="<jwt>"

@@ -21,6 +21,7 @@ import com.kbook.entity.UserBehaviorProfile;
 import com.kbook.config.annotation.LogAction;
 import com.kbook.config.annotation.LogModule;
 import com.kbook.config.properties.QdrantProperties;
+import com.kbook.config.properties.BookQaProperties;
 import com.kbook.config.ai.AiConfigProvider;
 import com.kbook.dto.book.BookProjection;
 import com.kbook.entity.AiConversation;
@@ -71,6 +72,10 @@ import com.kbook.service.ai.rag.RagPipelineComponents;
 import com.kbook.service.ai.rag.BookAnswerGuard;
 import com.kbook.service.ai.rag.AiRetrievalSnapshotService;
 import com.kbook.service.ai.rag.CitationValidator;
+import com.kbook.service.ai.rag.BookScaleRouter;
+import com.kbook.service.ai.rag.ContextMode;
+import com.kbook.service.ai.rag.FullTextContextBuilder;
+import com.kbook.service.ai.rag.AnswerOverlapGuard;
 import com.kbook.service.ai.core.ChatModelManager;
 import com.kbook.service.ai.core.AiAssistantProvider;
 import com.kbook.service.ai.core.AiSceneConfigService;
@@ -102,6 +107,10 @@ public class BookChatService {
     private final BookChatPipelineService pipelineService;
     private final BookChatFollowUpService followUpService;
     private final AiRetrievalSnapshotService retrievalSnapshotService;
+    private final BookScaleRouter bookScaleRouter;
+    private final FullTextContextBuilder fullTextContextBuilder;
+    private final BookQaProperties bookQaProperties;
+    private final AnswerFeedbackService answerFeedbackService;
     private final @Qualifier("sseExecutor") ExecutorService sseExecutor;
 
     public BookChatService(
@@ -119,6 +128,10 @@ public class BookChatService {
             BookChatPipelineService pipelineService,
             BookChatFollowUpService followUpService,
             AiRetrievalSnapshotService retrievalSnapshotService,
+            BookScaleRouter bookScaleRouter,
+            FullTextContextBuilder fullTextContextBuilder,
+            BookQaProperties bookQaProperties,
+            AnswerFeedbackService answerFeedbackService,
             @Qualifier("sseExecutor") ExecutorService sseExecutor) {
         this.embeddingService = embeddingService;
         this.bookService = bookService;
@@ -134,6 +147,10 @@ public class BookChatService {
         this.pipelineService = pipelineService;
         this.followUpService = followUpService;
         this.retrievalSnapshotService = retrievalSnapshotService;
+        this.bookScaleRouter = bookScaleRouter;
+        this.fullTextContextBuilder = fullTextContextBuilder;
+        this.bookQaProperties = bookQaProperties;
+        this.answerFeedbackService = answerFeedbackService;
         this.sseExecutor = sseExecutor;
     }
 
@@ -150,7 +167,7 @@ public class BookChatService {
      */
     @LogAction("SSE图书问答")
     public SseEmitter streamBookChat(Long userId, Long bookId, String question, String sessionId,
-                                     boolean manual, boolean regenerate) {
+                                     boolean manual, boolean regenerate, boolean emitConversationId) {
         log.info("========== 图书问答请求 ==========");
         log.info("userId={}, bookId={}, question={}", userId, bookId, question);
 
@@ -192,6 +209,8 @@ public class BookChatService {
                     AiConversation lastAssistant = sessionService.findLastAssistantRow(userId, effectiveSessionId);
                     if (lastAssistant != null) {
                         retrievalSnapshotService.deleteByConversationId(lastAssistant.getId());
+                        // P2-5：旧回答被删，对应反馈也要清掉，否则标注队列会留下指向已删行的孤儿样本
+                        answerFeedbackService.deleteByConversationId(lastAssistant.getId());
                         sessionService.deleteMessageById(lastAssistant.getId());
                         log.info("[Regenerate] 删除旧回答: conversationId={}, sessionId={}",
                                 lastAssistant.getId(), effectiveSessionId);
@@ -222,13 +241,43 @@ public class BookChatService {
                 log.info("RAG topK 解析: BOOK_QA场景配置.ragTopK={}, fallback={}, 最终 ragTopK={}",
                         sceneRagTopK, qdrantProperties.getRagTopK(), ragTopK);
                 int ragMaxChars = ragService.getRagMaxChars();
+
+                // ===== 按书规模分档（P1）=====
+                // 先构建静态书籍语料：它是唯一的缓存前缀，档位只决定要不要往里追加原文。
+                // 灰度开关关闭时 decide() 恒返回 LARGE，staticCorpus 与改造前逐字节一致。
+                String baseStaticCorpus = buildStaticBookCorpus(book);
+                String dynamicMeta = buildDynamicBookMeta(book);
+                int historyChars = sessionService.estimateHistoryChars(userId, effectiveSessionId);
+                BookScaleRouter.ScaleDecision scaleDecision = bookScaleRouter.decide(
+                        book, effectiveSessionId, question,
+                        baseStaticCorpus.length() + dynamicMeta.length() + question.length(),
+                        historyChars);
+                final ContextMode contextMode = scaleDecision.mode();
+                final String staticCorpus = switch (contextMode) {
+                    case SMALL -> fullTextContextBuilder.buildSmallCorpus(baseStaticCorpus, book);
+                    case MEDIUM -> scaleDecision.chapter() != null
+                            ? fullTextContextBuilder.buildMediumCorpus(baseStaticCorpus, scaleDecision.chapter())
+                            : baseStaticCorpus;
+                    case LARGE -> baseStaticCorpus;
+                };
+                log.info("[ScaleRouter] 本轮上下文: bookId={}, mode={}, staticChars={}, historyChars={}, reason={}",
+                        bookId, contextMode, staticCorpus.length(), historyChars, scaleDecision.reason());
+                // §5.3 观测项：把档位回传前端，便于人工核对 A/B 分组与档位漂移。
+                // 路由关闭时 decide() 恒返回 LARGE，此时下发档位没有观测价值，
+                // 只会在 SSE 流开头多出一条元数据，因此仅灰度开启时发送。
+                if (bookQaProperties.isScaleRoutingEnabled()) {
+                    SseHelper.safeSendEvent(emitter, "scale_mode",
+                            contextMode.name().toLowerCase(Locale.ROOT));
+                }
+
                 String ragContext = null;
                 String listTopic = null;
                 List<EmbeddingMatch<TextSegment>> ragMatches = null;
                 List<EmbeddingMatch<TextSegment>> ragIncludedMatches = null;
                 ListQueryDetector.DetectionResult detection = ListQueryDetector.DetectionResult.notList();
                 boolean retrievalAttempted = false;
-                if (embeddingService.isAvailable() && waitForContentEmbedding(book.getId())) {
+                if (contextMode.usesRetrieval()
+                        && embeddingService.isAvailable() && waitForContentEmbedding(book.getId())) {
                     retrievalAttempted = true;
                     // 检测提前到检索之前（§3.4 流水线触发第一步）：一次 LLM 调用，
                     // 列表型分支内部复用传入的 detection 结果，不再重复检测。
@@ -252,8 +301,14 @@ public class BookChatService {
                 if (ragContext != null) {
                     log.debug("RAG 检索结果长度: {}", ragContext.length());
                 }
+                // 全文/整章档跳过了检索分支，但仍需一次列表型检测：覆盖度契约与
+                // 回答条目化依赖 listTopic；只是不启动列表流水线（原文已在上下文里）。
+                if (!contextMode.usesRetrieval()) {
+                    detection = listQueryDetector.detect(question, lastAiAnswer);
+                    listTopic = detection.listTopic();
+                }
 
-                // 构建图书基本信息（静态，跨会话共享 KV Cache）
+                // 构建图书基本信息（合并版，供列表条目流水线使用）
                 String bookInfoPrompt = buildBookInfoPrompt(book);
 
                 // 快照：记录"实际进入上下文"的片段与该轮提示词版本
@@ -264,14 +319,19 @@ public class BookChatService {
                 // ===== 列表展开流水线触发判定（§3.4）=====
                 // 条件：检测为列表型 && outline 可得（DB 优先，缺失现场条目化）且 items≥2 && ≤ MAX_PIPELINE_ITEMS
                 // 任何一条不满足 → 完全退回现有单次流式路径（行为不比现状差，Q4）
-                com.kbook.service.ai.outline.AnswerOutline pipelineOutline =
-                        pipelineService.resolvePipelineOutline(detection, question, userId, effectiveSessionId,
-                                emitter, lastAiAnswer, ragMatches, book.getToc());
+                // 全文/整章档首版禁用列表流水线：它依赖 ragMatches，且原文已在上下文里，
+                // 逐条检索反而是重复劳动。可通过配置放开做 A/B 对照。
+                boolean listPipelineAllowed = !contextMode.fullContext()
+                        || bookQaProperties.isListPipelineEnabledForFullText();
+                com.kbook.service.ai.outline.AnswerOutline pipelineOutline = listPipelineAllowed
+                        ? pipelineService.resolvePipelineOutline(detection, question, userId, effectiveSessionId,
+                                emitter, lastAiAnswer, ragMatches, book.getToc())
+                        : null;
 
                 if (pipelineOutline != null) {
                     pipelineService.streamItemListPipeline(book, question, pipelineOutline,
                             bookInfoPrompt, model, userId, effectiveSessionId, emitter, manual,
-                            includedMatchesForSnapshot, promptVersion, regenerate);
+                            includedMatchesForSnapshot, promptVersion, regenerate, emitConversationId);
                     return;
                 }
 
@@ -297,7 +357,12 @@ public class BookChatService {
                         if (!regenerate || !sessionService.isLastUserMessage(userId, effectiveSessionId, question)) {
                             sessionService.saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
                         }
-                        sessionService.saveMessage(userId, effectiveSessionId, "assistant", refusal, bookId, null, "NO_CONTEXT");
+                        AiConversation refusalRow = sessionService.saveMessage(userId, effectiveSessionId,
+                                "assistant", refusal, bookId, null, "NO_CONTEXT");
+                        if (emitConversationId) {
+                            SseHelper.safeSendEvent(emitter, "conversation_id",
+                                    refusalRow == null ? "" : String.valueOf(refusalRow.getId()));
+                        }
                         sessionService.updateSessionTimestamp(effectiveSessionId);
                         sessionService.publishUserSignal(userId, effectiveSessionId, bookId, question, manual);
                     } catch (Exception e) {
@@ -317,14 +382,22 @@ public class BookChatService {
                 // RAG 参考内容 + 用户问题分别构造为独立消息（结构清晰，避免问题被 RAG 淹没）
                 int includedCount = includedMatchesForSnapshot == null ? 0 : includedMatchesForSnapshot.size();
                 String ragMessage = buildRagMessage(ragContext);
-                String questionMessage = buildQuestionMessage(question, listTopic, includedCount);
+                String questionMessage = buildQuestionMessage(question, listTopic, includedCount, contextMode);
 
-                log.debug("图书问答: bookId={}, question={}, bookInfoLen={}, ragContextLen={}, questionMsgLen={}",
-                        bookId, question, bookInfoPrompt.length(),
+                log.debug("图书问答: bookId={}, question={}, mode={}, staticLen={}, ragContextLen={}, questionMsgLen={}",
+                        bookId, question, contextMode, staticCorpus.length(),
                         ragContext != null ? ragContext.length() : 0, questionMessage.length());
 
-                // SystemMessage → UserMessage(bookInfo) → HistoryMessages → UserMessage(RAG) → UserMessage(question)
-                List<ChatMessage> messages = buildChatMessages(effectiveSessionId, userId, bookInfoPrompt, ragMessage, questionMessage);
+                List<ChatMessage> messages = buildChatMessages(effectiveSessionId, userId,
+                        staticCorpus, dynamicMeta, ragMessage, questionMessage);
+
+                // 合规第 3 道防线：只比对「本轮真正进入上下文」的书籍文本，
+                // 不比对整库，避免把模型自己的常识表述误判成复述原文。
+                String overlapSource = (ragContext == null ? "" : ragContext)
+                        + (contextMode.fullContext() ? staticCorpus : "");
+                int sourceCap = Math.max(0, bookQaProperties.getAnswerOverlapSourceMaxChars());
+                if (overlapSource.length() > sourceCap) overlapSource = overlapSource.substring(0, sourceCap);
+                final String overlapSourceFinal = overlapSource;
 
                 StringBuilder fullThinking = new StringBuilder();
                 // 匿名类捕获需 effectively-final
@@ -361,11 +434,25 @@ public class BookChatService {
                         String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
                         // 输出审查 P1 #17：过滤可能的系统提示泄露后再持久化和缓存
                         String safeAnswer = CommonUtils.sanitizeAiOutput(answer);
+                        // 合规第 3 道防线：答案里若整段照抄原文，替换成「〔原文从略〕」后再落库。
+                        // 灰度开关关闭时 answerForCitations == safeAnswer，逐字节等价。
+                        String answerForCitations = safeAnswer;
+                        if (bookQaProperties.isAnswerOverlapGuardEnabled()) {
+                            AnswerOverlapGuard.Result overlap = AnswerOverlapGuard.check(
+                                    safeAnswer, overlapSourceFinal,
+                                    Math.max(AnswerOverlapGuard.DEFAULT_MIN_CHARS,
+                                            bookQaProperties.getAnswerOverlapMinChars()));
+                            if (overlap.hasOverlap()) {
+                                answerForCitations = overlap.redactedAnswer();
+                                log.warn("[OverlapGuard] 答案检出原文重合: bookId={}, hits={}, maxChars={}, mode={}",
+                                        bookId, overlap.hits(), overlap.maxOverlap(), contextMode);
+                            }
+                        }
                         // 引用校验：只保留真实存在的片段编号，非法编号剔除
                         int citationIncludedCount = includedMatchesForSnapshot == null
                                 ? 0 : includedMatchesForSnapshot.size();
                         CitationValidator.Result citationResult =
-                                CitationValidator.validate(safeAnswer, citationIncludedCount);
+                                CitationValidator.validate(answerForCitations, citationIncludedCount);
                         String finalAnswer = citationResult.answer();
                         // 检测到泄露或非法引用时发送 replace 事件覆盖前端已显示的流式内容
                         if (!finalAnswer.equals(answer)) {
@@ -385,18 +472,30 @@ public class BookChatService {
                         }
                         AiConversation assistantRow = sessionService.saveMessage(userId, effectiveSessionId, "assistant",
                                 finalAnswer, bookId, thinkingText, mainFinishReason.get());
+                        // P2-5 / P2-7：把落库行 id 交给前端，才能对「刚流完的这条回答」做反馈与查看依据。
+                        // 只有声明了该能力的前端才下发，旧版前端会把它当正文显示成一串数字。
+                        if (emitConversationId) {
+                            SseHelper.safeSendEvent(emitter, "conversation_id",
+                                    assistantRow == null ? "" : String.valueOf(assistantRow.getId()));
+                        }
                         if (assistantRow != null) {
                             if (citationResult.citationJson() != null) {
                                 sessionService.updateCitationById(assistantRow.getId(), citationResult.citationJson());
                             }
-                            retrievalSnapshotService.save(assistantRow.getId(), bookId,
-                                    includedMatchesForSnapshot, promptVersion);
+                            if (contextMode.fullContext()) {
+                                // 无 chunk 级依据，写占位行让 /evidence 与评测识别上下文模式
+                                retrievalSnapshotService.savePlaceholder(assistantRow.getId(), bookId,
+                                        contextMode, "static_chars=" + staticCorpus.length(), promptVersion);
+                            } else {
+                                retrievalSnapshotService.save(assistantRow.getId(), bookId,
+                                        includedMatchesForSnapshot, promptVersion);
+                            }
                         }
                         sessionService.updateSessionTimestamp(effectiveSessionId);
                         // 发布用户提问信号（异步由 BehaviorProfileService 消费）
                         sessionService.publishUserSignal(userId, effectiveSessionId, bookId, question, manual);
                         // §4.5：回答含枚举结构 → 异步条目化落库（纯服务端状态，失败不影响主流程）
-                        pipelineService.scheduleOutline(assistantRow, safeAnswer, detectionFinal.isListQuery());
+                        pipelineService.scheduleOutline(assistantRow, finalAnswer, detectionFinal.isListQuery());
                     }
 
                     @Override
@@ -407,8 +506,12 @@ public class BookChatService {
                             sessionService.saveMessage(userId, effectiveSessionId, "user", question, bookId, null);
                         }
                         String thinkingText = !fullThinking.isEmpty() ? fullThinking.toString() : null;
-                        sessionService.saveMessage(userId, effectiveSessionId, "assistant",
-                                CommonUtils.sanitizeAiOutput(partialContent), bookId, thinkingText);
+                        AiConversation partialRow = sessionService.saveMessage(userId, effectiveSessionId, "assistant",
+                                CommonUtils.sanitizeAiOutput(partialContent), bookId, thinkingText, null);
+                        if (emitConversationId) {
+                            SseHelper.safeSendEvent(emitter, "conversation_id",
+                                    partialRow == null ? "" : String.valueOf(partialRow.getId()));
+                        }
                         sessionService.updateSessionTimestamp(effectiveSessionId);
                         // 连接断开也算用户提过问
                         sessionService.publishUserSignal(userId, effectiveSessionId, bookId, question, manual);
@@ -444,37 +547,43 @@ public class BookChatService {
 // ==================== 消息构建 ====================
 
     /**
-     * 构建包含系统提示词、图书基本信息、历史对话和当前问题的完整消息列表。
+     * 构建完整消息列表。
      * <p>
-     * 消息顺序（优化 KV Cache 命中）：
-     * SystemMessage（固定提示词）→ UserMessage（图书基本信息，静态）→
-     * 历史对话 → UserMessage（RAG + 当前问题）
-     * <p>
-     * 历史消息数量由压缩机制动态控制，不硬限轮数
+     * 消息顺序（静态前缀必须逐字节稳定，provider 端前缀缓存才能命中）：
+     * <pre>
+     * SystemMessage（固定提示词）
+     *   → UserMessage（静态书籍语料：书名/作者/标签/简介/目录/摘要，档A再加全文）
+     *   → 历史对话
+     *   → UserMessage（动态书籍元信息：评分/阅读量）
+     *   → UserMessage（RAG 参考内容，可为空）
+     *   → UserMessage（读者画像）
+     *   → UserMessage（问题 + 回答契约）
+     * </pre>
+     * 旧实现把评分、阅读量这类随用户行为变化的字段和目录、摘要放在同一条第 2 消息里，
+     * 且 compressedSummary 首轮懒生成，导致前缀每轮漂移、缓存必然失效。
+     * 历史消息数量由压缩机制动态控制，不硬限轮数。
      *
-     * @param sessionId      会话ID
-     * @param userId         用户ID
-     * @param bookInfoPrompt 图书基本信息提示词（静态，用于 KV Cache 前缀复用）
-     * @param ragMessage     RAG 参考内容消息（可为空）
-     * @param questionMessage 用户问题 + 回答要求消息
-     * @return 完整的 ChatMessage 列表
+     * @param staticCorpus   静态书籍语料（缓存前缀，禁止掺入运行时可变数据）
+     * @param dynamicMeta    动态书籍元信息（放在历史之后，不参与前缀）
      */
-    private List<ChatMessage> buildChatMessages(String sessionId, Long userId, String bookInfoPrompt,
+    private List<ChatMessage> buildChatMessages(String sessionId, Long userId,
+                                                String staticCorpus, String dynamicMeta,
                                                 String ragMessage, String questionMessage) {
         List<ChatMessage> messages = new ArrayList<>();
         String style = sessionService.getChatStyleForUser(userId);
         String systemPrompt = sessionService.getSystemPromptForStyle(style);
         messages.add(SystemMessage.from(systemPrompt));
 
-        // 图书基本信息作为独立 UserMessage（静态前缀，跨会话共享 KV Cache）
-        if (bookInfoPrompt != null && !bookInfoPrompt.isBlank()) {
-            messages.add(UserMessage.from(bookInfoPrompt));
+        // 唯一且稳定的缓存前缀
+        if (staticCorpus != null && !staticCorpus.isBlank()) {
+            messages.add(UserMessage.from(staticCorpus));
         }
 
         try {
             // 加载历史消息并同步压缩，确保 LLM 上下文不超限
             int currentOverhead = systemPrompt.length()
-                    + (bookInfoPrompt != null ? bookInfoPrompt.length() : 0)
+                    + (staticCorpus != null ? staticCorpus.length() : 0)
+                    + (dynamicMeta != null ? dynamicMeta.length() : 0)
                     + (ragMessage != null ? ragMessage.length() : 0)
                     + (questionMessage != null ? questionMessage.length() : 0)
                     + 2000; // AI 回复预留
@@ -493,6 +602,11 @@ public class BookChatService {
             }
         } catch (Exception e) {
             log.warn("加载图书问答历史失败，继续无历史对话: {}", e.getMessage());
+        }
+
+        // 动态书籍元信息放在历史之后：变化它不会破坏前面的缓存前缀
+        if (dynamicMeta != null && !dynamicMeta.isBlank()) {
+            messages.add(UserMessage.from(dynamicMeta));
         }
 
         // RAG 参考内容作为独立 UserMessage（参考资料性质，与问题分离）
@@ -608,8 +722,74 @@ public class BookChatService {
 // ==================== 提示词构建 ====================
 
     /**
-     * 构建图书基本信息提示词（纯静态信息，用于 KV Cache 前缀复用）
-     * 包括书名、作者、标签、简介、目录、摘要。不会变化的数据放在这里。
+     * 静态书籍语料 —— 唯一允许进入 provider 缓存前缀的书籍内容。
+     * <p>
+     * 只包含导入期确定、不随用户行为变化的字段。评分/阅读量等运行时数据
+     * 由 {@link #buildDynamicBookMeta} 单独承接到历史消息之后。
+     * 按书规模分档时，SMALL 档在此追加全书原文、MEDIUM 档追加整章原文，
+     * 依然保持「同一本书 + 同一档位 → 逐字节相同」。
+     */
+    private String buildStaticBookCorpus(Book book) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【当前讨论的书籍】\n");
+        sb.append("书名：《").append(book.getTitle()).append("》\n");
+        if (book.getAuthor() != null && !book.getAuthor().isBlank()) {
+            sb.append("作者：").append(book.getAuthor()).append("\n");
+        }
+        appendBookTags(sb, book);
+        if (book.getDescription() != null && !book.getDescription().isBlank()) {
+            sb.append("简介：").append(book.getDescription()).append("\n");
+        }
+        if (book.getToc() != null && !book.getToc().isBlank()) {
+            sb.append("目录：\n").append(book.getToc()).append("\n");
+        }
+        // 摘要优先 compressedSummary（导入期已预生成）→ chapterSummary，均完整不截断
+        if (book.getCompressedSummary() != null && !book.getCompressedSummary().isBlank()) {
+            sb.append("\n【图书精炼摘要】\n").append(book.getCompressedSummary()).append("\n");
+        } else if (book.getChapterSummary() != null && !book.getChapterSummary().isBlank()) {
+            sb.append("\n【章节摘要】\n").append(book.getChapterSummary()).append("\n");
+        }
+        return sb.toString();
+    }
+
+    /** 标签清洗，静态语料与合并版共用。 */
+    private static void appendBookTags(StringBuilder sb, Book book) {
+        if (book.getFormatTags() != null && !book.getFormatTags().isBlank()) {
+            sb.append("标签：").append(book.getFormatTags().replaceAll("[\\[\\]\"]", "").replace(",", "、")).append("\n");
+        }
+        if (book.getConceptTags() != null && !book.getConceptTags().isBlank()) {
+            sb.append("核心概念：").append(book.getConceptTags().replaceAll("[\\[\\]\"]", "").replace(",", "、")).append("\n");
+        }
+        if (book.getReaderNeedTags() != null && !book.getReaderNeedTags().isBlank()) {
+            sb.append("读者需求：").append(book.getReaderNeedTags().replaceAll("[\\[\\]\"]", "").replace(",", "、")).append("\n");
+        }
+        if (book.getTargetReaderTags() != null && !book.getTargetReaderTags().isBlank()) {
+            sb.append("目标读者：").append(book.getTargetReaderTags().replaceAll("[\\[\\]\"]", "").replace(",", "、")).append("\n");
+        }
+    }
+
+    /** 动态书籍元信息：每次评分/阅读都可能变化，禁止进入缓存前缀。 */
+    private String buildDynamicBookMeta(Book book) {
+        StringBuilder sb = new StringBuilder();
+        if (book.getRating() != null) {
+            sb.append("评分：").append(String.format("%.1f", book.getRating()));
+            if (book.getRatingCount() != null && book.getRatingCount() > 0) {
+                sb.append("（").append(book.getRatingCount()).append("人评分）");
+            }
+            sb.append("\n");
+        }
+        if (book.getReadCount() != null && book.getReadCount() > 0) {
+            sb.append("阅读量：").append(book.getReadCount()).append("次\n");
+        }
+        return sb.length() == 0 ? "" : "【图书动态信息】\n" + sb;
+    }
+
+    /**
+     * 构建图书基本信息提示词（静态 + 动态的合并版）。
+     * <p>
+     * 保留原有字段顺序，专供列表条目流水线使用（该流水线做过大量 A/B 调优，
+     * 不宜因缓存改造改变提示词形态）。SSE 主链路已改用
+     * {@link #buildStaticBookCorpus} + {@link #buildDynamicBookMeta} 的拆分版。
      *
      * @param book 书籍实体
      * @return 图书基本信息文本
@@ -701,11 +881,25 @@ public class BookChatService {
      * @param listTopic 列表主题（来自列表型检测；非列表型问题为 null）
      * @return 问题消息字符串
      */
+    /** 保留原签名供既有单测与调用方使用（默认按检索档处理）。 */
     static String buildQuestionMessage(String question, String listTopic, int citationCount) {
+        return buildQuestionMessage(question, listTopic, citationCount, ContextMode.LARGE);
+    }
+
+    /**
+     * 按上下文模式切换引用契约：全文/整章档没有「【片段 N】」，若继续要求 [[N]]，
+     * 模型会编造不存在的片段编号，反而触发 CitationValidator 剔除与 replace 事件。
+     */
+    static String buildQuestionMessage(String question, String listTopic, int citationCount,
+                                       ContextMode mode) {
         StringBuilder sb = new StringBuilder(
                 "【读者的问题】\n" + question + "\n\n请根据上述内容，用中文回答。【回答铁律】已在上方告知，请严格遵守。");
 
-        if (citationCount > 0) {
+        if (mode != null && mode.fullContext()) {
+            sb.append("\n\n【引用契约】全书或相关章节原文已完整提供，请直接依据原文作答。")
+              .append("可以指出章节名或位置帮助读者定位，但不要编造「【片段 N】」这类片段编号；")
+              .append("没有原文依据的判断请明确说明。");
+        } else if (citationCount > 0) {
             sb.append("\n\n【引用契约】参考内容以「【片段 N】」分隔。")
               .append("每个来自书里的关键事实后面用 [[N]] 标注来源（如 [[1]] 或 [[1,2]]）；")
               .append("N 只能是参考内容中出现过的片段编号，不要编造；没有依据的判断不要标注。");

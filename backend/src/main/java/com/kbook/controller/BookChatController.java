@@ -2,9 +2,11 @@ package com.kbook.controller;
 
 import com.kbook.common.api.Result;
 import com.kbook.common.util.CommonUtils;
+import com.kbook.dto.bookqa.BookQaFeedbackDTO;
 import com.kbook.entity.AiConversation;
 import com.kbook.entity.AiRetrievalSnapshot;
 import com.kbook.entity.AiSession;
+import com.kbook.service.ai.AnswerFeedbackService;
 import com.kbook.service.ai.BookChatService;
 import com.kbook.service.progress.ReadingProgressService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -37,6 +39,9 @@ public class BookChatController extends BaseController {
     /** 阅读进度服务 — 用于在提问时记录最近阅读 */
     private final ReadingProgressService readingProgressService;
 
+    /** 回答反馈闭环（方案 P2-5） */
+    private final AnswerFeedbackService answerFeedbackService;
+
     /**
      * 流式图书 AI 对话（SSE）
      * @param bookId 图书ID
@@ -56,6 +61,11 @@ public class BookChatController extends BaseController {
         boolean manual = Boolean.parseBoolean(String.valueOf(body.getOrDefault("manual", "true")));
         // regenerate=true 表示对最后一条回答重新生成：删除旧回答、复用原用户消息
         boolean regenerate = Boolean.parseBoolean(String.valueOf(body.getOrDefault("regenerate", "false")));
+        // 客户端能力声明。旧版前端把不认识的命名事件当成回答正文渲染，
+        // 所以只有明确声明能处理 conversation_id 的前端才下发这条元数据事件。
+        Object clientCaps = body.get("clientCaps");
+        boolean emitConversationId = clientCaps instanceof java.util.Collection<?> caps
+                && caps.contains("conversation_id");
 
         if (message == null || message.isBlank()) {
             SseEmitter emitter = new SseEmitter();
@@ -81,7 +91,7 @@ public class BookChatController extends BaseController {
         readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
         return withSseLimit(userId, () -> bookChatService.streamBookChat(
-                userId, bookId, safeMessage, sessionId, manual, regenerate));
+                userId, bookId, safeMessage, sessionId, manual, regenerate, emitConversationId));
     }
 
     /**
@@ -159,6 +169,52 @@ public class BookChatController extends BaseController {
     ) {
         Long userId = extractUserId();
         return Result.ok(bookChatService.getRetrievalEvidence(userId, bookId, conversationId));
+    }
+
+    /**
+     * 提交 / 修改某条回答的「有用 / 没用」反馈（方案 P2-5）。
+     * 差评会自动进入待标注队列。
+     */
+    @Operation(summary = "提交回答反馈")
+    @PostMapping("/{bookId}/chat/{conversationId}/feedback")
+    public Result<BookQaFeedbackDTO.VO> submitFeedback(
+            @PathVariable Long bookId,
+            @PathVariable Long conversationId,
+            @RequestBody BookQaFeedbackDTO.SubmitRequest body
+    ) {
+        Long userId = extractUserId();
+        try {
+            return Result.ok(answerFeedbackService.submit(userId, bookId, conversationId, body));
+        } catch (IllegalArgumentException e) {
+            return Result.fail(e.getMessage());
+        }
+    }
+
+    /** 查询当前用户在该回答上的反馈；未反馈时 data 为 null。 */
+    @Operation(summary = "查询回答反馈")
+    @GetMapping("/{bookId}/chat/{conversationId}/feedback")
+    public Result<BookQaFeedbackDTO.VO> getFeedback(
+            @PathVariable Long bookId,
+            @PathVariable Long conversationId
+    ) {
+        return Result.ok(answerFeedbackService.get(extractUserId(), conversationId));
+    }
+
+    /** 打开历史会话时批量取反馈，key = conversationId 字符串。 */
+    @Operation(summary = "批量查询回答反馈")
+    @PostMapping("/{bookId}/chat/feedback-batch")
+    public Result<java.util.Map<Long, BookQaFeedbackDTO.VO>> batchFeedback(
+            @PathVariable Long bookId,
+            @RequestBody java.util.Map<String, Object> body
+    ) {
+        Object raw = body == null ? null : body.get("conversationIds");
+        List<Long> ids = new java.util.ArrayList<>();
+        if (raw instanceof java.util.Collection<?> c) {
+            for (Object o : c) {
+                try { ids.add(Long.valueOf(String.valueOf(o))); } catch (NumberFormatException ignored) { }
+            }
+        }
+        return Result.ok(answerFeedbackService.batch(extractUserId(), ids));
     }
 
     /**
