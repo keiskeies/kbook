@@ -15,6 +15,7 @@ import com.kbook.dto.note.NoteUpdateRequest;
 import com.kbook.dto.note.NoteVO;
 import com.kbook.dto.note.ReviewCaptureRequest;
 import com.kbook.service.note.NoteAskService;
+import com.kbook.service.note.NoteAutoTagService;
 import com.kbook.service.note.NoteCaptureService;
 import com.kbook.service.note.NoteService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -39,6 +40,7 @@ public class NoteController extends BaseController {
     private final NoteService noteService;
     private final NoteCaptureService noteCaptureService;
     private final NoteAskService noteAskService;
+    private final NoteAutoTagService noteAutoTagService;
 
     @Operation(summary = "新建纯想法笔记")
     @PostMapping
@@ -150,6 +152,12 @@ public class NoteController extends BaseController {
     @PutMapping("/{noteId}/tags")
     public Result<NoteVO> updateTags(@PathVariable Long noteId, @Valid @RequestBody NoteTagsRequest req) {
         return Result.ok(noteService.updateTags(extractUserId(), noteId, req.getTags()));
+    }
+
+    @Operation(summary = "为无标签笔记自动补充标签")
+    @PostMapping("/{noteId}/auto-tags")
+    public Result<NoteVO> autoTagNote(@PathVariable Long noteId) {
+        return Result.ok(noteAutoTagService.autoTag(extractUserId(), noteId));
     }
 
     @Operation(summary = "笔记历史版本")

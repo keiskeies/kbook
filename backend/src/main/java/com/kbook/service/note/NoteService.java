@@ -71,9 +71,13 @@ public class NoteService {
 
     @Transactional(rollbackFor = Exception.class)
     public NoteVO createThought(Long userId, NoteCreateRequest req) {
+        String title = trimToNull(req.getTitle());
+        if (title == null) {
+            title = NoteTitleGenerator.from(req.getContentMd());
+        }
         Note note = Note.builder()
                 .userId(userId)
-                .title(trimToNull(req.getTitle()))
+                .title(title)
                 .contentMd(req.getContentMd())
                 .noteType(NoteType.THOUGHT)
                 .sourceType(NoteSourceType.MANUAL)
@@ -147,6 +151,23 @@ public class NoteService {
         Note note = loadOwnedNote(userId, noteId);
         note.setTags(normalizeTags(tags));
         noteRepository.save(note);
+        return toVO(note);
+    }
+
+    /**
+     * 仅在笔记仍无标签时写入 — 自动补标签是后台增强，不能覆盖用户在等待期间手动输入的内容。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public NoteVO addTagsIfEmpty(Long userId, Long noteId, List<String> tags) {
+        Note note = loadOwnedNote(userId, noteId);
+        if (note.getTags() != null && !note.getTags().isBlank()) {
+            return toVO(note);
+        }
+        String normalized = normalizeTags(tags);
+        if (normalized != null) {
+            note.setTags(normalized);
+            noteRepository.save(note);
+        }
         return toVO(note);
     }
 

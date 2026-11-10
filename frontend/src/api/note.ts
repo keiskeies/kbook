@@ -180,6 +180,10 @@ export function updateNoteTags(noteId: number, tags: string[]) {
   return request.put<NoteVO>(`/notes/${noteId}/tags`, { tags })
 }
 
+export function autoTagNote(noteId: number) {
+  return request.post<NoteVO>(`/notes/${noteId}/auto-tags`)
+}
+
 export function getNoteNeighbors(noteId: number) {
   return request.get<NoteNeighborsVO>(`/notes/${noteId}/neighbors`)
 }

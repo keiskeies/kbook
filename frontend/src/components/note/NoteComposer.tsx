@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Check, PenLine, RotateCcw } from 'lucide-react'
-import { createNote } from '@/api/note'
+import { Check, ChevronDown, PenLine, RotateCcw, Sparkles, Tag } from 'lucide-react'
+import { autoTagNote, createNote, updateNoteTags, type NotePayload } from '@/api/note'
+import { useIsMobile } from '@/hooks/use-mobile'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
   Input,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
   Textarea,
 } from '@/components/ui'
 import { countWords } from '@/utils/text'
@@ -17,6 +18,7 @@ import { cn } from '@/utils/cn'
 import { TagInput } from './TagInput'
 
 const DRAFT_KEY = 'kbook:note-draft'
+const META_OPEN_KEY = 'kbook:note-composer-meta-open'
 
 export const NOTE_PROMPTS = [
   { label: '今天的一个想法', template: '今天的一个想法：\n' },
@@ -52,6 +54,22 @@ function writeDraft(draft: Draft) {
   }
 }
 
+function readMetaOpenPref(): boolean {
+  try {
+    return localStorage.getItem(META_OPEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeMetaOpenPref(open: boolean) {
+  try {
+    localStorage.setItem(META_OPEN_KEY, open ? '1' : '0')
+  } catch {
+    // 隐私模式下忽略
+  }
+}
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -61,16 +79,26 @@ interface Props {
 
 export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
   const queryClient = useQueryClient()
+  const isMobile = useIsMobile()
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [tags, setTags] = useState<string[]>([])
   const [restored, setRestored] = useState(false)
+  const [metaOpen, setMetaOpen] = useState(false)
+  const [metaDefaultOpen, setMetaDefaultOpen] = useState(() => readMetaOpenPref())
+  const [promptsOpen, setPromptsOpen] = useState(false)
   const contentRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (!open) return
     const draft = readDraft()
     const hasDraft = !!(draft && (draft.title?.trim() || draft.content?.trim()))
+    const pref = readMetaOpenPref()
+    setMetaDefaultOpen(pref)
+    setPromptsOpen(false)
+    // 草稿里已有标题/标签时强制展开，避免恢复的内容被藏在收起区
+    setMetaOpen(pref || !!draft?.title?.trim() || (draft?.tags?.length ?? 0) > 0)
+
     const seed = seedContent?.trim() ?? ''
     if (!seed) {
       if (hasDraft) {
@@ -100,13 +128,34 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
     return () => clearTimeout(timer)
   }, [open, title, content, tags])
 
+  const requestAutoTags = async (noteId: number) => {
+    try {
+      const tagged = await autoTagNote(noteId)
+      if (tagged.tags.length === 0) return
+      queryClient.invalidateQueries({ queryKey: ['notes'] })
+      toast.success(`AI 已补标签：${tagged.tags.map((t) => `#${t}`).join(' ')}`, {
+        duration: 8000,
+        action: {
+          label: '撤销',
+          onClick: () => {
+            updateNoteTags(noteId, [])
+              .then(() => {
+                queryClient.invalidateQueries({ queryKey: ['notes'] })
+                toast.success('已撤销标签')
+              })
+              .catch((err: Error) => toast.error(err.message || '撤销失败'))
+          },
+        },
+      })
+    } catch {
+      // 自动标签只是增强，失败时保持无标签
+    }
+  }
+
   const createMutation = useMutation({
-    mutationFn: () => createNote({
-      title: title.trim() || null,
-      contentMd: content.trim() || null,
-      tags,
-    }),
-    onSuccess: () => {
+    mutationFn: (payload: NotePayload) => createNote(payload),
+    onSuccess: (note, payload) => {
+      const shouldAutoTag = !payload.tags?.length && !!payload.contentMd?.trim()
       queryClient.invalidateQueries({ queryKey: ['notes'] })
       writeDraft({})
       setTitle('')
@@ -115,16 +164,29 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
       setRestored(false)
       toast.success('记下了')
       onOpenChange(false)
+      if (shouldAutoTag) {
+        void requestAutoTags(note.id)
+      }
     },
     onError: (err: Error) => toast.error(err.message || '保存失败'),
   })
 
   const words = useMemo(() => countWords(content), [content])
   const canSave = !!(title.trim() || content.trim())
+  const metaFilledCount = (title.trim() ? 1 : 0) + tags.length
+  const metaToggleLabel = metaOpen
+    ? '收起标题、标签'
+    : metaFilledCount > 0
+      ? `标题与标签（${metaFilledCount}）`
+      : '添加标题、标签'
 
   const save = () => {
     if (!canSave || createMutation.isPending) return
-    createMutation.mutate()
+    createMutation.mutate({
+      title: title.trim() || null,
+      contentMd: content.trim() || null,
+      tags,
+    })
   }
 
   const handleOpenChange = (next: boolean) => {
@@ -132,8 +194,14 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
     onOpenChange(next)
   }
 
+  const handleMetaDefaultChange = (checked: boolean) => {
+    setMetaDefaultOpen(checked)
+    writeMetaOpenPref(checked)
+  }
+
   const applyPrompt = (template: string) => {
     setContent(template)
+    setPromptsOpen(false)
     requestAnimationFrame(() => contentRef.current?.focus())
   }
 
@@ -147,20 +215,26 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg">
-        <DialogHeader className="space-y-1 border-b border-border/50 px-5 py-4 pr-12">
-          <DialogTitle className="flex items-center gap-2 text-base">
+    <Sheet open={open} onOpenChange={handleOpenChange}>
+      <SheetContent
+        side={isMobile ? 'bottom' : 'right'}
+        className={cn(
+          'gap-0',
+          isMobile ? 'h-[85dvh] max-h-[85dvh] rounded-t-2xl' : 'sm:max-w-2xl'
+        )}
+      >
+        <SheetHeader className="shrink-0 space-y-1 border-b border-border/50 px-5 py-4 pr-12">
+          <SheetTitle className="flex items-center gap-2 text-base">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <PenLine className="h-4 w-4" />
             </span>
             记一笔
-          </DialogTitle>
-          <DialogDescription className="text-xs">私人笔记，只属于你。想到什么先放进来。</DialogDescription>
-        </DialogHeader>
+          </SheetTitle>
+          <SheetDescription className="text-xs">私人笔记，只属于你。想到什么先放进来。</SheetDescription>
+        </SheetHeader>
 
         <div
-          className="space-y-3 px-5 py-4"
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4"
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
               e.preventDefault()
@@ -168,22 +242,68 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
             }
           }}
         >
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="标题（可选）"
-            maxLength={100}
-            className="border-transparent bg-muted/60 text-base font-semibold shadow-none focus-visible:bg-background"
-          />
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setMetaOpen((v) => !v)}
+              aria-expanded={metaOpen}
+              className="flex h-8 items-center gap-1.5 rounded-lg px-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Tag className="h-3.5 w-3.5" />
+              {metaToggleLabel}
+              <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', metaOpen && 'rotate-180')} />
+            </button>
+            {!content.trim() && (
+              <button
+                type="button"
+                onClick={() => setPromptsOpen((v) => !v)}
+                aria-expanded={promptsOpen}
+                className="flex h-8 items-center gap-1.5 rounded-lg px-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                灵感
+                <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', promptsOpen && 'rotate-180')} />
+              </button>
+            )}
+          </div>
 
-          {!content.trim() && !title.trim() && (
-            <div className="flex flex-wrap gap-1.5">
+          {metaOpen && (
+            <div className="shrink-0 space-y-2">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="标题（留空自动生成）"
+                  maxLength={100}
+                  className="h-9 flex-1 border-transparent bg-muted/60 text-sm font-semibold shadow-none"
+                />
+                <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={metaDefaultOpen}
+                    onChange={(e) => handleMetaDefaultChange(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  默认展开
+                </label>
+              </div>
+              <TagInput
+                value={tags}
+                onChange={setTags}
+                placeholder="添加标签（留空由 AI 挑选）"
+                className="rounded-lg border-0 bg-muted/40 px-2.5 py-1"
+              />
+            </div>
+          )}
+
+          {promptsOpen && !content.trim() && (
+            <div className="flex shrink-0 gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
               {NOTE_PROMPTS.map((p) => (
                 <button
                   key={p.label}
                   type="button"
                   onClick={() => applyPrompt(p.template)}
-                  className="flex h-9 shrink-0 items-center rounded-full border border-border/60 bg-background px-3.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                  className="flex h-8 shrink-0 items-center whitespace-nowrap rounded-full border border-border/60 bg-background px-3 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
                 >
                   {p.label}
                 </button>
@@ -194,17 +314,17 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
           <Textarea
             ref={contentRef}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => {
+              setContent(e.target.value)
+              if (e.target.value.trim()) setPromptsOpen(false)
+            }}
             placeholder="此刻的想法…（支持 Markdown）"
-            rows={7}
             maxLength={20000}
             autoFocus
-            className="resize-none border-transparent bg-muted/60 shadow-none focus-visible:bg-background"
+            className="min-h-40 flex-1 resize-none border-transparent bg-muted/60 shadow-none focus-visible:bg-background"
           />
 
-          <TagInput value={tags} onChange={setTags} className="border-transparent bg-muted/60 shadow-none" />
-
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
             <span className="tabular-nums">{words} 字</span>
             {restored && (
               <button
@@ -225,7 +345,7 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 border-t border-border/50 px-5 py-3">
+        <div className="flex shrink-0 items-center gap-3 border-t border-border/50 px-5 py-3">
           <button
             type="button"
             onClick={() => setContent((v) => `${v}${v && !v.endsWith('\n') ? '\n' : ''}- `)}
@@ -251,7 +371,7 @@ export function NoteComposer({ open, onOpenChange, seedContent }: Props) {
             {createMutation.isPending ? '保存中…' : <><Check className="h-4 w-4" />保存</>}
           </button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   )
 }

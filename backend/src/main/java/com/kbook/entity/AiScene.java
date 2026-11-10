@@ -104,6 +104,8 @@ public enum AiScene {
     // ==================== 笔记/成长域 ====================
     /** 笔记成长总结（按时间窗把私人笔记总结成阶段性回顾） */
     NOTE_INSIGHT("笔记成长总结", Category.QA_WITHOUT_THINKING, false, false),
+    /** 笔记自动标签（从用户/图书标签词库中选择，不做自由生成） */
+    NOTE_AUTO_TAG("笔记自动标签", Category.TOOL, false, false),
 
     // ==================== 压缩域 ====================
     /** 通用对话压缩 */
