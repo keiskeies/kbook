@@ -1,6 +1,7 @@
 package com.kbook.service.debate;
 
 import com.kbook.common.exception.BusinessException;
+import com.kbook.config.properties.DebateProperties;
 import com.kbook.dto.debate.DebateReportVO;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
@@ -50,6 +51,8 @@ public class DebateReportService {
     private final BookRepository bookRepository;
     private final ChatModelManager chatModelManager;
     private final ExecutorService sseExecutor;
+    private final DebateProperties debateProperties;
+    private final DebateDossierService dossierService;
 
     public DebateReportService(
             DebateReportRepository reportRepository,
@@ -58,7 +61,9 @@ public class DebateReportService {
             DebateScoreRepository scoreRepository,
             BookRepository bookRepository,
             ChatModelManager chatModelManager,
-            @Qualifier("sseExecutor") ExecutorService sseExecutor) {
+            @Qualifier("sseExecutor") ExecutorService sseExecutor,
+            DebateProperties debateProperties,
+            DebateDossierService dossierService) {
         this.reportRepository = reportRepository;
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
@@ -66,6 +71,8 @@ public class DebateReportService {
         this.bookRepository = bookRepository;
         this.chatModelManager = chatModelManager;
         this.sseExecutor = sseExecutor;
+        this.debateProperties = debateProperties;
+        this.dossierService = dossierService;
     }
 
     /**
@@ -135,6 +142,25 @@ public class DebateReportService {
 
             // 构建报告用户消息（动态内容）
             String reportUserMessage = buildReportUserMessage(session, book, allMessages);
+
+            // 深度模式：dossier READY 时追加分歧点裁决文本；失败/关闭时保持原 prompt
+            if (debateProperties.isDeepEnabled()) {
+                try {
+                    // 辩论刚结束时最后几轮的战场状态可能仍异步写回中，
+                    // 先对齐到最终状态再裁决，否则报告会基于不完整战场下结论。
+                    dossierService.awaitPendingUpdates(session.getSessionId(), 60);
+                    var dossier = dossierService.getBySessionId(session.getSessionId());
+                    if (dossier != null && "READY".equals(dossier.getStatus())) {
+                        String verdict = dossierService.buildVerdictText(session.getSessionId());
+                        if (verdict != null && !verdict.isBlank()) {
+                            reportUserMessage = reportUserMessage + "\n\n" + verdict;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("追加分歧点裁决文本失败（不影响报告生成）: sessionId={}, error={}",
+                            session.getSessionId(), e.getMessage());
+                }
+            }
 
             List<ChatMessage> chatMessages = List.of(
                     SystemMessage.from(DebatePrompts.DEBATE_REPORT_SYSTEM_PROMPT),

@@ -181,6 +181,9 @@ notification:
 # 初始管理员配置
 # ========================
 kbook:
+  # 辩论深度增强总开关（默认关闭，关闭时辩论链路与改造前等价）
+  debate:
+    deep-enabled: ${BOOK_DEBATE_DEEP_ENABLED:false}
   # CORS 允许的 Origin 模式（逗号分隔）
   # 安全要求：禁止使用 http://*:* 等通配符模式（等同 Origin 反射）
   # 开发环境默认：本机任意端口

@@ -2,22 +2,23 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Volume2, Square, Loader2, BarChart3, FileText, Play, Pause, Mic,
-  ChevronUp, ChevronDown,
+  ChevronUp, ChevronDown, Crosshair,
 } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import ScorePanel from '@/components/debate/ScorePanel'
 import ReportPanel from '@/components/debate/ReportPanel'
+import BattleMapPanel from '@/components/debate/BattleMapPanel'
 import MarkdownRenderer from '@/components/ui/markdown-renderer'
 import {
   getDebateMessages, getNextDebateSpeaker, advanceDebateRound,
-  getDebateSession,
+  getDebateSession, getDebateDossier,
   streamDebateOpeningSpeech, streamDebateCrossExamSpeech, streamDebateRebuttalSpeech,
   streamDebateFreeSpeech, streamDebateClosingSpeech,
   streamHostCommentary,
   getDebateScores, getDebateReport, triggerDebateReport,
 } from '@/api/debate'
 import { getBook } from '@/api/book'
-import type { DebateScore, DebateReport, DebateMessage } from '@/types/debate'
+import type { DebateScore, DebateReport, DebateMessage, DebateDossier } from '@/types/debate'
 import {
   DEBATE_ROLE_COLORS, DEBATE_ROLE_NAMES, DEBATE_ROLE_ICONS,
   DEBATE_PERSONALITY_NAMES,
@@ -68,8 +69,15 @@ const ROUND_LABELS: Record<string, string> = {
 /** 开篇立论发言顺序 — 仅一辩立论（主持人单独开场） */
 const OPENING_ORDER = ['PRO_1', 'CON_1']
 
-/** 交叉质询顺序 — 二辩质询对方一辩，各1轮（共2 Q&A对） */
-interface CrossExamTurn { roleKey: string; examRole: 'QUESTIONER' | 'ANSWERER'; defenderKey: string }
+/** 交叉质询顺序 — 二辩质询对方一辩，各1轮（共2 Q&A对）— 无 dossier 时的回退序列 */
+interface CrossExamTurn {
+  roleKey: string
+  examRole: 'QUESTIONER' | 'ANSWERER'
+  defenderKey: string
+  /** 深度模式：本轮聚焦的分歧点标题；回退序列不含此字段 */
+  focalTitle?: string
+  focalId?: number
+}
 const CROSS_EXAM_ORDER: CrossExamTurn[] = [
   { roleKey: 'PRO_2', examRole: 'QUESTIONER', defenderKey: 'CON_1' },
   { roleKey: 'CON_1', examRole: 'ANSWERER',   defenderKey: 'CON_1' },
@@ -77,14 +85,39 @@ const CROSS_EXAM_ORDER: CrossExamTurn[] = [
   { roleKey: 'PRO_1', examRole: 'ANSWERER',   defenderKey: 'PRO_1' },
 ]
 
-/** 驳论发言顺序 — 二辩 */
-const REBUTTAL_ORDER = ['PRO_2', 'CON_2']
+/** 追问链：每个分歧点「质询 3 turn + 回答 3 turn」交替（澄清→逼问→归谬→逐答） */
+const CROSS_EXAM_CHAIN_ROUNDS = 3
+
+/**
+ * 从 dossier 前 2 个分歧点生成追问链。
+ * 无 dossier / 状态非 READY → 返回 null，调用方回退 CROSS_EXAM_ORDER（老会话兼容）。
+ */
+const CROSS_EXAM_CHAINS = (dossier: DebateDossier | null): CrossExamTurn[] | null => {
+  if (!dossier || dossier.status !== 'READY' || dossier.focalPoints.length === 0) return null
+  const chains: CrossExamTurn[] = []
+  dossier.focalPoints.slice(0, 2).forEach((fp, chainIdx) => {
+    // 第 1 个分歧点：正方二辩质询反方一辩；第 2 个：反方二辩质询正方一辩
+    const questioner = chainIdx === 0 ? 'PRO_2' : 'CON_2'
+    const defender = chainIdx === 0 ? 'CON_1' : 'PRO_1'
+    for (let round = 0; round < CROSS_EXAM_CHAIN_ROUNDS; round++) {
+      chains.push({ roleKey: questioner, examRole: 'QUESTIONER', defenderKey: defender, focalTitle: fp.title, focalId: fp.id })
+      chains.push({ roleKey: defender, examRole: 'ANSWERER', defenderKey: defender, focalTitle: fp.title, focalId: fp.id })
+    }
+  })
+  return chains
+}
+
+/** 驳论发言顺序 — 二辩拆逻辑 + 三辩补事实层 */
+const REBUTTAL_ORDER = ['PRO_2', 'CON_2', 'PRO_3', 'CON_3']
 
 /** 总结陈词发言顺序 — 反方先，正方后 */
 const CLOSING_ORDER = ['CON_4', 'PRO_4']
 
 /** 自由辩论最大发言轮次 */
-const MAX_FREE_EXCHANGES = 12
+const MAX_FREE_EXCHANGES = 16
+
+/** 自由辩论：每个分歧点连续发言轮次，超过后切换到下一个焦点 */
+const FREE_FOCAL_BLOCKS = 4
 
 /** 刷新页面时重建主持人消息（前端预写，不存后端） */
 function insertHostMessages(msgs: DisplayMessage[], bookTitle: string): DisplayMessage[] {
@@ -279,8 +312,10 @@ export default function DebateSessionPage() {
   const [scores, setScores] = useState<DebateScore[]>([])
   const [report, setReport] = useState<DebateReport | null>(null)
   const [reportGenerating, setReportGenerating] = useState(false)
+  const [dossier, setDossier] = useState<DebateDossier | null>(null)
   const [showScorePanel, setShowScorePanel] = useState(false)
   const [showReportPanel, setShowReportPanel] = useState(false)
+  const [showBattleMapPanel, setShowBattleMapPanel] = useState(false)
   const [bookTitle, setBookTitle] = useState<string>('')
   const [sessionStatus, setSessionStatus] = useState<string>('ACTIVE')
   const [sessionProKeys, setSessionProKeys] = useState('')
@@ -307,6 +342,10 @@ export default function DebateSessionPage() {
   const lastScrollTopRef = useRef(0)
   /** 最近一次流式发言的完整内容 — 解决闭包陷阱：回调链中 messages 是旧快照 */
   const lastStreamedContentRef = useRef('')
+  /** 论点弹药库 ref — 供发言闭包读取最新 dossier（避免闭包过期） */
+  const dossierRef = useRef<DebateDossier | null>(null)
+  /** 战场刷新请求序号 — 丢弃迟到响应，防止快速连续发言时旧快照覆盖新状态 */
+  const dossierRefreshSeqRef = useRef(0)
 
   // TTS refs
   const ttsQueueRef = useRef<{ text: string; roleKey: string; msgIndex: number }[]>([])
@@ -485,9 +524,12 @@ export default function DebateSessionPage() {
       getDebateMessages(sessionId),
       getDebateScores(sessionId).catch(() => [] as DebateScore[]),
       getDebateSession(sessionId).catch(() => null),
+      getDebateDossier(sessionId).catch(() => null),
     ])
-      .then(([msgs, scoreData, session]) => {
+      .then(([msgs, scoreData, session, dossierData]) => {
         setScores(scoreData)
+        // 论点弹药库：加载失败静默回退（null），不阻断辩论流程（老会话兼容）
+        setDossier(dossierData)
 
         if (session) {
           setSessionStatus(session.status)
@@ -547,6 +589,26 @@ export default function DebateSessionPage() {
         setPhase('OPENING')
       })
   }, [sessionId])
+
+  // 弹药库是会话创建后异步生成的，首次进页面时通常还是 GENERATING/未落库。
+  // 这里轮询到 READY 或 FAILED 为止（最多 60 秒），否则首场辩论必然走回退流程。
+  const dossierPollCountRef = useRef(0)
+  useEffect(() => {
+    if (!sessionId) return
+    if (dossier && dossier.status !== 'GENERATING') return
+    if (dossierPollCountRef.current >= 30) return
+    const timer = setInterval(async () => {
+      dossierPollCountRef.current++
+      try {
+        const latest = await getDebateDossier(sessionId)
+        if (latest && latest.status !== 'GENERATING') {
+          setDossier(latest)
+        }
+      } catch { /* 静默：老会话没有 dossier，轮询到上限自然停止 */ }
+      if (dossierPollCountRef.current >= 30) clearInterval(timer)
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [sessionId, dossier?.status])
 
   // ==================== TTS 队列 + 角色音色 ====================
 
@@ -797,6 +859,18 @@ export default function DebateSessionPage() {
         }
         if (sessionId) {
           getDebateScores(sessionId).then(setScores).catch(() => {})
+          // 战场地图若只在进页面拉一次，打开后永远是初始空状态。
+          // 每轮发言落库后刷新；后端异步写回略滞后，延迟 1.5s 再拉，并丢弃迟到响应。
+          if (dossierRef.current?.status === 'READY') {
+            const seq = ++dossierRefreshSeqRef.current
+            setTimeout(() => {
+              getDebateDossier(sessionId).then(latest => {
+                if (seq === dossierRefreshSeqRef.current && latest?.status === 'READY') {
+                  setDossier(latest)
+                }
+              }).catch(() => {})
+            }, 1500)
+          }
         }
       } else {
         setMessages(prev => prev.filter(m => m.id !== msgId))
@@ -985,13 +1059,30 @@ export default function DebateSessionPage() {
   const startCrossExamRound = useCallback(async () => {
     if (!sessionId) return
 
+    // 深度模式：从 dossier 前 2 个分歧点生成追问链；无 dossier 回退原 4-turn 序列（老会话兼容）
+    // 链模式按会话锁定：dossier 若在质询中途才 READY，链长从 4 跳到 12 会让
+    // 「按已发言条数」的续播游标错位，这里固定住首次决定。
+    const chainKey = `kbook-debate-cross-chains-${sessionId}`
+    let stored: CrossExamTurn[] | null = null
+    try {
+      const raw = sessionStorage.getItem(chainKey)
+      if (raw) stored = JSON.parse(raw) as CrossExamTurn[]
+    } catch { /* 隐私模式 / 脏数据忽略 */ }
+    const deepChains = CROSS_EXAM_CHAINS(dossierRef.current)
+    // 锁的是整份链配置，不只是模式标记：只存 "deep" 时若 dossier 中途不可用，
+    // 链长仍会在 4↔12 之间跳，续播游标照样错位。
+    const chains = stored && stored.length > 0 ? stored : (deepChains || CROSS_EXAM_ORDER)
+    const useChains = chains.some(t => !!t.focalTitle)
+    if (!stored) {
+      try { sessionStorage.setItem(chainKey, JSON.stringify(chains)) } catch { /* 忽略 */ }
+    }
+
     // 继续历史时：跳过已完成回合（按 roleKey 匹配）
     const examMsgs = messages.filter(
       m => m.roundType === 'CROSS_EXAM' && m.roundNumber === currentRoundRef.current
     )
-    const spokenCount = examMsgs.length
-    let turnIndex = spokenCount
-    if (turnIndex >= CROSS_EXAM_ORDER.length) {
+    let turnIndex = examMsgs.length
+    if (turnIndex >= chains.length) {
       handleAdvanceRoundRef.current()
       return
     }
@@ -1001,15 +1092,23 @@ export default function DebateSessionPage() {
     const con1Msg = messages.find(m => m.positionKey === 'CON_1' && m.roundType === 'OPENING')
 
     const speakNextTurn = () => {
-      if (turnIndex >= CROSS_EXAM_ORDER.length || !isChainActiveRef.current) {
+      if (turnIndex >= chains.length || !isChainActiveRef.current) {
         handleAdvanceRoundRef.current()
         return
       }
 
-      const turn = CROSS_EXAM_ORDER[turnIndex]
+      const turn = chains[turnIndex]
 
-      // 两对 Q&A 之间插入主持串场（turnIndex=2 是 CON_2 质询 PRO_1 的开头）
-      if (turnIndex === 2) {
+      // 分歧点之间插入主持串场：深度模式在每条追问链开头（除第 1 条）
+      if (useChains && turnIndex > 0 && turnIndex % (CROSS_EXAM_CHAIN_ROUNDS * 2) === 0) {
+        setMessages(prev => [...prev, {
+          id: `host-crossexam-chain-${turnIndex}`,
+          roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
+          content: `接下来聚焦第二个分歧点，有请${DEBATE_ROLE_NAMES[turn.roleKey]}质询对方一辩`,
+          timestamp: Date.now(),
+        }])
+      } else if (!useChains && turnIndex === 2) {
+        // 回退序列：保持原有串场
         setMessages(prev => [...prev, {
           id: `host-crossexam`,
           roleKey: 'HOST', roleName: '主持人', side: 'NEUTRAL', positionKey: 'HOST',
@@ -1021,19 +1120,28 @@ export default function DebateSessionPage() {
       const defenderOpening = turn.defenderKey.startsWith('PRO')
         ? pro1Msg?.content || '' : con1Msg?.content || ''
 
-      // 如果是被质询方，优先从 ref 获取最近流式内容（解决闭包陷阱），回退到 messages
+      // 对方上一条发言 — 优先 ref（解决闭包陷阱），回退到 messages
+      let lastAnswer = lastStreamedContentRef.current
+      if (!lastAnswer) {
+        const prevMsgs = messages.filter(
+          m => m.roundType === 'CROSS_EXAM' && m.roundNumber === currentRoundRef.current
+        )
+        lastAnswer = prevMsgs.length > 0 ? prevMsgs[prevMsgs.length - 1].content : ''
+      }
+
+      // extraContent（当前分歧点标题 + 对方上一条回答）经既有 questionContent 通道传给后端；
+      // 回退序列无 focalTitle 时维持原行为（QUESTIONER 不传 questionContent）。
       let questionContent = ''
-      if (turn.examRole === 'ANSWERER') {
-        if (lastStreamedContentRef.current) {
-          questionContent = lastStreamedContentRef.current
-        } else {
-          const prevMsgs = messages.filter(
-            m => m.roundType === 'CROSS_EXAM' && m.roundNumber === currentRoundRef.current
-          )
-          if (prevMsgs.length > 0 && prevMsgs[prevMsgs.length - 1].content.trim()) {
-            questionContent = prevMsgs[prevMsgs.length - 1].content
-          }
+      if (turn.focalTitle) {
+        // 焦点 id 是前后端唯一真相源的载体：后端据此切换 dossier 的 currentFocalPointId
+        questionContent = `【焦点ID】${turn.focalId}\n【当前分歧点】${turn.focalTitle}`
+        if (lastAnswer.trim()) {
+          // 回答方拿到的是质询方的提问，不是回答；标签写错会让辩手答非所问。
+          const label = turn.examRole === 'ANSWERER' ? '【对方质询问题】' : '【对方上一条回答】'
+          questionContent += `\n${label}${lastAnswer}`
         }
+      } else if (turn.examRole === 'ANSWERER') {
+        questionContent = lastAnswer
       }
 
       startStreaming(
@@ -1136,8 +1244,19 @@ export default function DebateSessionPage() {
           return
         }
 
+        // 深度模式：按分歧点分 block，发言 extraContent 带当前焦点标题（经既有 lastSpeech 通道）
+        let contextWithFocus = lastContext
+        const focalPoints = dossierRef.current?.focalPoints
+        if (focalPoints && focalPoints.length > 0) {
+          const blockIdx = Math.min(Math.floor(freeCount / FREE_FOCAL_BLOCKS), focalPoints.length - 1)
+          const focal = focalPoints[blockIdx]
+          if (focal) {
+            contextWithFocus = `【焦点ID】${focal.id}\n【当前焦点】${focal.title}${lastContext ? '\n' + lastContext : ''}`
+          }
+        }
+
         startStreaming(
-          () => streamDebateFreeSpeech(bookIdNum, currentSpeaker, sessionId, currentRoundRef.current, lastContext),
+          () => streamDebateFreeSpeech(bookIdNum, currentSpeaker, sessionId, currentRoundRef.current, contextWithFocus),
           currentSpeaker,
           () => {
             // 从 ref 更新上下文，确保下一位辩手能看到上一位的发言内容
@@ -1347,6 +1466,7 @@ export default function DebateSessionPage() {
   handleAdvanceRoundRef.current = handleAdvanceRound
   currentRoundRef.current = currentRound
   currentPhaseRef.current = currentPhase
+  dossierRef.current = dossier
 
   // ==================== 继续辩论 ====================
 
@@ -1936,9 +2056,30 @@ export default function DebateSessionPage() {
               <div className="flex items-center gap-1">
                 {isStarted && (
                   <>
+                    {/* 战场地图：仅 dossier READY 时可见（深度模式），数据 null/GENERATING/FAILED 不渲染 */}
+                    {dossier?.status === 'READY' && (
+                      <button
+                        onClick={() => {
+                          if (showBattleMapPanel) { setShowBattleMapPanel(false); return }
+                          setShowScorePanel(false)
+                          setShowReportPanel(false)
+                          setShowBattleMapPanel(true)
+                        }}
+                        className={`flex items-center justify-center gap-1 rounded-full sm:rounded-xl p-0 sm:px-2.5 py-2 h-10 w-10 sm:h-auto sm:w-auto text-xs transition-colors ${
+                          showBattleMapPanel ? 'bg-brand-100 text-brand-500' : 'bg-muted text-muted-foreground hover:text-foreground'
+                        }`}
+                        title="战场地图"
+                      >
+                        <Crosshair className="h-3.5 w-3.5 shrink-0" />
+                        <span className="hidden sm:inline">战场</span>
+                      </button>
+                    )}
+
                     <button
                       onClick={() => {
                         if (showScorePanel) { setShowScorePanel(false); return }
+                        setShowBattleMapPanel(false)
+                        setShowReportPanel(false)
                         if (sessionId && scores.length === 0) {
                           getDebateScores(sessionId).then(setScores).catch(() => {})
                         }
@@ -1957,6 +2098,8 @@ export default function DebateSessionPage() {
                       <button
                         onClick={() => {
                           if (showReportPanel) { setShowReportPanel(false); return }
+                          setShowBattleMapPanel(false)
+                          setShowScorePanel(false)
                           setShowReportPanel(true)
                           if (!report && sessionId) {
                             getDebateReport(sessionId).then(setReport).catch(() => {})
@@ -2004,6 +2147,21 @@ export default function DebateSessionPage() {
                 )}
               </div>
             )}
+            {/* 战场地图面板：宽屏并排，窄屏覆盖；dossier 非 READY 不渲染 */}
+            {dossier?.status === 'READY' && showBattleMapPanel && (
+              useOverlay ? (
+                <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowBattleMapPanel(false)}>
+                  <div className="h-full w-80 border-l border-border/20 bg-navbar/95 backdrop-blur-xl shadow-xl" onClick={e => e.stopPropagation()}>
+                    <BattleMapPanel dossier={dossier} />
+                  </div>
+                </div>
+              ) : (
+                <div className="shrink-0 flex flex-col w-80 border-l border-border/20 bg-navbar/95 backdrop-blur-xl">
+                  <BattleMapPanel dossier={dossier} />
+                </div>
+              )
+            )}
+
             {/* 报告面板：始终覆盖 */}
             {showReportPanel && (
               <div className="absolute inset-0 z-30 flex justify-end bg-black/20" onClick={() => setShowReportPanel(false)}>
@@ -2040,6 +2198,14 @@ export default function DebateSessionPage() {
               onTrigger={handleTriggerReport}
               onClose={() => setShowReportPanel(false)}
             />
+          </SheetContent>
+        </Sheet>
+      )}
+      {/* 移动端战场地图 Sheet — dossier 非 READY 不渲染 */}
+      {isMobile && dossier?.status === 'READY' && showBattleMapPanel && (
+        <Sheet open={showBattleMapPanel} onOpenChange={(v) => !v && setShowBattleMapPanel(false)}>
+          <SheetContent side="bottom" className="rounded-t-2xl p-0 max-h-[85vh] [&>button]:hidden">
+            <BattleMapPanel dossier={dossier} compact />
           </SheetContent>
         </Sheet>
       )}

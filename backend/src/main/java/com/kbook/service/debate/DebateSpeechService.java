@@ -7,6 +7,7 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ai.AiConfig;
 import com.kbook.config.ai.AiConfigProvider;
+import com.kbook.config.properties.DebateProperties;
 import com.kbook.dto.debate.*;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
@@ -73,6 +74,8 @@ public class DebateSpeechService {
     private final DebateMessageRepository messageRepository;
     private final DebateSessionService sessionService;
     private final ObjectMapper objectMapper;
+    private final DebateProperties debateProperties;
+    private final DebateDossierService dossierService;
 
     public DebateSpeechService(
             BookService bookService,
@@ -84,7 +87,9 @@ public class DebateSpeechService {
             DebateSessionRepository sessionRepository,
             DebateMessageRepository messageRepository,
             DebateSessionService sessionService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            DebateProperties debateProperties,
+            DebateDossierService dossierService) {
         this.bookService = bookService;
         this.chatModelManager = chatModelManager;
         this.scoringService = scoringService;
@@ -95,6 +100,8 @@ public class DebateSpeechService {
         this.messageRepository = messageRepository;
         this.sessionService = sessionService;
         this.objectMapper = objectMapper;
+        this.debateProperties = debateProperties;
+        this.dossierService = dossierService;
     }
 
     /**
@@ -243,6 +250,13 @@ public class DebateSpeechService {
                 String extraContent;
                 if (isQuestioner) {
                     extraContent = "【对方一辩立论全文 — 请针对以下内容提出质询问题】\n" + defenderOpening;
+                    // 深度模式：前端追问链传入「当前分歧点 + 对方上一条回答」，
+                    // 追加后进 context 让质询方针对上一轮回答继续逼问，而非重复立论。
+                    // 开关关闭 / 老会话 questionContent 为空 → 与改造前逐字节等价。
+                    if (debateProperties.isDeepEnabled()
+                            && questionContent != null && !questionContent.isBlank()) {
+                        extraContent += "\n\n【本轮追问上下文 — 必须针对上一轮回答继续逼问】\n" + questionContent;
+                    }
                 } else {
                     extraContent = "【你的立论全文 — 请坚守以下立场回答】\n" + defenderOpening
                             + "\n\n【对方的问题】\n" + questionContent;
@@ -569,9 +583,39 @@ public class DebateSpeechService {
         topicInfo.append("【当前辩题】\n").append(session.getTopic()).append("\n");
         topicInfo.append("【你的立场】\n").append(sideFull).append("\n");
 
-        String externalKnowledge = generateExternalKnowledgeForDebate(session, personality, side);
-        if (externalKnowledge != null && !externalKnowledge.isBlank()) {
-            topicInfo.append("【外部参考知识】\n以下知识可帮助你论证：\n").append(externalKnowledge).append("\n");
+        if (debateProperties.isDeepEnabled()) {
+            // 焦点由前端发言序列显式指定（【焦点ID】N），先切过去再构建注入文本，
+            // 保证与追问链/自由辩分块一致，避免前后端各算各的焦点。
+            Integer focalId = parseFocalId(extraContent);
+            if (focalId != null) {
+                try {
+                    dossierService.focusFocalPoint(session.getSessionId(), focalId);
+                } catch (Exception e) {
+                    log.warn("应用发言焦点失败，按当前焦点继续: sessionId={}, focalId={}, error={}",
+                            session.getSessionId(), focalId, e.getMessage());
+                }
+            }
+            // 深度模式：论点弹药库 + 战场状态文本替换外部知识；失败/无 dossier 时回退旧路径
+            String injection = null;
+            try {
+                injection = dossierService.buildInjectionText(session.getSessionId(), side);
+            } catch (Exception e) {
+                log.warn("构建论点弹药库注入文本失败，回退外部知识: sessionId={}, side={}, error={}",
+                        session.getSessionId(), side, e.getMessage());
+            }
+            if (injection != null && !injection.isBlank()) {
+                topicInfo.append(injection).append("\n");
+            } else {
+                String externalKnowledge = generateExternalKnowledgeForDebate(session, personality, side);
+                if (externalKnowledge != null && !externalKnowledge.isBlank()) {
+                    topicInfo.append("【外部参考知识】\n以下知识可帮助你论证：\n").append(externalKnowledge).append("\n");
+                }
+            }
+        } else {
+            String externalKnowledge = generateExternalKnowledgeForDebate(session, personality, side);
+            if (externalKnowledge != null && !externalKnowledge.isBlank()) {
+                topicInfo.append("【外部参考知识】\n以下知识可帮助你论证：\n").append(externalKnowledge).append("\n");
+            }
         }
 
         messages.add(UserMessage.from(topicInfo.toString()));
@@ -624,6 +668,22 @@ public class DebateSpeechService {
         return messages;
     }
 
+    /** 从前端发言上下文解析显式焦点 id：`【焦点ID】N`，无匹配返回 null */
+    private Integer parseFocalId(String extraContent) {
+        if (extraContent == null || extraContent.isBlank()) {
+            return null;
+        }
+        Matcher matcher = Pattern.compile("【焦点ID】\\s*(\\d+)").matcher(extraContent);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(matcher.group(1));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private String getOutputPrompt(String roundType) {
         return switch (roundType) {
             case "CROSS_EXAM" -> DebatePrompts.DEBATE_CROSS_EXAM_QUESTIONER_OUTPUT; // fallback
@@ -666,6 +726,15 @@ public class DebateSpeechService {
                     scoringService.scoreSpeechAsync(userId, request.getSessionId(),
                             personality.getKey(), positionKey, side, content,
                             request.getRoundNumber(), request.getRoundType());
+                    if (debateProperties.isDeepEnabled()) {
+                        try {
+                            dossierService.updateBattleStateAsync(
+                                    request.getSessionId(), positionKey, side, content);
+                        } catch (Exception e) {
+                            log.warn("更新辩论战场状态失败（不影响发言完成）: sessionId={}, positionKey={}, error={}",
+                                    request.getSessionId(), positionKey, e.getMessage());
+                        }
+                    }
                 }
             }
 
@@ -673,6 +742,26 @@ public class DebateSpeechService {
             public void onConnectionClosed(String partialContent) {
                 if (!partialContent.isBlank()) {
                     saveMessage(userId, bookId, session, personality, positionKey, request, partialContent);
+                    // 断连保存的部分内容也要参与评分和战场更新，
+                    // 否则下一位辩手会读到一条未反映在战场状态上的发言。
+                    String side = sessionService.getSideFromPositionKey(positionKey);
+                    try {
+                        scoringService.scoreSpeechAsync(userId, request.getSessionId(),
+                                personality.getKey(), positionKey, side, partialContent,
+                                request.getRoundNumber(), request.getRoundType());
+                    } catch (Exception e) {
+                        log.warn("断连发言评分失败（不影响主流程）: sessionId={}, error={}",
+                                request.getSessionId(), e.getMessage());
+                    }
+                    if (debateProperties.isDeepEnabled()) {
+                        try {
+                            dossierService.updateBattleStateAsync(
+                                    request.getSessionId(), positionKey, side, partialContent);
+                        } catch (Exception e) {
+                            log.warn("断连发言更新战场状态失败（不影响主流程）: sessionId={}, error={}",
+                                    request.getSessionId(), e.getMessage());
+                        }
+                    }
                 }
             }
         }, 2, logContext);

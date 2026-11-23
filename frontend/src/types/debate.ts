@@ -91,6 +91,39 @@ export interface DebateTopic {
   conArgument: string
 }
 
+/** 辩论论点弹药库（深度模式）— 后端 debate_dossiers */
+export interface DebateDossier {
+  sessionId: string
+  status: 'GENERATING' | 'READY' | 'FAILED'
+  focalPoints: DebateFocalPoint[]
+  battleState?: DebateBattleState
+}
+
+/** 分歧点（争议焦点） */
+export interface DebateFocalPoint {
+  id: number
+  title: string
+  proThesis: string
+  conThesis: string
+  bookAnchor: string
+  concepts: string[]
+}
+
+/** 尚未回应的质疑 */
+export interface DebateChallenge {
+  from: string
+  text: string
+  targetSide: string
+}
+
+/** 动态战场状态 */
+export interface DebateBattleState {
+  currentFocalPointId: number
+  unansweredChallenges: DebateChallenge[]
+  brokenPoints: string[]
+  establishedPoints: string[]
+}
+
 // ==================== 位置常量（PRO_1/CON_2/HOST — 用于颜色/图标/排序） ====================
 
 /** 位置 → 颜色映射 — 正方青黛/反方赭石/主持人品牌绿 */

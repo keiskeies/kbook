@@ -7,6 +7,7 @@ import type {
   DebateScore,
   DebateReport,
   DebateTopic,
+  DebateDossier,
 } from '@/types/debate'
 
 /** 获取辩论角色列表 */
@@ -64,6 +65,11 @@ export function getGlobalDebateSessions(page = 0, size = 20, sort = 'recent', mi
 /** 获取辩论历史消息 */
 export function getDebateMessages(sessionId: string) {
   return request.get<DebateMessage[]>(`/debate/sessions/${sessionId}/messages`)
+}
+
+/** 获取论点弹药库/战场地图（深度模式；老会话或关闭开关时返回 null） */
+export function getDebateDossier(sessionId: string) {
+  return request.get<DebateDossier | null>(`/debate/sessions/${sessionId}/dossier`)
 }
 
 /** 删除辩论会话 */

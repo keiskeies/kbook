@@ -66,13 +66,16 @@ public class DebateService {
     private final DebateSessionService sessionService;
     private final DebateSpeechService speechService;
     private final DebateRoundService roundService;
+    private final DebateDossierService dossierService;
 
     public DebateService(DebateTopicService topicService, DebateSessionService sessionService,
-                         DebateSpeechService speechService, DebateRoundService roundService) {
+                         DebateSpeechService speechService, DebateRoundService roundService,
+                         DebateDossierService dossierService) {
         this.topicService = topicService;
         this.sessionService = sessionService;
         this.speechService = speechService;
         this.roundService = roundService;
+        this.dossierService = dossierService;
     }
 
     // ===== 辩题 =====
@@ -87,6 +90,16 @@ public class DebateService {
     public void deleteSession(Long userId, String sessionId) { sessionService.deleteSession(userId, sessionId); }
     public List<DebateRoleVO> getRoles() { return sessionService.getRoles(); }
     public Page<DebateSessionFeedVO> getGlobalSessions(int page, int size, String sort, boolean mine) { return sessionService.getGlobalSessions(page, size, sort, mine); }
+
+    // ===== 深度模式：论点弹药库 =====
+    public DebateDossierVO getDossier(String sessionId) {
+        try {
+            return dossierService.getBySessionId(sessionId);
+        } catch (Exception e) {
+            log.warn("查询辩论论点弹药库失败: sessionId={}, error={}", sessionId, e.getMessage());
+            return null;
+        }
+    }
 
     // ===== 发言 =====
     public SseEmitter streamOpeningSpeech(Long userId, Long bookId, DebateSpeakRequest request) { return speechService.streamOpeningSpeech(userId, bookId, request); }

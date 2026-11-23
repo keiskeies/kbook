@@ -72,6 +72,10 @@ public enum AiScene {
     DEBATE_SCORING("辩论评分", Category.TOOL, false, false),
     /** 辩论报告生成 */
     DEBATE_REPORT("辩论报告", Category.TOOL, false, false),
+    /** 辩论论点弹药库（分歧点生成） */
+    DEBATE_DOSSIER("辩论论点弹药库", Category.TOOL, false, false),
+    /** 辩论战场状态（每轮发言后更新） */
+    DEBATE_BATTLEFIELD("辩论战场状态", Category.TOOL, false, false),
 
     // ==================== RAG/检索域 ====================
     /** RAG 查询扩展（多关键词扩展） */

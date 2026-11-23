@@ -7,6 +7,7 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ai.AiConfig;
 import com.kbook.config.ai.AiConfigProvider;
+import com.kbook.config.properties.DebateProperties;
 import com.kbook.dto.debate.*;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
@@ -28,6 +29,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
@@ -68,7 +70,12 @@ public class DebateSessionService {
     private final ReadingProgressService readingProgressService;
     private final @Lazy BookRepository bookRepository;
     private final @Lazy DebateScoreRepository debateScoreRepository;
+    private final DebateProperties debateProperties;
+    private final DebateDossierService dossierService;
 
+    /**
+     * 保留原 6 参数构造器（兼容既有单测的显式 new）；深度依赖默认关闭，等价于改造前行为。
+     */
     public DebateSessionService(
             DebateSessionRepository sessionRepository,
             DebateMessageRepository messageRepository,
@@ -76,12 +83,29 @@ public class DebateSessionService {
             ReadingProgressService readingProgressService,
             @Lazy BookRepository bookRepository,
             @Lazy DebateScoreRepository debateScoreRepository) {
+        this(sessionRepository, messageRepository, stringRedisTemplate,
+                readingProgressService, bookRepository, debateScoreRepository,
+                new DebateProperties(), null);
+    }
+
+    @Autowired
+    public DebateSessionService(
+            DebateSessionRepository sessionRepository,
+            DebateMessageRepository messageRepository,
+            StringRedisTemplate stringRedisTemplate,
+            ReadingProgressService readingProgressService,
+            @Lazy BookRepository bookRepository,
+            @Lazy DebateScoreRepository debateScoreRepository,
+            DebateProperties debateProperties,
+            DebateDossierService dossierService) {
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.stringRedisTemplate = stringRedisTemplate;
         this.readingProgressService = readingProgressService;
         this.bookRepository = bookRepository;
         this.debateScoreRepository = debateScoreRepository;
+        this.debateProperties = debateProperties;
+        this.dossierService = dossierService;
     }
 
     public DebateSessionVO createSession(Long userId, Long bookId, String topic,
@@ -120,7 +144,47 @@ public class DebateSessionService {
         readingProgressService.reportProgress(userId, bookId, 0.0, "chat");
 
         log.info("辩论会话已创建: sessionId={}, bookId={}, topic={}", sessionId, bookId, topic);
+
+        if (debateProperties.isDeepEnabled()) {
+            try {
+                String[] arguments = parseDossierArguments(bookContext);
+                dossierService.generateAsync(userId, bookId, sessionId, topic,
+                        arguments[0], arguments[1]);
+            } catch (Exception e) {
+                log.warn("触发辩论论点弹药库生成失败（不影响会话创建）: sessionId={}, error={}",
+                        sessionId, e.getMessage());
+            }
+        }
+
         return DebateSessionVO.from(session);
+    }
+
+    /**
+     * 从 bookContext 解析正反方论证方向（格式：正方：xxx\n反方：xxx）。
+     * 兼容全角/半角冒号与 CRLF；任一缺失或解析异常均传空串，不抛异常。
+     */
+    private String[] parseDossierArguments(String bookContext) {
+        String proArgument = "";
+        String conArgument = "";
+        if (bookContext == null || bookContext.isBlank()) {
+            return new String[]{proArgument, conArgument};
+        }
+        try {
+            java.util.regex.Matcher proMatcher = java.util.regex.Pattern
+                    .compile("正方[:：]\\s*([^\\r\\n]*)").matcher(bookContext);
+            java.util.regex.Matcher conMatcher = java.util.regex.Pattern
+                    .compile("反方[:：]\\s*([^\\r\\n]*)").matcher(bookContext);
+            if (proMatcher.find()) {
+                proArgument = proMatcher.group(1).trim();
+            }
+            if (conMatcher.find()) {
+                conArgument = conMatcher.group(1).trim();
+            }
+        } catch (Exception e) {
+            log.warn("解析辩题正反方论证方向失败，回退空串: error={}", e.getMessage());
+            return new String[]{"", ""};
+        }
+        return new String[]{proArgument, conArgument};
     }
 
     public List<DebateSessionVO> getSessions(Long userId, Long bookId) {

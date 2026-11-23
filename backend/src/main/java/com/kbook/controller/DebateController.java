@@ -1,6 +1,7 @@
 package com.kbook.controller;
 
 import com.kbook.common.api.Result;
+import com.kbook.dto.debate.DebateDossierVO;
 import com.kbook.dto.debate.DebateMessageVO;
 import com.kbook.dto.debate.DebateReportVO;
 import com.kbook.dto.debate.DebateRoleVO;
@@ -129,6 +130,12 @@ public class DebateController extends BaseController {
     @GetMapping("/sessions/{sessionId}")
     public Result<DebateSessionVO> getSession(@PathVariable String sessionId) {
         return Result.ok(debateService.getSession(sessionId));
+    }
+
+    @Operation(summary = "获取辩论论点弹药库（战场地图数据），不存在时返回 null")
+    @GetMapping("/sessions/{sessionId}/dossier")
+    public Result<DebateDossierVO> getDossier(@PathVariable String sessionId) {
+        return Result.ok(debateService.getDossier(sessionId));
     }
 
     @Operation(summary = "删除辩论会话")
