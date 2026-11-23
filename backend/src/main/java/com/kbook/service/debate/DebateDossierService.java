@@ -3,7 +3,6 @@ package com.kbook.service.debate;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kbook.common.util.CommonUtils;
-import com.kbook.config.properties.DebateProperties;
 import com.kbook.constants.ai.DebatePrompts;
 import com.kbook.dto.debate.DebateDossierVO;
 import com.kbook.dto.debate.DebateDossierVO.BattleStateVO;
@@ -52,7 +51,6 @@ public class DebateDossierService {
     private final ChatModelManager chatModelManager;
     private final ObjectMapper objectMapper;
     private final DebateDossierRepository dossierRepository;
-    private final DebateProperties debateProperties;
 
     /** 每个会话一条串行更新链，防止并发 LLM 更新互相覆盖（key=sessionId） */
     private final ConcurrentHashMap<String, CompletableFuture<Void>> pendingUpdates = new ConcurrentHashMap<>();
@@ -60,13 +58,11 @@ public class DebateDossierService {
     public DebateDossierService(BookService bookService,
                                 ChatModelManager chatModelManager,
                                 ObjectMapper objectMapper,
-                                DebateDossierRepository dossierRepository,
-                                DebateProperties debateProperties) {
+                                DebateDossierRepository dossierRepository) {
         this.bookService = bookService;
         this.chatModelManager = chatModelManager;
         this.objectMapper = objectMapper;
         this.dossierRepository = dossierRepository;
-        this.debateProperties = debateProperties;
     }
 
     // ================================================================
@@ -79,9 +75,6 @@ public class DebateDossierService {
     @Async
     public void generateAsync(Long userId, Long bookId, String sessionId,
                               String topic, String proArgument, String conArgument) {
-        if (!debateProperties.isDeepEnabled()) {
-            return;
-        }
         try {
             DebateDossier dossier = dossierRepository.findBySessionId(sessionId)
                     .orElseGet(() -> DebateDossier.builder().sessionId(sessionId).build());

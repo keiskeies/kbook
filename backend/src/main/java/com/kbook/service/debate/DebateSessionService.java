@@ -7,7 +7,6 @@ import com.kbook.common.util.CommonUtils;
 import com.kbook.common.util.SseHelper;
 import com.kbook.config.ai.AiConfig;
 import com.kbook.config.ai.AiConfigProvider;
-import com.kbook.config.properties.DebateProperties;
 import com.kbook.dto.debate.*;
 import com.kbook.entity.AiScene;
 import com.kbook.entity.Book;
@@ -70,11 +69,10 @@ public class DebateSessionService {
     private final ReadingProgressService readingProgressService;
     private final @Lazy BookRepository bookRepository;
     private final @Lazy DebateScoreRepository debateScoreRepository;
-    private final DebateProperties debateProperties;
     private final DebateDossierService dossierService;
 
     /**
-     * 保留原 6 参数构造器（兼容既有单测的显式 new）；深度依赖默认关闭，等价于改造前行为。
+     * 保留原 6 参数构造器（兼容既有单测的显式 new）；无 dossierService，弹药库生成跳过。
      */
     public DebateSessionService(
             DebateSessionRepository sessionRepository,
@@ -85,7 +83,7 @@ public class DebateSessionService {
             @Lazy DebateScoreRepository debateScoreRepository) {
         this(sessionRepository, messageRepository, stringRedisTemplate,
                 readingProgressService, bookRepository, debateScoreRepository,
-                new DebateProperties(), null);
+                null);
     }
 
     @Autowired
@@ -96,7 +94,6 @@ public class DebateSessionService {
             ReadingProgressService readingProgressService,
             @Lazy BookRepository bookRepository,
             @Lazy DebateScoreRepository debateScoreRepository,
-            DebateProperties debateProperties,
             DebateDossierService dossierService) {
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
@@ -104,7 +101,6 @@ public class DebateSessionService {
         this.readingProgressService = readingProgressService;
         this.bookRepository = bookRepository;
         this.debateScoreRepository = debateScoreRepository;
-        this.debateProperties = debateProperties;
         this.dossierService = dossierService;
     }
 
@@ -145,7 +141,7 @@ public class DebateSessionService {
 
         log.info("辩论会话已创建: sessionId={}, bookId={}, topic={}", sessionId, bookId, topic);
 
-        if (debateProperties.isDeepEnabled()) {
+        if (dossierService != null) {
             try {
                 String[] arguments = parseDossierArguments(bookContext);
                 dossierService.generateAsync(userId, bookId, sessionId, topic,
